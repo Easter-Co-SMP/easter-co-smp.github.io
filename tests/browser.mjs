@@ -45,7 +45,7 @@ try{
  for(const trigger of [page.getByRole('button',{name:'Choose launcher platform',exact:true}),page.getByRole('navigation').getByRole('button',{name:'Download',exact:true})]){
   await trigger.click();await page.locator('#launcher-downloads').waitFor({state:'visible'});
   assert.equal(await page.locator('#launcher-downloads .platform-download').count(),5);
-  for(const label of ['Windows 64bit Version','Ubuntu','Arch','AppImage','Source'])assert(await page.getByRole('link',{name:label,exact:false}).isVisible());
+  for(const label of ['Windows 10+','Ubuntu','Arch','AppImage','Source'])assert(await page.getByRole('link',{name:label,exact:false}).isVisible());
   await page.keyboard.press('Escape');assert.equal(await page.locator('#launcher-downloads').isVisible(),false);
  }
  const launcherDownloadPromise=page.waitForEvent('download');

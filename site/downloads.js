@@ -1,7 +1,7 @@
 // One release selector for both navigation and hero; replace the dummy URLs with real builds.
 const placeholderLauncher=new URL('assets/launcher-placeholder.txt',document.currentScript.src).href;
 const launcherBuilds=[
- {id:'windows',name:'Windows 64bit Version',detail:'Windows · x64',icon:'▦',url:placeholderLauncher},
+ {id:'windows',name:'Windows 10+',detail:'Windows · x64',icon:'▦',url:placeholderLauncher},
  {id:'ubuntu',name:'Ubuntu',detail:'Ubuntu Linux',icon:'◉',url:placeholderLauncher},
  {id:'arch',name:'Arch',detail:'Arch Linux',icon:'△',url:placeholderLauncher},
  {id:'appimage',name:'AppImage',detail:'Portable Linux client',icon:'◇',url:placeholderLauncher},
