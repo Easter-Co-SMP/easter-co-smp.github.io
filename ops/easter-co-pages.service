@@ -5,6 +5,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+User=root
 WorkingDirectory=/root/easter-co-smp.github.io
 ExecStart=/root/e-server/.venv/bin/python scripts/sync.py
 Environment=PYTHONDONTWRITEBYTECODE=1
