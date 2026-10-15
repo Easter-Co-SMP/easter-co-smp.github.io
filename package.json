@@ -51,8 +51,7 @@
     "files": [
       "desktop/*.cjs",
       "site/**/*",
-      "package.json",
-      "!site/assets/launcher-placeholder.txt"
+      "package.json"
     ],
     "asar": true,
     "linux": {
