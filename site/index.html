@@ -7,7 +7,7 @@
   <title>Easter Co. SMP — The Ultimate MC Experience</title><link rel="icon" href="assets/favicon.png"><link rel="stylesheet" href="styles.css"><link rel="preload" as="image" href="assets/isles-harbour.png">
 </head>
 <body class="home">
-  <header class="site-header"><a class="site-wordmark" href="./" aria-label="Easter Co. SMP home">Easter Co.<span>SMP</span></a><nav aria-label="Main navigation"><a href="./" aria-current="page">Home</a><a href="./downloads/easter-navy.jar" download>Download</a><a href="./map/">Map</a><button type="button" disabled aria-label="Wiki">Wiki</button></nav></header>
+  <header class="site-header"><a class="site-wordmark" href="./" aria-label="Easter Co. SMP home">Easter Co.<span>SMP</span></a><nav aria-label="Main navigation"><a href="./" aria-current="page">Home</a><button type="button" popovertarget="launcher-downloads">Download <span aria-hidden="true">⌄</span></button><a href="./map/">Map</a><button type="button" disabled aria-label="Wiki">Wiki</button></nav></header>
   <div class="arrival-mist" aria-hidden="true"><i></i><i></i><i></i></div>
   <button class="skip-arrival" type="button" hidden>Skip intro <span aria-hidden="true">↗</span></button>
   <div class="harbour-background" aria-hidden="true"></div>
@@ -17,8 +17,9 @@
       <div class="hero-copy">
         <p class="eyebrow"><span></span> Easter Co. SMP</p>
         <h1>The Ultimate<br><em>Multiplayer Minecraft Experience</em></h1>
+        <p class="hero-welcome">Veterans, pros, absolute beginners—experience Minecraft for the first time, all over again.</p>
         <div class="hero-actions">
-          <button class="launcher-button" type="button" disabled aria-label="Download Launcher"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg><span>Download Launcher</span></button>
+          <div class="launcher-control"><button class="launcher-button" type="button" data-download-primary><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg><span>Download Launcher<small id="launcher-platform"></small></span></button><button class="launcher-picker" type="button" popovertarget="launcher-downloads" aria-label="Choose launcher platform"><span aria-hidden="true">⌄</span></button></div>
           <a class="map-link" href="map/"><span>View Map</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
         </div>
         <p class="map-caption">Custom Easter Company launcher &amp; Minecraft client.</p>
@@ -57,4 +58,4 @@
     <p class="fine-print">Third-party mods come from their original publishers. Back up your existing mods folder before changing it. This server is not affiliated with Mojang or Microsoft.</p>
   </dialog>
   <script src="home.js" defer></script>
-</body></html>
+<script src="downloads.js" defer></script></body></html>

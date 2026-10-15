@@ -1,0 +1,4 @@
+Easter Company launcher — download placeholder
+
+This text file is a temporary stand-in for the launcher installer.
+It is not an installer or executable.

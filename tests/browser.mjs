@@ -42,10 +42,44 @@ try{
  await page.screenshot({path:'/tmp/easter-public-home-desktop.png',fullPage:true});
  await page.getByRole('button',{name:'Getting started'}).click();await page.locator('#guide-dialog').waitFor();
  assert.equal(await page.locator('#dependency-list a').count(),5);await page.keyboard.press('Escape');
+ for(const trigger of [page.getByRole('button',{name:'Choose launcher platform',exact:true}),page.getByRole('navigation').getByRole('button',{name:'Download',exact:true})]){
+  await trigger.click();await page.locator('#launcher-downloads').waitFor({state:'visible'});
+  assert.equal(await page.locator('#launcher-downloads .platform-download').count(),5);
+  for(const label of ['Windows 64bit Version','Ubuntu','Arch','AppImage','Source'])assert(await page.getByRole('link',{name:label,exact:false}).isVisible());
+  await page.keyboard.press('Escape');assert.equal(await page.locator('#launcher-downloads').isVisible(),false);
+ }
+ const launcherDownloadPromise=page.waitForEvent('download');
+ await page.locator('[data-download-primary]').click();
+ const launcherDownload=await launcherDownloadPromise;assert.equal(await launcherDownload.failure(),null);assert(launcherDownload.suggestedFilename().endsWith('-placeholder.txt'));
+ assert(await page.getByRole('dialog',{name:'Setup & Install',exact:true}).isVisible());
+ await page.getByRole('button',{name:'Close setup instructions'}).click();
+ for(const platform of ['windows','ubuntu','arch','appimage','source']){
+  await page.getByRole('navigation').getByRole('button',{name:'Download',exact:true}).click();
+  const manualDownloadPromise=page.waitForEvent('download');await page.locator('[data-platform="'+platform+'"]').click();
+  const manualDownload=await manualDownloadPromise;assert.equal(await manualDownload.failure(),null);assert.equal(manualDownload.suggestedFilename(),'Easter-Company-'+platform+'-placeholder.txt');
+  assert(await page.getByRole('dialog',{name:'Setup & Install',exact:true}).isVisible());
+  if(platform==='windows')await page.screenshot({path:'/tmp/easter-launcher-setup-desktop.png'});
+  await page.keyboard.press('Escape');
+ }
+ for(const [platform,expected] of [['Windows','windows'],['Linux','appimage'],['macOS',null]]){
+  const detected=await browser.newContext({acceptDownloads:true});await detected.addInitScript(platform=>Object.defineProperty(navigator,'userAgentData',{value:{platform}}),platform);
+  const detectedPage=await detected.newPage();await detectedPage.goto(origin);await detectedPage.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
+  if(expected){const pending=detectedPage.waitForEvent('download');await detectedPage.locator('[data-download-primary]').click();assert.equal((await pending).suggestedFilename(),'Easter-Company-'+expected+'-placeholder.txt');}
+  else{await detectedPage.locator('[data-download-primary]').click();assert(await detectedPage.locator('#launcher-downloads').isVisible());}
+  await detected.close();
+ }
  const downloadPromise=page.waitForEvent('download');await page.getByRole('link',{name:'Download our mod'}).click();
  const download=await downloadPromise;assert.equal(await download.failure(),null);assert.equal(download.suggestedFilename(),'easter-navy.jar');
  for(const size of [{width:390,height:844},{width:320,height:568},{width:844,height:390}]){
   await page.setViewportSize(size);await noOverflow();
+  await page.getByRole('navigation').getByRole('button',{name:'Download',exact:true}).click();
+  const menu=await page.locator('#launcher-downloads').boundingBox();assert(menu.x>=0&&menu.x+menu.width<=size.width+1&&menu.y>=0&&menu.y+menu.height<=size.height+1);
+  if(size.width===390)await page.screenshot({path:'/tmp/easter-launcher-menu-mobile.png'});
+  await page.keyboard.press('Escape');
+  const mobileDownloadPromise=page.waitForEvent('download');await page.locator('[data-download-primary]').click();await mobileDownloadPromise;
+  const setup=await page.locator('#launcher-setup').boundingBox();assert(setup.x>=0&&setup.x+setup.width<=size.width+1&&setup.y>=0&&setup.y+setup.height<=size.height+1);
+  if(size.width===390)await page.screenshot({path:'/tmp/easter-launcher-setup-mobile.png'});
+  await page.keyboard.press('Escape');
   await page.getByRole('button',{name:'Getting started'}).click();
   const dialog=await page.locator('#guide-dialog').boundingBox();assert(dialog.x>=0&&dialog.x+dialog.width<=size.width+1);
   await page.locator('#close-guide').click();
