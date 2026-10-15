@@ -25,6 +25,18 @@ try{
  const noOverflow=async()=>assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
  await page.goto(origin);await page.locator('#mod-version').filter({hasText:'v2.'}).waitFor();
  assert.equal(await page.locator('nav').count(),0);await noOverflow();
+ await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
+ const skipPage=await context.newPage();await skipPage.goto(origin);
+ await skipPage.getByRole('button',{name:'Skip intro'}).click();
+ assert.equal(await skipPage.locator('body').evaluate(el=>el.classList.contains('is-arriving')),false);
+ assert(await skipPage.locator('.map-link').evaluate(el=>el===document.activeElement));await skipPage.close();
+ const reduced=await browser.newContext({reducedMotion:'reduce'}),reducedPage=await reduced.newPage();
+ await reducedPage.goto(origin);
+ assert.equal(await reducedPage.locator('body').evaluate(el=>el.classList.contains('is-arriving')),false);
+ assert.equal(await reducedPage.locator('.skip-arrival').isVisible(),false);
+ assert.equal(await reducedPage.locator('.crest-frame').evaluate(el=>getComputedStyle(el).animationName),'none');
+ assert(await reducedPage.locator('.wiki-link').isDisabled());await reduced.close();
+ await page.locator('.hero-copy').evaluate(async el=>{await Promise.all(el.getAnimations().map(animation=>animation.finished));});
  await page.screenshot({path:'/tmp/easter-public-home-desktop.png',fullPage:true});
  await page.getByRole('button',{name:'Getting started'}).click();await page.locator('#guide-dialog').waitFor();
  assert.equal(await page.locator('#dependency-list a').count(),5);await page.keyboard.press('Escape');
@@ -41,6 +53,7 @@ try{
  const ready=()=>page.waitForFunction(()=>window.mapFrame.tiles>0&&document.getElementById('map-status').hidden);
  await ready();await noOverflow();
  assert.equal(await page.locator('button').count(),5,'only viewing controls are public');
+ assert.equal(await page.locator('.arrival-mist,.skip-arrival').count(),0,'the atlas never plays the homepage intro');
  assert((await page.locator('#snapshot-date').textContent()).includes('Charted'));
  await page.screenshot({path:'/tmp/easter-public-map-desktop.png'});
  await page.locator('#map-key summary').click();assert.equal(await page.locator('[data-layer]:checked').count(),7);

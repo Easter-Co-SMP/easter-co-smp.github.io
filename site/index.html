@@ -2,30 +2,41 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0d2029">
-  <meta name="description" content="Welcome to the Easter Isles. A private Minecraft SMP of island settlements, sailing ships, and the Royal Navy. Explore our public world map.">
-  <meta property="og:title" content="Easter Co. SMP — The Easter Isles"><meta property="og:description" content="An island world. A story of our own. Explore the Easter Isles."><meta property="og:image" content="https://easter-co-smp.github.io/assets/crest.jpg">
-  <title>Easter Co. SMP — The Easter Isles</title><link rel="icon" href="assets/favicon.png"><link rel="stylesheet" href="styles.css"><link rel="preload" as="image" href="assets/harbour.jpg">
+  <meta name="description" content="The Ultimate MC Experience. Rebuilt from Matcha Flavoured: a rich early game, cooking, baking, brewing, tougher survival, and raid boss style challenges. Better together.">
+  <meta property="og:title" content="Easter Co. SMP — The Ultimate MC Experience"><meta property="og:description" content="Griefing is encouraged. Justice pays better. Find your crew, cause chaos, or hunt it."><meta property="og:image" content="https://easter-co-smp.github.io/assets/crest.jpg">
+  <title>Easter Co. SMP — The Ultimate MC Experience</title><link rel="icon" href="assets/favicon.png"><link rel="stylesheet" href="styles.css"><link rel="preload" as="image" href="assets/isles-harbour.png">
 </head>
 <body class="home">
+  <div class="arrival-mist" aria-hidden="true"><i></i><i></i><i></i></div>
+  <button class="skip-arrival" type="button" hidden>Skip intro <span aria-hidden="true">↗</span></button>
   <div class="harbour-background" aria-hidden="true"></div>
   <main class="home-content">
     <div class="home-hero">
       <div class="crest-frame"><img src="assets/crest.jpg" width="480" height="480" alt="Easter Co. SMP phoenix crest above an island harbour" fetchpriority="high"></div>
       <div class="hero-copy">
-        <p class="eyebrow"><span></span> Welcome to the Easter Isles</p>
-        <h1>An island world.<br>A story of <em>our own.</em></h1>
+        <p class="eyebrow"><span></span> Easter Co. SMP · The Easter Isles</p>
+        <h1>The Ultimate<br><em>MC Experience.</em></h1>
         <a class="map-link" href="map/"><span>View Map</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
-        <p class="map-caption">A window into the world we’re building.</p>
+        <p class="map-caption">Veterans, pros, absolute beginners—better together.</p>
       </div>
     </div>
     <div class="home-below">
-      <p class="home-description">Set sail. Find your shore. Build something worth coming home to.<br class="wide-only"> A private Minecraft SMP of little settlements, open seas,<br class="wide-only"> and a Royal Navy with plans of its own.</p>
-      <div class="home-actions">
+      <div class="home-description"><p>We started with <a href="https://modrinth.com/datapack/matcha-flavoured" target="_blank" rel="noopener">Matcha Flavoured</a> and reworked the entire game from the ground up. Expect dramatically tougher survival and raid boss style encounters as you push further into the world.</p><p>The early game is rich and rewarding, with cooking, baking, and brewing at its heart. Everything you gather has a purpose, and classic resources keep their value. Casual players can stay busy and productive, helping keep the whole crew ready for the next adventure.</p><strong class="crew-tagline">Bring friends. You’ll need them to get far.</strong></div>
+      <div class="home-aside"><div class="raid-note"><p class="eyebrow">The endgame</p><div class="raid-count">20+ <span>players</span></div><p>Weekly Ender Dragon raids.<br>An MMO style experience built for a crew.</p><p>Defeat bosses for world buffs. Bosses respawn or reset each week, ready for another run.</p><p class="elytra-limit"><strong>1 elytra / week</strong><span>Across the entire server. Enjoy the End time and time again—but make that one count.</span></p><div class="first-elytra"><span>The first-elytra prize</span><p>The first player to obtain an elytra wins the best player house on the spawn island.</p></div></div><div class="home-actions">
         <a class="download-link" href="downloads/easter-navy.jar" download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg><span>Download our mod<small id="mod-version">Easter Co. · Fabric</small></span></a>
         <button class="text-link" type="button" id="open-guide">Getting started <span aria-hidden="true">↗</span></button>
-      </div>
+        <button class="wiki-link" type="button" disabled title="Easter Co. SMP Wiki — coming soon"><span>Easter Co. SMP Wiki</span><small>Coming soon</small></button>
+      </div></div>
     </div>
-    <div class="home-notes"><span>Ships &amp; settlements</span><i aria-hidden="true"></i><span>Survival, with a story</span><i aria-hidden="true"></i><span id="home-world-date">Daily world snapshots</span></div>
+    <section class="home-story" aria-labelledby="story-title">
+      <div class="story-intro"><p class="eyebrow">Law, order &amp; a little anarchy</p><h2 id="story-title">Griefing is encouraged.<br><em>Justice pays better.</em></h2><p>We’d rather build consequences into the game than write a rule for every bit of mischief. Our law &amp; order and crime &amp; punishment mechanics make causing trouble fun—and hunting down the culprits even more rewarding.</p></div>
+      <dl class="player-paths">
+        <div><dt><span class="path-dot navy"></span>Royal Navy Marine</dt><dd>Spread the Empire’s influence. Bring order and stability to the Isles.</dd></div>
+        <div><dt><span class="path-dot pirate"></span>Pirate raider</dt><dd>Join a notorious crew, sail the high seas, and make a name worth fearing.</dd></div>
+        <div><dt><span class="path-dot hunter"></span>Bounty hunter</dt><dd>Go it alone. Track down those very pirates—and make justice your business.</dd></div>
+      </dl>
+    </section>
+    <div class="home-notes"><span>All skill levels</span><i aria-hidden="true"></i><span>Navy, piracy &amp; bounties</span><i aria-hidden="true"></i><span id="home-world-date">Daily world snapshots</span></div>
   </main>
   <footer class="home-footer"><span>© <span id="copyright-year">2026</span> Easter LTD</span><span>Numquam Succumbe</span></footer>
   <dialog id="guide-dialog" aria-labelledby="guide-title">
