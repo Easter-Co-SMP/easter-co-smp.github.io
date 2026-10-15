@@ -23,7 +23,7 @@ has its own service. No console mutations, world generation, or changes to game 
 Keep the mist arrival exclusive to the homepage. Map and future Wiki use regular utility
 interfaces. The intro must be skippable, bounded, and respect reduced-motion preferences.
 
-Hero copy is "Easter Co. SMP" and "The Ultimate Multiplayer Minecraft Experience".
+Hero copy is "Easter Co. SMP" and "The Ultimate MineCraft Experience".
 Download Launcher is the primary gold CTA, left of the secondary View Map action. The
 custom launcher is built separately. The nav always opens the shared dropdown. The hero is a split control: main button
 auto-selects Windows x64 or Linux AppImage; attached arrow opens that shared platform
