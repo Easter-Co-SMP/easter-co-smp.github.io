@@ -23,7 +23,9 @@ try{
  const page=await context.newPage(),errors=[],requests=[];
  page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push({url:r.url(),method:r.method()}));
  const noOverflow=async()=>assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
- await page.goto(origin);await page.locator('#mod-version').filter({hasText:'v2.'}).waitFor();
+ await page.goto(origin);await page.locator('[data-download-primary]').waitFor();
+ assert.equal((await page.locator('h1').innerText()).replace(/\s+/g,' '),'The Ultimate Minecraft Experience');
+ assert.equal(await page.locator('.download-link,#open-guide,#guide-dialog').count(),0);
  assert.equal(await page.getByRole('navigation',{name:'Main navigation'}).count(),1);
  assert.equal(await page.locator('nav a[aria-current="page"]').textContent(),'Home');
  assert(await page.getByRole('button',{name:'Wiki',exact:true}).isDisabled());await noOverflow();
@@ -40,12 +42,11 @@ try{
  assert(await reducedPage.locator('.wiki-link').isDisabled());await reduced.close();
  await page.locator('.hero-copy').evaluate(async el=>{await Promise.all(el.getAnimations().map(animation=>animation.finished));});
  await page.screenshot({path:'/tmp/easter-public-home-desktop.png',fullPage:true});
- await page.getByRole('button',{name:'Getting started'}).click();await page.locator('#guide-dialog').waitFor();
- assert.equal(await page.locator('#dependency-list a').count(),5);await page.keyboard.press('Escape');
  for(const trigger of [page.getByRole('button',{name:'Choose launcher platform',exact:true}),page.getByRole('navigation').getByRole('button',{name:'Download',exact:true})]){
   await trigger.click();await page.locator('#launcher-downloads').waitFor({state:'visible'});
-  assert.equal(await page.locator('#launcher-downloads .platform-download').count(),5);
-  for(const label of ['Windows 10+','Ubuntu','Arch','AppImage','Source'])assert(await page.getByRole('link',{name:label,exact:false}).isVisible());
+  assert.equal(await page.locator('#launcher-downloads .platform-download').count(),4);
+  assert.equal(await page.locator('[data-platform=source]').count(),0);
+  for(const label of ['Windows 10+','Ubuntu','Arch','AppImage'])assert(await page.getByRole('link',{name:label,exact:false}).isVisible());
   await page.keyboard.press('Escape');assert.equal(await page.locator('#launcher-downloads').isVisible(),false);
  }
  const launcherDownloadPromise=page.waitForEvent('download');
@@ -53,7 +54,7 @@ try{
  const launcherDownload=await launcherDownloadPromise;assert.equal(await launcherDownload.failure(),null);assert(launcherDownload.suggestedFilename().endsWith('-placeholder.txt'));
  assert(await page.getByRole('dialog',{name:'Setup & Install',exact:true}).isVisible());
  await page.getByRole('button',{name:'Close setup instructions'}).click();
- for(const platform of ['windows','ubuntu','arch','appimage','source']){
+ for(const platform of ['windows','ubuntu','arch','appimage']){
   await page.getByRole('navigation').getByRole('button',{name:'Download',exact:true}).click();
   const manualDownloadPromise=page.waitForEvent('download');await page.locator('[data-platform="'+platform+'"]').click();
   const manualDownload=await manualDownloadPromise;assert.equal(await manualDownload.failure(),null);assert.equal(manualDownload.suggestedFilename(),'Easter-Company-'+platform+'-placeholder.txt');
@@ -68,8 +69,6 @@ try{
   else{await detectedPage.locator('[data-download-primary]').click();assert(await detectedPage.locator('#launcher-downloads').isVisible());}
   await detected.close();
  }
- const downloadPromise=page.waitForEvent('download');await page.getByRole('link',{name:'Download our mod'}).click();
- const download=await downloadPromise;assert.equal(await download.failure(),null);assert.equal(download.suggestedFilename(),'easter-navy.jar');
  for(const size of [{width:390,height:844},{width:320,height:568},{width:844,height:390}]){
   await page.setViewportSize(size);await noOverflow();
   await page.getByRole('navigation').getByRole('button',{name:'Download',exact:true}).click();
@@ -80,9 +79,6 @@ try{
   const setup=await page.locator('#launcher-setup').boundingBox();assert(setup.x>=0&&setup.x+setup.width<=size.width+1&&setup.y>=0&&setup.y+setup.height<=size.height+1);
   if(size.width===390)await page.screenshot({path:'/tmp/easter-launcher-setup-mobile.png'});
   await page.keyboard.press('Escape');
-  await page.getByRole('button',{name:'Getting started'}).click();
-  const dialog=await page.locator('#guide-dialog').boundingBox();assert(dialog.x>=0&&dialog.x+dialog.width<=size.width+1);
-  await page.locator('#close-guide').click();
   if(size.width===390)await page.screenshot({path:'/tmp/easter-public-home-mobile.png',fullPage:true});
  }
  await page.setViewportSize({width:1440,height:900});await page.getByRole('link',{name:'View Map',exact:true}).click();
@@ -90,6 +86,7 @@ try{
  await ready();await noOverflow();
  assert.equal(await page.getByRole('toolbar',{name:'Map controls'}).locator('button').count(),5,'only viewing controls are public');
  assert.equal(await page.locator('nav a[aria-current="page"]').textContent(),'Map');
+ assert.equal(await page.locator('.atlas-heading,.atlas-home').count(),0);
  assert.equal(await page.locator('.arrival-mist,.skip-arrival').count(),0,'the atlas never plays the homepage intro');
  assert((await page.locator('#snapshot-date').textContent()).includes('Charted'));
  await page.screenshot({path:'/tmp/easter-public-map-desktop.png'});
@@ -146,5 +143,5 @@ try{
  assert(requests.every(r=>r.method==='GET'));
  assert(!requests.some(r=>r.url.includes('/minecraft/')||r.url.includes('/api/')));
  assert.deepEqual(errors,[]);
- console.log('PUBLIC SITE PASS: responsive home, download, guide, read-only map, all layers, pan/zoom/middle/fullscreen, preferences, persistent cached rendering, incremental refresh, failure retention, checksum validation, no private API calls');
+ console.log('PUBLIC SITE PASS: responsive home, launcher downloads, read-only map, all layers, pan/zoom/middle/fullscreen, preferences, persistent cached rendering, incremental refresh, failure retention, checksum validation, no private API calls');
 }finally{await browser.close();}
