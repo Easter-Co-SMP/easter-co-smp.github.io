@@ -6,7 +6,8 @@ Secondary branding is "The Ultimate Minecraft Experience". Welcome veterans, pro
 beginners. Keep the rich casual early game and cooking/baking/brewing contributions
 alongside the harder progression, team encounters, and crime/punishment mechanics.
 The endgame includes weekly 20+ player Ender Dragon raids, boss world buffs and weekly
-boss resets. Do not display the elytra limit or first-elytra house prize on the website.
+boss resets. Do not display the elytra limit or first-elytra house prize on the website;
+tests/test_site_assets.py enforces that removal against site/.
 
 Player data must never enter site/ or Git history. Use scripts/export_world.py and its
 strict allowlist. Never use the private snapshot endpoint as a public export. Keep
