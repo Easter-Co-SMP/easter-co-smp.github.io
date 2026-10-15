@@ -53,11 +53,39 @@ jobs:
           pattern: launcher-*
           path: release
           merge-multiple: true
+      - name: Verify installers and build release notes
+        working-directory: release
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('../package.json').version")
+          v="${VERSION#v}"
+          # These four names are exactly what site/downloads.js requests from
+          # /releases/latest/download/. A build that renames or drops one must fail here
+          # instead of publishing a release whose buttons 404.
+          assets="Easter-Company-Windows-x64.exe Easter-Company-Linux-amd64.deb Easter-Company-Linux-x64.pacman Easter-Company-Linux-x86_64.AppImage"
+          for name in $assets; do
+            grep -q -- "$name" ../site/downloads.js || { echo "::error::$name is not requested by site/downloads.js"; exit 1; }
+            [ -s "$name" ] || { echo "::error::missing or empty installer $name"; exit 1; }
+          done
+          sha256sum $assets > SHA256SUMS
+          {
+            echo "Easter Company launcher v$v"
+            echo
+            echo "Download, install and open Easter Company; it signs in with a Microsoft account, installs its own Java 25, Minecraft, Fabric and the Easter Co. client into an app-owned directory, and launches onto the Easter Isles. It does not touch an existing ~/.minecraft or any saved account."
+            echo
+            echo "Installers are unsigned: there is no Authenticode or package signature, so a Windows SmartScreen or Linux package-manager warning is expected."
+            echo
+            echo "The Windows build was produced on Linux with electron-builder, so its runtime behaviour has not been exercised on Windows. The Linux artifacts were built on Linux but not launched from a clean machine."
+            echo
+            echo "SHA256SUMS covers all four installers. Verify with \`sha256sum -c SHA256SUMS\`."
+          } > notes.md
       - name: Publish versioned installers
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
           cd release
-          sha256sum Easter-Company-* > SHA256SUMS
-          gh release create "launcher-v$VERSION" Easter-Company-* SHA256SUMS --target "${{ github.sha }}" --title "Easter Company $VERSION" --notes "Desktop launcher with Microsoft sign-in, managed Minecraft/Fabric installation, and the shared map."
+          # Published as a normal release, never a prerelease: GitHub's
+          # /releases/latest/download/ endpoint skips prereleases, so a prerelease
+          # would leave every download button on the site 404ing.
+          gh release create "launcher-v$VERSION" Easter-Company-* SHA256SUMS --target "${{ github.sha }}" --title "Easter Company $VERSION" --notes-file notes.md
