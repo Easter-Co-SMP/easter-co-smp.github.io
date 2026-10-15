@@ -24,6 +24,23 @@ The launcher installers are distributed through GitHub Releases. Third-party cli
 are downloaded directly from their publishers during setup. The client manifest and custom
 Easter Co. mod refresh with the daily data export.
 
+A packaged launcher carries its own copy of `site/` inside `release/<platform>-unpacked/`
+`resources/app.asar`, so a build made before a site change ships the old interface even
+though it installs and starts normally: the launcher-v1.0.0 installer's in-app map legend
+still offered the removed player-faction layers. `scripts/verify_app_bundle.py` reads the
+ASAR directory with the standard library and compares the bundled text assets (html, js,
+mjs, css, json, svg, txt, md, webmanifest and `.nojekyll`, including the generated
+`site/data/world.json`) byte for byte against the repository's `site/`, so a bundled
+snapshot older than the tree being released fails instead of shipping. Binary imagery
+(`.png`, `.jpg`, `.gif`, `.webp`, `.ico`) and `site/downloads/` are reported as deliberately
+skipped: they are not what goes stale, and the daily export owns them. With no `release/`
+present, as in a fresh clone, it prints that there was nothing to check and exits 0, which
+is why the documented unittest command stays green without a build. The launcher release
+workflow runs it after the package job's artifacts are merged: every packaged platform the
+job uploaded must carry an `app.asar`, and a platform that contributed none fails the job
+before anything is published. Pass `--require <platform>-unpacked` by hand to demand one
+specific platform.
+
 ## Daily archive and recovery
 
 The host checkout is `/root/easter-co-smp.github.io`. Install the two units from `ops/` in
@@ -91,12 +108,20 @@ Build installers: `npm run dist:linux` (AppImage, Ubuntu .deb, Arch .pacman), th
 The Build launcher release workflow builds on native Linux and Windows runners when invoked.
 Installers are currently unsigned; publishing a build does not claim Authenticode verification.
 
+Check a packaged build against the repository site with
+`python scripts/verify_app_bundle.py` after `npm run pack` (or after either dist command),
+which reports every bundled text asset it compared, what it skipped and why, and exits
+non-zero naming each file that differs. Add `--require win-unpacked` to make a platform
+expected by a release fail when it produced no `app.asar`.
+
 Checks: `npm test` (desktop unit and fixture tests), `npm run test:desktop`
 (`xvfb-run -a node tests/desktop/electron.mjs`, which launches the packaged shell under a
 temporary app home), `node tests/drawings.mjs`, and `node tests/browser.mjs`. The browser and
 Electron checks need a local preview of `site/` and use the host's existing Playwright
 installation. Auth tests use fixture identities; no test reads an existing account cache or
-signs in a person. The Electron harness is excluded from packages.
+signs in a person. The Electron harness is excluded from packages. The packaged-bundle guard
+has its own fixture tests in `tests/test_app_bundle.py`, which build minimal ASARs in a
+temporary directory rather than reading `release/`, so they hold with or without a build.
 
 Verified on this machine on **2026-10-15**: `python -m unittest discover -s tests -p 'test_*.py'`,
 `python scripts/validate.py site`, `npm test` (10 desktop tests), `node tests/drawings.mjs`,
