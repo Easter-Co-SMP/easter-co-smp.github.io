@@ -5,7 +5,7 @@ const launcherBuilds=[
  {id:'ubuntu',name:'Ubuntu',detail:'Ubuntu Linux',icon:'◉',url:placeholderLauncher},
  {id:'arch',name:'Arch',detail:'Arch Linux',icon:'△',url:placeholderLauncher},
  {id:'appimage',name:'AppImage',detail:'Portable Linux client',icon:'◇',url:placeholderLauncher},
- {id:'source',name:'Source',detail:'Launcher source code',icon:'⌘',url:placeholderLauncher},
+ {id:'source',name:'Source',detail:'Server & Client Source Code Bundle',icon:'⌘',url:placeholderLauncher},
 ];
 // Browsers identify Windows and Linux, but not Linux distributions reliably.
 const clientPlatform=navigator.userAgentData?.platform||navigator.platform||navigator.userAgent;
