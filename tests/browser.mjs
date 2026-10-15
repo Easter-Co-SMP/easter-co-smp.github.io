@@ -26,7 +26,7 @@ try{
  await page.goto(origin);await page.locator('#mod-version').filter({hasText:'v2.'}).waitFor();
  assert.equal(await page.getByRole('navigation',{name:'Main navigation'}).count(),1);
  assert.equal(await page.locator('nav a[aria-current="page"]').textContent(),'Home');
- assert(await page.getByRole('button',{name:'Wiki, coming soon',exact:true}).isDisabled());await noOverflow();
+ assert(await page.getByRole('button',{name:'Wiki',exact:true}).isDisabled());await noOverflow();
  await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
  const skipPage=await context.newPage();await skipPage.goto(origin);
  await skipPage.getByRole('button',{name:'Skip intro'}).click();

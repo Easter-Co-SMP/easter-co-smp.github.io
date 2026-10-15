@@ -64,3 +64,13 @@ dialog{width:min(580px,calc(100% - 32px));max-height:calc(100dvh - 40px);overflo
 .atlas .site-header{width:100%;height:64px;padding:0 24px;background:#10232b;border-bottom:1px solid var(--line)}.atlas .atlas-stage{height:calc(100dvh - 64px)}.atlas .atlas-stage:fullscreen{height:100dvh}
 @media(max-width:900px){.site-header{width:calc(100% - 70px)}}
 @media(max-width:600px){.site-header{width:calc(100% - 32px);height:60px;justify-content:center}.site-wordmark{display:none}.site-header nav{gap:3px;width:100%;justify-content:space-between}.site-header nav>a,.site-header nav>button{font-size:11px;padding:11px 12px}.home .home-hero{min-height:calc(100svh - 100px)}.atlas .site-header{height:60px;padding:0 16px}.atlas .atlas-stage{height:calc(100dvh - 60px)}}
+
+.hero-copy h1{font-size:clamp(44px,4.8vw,68px);text-wrap:balance}.hero-copy h1 em{display:block}
+@media(min-width:601px) and (max-width:900px){.hero-copy h1{font-size:40px}}
+@media(max-width:600px){.hero-copy h1{font-size:clamp(32px,9.8vw,45px)}}
+
+.hero-actions{display:flex;align-items:stretch;gap:14px;flex-wrap:wrap}.launcher-button{display:flex;align-items:center;justify-content:center;gap:16px;min-width:258px;padding:19px 25px;border:1px solid #ffe5a9;border-radius:9px;background:linear-gradient(120deg,#f2d99d,#d3ae66);color:#192a2e;box-shadow:0 10px 40px #0006,0 0 40px #e6c98f28;font-size:16px;font-weight:700;text-align:left}.launcher-button:disabled{opacity:1;cursor:not-allowed}.launcher-button>svg{width:25px;height:25px}.launcher-button small{display:block;margin-top:5px;font-size:9px;text-transform:uppercase;letter-spacing:.13em;font-weight:600;color:#485047}
+.hero-actions .map-link{background:#0b202b70;color:#e1d4b5;border:1px solid #d7ba7d65;gap:30px;box-shadow:0 6px 22px #0003;font-size:12px;font-weight:500;padding:17px 20px}.hero-actions .map-link:hover{background:#132c35b0;box-shadow:0 10px 25px #0005}
+@media(max-width:600px){.hero-actions{justify-content:center;gap:12px}.launcher-button{width:100%;max-width:320px;font-size:16px;padding:18px 23px}.hero-actions .map-link{padding:13px 20px;gap:45px}}
+
+.launcher-button{min-height:72px}.site-header nav>button:disabled,.wiki-link:disabled{opacity:.7}

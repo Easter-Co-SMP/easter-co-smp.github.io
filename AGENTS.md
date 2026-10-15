@@ -23,3 +23,9 @@ has its own service. No console mutations, world generation, or changes to game 
 
 Keep the mist arrival exclusive to the homepage. Map and future Wiki use regular utility
 interfaces. The intro must be skippable, bounded, and respect reduced-motion preferences.
+
+Hero copy is "Easter Co. SMP" and "The Ultimate Multiplayer Minecraft Experience".
+Download Launcher is the primary gold CTA, left of the secondary View Map action. The
+custom launcher is built separately: keep its CTA disabled until a real artifact is
+available. Write release copy with no Coming soon badges or availability placeholders.
+The download will include the custom Easter Company launcher and Minecraft client.

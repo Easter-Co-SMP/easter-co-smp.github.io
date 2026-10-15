@@ -7,7 +7,7 @@
   <title>Easter Co. SMP — The Ultimate MC Experience</title><link rel="icon" href="assets/favicon.png"><link rel="stylesheet" href="styles.css"><link rel="preload" as="image" href="assets/isles-harbour.png">
 </head>
 <body class="home">
-  <header class="site-header"><a class="site-wordmark" href="./" aria-label="Easter Co. SMP home">Easter Co.<span>SMP</span></a><nav aria-label="Main navigation"><a href="./" aria-current="page">Home</a><a href="./downloads/easter-navy.jar" download>Download</a><a href="./map/">Map</a><button type="button" disabled title="Wiki — coming soon" aria-label="Wiki, coming soon">Wiki<small>Soon</small></button></nav></header>
+  <header class="site-header"><a class="site-wordmark" href="./" aria-label="Easter Co. SMP home">Easter Co.<span>SMP</span></a><nav aria-label="Main navigation"><a href="./" aria-current="page">Home</a><a href="./downloads/easter-navy.jar" download>Download</a><a href="./map/">Map</a><button type="button" disabled aria-label="Wiki">Wiki</button></nav></header>
   <div class="arrival-mist" aria-hidden="true"><i></i><i></i><i></i></div>
   <button class="skip-arrival" type="button" hidden>Skip intro <span aria-hidden="true">↗</span></button>
   <div class="harbour-background" aria-hidden="true"></div>
@@ -15,10 +15,13 @@
     <div class="home-hero">
       <div class="crest-frame"><img src="assets/crest.jpg" width="480" height="480" alt="Easter Co. SMP phoenix crest above an island harbour" fetchpriority="high"></div>
       <div class="hero-copy">
-        <p class="eyebrow"><span></span> Easter Co. SMP · The Easter Isles</p>
-        <h1>The Ultimate<br><em>MC Experience.</em></h1>
-        <a class="map-link" href="map/"><span>View Map</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
-        <p class="map-caption">Veterans, pros, absolute beginners—better together.</p>
+        <p class="eyebrow"><span></span> Easter Co. SMP</p>
+        <h1>The Ultimate<br><em>Multiplayer Minecraft Experience</em></h1>
+        <div class="hero-actions">
+          <button class="launcher-button" type="button" disabled aria-label="Download Launcher"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg><span>Download Launcher</span></button>
+          <a class="map-link" href="map/"><span>View Map</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+        </div>
+        <p class="map-caption">Custom Easter Company launcher &amp; Minecraft client.</p>
       </div>
     </div>
     <div class="home-below">
@@ -26,7 +29,7 @@
       <div class="home-aside"><div class="raid-note"><p class="eyebrow">The endgame</p><div class="raid-count">20+ <span>players</span></div><p>Weekly Ender Dragon raids.<br>An MMO style experience built for a crew.</p><p>Defeat bosses for world buffs. Bosses respawn or reset each week, ready for another run.</p><p class="elytra-limit"><strong>1 elytra / week</strong><span>Across the entire server. Enjoy the End time and time again—but make that one count.</span></p><div class="first-elytra"><span>The first-elytra prize</span><p>The first player to obtain an elytra wins the best player house on the spawn island.</p></div></div><div class="home-actions">
         <a class="download-link" href="downloads/easter-navy.jar" download><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></svg><span>Download our mod<small id="mod-version">Easter Co. · Fabric</small></span></a>
         <button class="text-link" type="button" id="open-guide">Getting started <span aria-hidden="true">↗</span></button>
-        <button class="wiki-link" type="button" disabled title="Easter Co. SMP Wiki — coming soon"><span>Easter Co. SMP Wiki</span><small>Coming soon</small></button>
+        <button class="wiki-link" type="button" disabled><span>Easter Co. SMP Wiki</span></button>
       </div></div>
     </div>
     <section class="home-story" aria-labelledby="story-title">
@@ -43,6 +46,7 @@
   <dialog id="guide-dialog" aria-labelledby="guide-title">
     <button class="dialog-close" id="close-guide" type="button" aria-label="Close install guide">×</button>
     <p class="eyebrow">Before you set sail</p><h2 id="guide-title">Make yourself at home.</h2>
+    <p>Play through the Easter Company launcher and our custom Minecraft client.</p>
     <p>This is a private server. An existing member can help you get access and share the connection details.</p>
     <ol class="install-steps">
       <li><strong>Start with Fabric.</strong><span>Use a separate Minecraft profile. <span id="minecraft-version">The matching version</span> and <a href="https://fabricmc.net/use/installer/" target="_blank" rel="noopener">Fabric Loader</a> are required.</span></li>
