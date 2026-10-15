@@ -6,8 +6,7 @@ Secondary branding is "The Ultimate MC Experience". Welcome veterans, pros and a
 beginners. Keep the rich casual early game and cooking/baking/brewing contributions
 alongside the harder progression, team encounters, and crime/punishment mechanics.
 The endgame includes weekly 20+ player Ender Dragon raids, boss world buffs and weekly
-boss resets. The elytra limit is one per week across the entire server. The best spawn
-island player house is the first-elytra prize; do not invent a recurring house award.
+boss resets. Do not display the elytra limit or first-elytra house prize on the website.
 
 Player data must never enter site/ or Git history. Use scripts/export_world.py and its
 strict allowlist. Never use the private snapshot endpoint as a public export. Keep
