@@ -24,7 +24,9 @@ try{
  page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push({url:r.url(),method:r.method()}));
  const noOverflow=async()=>assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
  await page.goto(origin);await page.locator('#mod-version').filter({hasText:'v2.'}).waitFor();
- assert.equal(await page.locator('nav').count(),0);await noOverflow();
+ assert.equal(await page.getByRole('navigation',{name:'Main navigation'}).count(),1);
+ assert.equal(await page.locator('nav a[aria-current="page"]').textContent(),'Home');
+ assert(await page.getByRole('button',{name:'Wiki, coming soon',exact:true}).isDisabled());await noOverflow();
  await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
  const skipPage=await context.newPage();await skipPage.goto(origin);
  await skipPage.getByRole('button',{name:'Skip intro'}).click();
@@ -52,7 +54,8 @@ try{
  await page.setViewportSize({width:1440,height:900});await page.getByRole('link',{name:'View Map',exact:true}).click();
  const ready=()=>page.waitForFunction(()=>window.mapFrame.tiles>0&&document.getElementById('map-status').hidden);
  await ready();await noOverflow();
- assert.equal(await page.locator('button').count(),5,'only viewing controls are public');
+ assert.equal(await page.getByRole('toolbar',{name:'Map controls'}).locator('button').count(),5,'only viewing controls are public');
+ assert.equal(await page.locator('nav a[aria-current="page"]').textContent(),'Map');
  assert.equal(await page.locator('.arrival-mist,.skip-arrival').count(),0,'the atlas never plays the homepage intro');
  assert((await page.locator('#snapshot-date').textContent()).includes('Charted'));
  await page.screenshot({path:'/tmp/easter-public-map-desktop.png'});

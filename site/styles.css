@@ -55,3 +55,12 @@ dialog{width:min(580px,calc(100% - 32px));max-height:calc(100dvh - 40px);overflo
 @keyframes harbour-approach{0%{filter:blur(8px);transform:translate3d(0,2%,0) scale(1.23)}55%{filter:blur(1px)}100%{filter:blur(0);transform:translate3d(var(--scene-x,0px),var(--scene-y,0px),0) scale(1.06)}}
 @keyframes arrival-content{0%,42%{opacity:0;transform:translate3d(0,18px,0)}85%,100%{opacity:1;transform:translate3d(0,0,0)}}
 @media(prefers-reduced-motion:reduce){.arrival-mist,.skip-arrival{display:none!important}.harbour-background{will-change:auto;transform:scale(1.06)}}
+
+/* Shared navigation keeps the atlas and future Wiki familiar and easy to revisit. */
+.site-header{position:relative;z-index:2;flex:none;height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px;width:min(1120px,calc(100% - 96px));margin:0 auto;border-bottom:1px solid #e4dcc121}
+.site-wordmark{font:23px Georgia,serif;letter-spacing:-.04em;text-decoration:none;color:#e5d4b1;white-space:nowrap}.site-wordmark span{font:8px system-ui;letter-spacing:.2em;margin-left:10px;color:#a7b8b2}
+.site-header nav{display:flex;align-items:center;gap:6px}.site-header nav>a,.site-header nav>button{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px 17px;border-radius:8px;font-size:12px;text-decoration:none;color:#becbc5;line-height:1.2;white-space:nowrap}.site-header nav>a:hover{background:#ffffff0a;color:#f1e2c1}.site-header nav>a[aria-current="page"]{color:var(--gold);background:#d6bc850d}.site-header nav>button:disabled{cursor:not-allowed;opacity:.46}.site-header nav small{font-size:7px;letter-spacing:.04em;border:1px solid #ffffff35;border-radius:4px;padding:3px}
+.home .home-hero{min-height:calc(100svh - 172px)}.is-arriving .site-header{animation:arrival-content 4.6s ease-out both}
+.atlas .site-header{width:100%;height:64px;padding:0 24px;background:#10232b;border-bottom:1px solid var(--line)}.atlas .atlas-stage{height:calc(100dvh - 64px)}.atlas .atlas-stage:fullscreen{height:100dvh}
+@media(max-width:900px){.site-header{width:calc(100% - 70px)}}
+@media(max-width:600px){.site-header{width:calc(100% - 32px);height:60px;justify-content:center}.site-wordmark{display:none}.site-header nav{gap:3px;width:100%;justify-content:space-between}.site-header nav>a,.site-header nav>button{font-size:11px;padding:11px 12px}.home .home-hero{min-height:calc(100svh - 100px)}.atlas .site-header{height:60px;padding:0 16px}.atlas .atlas-stage{height:calc(100dvh - 60px)}}
