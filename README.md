@@ -91,12 +91,26 @@ Build installers: `npm run dist:linux` (AppImage, Ubuntu .deb, Arch .pacman), th
 The Build launcher release workflow builds on native Linux and Windows runners when invoked.
 Installers are currently unsigned; publishing a build does not claim Authenticode verification.
 
-Checks: `npm test`, `npm run test:desktop`, `node tests/drawings.mjs`, and
-`node tests/browser.mjs`. Browser/Electron tests use the host's existing Playwright installation.
-Auth tests use fixture identities; no test reads an existing account cache or signs in a person.
-The Electron harness is excluded from packages. A clean automatic install was verified in
-/tmp/easter-company-clean-install, including real Java and publisher downloads. Interactive
-Microsoft approval and Windows runtime behaviour require a user session on those platforms.
+Checks: `npm test` (desktop unit and fixture tests), `npm run test:desktop`
+(`xvfb-run -a node tests/desktop/electron.mjs`, which launches the packaged shell under a
+temporary app home), `node tests/drawings.mjs`, and `node tests/browser.mjs`. The browser and
+Electron checks need a local preview of `site/` and use the host's existing Playwright
+installation. Auth tests use fixture identities; no test reads an existing account cache or
+signs in a person. The Electron harness is excluded from packages.
+
+Verified on this machine on **2026-10-15**: `python -m unittest discover -s tests -p 'test_*.py'`,
+`python scripts/validate.py site`, `npm test` (10 desktop tests), `node tests/drawings.mjs`,
+`xvfb-run -a node tests/desktop/electron.mjs`, and `node tests/browser.mjs` against a local
+preview all pass. The Linux AppImage, Ubuntu `.deb`, and Arch `.pacman` builds and the Windows
+`.exe` were built locally with electron-builder at 17:27–17:28 on that date and are unsigned.
+
+Two limits remain, and this repository cannot settle either one. The Windows `.exe` was
+cross-built on Linux, so its runtime behaviour is unverified until it is installed and
+launched on Windows. Interactive Microsoft sign-in opens a real approval prompt in a browser
+and requires a user session on the target platform. A clean automatic install was exercised
+once in `/tmp/easter-company-clean-install` on that date, including real Java and publisher
+downloads; that path is a scratch directory outside this repository, so the run is not
+reproducible from a fresh clone and is recorded here as history, not as a standing check.
 
 ## Personal map notes
 
