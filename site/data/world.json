@@ -1,0 +1,2094 @@
+{
+  "captured_at": "2026-10-15T19:44:30.048084+00:00",
+  "center": [
+    -625,
+    -247
+  ],
+  "markers": [
+    {
+      "faction": "other",
+      "id": "094e8aab547cc5f38967",
+      "kind": "npc",
+      "name": "Edith",
+      "observed_at": "2026-10-15T19:02:05.896207+00:00",
+      "x": -648.79,
+      "z": -207.56
+    },
+    {
+      "faction": "navy",
+      "icon": "navy_ship",
+      "id": "14f8c40ce1b7c12b1d70",
+      "kind": "ship",
+      "name": "Navy Patrol - Easter",
+      "observed_at": "2026-10-15T19:01:14.794936+00:00",
+      "x": -688.43,
+      "z": -221.72
+    },
+    {
+      "faction": "navy",
+      "id": "15eae12e6a25feb93f90",
+      "kind": "npc",
+      "name": "Navy land patrol — South Harbour",
+      "observed_at": "2026-10-15T19:01:37.302735+00:00",
+      "x": -570.7,
+      "z": -62.44
+    },
+    {
+      "faction": "other",
+      "id": "2ba6ed192315005cea04",
+      "kind": "ship",
+      "name": "The Falcon",
+      "observed_at": "2026-10-15T19:01:14.795183+00:00",
+      "x": -584.83,
+      "z": -210.0
+    },
+    {
+      "faction": "navy",
+      "id": "380fd88a4dc22e1c7106",
+      "kind": "npc",
+      "name": "Navy land patrol — North Harbour",
+      "observed_at": "2026-10-15T19:01:41.902800+00:00",
+      "x": -641.49,
+      "z": -360.1
+    },
+    {
+      "faction": "navy",
+      "icon": "navy_ship",
+      "id": "485b17b487ac31c526fa",
+      "kind": "ship",
+      "name": "Navy Patrol - FL",
+      "observed_at": "2026-10-15T19:01:14.795260+00:00",
+      "x": -461.5,
+      "z": -100.5
+    },
+    {
+      "faction": "other",
+      "id": "536a1ef431821fe8e69d",
+      "kind": "npc",
+      "name": "Beth",
+      "observed_at": "2026-10-15T19:02:05.896075+00:00",
+      "x": -614.11,
+      "z": -159.52
+    },
+    {
+      "faction": "navy",
+      "id": "6181fad50e9b04092b54",
+      "kind": "npc",
+      "name": "Navy land patrol — West Harbour",
+      "observed_at": "2026-10-15T19:01:46.402862+00:00",
+      "x": -714.47,
+      "z": -295.38
+    },
+    {
+      "faction": "citizen",
+      "id": "61baf1f5d01c38dce219",
+      "kind": "npc",
+      "name": "zuri",
+      "observed_at": "2026-10-15T19:02:05.896010+00:00",
+      "x": -634.47,
+      "z": -223.24
+    },
+    {
+      "faction": "other",
+      "id": "6b656d8e992cb8e4afb9",
+      "kind": "ship",
+      "name": "oak_cog",
+      "observed_at": "2026-10-14T23:11:28.794779+00:00",
+      "x": -734.5,
+      "z": -247.43
+    },
+    {
+      "faction": "navy",
+      "id": "806c20860f34c4ad8098",
+      "kind": "npc",
+      "name": "sailor 8ee43d75",
+      "observed_at": "2026-10-15T19:02:05.896448+00:00",
+      "x": -610.57,
+      "z": -263.1
+    },
+    {
+      "faction": "navy",
+      "id": "884842ad41afc521d16e",
+      "kind": "npc",
+      "name": "Navy land patrol — Hannah's Landing",
+      "observed_at": "2026-10-15T19:01:29.802594+00:00",
+      "x": -512.98,
+      "z": -245.13
+    },
+    {
+      "faction": "navy",
+      "id": "a0e4b2f805869572cd9b",
+      "kind": "npc",
+      "name": "Navy land patrol — Fort Lookout",
+      "observed_at": "2026-10-15T19:01:34.302668+00:00",
+      "x": -451.85,
+      "z": -70.87
+    },
+    {
+      "faction": "other",
+      "id": "b061ecc9517ab687e8bc",
+      "kind": "ship",
+      "name": "oak_cog",
+      "observed_at": "2026-10-15T00:21:05.094864+00:00",
+      "x": -514.5,
+      "z": -246.5
+    },
+    {
+      "faction": "other",
+      "id": "b41f869ddf6764ac9d88",
+      "kind": "npc",
+      "name": "Cora",
+      "observed_at": "2026-10-15T19:02:05.896140+00:00",
+      "x": -608.14,
+      "z": -155.37
+    },
+    {
+      "faction": "other",
+      "id": "b6db8db7fdfbba179bbd",
+      "kind": "npc",
+      "name": "Flora",
+      "observed_at": "2026-10-15T19:02:05.896272+00:00",
+      "x": -617.52,
+      "z": -181.32
+    },
+    {
+      "faction": "navy",
+      "id": "bb2612546056b2254374",
+      "kind": "npc",
+      "name": "sailor 120302e6",
+      "observed_at": "2026-10-15T19:02:05.896505+00:00",
+      "x": -612.07,
+      "z": -263.18
+    },
+    {
+      "faction": "navy",
+      "icon": "navy_ship",
+      "id": "c5f61f90f2740d66763b",
+      "kind": "ship",
+      "name": "Navy Patrol - Easter",
+      "observed_at": "2026-10-15T19:01:14.795061+00:00",
+      "x": -534.39,
+      "z": -255.27
+    },
+    {
+      "faction": "navy",
+      "icon": "navy_ship",
+      "id": "cb81ca02b7a2118527ff",
+      "kind": "ship",
+      "name": "Navy Patrol - Easter",
+      "observed_at": "2026-10-15T19:01:14.795123+00:00",
+      "x": -686.76,
+      "z": -169.25
+    },
+    {
+      "faction": "navy",
+      "id": "e2edbe7b6cd3089ff761",
+      "kind": "npc",
+      "name": "sailor 32f08653",
+      "observed_at": "2026-10-15T19:02:05.896331+00:00",
+      "x": -532.5,
+      "z": -236.5
+    },
+    {
+      "faction": "navy",
+      "id": "ebf9550b8af940d20c11",
+      "kind": "npc",
+      "name": "Navy land patrol — Anglian Plains",
+      "observed_at": "2026-10-15T14:17:39.802924+00:00",
+      "x": -279.5,
+      "z": -275.5
+    },
+    {
+      "faction": "navy",
+      "id": "f2ce7fe4eaf21df29ae8",
+      "kind": "npc",
+      "name": "sailor c4437e95",
+      "observed_at": "2026-10-15T19:02:05.896390+00:00",
+      "x": -505.91,
+      "z": -246.5
+    },
+    {
+      "faction": "navy",
+      "id": "f9fc80ae2acdeca8ca6e",
+      "kind": "npc",
+      "name": "Navy land patrol — Sussex",
+      "observed_at": "2026-10-15T19:01:53.902986+00:00",
+      "x": -797.0,
+      "z": -189.5
+    }
+  ],
+  "missed_days": 0,
+  "position_source": "Last observed ships and NPCs. Player records are excluded at export.",
+  "region_blocks": 512,
+  "regions": [
+    {
+      "edit_protection": true,
+      "guard_patrols": false,
+      "id": "region-2a8d31ef",
+      "name": "The Nether Tower",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          -421,
+          -343
+        ],
+        [
+          -409,
+          -348
+        ],
+        [
+          -398,
+          -343
+        ],
+        [
+          -395,
+          -333
+        ],
+        [
+          -399,
+          -320
+        ],
+        [
+          -408,
+          -315
+        ],
+        [
+          -419,
+          -321
+        ],
+        [
+          -423,
+          -332
+        ]
+      ],
+      "pve_protection": true,
+      "pvp_protection": true,
+      "short_name": "NT"
+    },
+    {
+      "edit_protection": true,
+      "guard_patrols": true,
+      "id": "region-c8552f5f",
+      "name": "South Harbour",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          -510,
+          -108
+        ],
+        [
+          -485,
+          -108
+        ],
+        [
+          -485,
+          0
+        ],
+        [
+          -713,
+          0
+        ],
+        [
+          -713,
+          -107
+        ],
+        [
+          -614,
+          -60
+        ],
+        [
+          -558,
+          -87
+        ]
+      ],
+      "pve_protection": true,
+      "pvp_protection": true,
+      "short_name": "SH"
+    },
+    {
+      "edit_protection": true,
+      "guard_patrols": true,
+      "id": "region-71bfc23c",
+      "name": "Fort Lookout",
+      "navy_controlled": true,
+      "navy_patrols": true,
+      "points": [
+        [
+          -471,
+          -163
+        ],
+        [
+          -440,
+          -160
+        ],
+        [
+          -400,
+          -166
+        ],
+        [
+          -333,
+          -153
+        ],
+        [
+          -296,
+          -153
+        ],
+        [
+          -297,
+          0
+        ],
+        [
+          -485,
+          0
+        ],
+        [
+          -485,
+          -108
+        ]
+      ],
+      "pve_protection": true,
+      "pvp_protection": true,
+      "short_name": "FL"
+    },
+    {
+      "edit_protection": true,
+      "guard_patrols": true,
+      "id": "region-40125fcc",
+      "name": "West Harbour",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          -801,
+          -286
+        ],
+        [
+          -794,
+          -287
+        ],
+        [
+          -786,
+          -304
+        ],
+        [
+          -756,
+          -317
+        ],
+        [
+          -747,
+          -379
+        ],
+        [
+          -691,
+          -408
+        ],
+        [
+          -676,
+          -317
+        ],
+        [
+          -721,
+          -281
+        ],
+        [
+          -743,
+          -176
+        ],
+        [
+          -713,
+          -107
+        ],
+        [
+          -713,
+          0
+        ],
+        [
+          -805,
+          0
+        ]
+      ],
+      "pve_protection": true,
+      "pvp_protection": true,
+      "short_name": "WH"
+    },
+    {
+      "edit_protection": true,
+      "guard_patrols": true,
+      "id": "region-079b3637",
+      "name": "Hannah's Landing",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          -506,
+          -247
+        ],
+        [
+          -495,
+          -273
+        ],
+        [
+          -408,
+          -315
+        ],
+        [
+          -399,
+          -320
+        ],
+        [
+          -395,
+          -333
+        ],
+        [
+          -398,
+          -343
+        ],
+        [
+          -336,
+          -312
+        ],
+        [
+          -333,
+          -310
+        ],
+        [
+          -268,
+          -266
+        ],
+        [
+          -233,
+          -211
+        ],
+        [
+          -242,
+          -194
+        ],
+        [
+          -254,
+          -188
+        ],
+        [
+          -270,
+          -193
+        ],
+        [
+          -296,
+          -153
+        ],
+        [
+          -333,
+          -153
+        ],
+        [
+          -400,
+          -166
+        ],
+        [
+          -440,
+          -160
+        ],
+        [
+          -471,
+          -163
+        ],
+        [
+          -505,
+          -214
+        ]
+      ],
+      "pve_protection": true,
+      "pvp_protection": true,
+      "short_name": "HL"
+    },
+    {
+      "edit_protection": true,
+      "guard_patrols": false,
+      "id": "region-31753139",
+      "name": "Bay of Easter",
+      "navy_controlled": true,
+      "navy_patrols": true,
+      "points": [
+        [
+          -270,
+          -193
+        ],
+        [
+          -254,
+          -188
+        ],
+        [
+          -242,
+          -194
+        ],
+        [
+          -162,
+          -189
+        ],
+        [
+          -79,
+          -214
+        ],
+        [
+          -17,
+          -282
+        ],
+        [
+          0,
+          -287
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          -297,
+          0
+        ],
+        [
+          -296,
+          -153
+        ]
+      ],
+      "pve_protection": true,
+      "pvp_protection": true,
+      "short_name": "BoE"
+    },
+    {
+      "edit_protection": true,
+      "guard_patrols": true,
+      "id": "spawn-island",
+      "name": "Easter Isle",
+      "navy_controlled": true,
+      "navy_patrols": true,
+      "points": [
+        [
+          -721,
+          -281
+        ],
+        [
+          -584,
+          -390
+        ],
+        [
+          -527,
+          -389
+        ],
+        [
+          -477,
+          -381
+        ],
+        [
+          -409,
+          -348
+        ],
+        [
+          -421,
+          -343
+        ],
+        [
+          -423,
+          -332
+        ],
+        [
+          -419,
+          -321
+        ],
+        [
+          -408,
+          -315
+        ],
+        [
+          -495,
+          -273
+        ],
+        [
+          -506,
+          -247
+        ],
+        [
+          -505,
+          -214
+        ],
+        [
+          -471,
+          -163
+        ],
+        [
+          -485,
+          -108
+        ],
+        [
+          -510,
+          -108
+        ],
+        [
+          -558,
+          -87
+        ],
+        [
+          -614,
+          -60
+        ],
+        [
+          -713,
+          -107
+        ],
+        [
+          -743,
+          -176
+        ]
+      ],
+      "pve_protection": true,
+      "pvp_protection": true,
+      "short_name": "Easter"
+    },
+    {
+      "edit_protection": true,
+      "guard_patrols": true,
+      "id": "region-743a8e95",
+      "name": "North Harbour",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          -691,
+          -408
+        ],
+        [
+          -653,
+          -424
+        ],
+        [
+          -645,
+          -439
+        ],
+        [
+          -631,
+          -444
+        ],
+        [
+          -627,
+          -453
+        ],
+        [
+          -627,
+          -487
+        ],
+        [
+          -605,
+          -498
+        ],
+        [
+          -596,
+          -501
+        ],
+        [
+          -590,
+          -501
+        ],
+        [
+          -513,
+          -503
+        ],
+        [
+          -494,
+          -503
+        ],
+        [
+          -495,
+          -674
+        ],
+        [
+          -476,
+          -674
+        ],
+        [
+          -421,
+          -623
+        ],
+        [
+          -359,
+          -578
+        ],
+        [
+          -339,
+          -539
+        ],
+        [
+          -331,
+          -511
+        ],
+        [
+          -312,
+          -511
+        ],
+        [
+          -297,
+          -425
+        ],
+        [
+          -292,
+          -394
+        ],
+        [
+          -289,
+          -372
+        ],
+        [
+          -315,
+          -344
+        ],
+        [
+          -330,
+          -325
+        ],
+        [
+          -336,
+          -312
+        ],
+        [
+          -398,
+          -343
+        ],
+        [
+          -409,
+          -348
+        ],
+        [
+          -477,
+          -381
+        ],
+        [
+          -527,
+          -389
+        ],
+        [
+          -584,
+          -390
+        ],
+        [
+          -676,
+          -317
+        ]
+      ],
+      "pve_protection": true,
+      "pvp_protection": true,
+      "short_name": "NH"
+    },
+    {
+      "edit_protection": true,
+      "guard_patrols": true,
+      "id": "region-ecd5f94d",
+      "name": "Anglian Plains",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          -315,
+          -344
+        ],
+        [
+          -289,
+          -372
+        ],
+        [
+          -292,
+          -395
+        ],
+        [
+          -312,
+          -511
+        ],
+        [
+          0,
+          -512
+        ],
+        [
+          347,
+          -512
+        ],
+        [
+          330,
+          -486
+        ],
+        [
+          342,
+          -467
+        ],
+        [
+          321,
+          -440
+        ],
+        [
+          304,
+          -382
+        ],
+        [
+          268,
+          -358
+        ],
+        [
+          219,
+          -335
+        ],
+        [
+          149,
+          -318
+        ],
+        [
+          109,
+          -337
+        ],
+        [
+          94,
+          -318
+        ],
+        [
+          81,
+          -332
+        ],
+        [
+          0,
+          -287
+        ],
+        [
+          -17,
+          -282
+        ],
+        [
+          -79,
+          -214
+        ],
+        [
+          -162,
+          -189
+        ],
+        [
+          -242,
+          -194
+        ],
+        [
+          -233,
+          -211
+        ],
+        [
+          -268,
+          -266
+        ],
+        [
+          -336,
+          -312
+        ],
+        [
+          -330,
+          -325
+        ]
+      ],
+      "pve_protection": true,
+      "pvp_protection": true,
+      "short_name": "AP"
+    },
+    {
+      "edit_protection": false,
+      "guard_patrols": false,
+      "id": "region-487aa51e",
+      "name": "Scotia",
+      "navy_controlled": false,
+      "navy_patrols": false,
+      "points": [
+        [
+          770,
+          -1123
+        ],
+        [
+          956,
+          -1123
+        ],
+        [
+          1409,
+          -1121
+        ],
+        [
+          1395,
+          -841
+        ],
+        [
+          783,
+          -634
+        ],
+        [
+          786,
+          -710
+        ],
+        [
+          810,
+          -879
+        ]
+      ],
+      "pve_protection": false,
+      "pvp_protection": false,
+      "short_name": "Scotia"
+    },
+    {
+      "edit_protection": false,
+      "guard_patrols": true,
+      "id": "region-d3cbc180",
+      "name": "Caledonia",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          -775,
+          -1008
+        ],
+        [
+          -638,
+          -1123
+        ],
+        [
+          0,
+          -1120
+        ],
+        [
+          0,
+          -512
+        ],
+        [
+          -312,
+          -511
+        ],
+        [
+          -331,
+          -511
+        ],
+        [
+          -339,
+          -539
+        ],
+        [
+          -358,
+          -577
+        ],
+        [
+          -420,
+          -622
+        ],
+        [
+          -476,
+          -674
+        ],
+        [
+          -495,
+          -674
+        ],
+        [
+          -511,
+          -698
+        ],
+        [
+          -535,
+          -722
+        ],
+        [
+          -561,
+          -735
+        ],
+        [
+          -623,
+          -758
+        ],
+        [
+          -681,
+          -796
+        ],
+        [
+          -701,
+          -839
+        ]
+      ],
+      "pve_protection": false,
+      "pvp_protection": false,
+      "short_name": "Caledonia"
+    },
+    {
+      "edit_protection": false,
+      "guard_patrols": true,
+      "id": "region-2370545f",
+      "name": "Alba",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          0,
+          -1120
+        ],
+        [
+          770,
+          -1123
+        ],
+        [
+          810,
+          -880
+        ],
+        [
+          807,
+          -852
+        ],
+        [
+          786,
+          -710
+        ],
+        [
+          783,
+          -634
+        ],
+        [
+          663,
+          -640
+        ],
+        [
+          545,
+          -652
+        ],
+        [
+          512,
+          -686
+        ],
+        [
+          442,
+          -685
+        ],
+        [
+          373,
+          -663
+        ],
+        [
+          370,
+          -607
+        ],
+        [
+          386,
+          -559
+        ],
+        [
+          347,
+          -512
+        ],
+        [
+          0,
+          -512
+        ]
+      ],
+      "pve_protection": false,
+      "pvp_protection": false,
+      "short_name": "Alba"
+    },
+    {
+      "edit_protection": false,
+      "guard_patrols": true,
+      "id": "region-7055ec5f",
+      "name": "Wessex",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          -751,
+          -1184
+        ],
+        [
+          -624,
+          -1186
+        ],
+        [
+          -638,
+          -1123
+        ],
+        [
+          -774,
+          -1008
+        ],
+        [
+          -701,
+          -839
+        ],
+        [
+          -681,
+          -796
+        ],
+        [
+          -623,
+          -758
+        ],
+        [
+          -561,
+          -735
+        ],
+        [
+          -535,
+          -722
+        ],
+        [
+          -511,
+          -698
+        ],
+        [
+          -495,
+          -674
+        ],
+        [
+          -494,
+          -520
+        ],
+        [
+          -494,
+          -503
+        ],
+        [
+          -514,
+          -503
+        ],
+        [
+          -552,
+          -502
+        ],
+        [
+          -596,
+          -501
+        ],
+        [
+          -605,
+          -498
+        ],
+        [
+          -627,
+          -487
+        ],
+        [
+          -627,
+          -453
+        ],
+        [
+          -631,
+          -444
+        ],
+        [
+          -645,
+          -439
+        ],
+        [
+          -653,
+          -424
+        ],
+        [
+          -691,
+          -408
+        ],
+        [
+          -747,
+          -379
+        ],
+        [
+          -1431,
+          -378
+        ],
+        [
+          -1416,
+          -1167
+        ]
+      ],
+      "pve_protection": false,
+      "pvp_protection": false,
+      "short_name": "Wessex"
+    },
+    {
+      "edit_protection": false,
+      "guard_patrols": true,
+      "id": "region-571df8c0",
+      "name": "Sussex",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          -976,
+          -380
+        ],
+        [
+          -787,
+          -379
+        ],
+        [
+          -747,
+          -379
+        ],
+        [
+          -756,
+          -317
+        ],
+        [
+          -786,
+          -304
+        ],
+        [
+          -794,
+          -287
+        ],
+        [
+          -801,
+          -286
+        ],
+        [
+          -805,
+          1
+        ],
+        [
+          -297,
+          0
+        ],
+        [
+          -278,
+          126
+        ],
+        [
+          -276,
+          245
+        ],
+        [
+          -275,
+          303
+        ],
+        [
+          -194,
+          415
+        ],
+        [
+          -96,
+          549
+        ],
+        [
+          6,
+          636
+        ],
+        [
+          37,
+          674
+        ],
+        [
+          -30,
+          716
+        ],
+        [
+          -949,
+          634
+        ],
+        [
+          -1390,
+          74
+        ],
+        [
+          -1431,
+          -378
+        ]
+      ],
+      "pve_protection": false,
+      "pvp_protection": false,
+      "short_name": "Sussex"
+    },
+    {
+      "edit_protection": false,
+      "guard_patrols": false,
+      "id": "region-ad2224a7",
+      "name": "Sea of Easter",
+      "navy_controlled": true,
+      "navy_patrols": true,
+      "points": [
+        [
+          -297,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          -287
+        ],
+        [
+          81,
+          -332
+        ],
+        [
+          94,
+          -318
+        ],
+        [
+          109,
+          -337
+        ],
+        [
+          149,
+          -318
+        ],
+        [
+          219,
+          -335
+        ],
+        [
+          268,
+          -358
+        ],
+        [
+          304,
+          -382
+        ],
+        [
+          321,
+          -440
+        ],
+        [
+          342,
+          -467
+        ],
+        [
+          330,
+          -486
+        ],
+        [
+          347,
+          -512
+        ],
+        [
+          386,
+          -559
+        ],
+        [
+          370,
+          -607
+        ],
+        [
+          373,
+          -662
+        ],
+        [
+          441,
+          -685
+        ],
+        [
+          512,
+          -686
+        ],
+        [
+          545,
+          -652
+        ],
+        [
+          662,
+          -640
+        ],
+        [
+          783,
+          -634
+        ],
+        [
+          1395,
+          -841
+        ],
+        [
+          1409,
+          -1121
+        ],
+        [
+          2372,
+          -1546
+        ],
+        [
+          3155,
+          -1761
+        ],
+        [
+          3404,
+          -1249
+        ],
+        [
+          3891,
+          -256
+        ],
+        [
+          3359,
+          589
+        ],
+        [
+          1955,
+          656
+        ],
+        [
+          1019,
+          609
+        ],
+        [
+          932,
+          663
+        ],
+        [
+          836,
+          596
+        ],
+        [
+          626,
+          709
+        ],
+        [
+          547,
+          839
+        ],
+        [
+          521,
+          1013
+        ],
+        [
+          479,
+          1003
+        ],
+        [
+          460,
+          869
+        ],
+        [
+          494,
+          783
+        ],
+        [
+          536,
+          709
+        ],
+        [
+          447,
+          707
+        ],
+        [
+          323,
+          649
+        ],
+        [
+          159,
+          670
+        ],
+        [
+          85,
+          718
+        ],
+        [
+          54,
+          714
+        ],
+        [
+          37,
+          674
+        ],
+        [
+          6,
+          636
+        ],
+        [
+          -96,
+          549
+        ],
+        [
+          -276,
+          303
+        ],
+        [
+          -278,
+          124
+        ]
+      ],
+      "pve_protection": false,
+      "pvp_protection": false,
+      "short_name": "Easter Sea"
+    },
+    {
+      "edit_protection": false,
+      "guard_patrols": false,
+      "id": "region-1f306141",
+      "name": "Western Imperial Territories",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          -4216,
+          -3182
+        ],
+        [
+          -157,
+          -3193
+        ],
+        [
+          -622,
+          -1186
+        ],
+        [
+          -751,
+          -1184
+        ],
+        [
+          -1416,
+          -1167
+        ],
+        [
+          -1431,
+          -377
+        ],
+        [
+          -1390,
+          74
+        ],
+        [
+          -949,
+          634
+        ],
+        [
+          -29,
+          716
+        ],
+        [
+          37,
+          674
+        ],
+        [
+          54,
+          714
+        ],
+        [
+          85,
+          718
+        ],
+        [
+          159,
+          670
+        ],
+        [
+          323,
+          649
+        ],
+        [
+          447,
+          707
+        ],
+        [
+          536,
+          709
+        ],
+        [
+          494,
+          783
+        ],
+        [
+          460,
+          870
+        ],
+        [
+          479,
+          1003
+        ],
+        [
+          521,
+          1013
+        ],
+        [
+          547,
+          839
+        ],
+        [
+          626,
+          709
+        ],
+        [
+          836,
+          596
+        ],
+        [
+          932,
+          663
+        ],
+        [
+          1019,
+          609
+        ],
+        [
+          1056,
+          1623
+        ],
+        [
+          558,
+          2664
+        ],
+        [
+          -1890,
+          3034
+        ],
+        [
+          -4899,
+          2933
+        ],
+        [
+          -5199,
+          2243
+        ],
+        [
+          -5163,
+          1363
+        ],
+        [
+          -5126,
+          256
+        ],
+        [
+          -5616,
+          -52
+        ],
+        [
+          -6355,
+          -835
+        ],
+        [
+          -6469,
+          -1577
+        ],
+        [
+          -5435,
+          -2312
+        ]
+      ],
+      "pve_protection": false,
+      "pvp_protection": false,
+      "short_name": "Western Territories"
+    },
+    {
+      "edit_protection": false,
+      "guard_patrols": false,
+      "id": "region-185cf302",
+      "name": "Eastern Imperial Territories",
+      "navy_controlled": true,
+      "navy_patrols": false,
+      "points": [
+        [
+          -158,
+          -3196
+        ],
+        [
+          2376,
+          -3900
+        ],
+        [
+          5404,
+          -3675
+        ],
+        [
+          7483,
+          -2434
+        ],
+        [
+          7356,
+          -57
+        ],
+        [
+          5684,
+          1907
+        ],
+        [
+          4170,
+          2917
+        ],
+        [
+          1646,
+          3038
+        ],
+        [
+          552,
+          2666
+        ],
+        [
+          1055,
+          1621
+        ],
+        [
+          1037,
+          1123
+        ],
+        [
+          1019,
+          609
+        ],
+        [
+          1953,
+          656
+        ],
+        [
+          3356,
+          587
+        ],
+        [
+          3886,
+          -255
+        ],
+        [
+          3149,
+          -1759
+        ],
+        [
+          2365,
+          -1540
+        ],
+        [
+          1409,
+          -1121
+        ],
+        [
+          -638,
+          -1123
+        ]
+      ],
+      "pve_protection": false,
+      "pvp_protection": false,
+      "short_name": "Eastern Territories"
+    }
+  ],
+  "saved_chunk_slots": 31023,
+  "schema": 1,
+  "snapshot_day": "2026-10-15",
+  "tiles": [
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -25,
+      "z": 7
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -23,
+      "z": 5
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -17,
+      "z": 5
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -13,
+      "z": 5
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -10,
+      "z": 0
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -10,
+      "z": 7
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -8,
+      "z": -13
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -7,
+      "z": -7
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -4,
+      "z": -4
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -3,
+      "z": -4
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -3,
+      "z": -2
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -3,
+      "z": -1
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -3,
+      "z": 0
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -2,
+      "z": -4
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -2,
+      "z": -3
+    },
+    {
+      "version": "66af2a5399fcda1f286f18f9dcf2df7b2fd98f7596edebd222ec6feecf838419",
+      "x": -2,
+      "z": -2
+    },
+    {
+      "version": "56f10fb3cc4ec942d62b56672d25e47a8a5524de2a5a404fad15396a7abbcc3d",
+      "x": -2,
+      "z": -1
+    },
+    {
+      "version": "d779439f3c951b4f4fc1835ad5c4ad7aa20d3ab58de2592e3ac4bef2887ba452",
+      "x": -2,
+      "z": 0
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -2,
+      "z": 1
+    },
+    {
+      "version": "bf152499a7507b5e57afe95be945c915baf14c28193e68404ee8dcfa96cdb6c0",
+      "x": -1,
+      "z": -3
+    },
+    {
+      "version": "e8165a2fd3606b643dc658dafe6c8d2f09d72ab07c352f86049ddb617dc89b7c",
+      "x": -1,
+      "z": -2
+    },
+    {
+      "version": "a09020e6cb30fd5d6a9c702b4928fafbc0eba13b0e717bc48f8d02fb3478e904",
+      "x": -1,
+      "z": -1
+    },
+    {
+      "version": "eb705c9dacacd004f0ab0c4d2cad85df1c990e56b4f76f3264c466a8c00c4238",
+      "x": -1,
+      "z": 0
+    },
+    {
+      "version": "2b044fc609e6a74c5c391184e9bf5064f7534e216d7f15bf5ec7d156ec1fb3f7",
+      "x": -1,
+      "z": 1
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -1,
+      "z": 2
+    },
+    {
+      "version": "eaf1519c2b53f4bfc290b017d0223d236773ed0c377e21cd1aea52657bb1b62a",
+      "x": -1,
+      "z": 3
+    },
+    {
+      "version": "2ab6faf6d3ef8416fdcf4d8bbc4ca923c9c183e9f66a14b8d854d2576de967ed",
+      "x": -1,
+      "z": 4
+    },
+    {
+      "version": "548b7a5d4ab63b3254bc7ca0437c939a6b45ab5f9886ec31e1ab1c73b6ef2704",
+      "x": -1,
+      "z": 5
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -1,
+      "z": 6
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 0,
+      "z": -5
+    },
+    {
+      "version": "ae7484754dc98d3a2c63643f12f5b48d05f49a89d46a4998c98f2f3e0a68ffce",
+      "x": 0,
+      "z": -3
+    },
+    {
+      "version": "80b02445601a9b786e772a06793d5ce47e24a78d256bc931e6758a7979039c80",
+      "x": 0,
+      "z": -2
+    },
+    {
+      "version": "55625840f4a4c48ec8557f0fe3f2f1bf7246062745b08a4caa74237fd1800110",
+      "x": 0,
+      "z": -1
+    },
+    {
+      "version": "c65e873e1b9fb4c0287c3e31bc2321233f473db2809dffc39a79da9427c8b6bd",
+      "x": 0,
+      "z": 0
+    },
+    {
+      "version": "53c166e77b4eda0548727343f88c9ed26588c0cac30fba0f2fd1fb082ad0a5ad",
+      "x": 0,
+      "z": 1
+    },
+    {
+      "version": "b86c1e57f8215e403961d90afc5515a112e25ff712e3e9a695986e0c5aef2480",
+      "x": 0,
+      "z": 2
+    },
+    {
+      "version": "d432de016f335b4d53e23a2d8356e5b5ac2c11c5dbde11a883bd85f7b0501a90",
+      "x": 0,
+      "z": 3
+    },
+    {
+      "version": "c62b4d68eb44a495953febadfea0d9442f5f005853484dd6496e5fd1ba54a045",
+      "x": 0,
+      "z": 4
+    },
+    {
+      "version": "c3a7ff64d8910b201b3695b7e3a3c2fd0d74a692758f4fd28519f49cf9b3100c",
+      "x": 0,
+      "z": 5
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 0,
+      "z": 6
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 1,
+      "z": -3
+    },
+    {
+      "version": "3edf0f746d55ce8d509bbc5e311f08e88ec7f0a41444f503157e49c6c63c5c5a",
+      "x": 1,
+      "z": -2
+    },
+    {
+      "version": "b904b222dce36a40228e938d270ac34031f73088a7673acf5933024b6a0c40dc",
+      "x": 1,
+      "z": -1
+    },
+    {
+      "version": "2ba3932d2b57a3841b028eef07620e9d92c46e157c99e72a2efcc0a055f0de7c",
+      "x": 1,
+      "z": 0
+    },
+    {
+      "version": "97184988cec9b0233a187821b6724d2ea805391ec4a83a63e1e0dfd45eb26670",
+      "x": 1,
+      "z": 1
+    },
+    {
+      "version": "59d02006e639d1d0808c64550ae9b07c852e5e9fdca97351fe5ef9cf88cb60df",
+      "x": 1,
+      "z": 2
+    },
+    {
+      "version": "b6644c211b93f46be4bc1a27f4720bdafa031dd909b820aa1ce53158bd95dc67",
+      "x": 1,
+      "z": 3
+    },
+    {
+      "version": "9100579e6a0c03ce841e557959356055be122e3406f5369f0762e3b59362911e",
+      "x": 1,
+      "z": 4
+    },
+    {
+      "version": "eac59e2f9a16e289ec6180aca48edfab87b239179b53c6b8fffe58a0768c4436",
+      "x": 1,
+      "z": 5
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 1,
+      "z": 6
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 2,
+      "z": -3
+    },
+    {
+      "version": "759762324b01476ed82fde552b2e2afadb228f09839cfe3656602f72f8c7b68d",
+      "x": 2,
+      "z": -2
+    },
+    {
+      "version": "5670be66d3c7779f6dc70fd85acbdac41f317d463456b67d82107f73d20e74f8",
+      "x": 2,
+      "z": -1
+    },
+    {
+      "version": "2fa6fe2d73f63877ed1ef2bbf60a90c72fdf6cd88eb080d0bd2b90abe6e87cbe",
+      "x": 2,
+      "z": 0
+    },
+    {
+      "version": "2f3059c21047e037cc898e5adf8e9583624765d4d04b40b631919427e6ae20ee",
+      "x": 2,
+      "z": 1
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 2,
+      "z": 2
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 2,
+      "z": 3
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 3,
+      "z": -3
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 3,
+      "z": -2
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 3,
+      "z": -1
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 3,
+      "z": 3
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 3,
+      "z": 5
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 5,
+      "z": 0
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 5,
+      "z": 2
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 7,
+      "z": -25
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": 10,
+      "z": -13
+    }
+  ],
+  "unlocated_markers": 10
+}

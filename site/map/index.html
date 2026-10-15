@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0d2029">
+<meta name="description" content="Explore the Easter Isles: a public, read-only chart of our Minecraft world, settlements, ships, and NPC patrols. No player locations.">
+<title>World Map — Easter Co. SMP</title><link rel="icon" href="../assets/favicon.png"><link rel="stylesheet" href="../styles.css">
+</head><body class="atlas"><main class="atlas-stage" id="map-stage" aria-label="Public map of the Easter Isles">
+<canvas id="terrain" tabindex="0" aria-label="Read-only world map. Drag to pan, scroll or plus and minus to zoom. Arrow keys pan."></canvas>
+<div class="atlas-heading"><a class="atlas-home" href="../" aria-label="Easter Co. SMP home"><img src="../assets/favicon.png" width="36" height="36" alt=""><span><strong>The Easter Isles</strong><small>Easter Co. SMP · World chart</small></span></a></div>
+<details class="map-key" id="map-key"><summary>Map key</summary><div class="key-content"><div class="legend">
+<label><input type="checkbox" data-layer="regions" checked><i class="region-dot"></i>Regions</label>
+<label><input type="checkbox" data-layer="navy" checked><i style="--color:#58a6ff"></i>Navy</label>
+<label><input type="checkbox" data-layer="citizen" checked><i style="--color:#fff"></i>Citizens</label>
+<label><input type="checkbox" data-layer="criminal" checked><i style="--color:#eab308"></i>Criminals</label>
+<label><input type="checkbox" data-layer="pirate" checked><i style="--color:#ef4444"></i>Pirates</label>
+<label><input type="checkbox" data-layer="prisoner" checked><i style="--color:#9ca3af"></i>Prisoners</label>
+<label><input type="checkbox" data-layer="other" checked><i style="--color:#cfb88b"></i>Other markers</label>
+</div><p>Ships, NPCs, and assigned patrols at their last observed positions. Hollow markers are older readings. Player locations are never published.</p><p>Drag to pan · scroll to zoom<br>Arrow keys move · + / − zoom</p></div></details>
+<output class="map-location" id="map-location"></output>
+<div class="map-controls" role="toolbar" aria-label="Map controls">
+<button type="button" id="zoom-in" aria-label="Zoom in" title="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+<button type="button" id="zoom-out" aria-label="Zoom out" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M5 12h14"/></svg></button><hr>
+<button type="button" id="home" aria-label="Center on spawn" title="Center on spawn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="6"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg></button>
+<button type="button" id="refresh" aria-label="Refresh map" title="Refresh map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/></svg></button>
+<button type="button" id="fullscreen" aria-label="Enter full screen" title="Enter full screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg></button>
+</div><div class="compass" aria-label="North">↑<span>N</span></div>
+<aside class="map-tooltip" id="map-tooltip"><strong></strong><small></small></aside>
+<output class="map-status" id="map-status" role="status">Opening the world chart…</output>
+<footer class="map-bottom"><div><strong id="snapshot-date">The Easter Isles</strong><small>Daily snapshots · No player locations<br><a href="https://github.com/Easter-Co-SMP/easter-co-smp.github.io/commits/main/site/data/world.json" target="_blank" rel="noopener">World history ↗</a> · © Easter LTD</small></div><output class="map-coordinates" id="map-coordinates"></output></footer>
+</main><script type="module" src="map.js"></script></body></html>

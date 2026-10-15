@@ -1,0 +1,42 @@
+{
+  "dependencies": [
+    {
+      "id": "fabric-api",
+      "name": "Fabric API",
+      "url": "https://modrinth.com/mod/fabric-api",
+      "version": "0.161.0+26.2"
+    },
+    {
+      "id": "shippy-ships",
+      "name": "Shippy Ships",
+      "url": "https://modrinth.com/mod/shippy-ships",
+      "version": "1.0.23.1"
+    },
+    {
+      "id": "ingeniumapi",
+      "name": "IngeniumAPI",
+      "url": "https://modrinth.com/project/ingeniumapi",
+      "version": "1.0.2"
+    },
+    {
+      "id": "tectonic",
+      "name": "Tectonic",
+      "url": "https://modrinth.com/project/tectonic",
+      "version": "3.0.28"
+    },
+    {
+      "id": "lithostitched",
+      "name": "Lithostitched",
+      "url": "https://modrinth.com/project/lithostitched",
+      "version": "1.8.0"
+    }
+  ],
+  "minecraft": "26.2",
+  "mod": {
+    "bytes": 656819,
+    "name": "Easter Co. Mod Pack: Guards & Villagers",
+    "sha256": "3cb0b28b1f7de7c818cb35072846ce922975be9f23f1fab988bda3c329f8936f",
+    "url": "downloads/easter-navy.jar",
+    "version": "2.0.0"
+  }
+}

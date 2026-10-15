@@ -1,0 +1,14 @@
+[Unit]
+Description=Daily public world snapshots with boot catch-up and hourly push retries
+
+[Timer]
+OnCalendar=*-*-* 05:30:00 America/New_York
+OnBootSec=3min
+OnUnitInactiveSec=1h
+RandomizedDelaySec=3min
+AccuracySec=1min
+Persistent=true
+Unit=easter-co-pages.service
+
+[Install]
+WantedBy=timers.target
