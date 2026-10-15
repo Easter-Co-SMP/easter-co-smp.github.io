@@ -14,6 +14,25 @@ import zipfile
 from zoneinfo import ZoneInfo
 
 ZONE = ZoneInfo('America/New_York')
+
+#: The only marker kinds the public map publishes, and the only ones its key lists.
+#: Player factions (navy, citizen, criminal, pirate, prisoner) are read by the private
+#: household map and must never be re-added here: player records are not exported.
+PUBLIC_MARKER_KINDS = ('ship', 'sea_patrol', 'land_patrol', 'villager', 'mob')
+
+#: The only icons a public marker may carry. They name what the map draws -- a hull, a
+#: patrol ship, or a guard -- not the roster or faction a row came from, so no private
+#: icon name is copied out even when it matches.
+PUBLIC_MARKER_ICONS = ('hull', 'navy_ship', 'navy_unit-guard')
+#: The drawing each published category uses. Villagers and mobs are plain dots.
+ICON_BY_KIND = {'ship': 'hull', 'sea_patrol': 'navy_ship', 'land_patrol': 'navy_unit-guard'}
+
+#: NPC roster kinds that are a land patrol. 'navy_patrol' is set explicitly for the
+#: patrols derived from regions in core/minecraft_map_data.npc_records.
+#: 'guard_patrol' is kept as an icon alias for a guard roster that arrives without a kind.
+PATROL_NPC_KINDS = frozenset({'sailor', 'region_guard', 'navy_patrol'})
+PATROL_ICONS = frozenset({'guard_patrol'})
+WILDLIFE_NPC_KINDS = frozenset({'wildlife'})
 DEPENDENCIES = {
     'fabric-api': 'https://modrinth.com/mod/fabric-api',
     'shippy-ships': 'https://modrinth.com/mod/shippy-ships',
@@ -28,9 +47,31 @@ def write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + '\n')
 
 
+def public_marker_kind(row):
+    """One of PUBLIC_MARKER_KINDS, or None for a row the public map must not show.
+
+    A hull the fleet registry marks as a navy patrol is published as a sea patrol; every
+    other hull is published as a ship. NPC rows are published by what their roster says
+    they are: garrison, region-guard and region-derived patrols, wildlife, or a
+    villager/islander. A private faction is not a public category, so it is never
+    consulted here.
+    """
+    if row.get('kind') == 'ship':
+        return 'sea_patrol' if row.get('navy_patrol') is True else 'ship'
+    if row.get('kind') != 'npc':
+        return None
+    npc_kind, icon = row.get('npc_kind'), row.get('icon')
+    if npc_kind in PATROL_NPC_KINDS or icon in PATROL_ICONS:
+        return 'land_patrol'
+    if npc_kind in WILDLIFE_NPC_KINDS:
+        return 'mob'
+    return 'villager'
+
+
 def public_marker(row, now):
     """Build a NEW, narrow record. Never copy arbitrary private fields into the export."""
-    if row.get('kind') not in ('ship', 'npc'):
+    kind = public_marker_kind(row)
+    if kind is None:
         return None
     if any(type(row.get(axis)) not in (float, int) or not math.isfinite(row[axis]) for axis in ('x', 'z')):
         return None
@@ -39,16 +80,14 @@ def public_marker(row, now):
     observed = None
     if type(at) in (int, float) and math.isfinite(at) and type(age) in (int, float) and math.isfinite(age):
         observed = datetime.fromtimestamp(min(now.timestamp(), max(0, at - max(0, age))), timezone.utc).isoformat()
-    faction = row.get('faction')
-    if faction not in ('navy', 'citizen', 'criminal', 'pirate', 'prisoner'):
-        faction = 'citizen' if row.get('npc_kind') == 'villager' else 'other'
     marker = {
         'id': hashlib.sha256((row['kind'] + ':' + str(row.get('id', ''))).encode()).hexdigest()[:20],
-        'kind': row['kind'], 'name': str(row.get('name') or ('Ship' if row['kind'] == 'ship' else 'NPC'))[:120],
-        'x': round(row['x'], 2), 'z': round(row['z'], 2), 'faction': faction, 'observed_at': observed,
+        'kind': kind, 'name': str(row.get('name') or ('Ship' if row['kind'] == 'ship' else 'NPC'))[:120],
+        'x': round(row['x'], 2), 'z': round(row['z'], 2), 'observed_at': observed,
     }
-    if row.get('icon') in ('navy_ship', 'guard_patrol'):
-        marker['icon'] = row['icon']
+    icon = ICON_BY_KIND.get(kind)
+    if icon:
+        marker['icon'] = icon
     return marker
 
 

@@ -9,7 +9,17 @@ import re
 import sys
 from urllib.parse import urlsplit, unquote
 
-MARKER_KEYS = {'id', 'kind', 'name', 'x', 'z', 'faction', 'observed_at', 'icon'}
+# Running this file directly puts scripts/ on sys.path, not the repository root.
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.export_world import PUBLIC_MARKER_ICONS, PUBLIC_MARKER_KINDS
+
+#: 'kind' is a public marker category, never a row type or a player faction. A payload
+#: carrying 'faction' is refused outright rather than rewritten. Older snapshots in the
+#: archive may predate this allowlist; only validate_data on the payload being published
+#: has to hold.
+MARKER_KEYS = {'id', 'kind', 'name', 'x', 'z', 'observed_at', 'icon'}
 WORLD_KEYS = {'schema', 'captured_at', 'snapshot_day', 'missed_days', 'center', 'region_blocks',
               'saved_chunk_slots', 'tiles', 'regions', 'markers', 'unlocated_markers', 'position_source'}
 REGION_KEYS = {'id', 'name', 'short_name', 'points', 'pvp_protection', 'pve_protection', 'edit_protection',
@@ -39,7 +49,8 @@ def validate_data(root):
         assert all(len(p) == 2 and all(type(n) in (int, float) and math.isfinite(n) for n in p) for p in region['points'])
     for marker in world['markers']:
         assert set(marker) <= MARKER_KEYS, 'Private or unexpected marker fields'
-        assert marker['kind'] in ('ship', 'npc'), 'Player record refused'
+        assert marker['kind'] in PUBLIC_MARKER_KINDS, 'Player-facing or unknown marker kind refused'
+        assert marker.get('icon') in (None, *PUBLIC_MARKER_ICONS), 'Unexpected marker icon'
         assert all(type(marker[a]) in (int, float) and math.isfinite(marker[a]) for a in ('x', 'z'))
         assert re.fullmatch('[a-f0-9]{20}', marker['id']), 'Raw entity ID refused'
     client = json.loads((root / 'data/client.json').read_text())
