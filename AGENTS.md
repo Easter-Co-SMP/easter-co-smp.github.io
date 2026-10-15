@@ -37,6 +37,9 @@ Do not display Source, source code bundles, standalone client/server bundle opti
 
 Role headings are Navy Conscript, Pirate Raider, and Bounty Hunter.
 Public map controls are zoom in/out, centre, and fullscreen; refresh is automatic.
+The public map key lists Regions and exactly the published marker categories: Ships, Sea
+Patrols, Land Patrols, Villagers and Mobs. Player factions (navy, citizen, criminal, pirate,
+prisoner) are private map layers and must never be added to the public key or the export.
 Keep the compass to the LEFT of the map key. Personal drawings use world coordinates
 and IndexedDB on the visitor's device. They must never enter exports or Git history.
 Keep middle-mouse drag exclusively for camera movement, including in drawing mode.

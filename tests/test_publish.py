@@ -9,7 +9,8 @@ from types import SimpleNamespace
 import unittest
 import zipfile
 
-from scripts.export_world import public_marker, write_json, export_client, DEPENDENCIES, ZONE
+from scripts.export_world import (PUBLIC_MARKER_KINDS, public_marker, public_marker_kind,
+                                  write_json, export_client, DEPENDENCIES, ZONE)
 from scripts.sync import publish
 from scripts.validate import validate_data, MARKER_KEYS
 
@@ -17,7 +18,7 @@ PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4
 NOW = datetime(2026, 10, 15, 14, tzinfo=timezone.utc)
 
 
-def fixture_export(root, source=None, now=NOW, previous_day=None):
+def fixture_export(root, source=None, now=NOW, previous_day=None, markers=None):
     root = Path(root)
     path = root / 'data/tiles/0/0.png'
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -28,7 +29,7 @@ def fixture_export(root, source=None, now=NOW, previous_day=None):
         'missed_days': max(0, (day - datetime.fromisoformat(previous_day).date()).days - 1) if previous_day else 0,
         'center': [0, 0], 'region_blocks': 512, 'saved_chunk_slots': 1,
         'tiles': [{'x': 0, 'z': 0, 'version': hashlib.sha256(PNG).hexdigest()}],
-        'regions': [], 'markers': [], 'unlocated_markers': 0, 'position_source': 'Saved non-player records',
+        'regions': [], 'markers': list(markers or []), 'unlocated_markers': 0, 'position_source': 'Saved non-player records',
     })
     target = root / 'downloads/easter-navy.jar'
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -40,6 +41,100 @@ def fixture_export(root, source=None, now=NOW, previous_day=None):
 
 def run_git(root, *args):
     return subprocess.run(['git', '-C', str(root), *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+class PublicMarkerCategoryTests(unittest.TestCase):
+    """The public map key has exactly four marker categories, and player factions are not among them."""
+
+    def row(self, **updates):
+        return {'kind': 'npc', 'id': 'entity', 'name': 'Name', 'x': 1, 'z': 2,
+                'read_at': NOW.timestamp(), 'age_seconds': 60} | updates
+
+    def test_public_categories_are_exactly_the_five_published_kinds(self):
+        self.assertEqual(PUBLIC_MARKER_KINDS, ('ship', 'sea_patrol', 'land_patrol', 'villager', 'mob'))
+
+    def test_a_hull_without_the_patrol_flag_is_a_ship(self):
+        for navy_patrol in (False, None):
+            with self.subTest(navy_patrol=navy_patrol):
+                marker = public_marker(self.row(kind='ship', name='The Falcon', navy_patrol=navy_patrol), NOW)
+                self.assertEqual(marker['kind'], 'ship')
+                self.assertEqual(marker['icon'], 'hull')
+
+    def test_a_hull_the_registry_marks_as_a_navy_patrol_is_a_sea_patrol(self):
+        marker = public_marker(self.row(kind='ship', name='Navy Patrol - Easter', navy_patrol=True,
+                                       patrol_region='easter-isle', faction='navy', icon='navy_ship'), NOW)
+        self.assertEqual(marker['kind'], 'sea_patrol')
+        self.assertEqual(marker['icon'], 'navy_ship')
+        self.assertNotIn('faction', marker)
+
+    def test_patrol_rosters_and_the_region_patrol_kind_are_land_patrols(self):
+        for npc_kind in ('sailor', 'region_guard', 'navy_patrol'):
+            with self.subTest(npc_kind=npc_kind):
+                marker = public_marker(self.row(npc_kind=npc_kind, icon='navy_unit'), NOW)
+                self.assertEqual(marker['kind'], 'land_patrol')
+                self.assertEqual(marker['icon'], 'navy_unit-guard')
+
+    def test_guard_patrol_icon_alone_makes_a_row_a_land_patrol(self):
+        self.assertEqual(public_marker_kind(self.row(npc_kind=None, icon='guard_patrol')), 'land_patrol')
+
+    def test_wildlife_roster_is_a_mob(self):
+        marker = public_marker(self.row(npc_kind='wildlife', name='Cow'), NOW)
+        self.assertEqual(marker['kind'], 'mob')
+        self.assertNotIn('icon', marker)
+
+    def test_villager_and_islander_rosters_are_villagers(self):
+        for npc_kind in ('villager', 'islander', None):
+            with self.subTest(npc_kind=npc_kind):
+                marker = public_marker(self.row(npc_kind=npc_kind), NOW)
+                self.assertEqual(marker['kind'], 'villager')
+                self.assertNotIn('icon', marker)
+
+    def test_a_private_faction_never_reaches_the_public_marker(self):
+        for faction in ('navy', 'citizen', 'criminal', 'pirate', 'prisoner', 'unknown'):
+            with self.subTest(faction=faction):
+                marker = public_marker(self.row(faction=faction, npc_kind='villager'), NOW)
+                self.assertNotIn('faction', marker)
+                self.assertNotIn(faction, json.dumps(marker))
+        # A faction-carrying row is still exported by its roster kind, not by its faction.
+        self.assertEqual(public_marker(self.row(faction='navy', npc_kind='wildlife'), NOW)['kind'], 'mob')
+
+    def test_only_ship_and_npc_rows_are_publishable(self):
+        for kind in ('player', 'players', 'zone', '', None):
+            with self.subTest(kind=kind):
+                self.assertIsNone(public_marker_kind({'kind': kind}))
+                self.assertIsNone(public_marker(self.row(kind=kind), NOW))
+
+    def test_validation_refuses_player_ish_unknown_and_faction_markers(self):
+        for marker in (
+            {'id': 'a' * 20, 'kind': 'npc', 'x': 0, 'z': 0, 'faction': 'navy'},
+            {'id': 'a' * 20, 'kind': 'navy', 'x': 0, 'z': 0},
+            {'id': 'a' * 20, 'kind': 'pirate', 'x': 0, 'z': 0},
+            {'id': 'a' * 20, 'kind': 'player', 'x': 0, 'z': 0},
+            {'id': 'a' * 20, 'kind': 'patrol', 'x': 0, 'z': 0},
+            {'id': 'a' * 20, 'kind': 'guard', 'x': 0, 'z': 0},
+            {'id': 'a' * 20, 'kind': '', 'x': 0, 'z': 0},
+            {'id': 'a' * 20, 'kind': 'ship', 'x': 0, 'z': 0, 'icon': 'navy_unit'},
+            {'id': 'a' * 20, 'kind': 'land_patrol', 'x': 0, 'z': 0, 'icon': 'guard_patrol'},
+        ):
+            with self.subTest(marker=marker):
+                with tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    fixture_export(root, markers=[marker])
+                    with self.assertRaises(AssertionError):
+                        validate_data(root)
+
+    def test_validation_accepts_every_published_kind(self):
+        markers = [
+            {'id': hashlib.sha256(kind.encode()).hexdigest()[:20], 'kind': kind, 'name': kind,
+             'x': 1.0, 'z': 2.0, 'observed_at': NOW.isoformat(), **({'icon': icon} if icon else {})}
+            for kind, icon in (('ship', 'hull'), ('sea_patrol', 'navy_ship'), ('land_patrol', 'navy_unit-guard'),
+                               ('villager', None), ('mob', None))]
+        self.assertEqual([m['kind'] for m in markers], list(PUBLIC_MARKER_KINDS))
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fixture_export(root, markers=markers)
+            world = validate_data(root)
+            self.assertEqual([m['kind'] for m in world['markers']], [m['kind'] for m in markers])
 
 
 class PrivacyTests(unittest.TestCase):
@@ -61,7 +156,7 @@ class PrivacyTests(unittest.TestCase):
 
     def test_allowlist_never_copies_player_fields_or_raw_entity_id(self):
         row = {'kind': 'npc', 'id': 'private-uuid', 'name': 'Guard', 'x': 1, 'z': 2, 'y': 64,
-               'read_at': NOW.timestamp(), 'age_seconds': 60, 'faction': 'navy',
+               'read_at': NOW.timestamp(), 'age_seconds': 60, 'faction': 'navy', 'npc_kind': 'sailor',
                'owner': 'private-owner', 'players': [{'x': 99}], 'provenance': {'path': '/private'}, 'detail': 'private detail'}
         result = public_marker(row, NOW)
         self.assertLessEqual(set(result), MARKER_KEYS)

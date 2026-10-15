@@ -13,16 +13,40 @@ let world=null,cached=false,failed=false,running=0,serial=0,timer=null;
 const view=()=>({cx,cz,scale,width,height}),key=r=>r.x+','+r.z,point=(x,z)=>project(x,z,view());
 const enabled=layer=>settings.layers?.[layer]!==false;
 function rememberView(){settings.view={cx,cz,scale};save();}
-const palette={navy:'#58a6ff',citizen:'#ffffff',criminal:'#eab308',pirate:'#ef4444',prisoner:'#9ca3af',other:'#cfb88b'};
+// One public category per marker kind, and one key entry per category. A kind outside
+// this map (an older cached snapshot, or a future server-side addition) is skipped, not
+// drawn and never fatal. Player factions are not public categories and are not listed.
+const layers={ship:{color:'#58a6ff'},sea_patrol:{color:'#ef4444'},land_patrol:{color:'#fb923c'},villager:{color:'#ffffff'},mob:{color:'#eab308'}};
+const layerOf=row=>layers[row?.kind]?row.kind:null;
+// The chart may only carry published categories, so a report that invents a marker kind
+// is refused and the saved chart kept. A marker kind this build does not know is still
+// skipped rather than drawn or thrown on, so an older cached snapshot stays usable.
+const markerKinds=Object.freeze(Object.keys(layers));
 const inputs=[...document.querySelectorAll('[data-layer]')];
 for(const input of inputs){input.checked=enabled(input.dataset.layer);input.onchange=()=>{settings.layers={...settings.layers,[input.dataset.layer]:input.checked};save();draw();};}
 $('map-key').open=settings.keyOpen===true;
-$('map-key').addEventListener('toggle',()=>{settings.keyOpen=$('map-key').open;save();});
+// The key and the personal-drawings palette share the top-left corner, and the palette sits
+// above the key: once the key is open its box would swallow clicks on the key's left entries.
+// While the key is open, slide the palette to the right edge of the open key (it keeps its
+// 104px gap, so its panel clears the key exactly) and leave it untouched when the key closes.
+// A viewport too narrow to hold the shifted palette keeps the stylesheet layout instead.
+function alignDrawingPanel(){
+ const drawing=document.querySelector('.map-drawing'),panel=drawing?.querySelector('.drawing-panel');
+ if(!drawing||!panel)return;
+ const base=drawing.dataset.baseLeft??getComputedStyle(drawing).left;
+ drawing.dataset.baseLeft=base;
+ const key=$('map-key').getBoundingClientRect(),edge=parseFloat(base);
+ // left is relative to the offset parent, so convert the wanted viewport box back to it.
+ const parentLeft=drawing.offsetParent?.getBoundingClientRect().left??0,moved=Math.round(key.right+edge-parentLeft);
+ const fits=parentLeft+moved+edge+panel.offsetWidth<document.documentElement.clientWidth-8;
+ drawing.style.left=$('map-key').open&&fits?moved+'px':base;
+}
+$('map-key').addEventListener('toggle',()=>{settings.keyOpen=$('map-key').open;save();alignDrawingPanel();});
 function validWorld(value){
  return value?.schema===1&&typeof value.captured_at==='string'&&Array.isArray(value.center)&&value.center.length===2&&value.center.every(Number.isFinite)&&
   Array.isArray(value.tiles)&&value.tiles.every(r=>Number.isInteger(r.x)&&Number.isInteger(r.z)&&/^[a-f0-9]{64}$/.test(r.version))&&
   Array.isArray(value.regions)&&value.regions.every(r=>typeof r.name==='string'&&Array.isArray(r.points)&&r.points.length>=3&&r.points.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)))&&
-  Array.isArray(value.markers)&&value.markers.every(r=>['ship','npc'].includes(r.kind)&&Number.isFinite(r.x)&&Number.isFinite(r.z));
+  Array.isArray(value.markers)&&value.markers.every(r=>markerKinds.includes(r.kind)&&Number.isFinite(r.x)&&Number.isFinite(r.z));
 }
 async function hydrate(r){
  const id=key(r),entry={hydrating:true};tiles.set(id,entry);
@@ -69,15 +93,16 @@ function drawRegions(){
 }
 function drawMarkers(){
  for(const row of world?.markers||[]){
-  row.sx=undefined;row.sy=undefined;const layer=palette[row.faction]?row.faction:'other';if(!enabled(layer))continue;
+  row.sx=undefined;row.sy=undefined;const layer=layerOf(row);if(!layer||!enabled(layer))continue;
   const [x,y]=point(row.x,row.z);if(x<-30||y<-30||x>width+30||y>height+30)continue;
-  const r=row.icon?10:row.kind==='ship'?8:5,color=palette[layer];
+  const hull=(row.icon==='hull'||row.icon==='navy_ship'),r=hull?10:5,color=layers[layer].color;
   const old=!row.observed_at||Date.parse(world.captured_at)-Date.parse(row.observed_at)>300000;
   g.save();g.globalAlpha=old ? .75 : 1;g.beginPath();g.arc(x,y,r,0,Math.PI*2);
   g.fillStyle=old?'#0d2029':color;g.fill();g.strokeStyle=color;g.lineWidth=1.5;if(old)g.setLineDash([3,2]);g.stroke();g.setLineDash([]);
-  if(row.icon){
+  const icon=row.icon||(layer.endsWith('_patrol')?'navy_unit-guard':'');
+  if(icon){
    g.strokeStyle=old?color:'#0d2029';g.lineWidth=1.4;g.beginPath();
-   if(row.icon==='navy_ship'){g.moveTo(x-6,y+3);g.lineTo(x+6,y+3);g.lineTo(x+3,y+6);g.lineTo(x-3,y+6);g.closePath();g.moveTo(x,y+2);g.lineTo(x,y-7);g.lineTo(x+5,y);g.lineTo(x,y);}
+   if(icon==='hull'||icon==='navy_ship'){g.moveTo(x-6,y+3);g.lineTo(x+6,y+3);g.lineTo(x+3,y+6);g.lineTo(x-3,y+6);g.closePath();g.moveTo(x,y+2);g.lineTo(x,y-7);g.lineTo(x+5,y);g.lineTo(x,y);}
    else{g.moveTo(x-5,y-5);g.lineTo(x+5,y-5);g.lineTo(x+4,y+2);g.quadraticCurveTo(x+2,y+5,x,y+7);g.quadraticCurveTo(x-2,y+5,x-4,y+2);g.closePath();}
    g.stroke();
   }
@@ -122,7 +147,8 @@ function hover(e){
  const region=world?.regions.find(r=>contains(r.points,x,z));$('map-location').textContent=region?.name||'The Wilds';
  let hit=null,distance=18;for(const row of world?.markers||[])if(row.sx!==undefined){const d=Math.hypot(row.sx-px,row.sy-py);if(d<distance){distance=d;hit=row;}}
  const tip=$('map-tooltip');tip.style.display=hit?'block':'none';
- if(hit){tip.querySelector('strong').textContent=hit.name;tip.querySelector('small').textContent=(hit.kind==='ship'?'Ship':'NPC / patrol')+' · '+(hit.observed_at?'Observed '+new Date(hit.observed_at).toLocaleString():'Observation time unknown');tip.style.left=Math.max(10,Math.min(width-tip.offsetWidth-10,px+16))+'px';tip.style.top=Math.max(10,Math.min(height-tip.offsetHeight-110,py+16))+'px';}
+ if(hit){const kind={ship:'Ship',sea_patrol:'Sea patrol',land_patrol:'Land patrol',villager:'Villager',mob:'Mob'}[hit.kind]||'Marker',when=hit.observed_at?'Observed '+new Date(hit.observed_at).toLocaleString():'Observation time unknown';
+  tip.querySelector('strong').textContent=hit.name;tip.querySelector('small').textContent=kind+' · '+when;tip.style.left=Math.max(10,Math.min(width-tip.offsetWidth-10,px+16))+'px';tip.style.top=Math.max(10,Math.min(height-tip.offsetHeight-110,py+16))+'px';}
 }
 canvas.addEventListener('pointerdown',e=>{if(e.pointerType==='mouse'&&e.button!==0&&e.button!==1)return;e.preventDefault();canvas.setPointerCapture(e.pointerId);pointers.set(e.pointerId,[e.clientX,e.clientY]);$('map-tooltip').style.display='none';});
 canvas.addEventListener('pointermove',e=>{
@@ -142,6 +168,12 @@ $('fullscreen').onclick=()=>{if(document.fullscreenElement)void document.exitFul
 document.addEventListener('fullscreenchange',()=>{const label=document.fullscreenElement?'Exit full screen':'Enter full screen';$('fullscreen').setAttribute('aria-label',label);$('fullscreen').title=label;});
 function schedule(){clearTimeout(timer);if(document.visibilityState==='visible')timer=setTimeout(async()=>{await refresh();schedule();},300000);}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void refresh();schedule();});
+// The personal-drawings palette is created by createDrawings, so it exists only now.
+// The open key and that palette share the top-left corner, and the palette sits above the
+// key, so its box would otherwise swallow clicks on the key's left entries. While the key is
+// open, slide that box clear of the key and draw it under the key; a closed key leaves the
+// palette exactly where the stylesheet puts it.
 annotations=createDrawings({canvas,stage,getView:view,redraw:draw});
+alignDrawingPanel();
 new ResizeObserver(resize).observe(stage);
 void(async()=>{const saved=await cache.readSnapshot('world');if(!world&&validWorld(saved)){cached=true;setWorld(saved);}await refresh();schedule();})();
