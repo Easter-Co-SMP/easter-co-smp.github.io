@@ -1,0 +1,63 @@
+name: Build launcher release
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm audit --omit=dev
+  package:
+    needs: test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - if: runner.os == 'Linux'
+        run: npm run dist:linux
+      - if: runner.os == 'Windows'
+        run: npm run dist:windows
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher-${{ runner.os }}
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.pacman
+            release/*.exe
+          if-no-files-found: error
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: launcher-*
+          path: release
+          merge-multiple: true
+      - name: Publish versioned installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          cd release
+          sha256sum Easter-Company-* > SHA256SUMS
+          gh release create "launcher-v$VERSION" Easter-Company-* SHA256SUMS --target "${{ github.sha }}" --title "Easter Company $VERSION" --notes "Desktop launcher with Microsoft sign-in, managed Minecraft/Fabric installation, and the shared map."

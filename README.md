@@ -20,8 +20,9 @@ The exporter reads the existing last-known stores rather than querying the game 
 The chart is a daily snapshot, not a live tracking service. Region editing and private
 server routes are not included in the public application.
 
-Only the custom Easter Co. mod is downloadable here. Other mods link to their original
-publishers. The client manifest and custom mod refresh with the daily data export.
+The launcher installers are distributed through GitHub Releases. Third-party client mods
+are downloaded directly from their publishers during setup. The client manifest and custom
+Easter Co. mod refresh with the daily data export.
 
 ## Daily archive and recovery
 
@@ -60,3 +61,49 @@ repository growth over time. Old snapshots remain in Git rather than being dupli
 into the Pages deployment.
 
 © Easter LTD. Not affiliated with Mojang or Microsoft.
+
+## Shared website and desktop launcher
+
+Run `npm ci`, then `npm start`. The same site/ UI runs in the browser and in Electron;
+only the isolated preload enables desktop mode. The browser shows platform downloads;
+desktop mode shows Sign in & Play, account state, installation progress, and client settings.
+Map annotations, terrain cache, and UI preferences persist in the desktop session too.
+The shell bundles the site so its interface opens without a web connection. Map data refreshes
+from Pages, with the bundled snapshot and persistent tile cache as fallbacks.
+
+Microsoft device-code login follows the existing drun shortcut's consumers → Xbox Live →
+XSTS → Minecraft Java profile chain. Tokens never cross IPC or enter web storage. OS-backed
+safeStorage encrypts remembered accounts; Linux basic_text is rejected and the UI explicitly
+shows This session only when secure storage is unavailable. Sign-out deletes this app's session.
+The inherited public client ID currently displays **Prism Launcher** in Microsoft's consent UI,
+just like the existing shortcut. Set EASTER_MICROSOFT_CLIENT_ID to an Easter Company
+registration approved for Minecraft/Xbox access when available; no secret belongs in the app.
+
+The app installs its own Java 25, Minecraft 26.2, Fabric 0.19.5, the custom mod, and the five
+pinned dependencies into its app-data/minecraft directory. It does not touch ~/.minecraft or
+an existing player's credentials. The default server is the same tailnet address as the drun
+shortcut; the launcher does not grant tailnet membership or change server network access.
+Java is spawned directly with argument arrays on Windows and Linux, without a shell. Game
+logs live in the dedicated client directory. The app remains available for the map while playing.
+
+Build installers: `npm run dist:linux` (AppImage, Ubuntu .deb, Arch .pacman), then
+`npm run dist:windows` (.exe; Linux cross-build requires Wine). Output goes to ignored release/.
+The Build launcher release workflow builds on native Linux and Windows runners when invoked.
+Installers are currently unsigned; publishing a build does not claim Authenticode verification.
+
+Checks: `npm test`, `npm run test:desktop`, `node tests/drawings.mjs`, and
+`node tests/browser.mjs`. Browser/Electron tests use the host's existing Playwright installation.
+Auth tests use fixture identities; no test reads an existing account cache or signs in a person.
+The Electron harness is excluded from packages. A clean automatic install was verified in
+/tmp/easter-company-clean-install, including real Java and publisher downloads. Interactive
+Microsoft approval and Windows runtime behaviour require a user session on those platforms.
+
+## Personal map notes
+
+Draw opens a separate palette: brush, line, square, rectangle, circle, triangle, diamond,
+eraser, colour, stroke width, undo/redo, and visibility. All geometry and stroke widths are
+stored in world blocks in the dedicated easter-co-personal-map IndexedDB database. They
+stay aligned while zooming, panning, resizing, and reloading. Erasing removes a touched
+stroke/shape and can be undone. Middle-drag always pans, never draws or edits notes.
+Drawings are private to the browser profile; they are not shared with other players, synced
+between computers, or included in the daily map archive. Clearing browser data removes them.

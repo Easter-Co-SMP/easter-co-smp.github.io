@@ -20,7 +20,13 @@ jobs:
           python-version: '3.13'
       - run: python -m unittest discover -s tests -p 'test_*.py'
       - run: python scripts/validate.py site
-      - run: node --check site/map/map.js && node --check site/home.js && node --check site/downloads.js
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: node --check site/map/map.js && node --check site/map/drawings.mjs && node --check site/home.js && node --check site/downloads.js && node --check site/desktop.js
   deploy:
     if: github.event_name != 'pull_request'
     needs: check

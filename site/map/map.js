@@ -1,3 +1,4 @@
+import {createDrawings} from './drawings.mjs';
 import {createMapCache} from './cache.mjs';
 import {project,visible,contains,labelSpans} from './geometry.mjs';
 const $=id=>document.getElementById(id),canvas=$('terrain'),stage=$('map-stage'),g=canvas.getContext('2d');
@@ -7,6 +8,7 @@ try{const saved=JSON.parse(localStorage.getItem(SETTINGS));if(saved&&typeof save
 const save=()=>{try{localStorage.setItem(SETTINGS,JSON.stringify(settings));}catch{}};
 const savedView=settings.view,heldView=savedView&&[savedView.cx,savedView.cz,savedView.scale].every(Number.isFinite)&&savedView.scale>=.04&&savedView.scale<=12;
 let cx=heldView?savedView.cx:-625,cz=heldView?savedView.cz:-247,scale=heldView?savedView.scale:.9,width=1,height=1;
+let annotations;
 let world=null,cached=false,failed=false,running=0,serial=0,timer=null;
 const view=()=>({cx,cz,scale,width,height}),key=r=>r.x+','+r.z,point=(x,z)=>project(x,z,view());
 const enabled=layer=>settings.layers?.[layer]!==false;
@@ -86,12 +88,12 @@ function draw(){
  const dpr=window.devicePixelRatio||1;g.setTransform(dpr,0,0,dpr,0,0);g.fillStyle='#0b1c24';g.fillRect(0,0,width,height);g.imageSmoothingEnabled=false;
  const rows=visible(world?.tiles||[],view());
  for(const r of rows){const t=tiles.get(key(r)),[x,y]=point(r.x*512,r.z*512);if(t?.image)g.drawImage(t.image,x,y,512*scale,512*scale);}
- drawRegions();drawMarkers();
+ drawRegions();drawMarkers();annotations?.render(g);
  if(world){const [x,y]=point(...world.center);g.beginPath();g.arc(x,y,5,0,Math.PI*2);g.fillStyle='#e9c17d';g.fill();g.strokeStyle='#14242b';g.lineWidth=2;g.stroke();}
  const meters=10**Math.floor(Math.log10(120/scale));g.strokeStyle='#d4dec8';g.lineWidth=2;g.beginPath();g.moveTo(width-24-meters*scale,height-67);g.lineTo(width-24,height-67);g.stroke();g.fillStyle='#d4dec8';g.font='10px system-ui';g.textAlign='right';g.fillText(meters+' blocks',width-24,height-76);
  $('map-coordinates').textContent='X '+Math.round(cx)+' · Z '+Math.round(cz);
  const errors=rows.some(r=>tiles.get(key(r))?.error),missing=rows.some(r=>!tiles.get(key(r))?.image);
- const message=failed?(world?'Connection unavailable · showing saved chart':'Chart unavailable · try refresh'):cached?'Showing saved chart · checking for updates':errors?'Some tiles are still updating · keeping saved terrain':running?(missing?'Loading the world chart…':'Updating the chart…'):'';
+ const message=failed?(world?'Connection unavailable · showing saved chart':'Chart unavailable · retrying automatically'):cached?'Showing saved chart · checking for updates':errors?'Some tiles are still updating · keeping saved terrain':running?(missing?'Loading the world chart…':'Updating the chart…'):'';
  $('map-status').textContent=message;$('map-status').hidden=!message;
  for(const r of rows)if(!tiles.has(key(r)))void hydrate(r);
  let started=false;
@@ -136,10 +138,10 @@ canvas.addEventListener('wheel',e=>{e.preventDefault();const r=canvas.getBoundin
 canvas.addEventListener('keydown',e=>{const d=80/scale;if(e.key==='ArrowLeft')cx-=d;else if(e.key==='ArrowRight')cx+=d;else if(e.key==='ArrowUp')cz-=d;else if(e.key==='ArrowDown')cz+=d;else if(e.key==='+'||e.key==='=')zoom(1.5);else if(e.key==='-')zoom(1/1.5);else return;e.preventDefault();rememberView();draw();});
 $('zoom-in').onclick=()=>zoom(1.5);$('zoom-out').onclick=()=>zoom(1/1.5);
 $('home').onclick=()=>{[cx,cz]=world?.center||[-625,-247];scale=.9;rememberView();draw();};
-$('refresh').onclick=async()=>{$('refresh').disabled=true;try{await refresh();}finally{$('refresh').disabled=false;}};
 $('fullscreen').onclick=()=>{if(document.fullscreenElement)void document.exitFullscreen();else void stage.requestFullscreen?.().catch(()=>{});};
 document.addEventListener('fullscreenchange',()=>{const label=document.fullscreenElement?'Exit full screen':'Enter full screen';$('fullscreen').setAttribute('aria-label',label);$('fullscreen').title=label;});
 function schedule(){clearTimeout(timer);if(document.visibilityState==='visible')timer=setTimeout(async()=>{await refresh();schedule();},300000);}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void refresh();schedule();});
+annotations=createDrawings({canvas,stage,getView:view,redraw:draw});
 new ResizeObserver(resize).observe(stage);
 void(async()=>{const saved=await cache.readSnapshot('world');if(!world&&validWorld(saved)){cached=true;setWorld(saved);}await refresh();schedule();})();

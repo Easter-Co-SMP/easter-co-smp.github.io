@@ -20,6 +20,8 @@ try{
    };
   }
  });
+ const files={windows:'Easter-Company-Windows-x64.exe',ubuntu:'Easter-Company-Linux-amd64.deb',arch:'Easter-Company-Linux-x64.pacman',appimage:'Easter-Company-Linux-x86_64.AppImage'};
+ await context.route('**/releases/latest/download/*',route=>route.fulfill({body:'download flow fixture',headers:{'content-type':'application/octet-stream','content-disposition':'attachment; filename="'+new URL(route.request().url()).pathname.split('/').at(-1)+'"'}}));
  const page=await context.newPage(),errors=[],requests=[];
  page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push({url:r.url(),method:r.method()}));
  const noOverflow=async()=>assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
@@ -51,21 +53,22 @@ try{
  }
  const launcherDownloadPromise=page.waitForEvent('download');
  await page.locator('[data-download-primary]').click();
- const launcherDownload=await launcherDownloadPromise;assert.equal(await launcherDownload.failure(),null);assert(launcherDownload.suggestedFilename().endsWith('-placeholder.txt'));
+ const launcherDownload=await launcherDownloadPromise;assert.equal(await launcherDownload.failure(),null);assert(Object.values(files).includes(launcherDownload.suggestedFilename()));
  assert(await page.getByRole('dialog',{name:'Setup & Install',exact:true}).isVisible());
  await page.getByRole('button',{name:'Close setup instructions'}).click();
  for(const platform of ['windows','ubuntu','arch','appimage']){
   await page.getByRole('navigation').getByRole('button',{name:'Download',exact:true}).click();
   const manualDownloadPromise=page.waitForEvent('download');await page.locator('[data-platform="'+platform+'"]').click();
-  const manualDownload=await manualDownloadPromise;assert.equal(await manualDownload.failure(),null);assert.equal(manualDownload.suggestedFilename(),'Easter-Company-'+platform+'-placeholder.txt');
+  const manualDownload=await manualDownloadPromise;assert.equal(await manualDownload.failure(),null);assert.equal(manualDownload.suggestedFilename(),files[platform]);
   assert(await page.getByRole('dialog',{name:'Setup & Install',exact:true}).isVisible());
   if(platform==='windows')await page.screenshot({path:'/tmp/easter-launcher-setup-desktop.png'});
   await page.keyboard.press('Escape');
  }
  for(const [platform,expected] of [['Windows','windows'],['Linux','appimage'],['macOS',null]]){
   const detected=await browser.newContext({acceptDownloads:true});await detected.addInitScript(platform=>Object.defineProperty(navigator,'userAgentData',{value:{platform}}),platform);
+  await detected.route('**/releases/latest/download/*',route=>route.fulfill({body:'download flow fixture',headers:{'content-type':'application/octet-stream','content-disposition':'attachment; filename="'+new URL(route.request().url()).pathname.split('/').at(-1)+'"'}}));
   const detectedPage=await detected.newPage();await detectedPage.goto(origin);await detectedPage.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
-  if(expected){const pending=detectedPage.waitForEvent('download');await detectedPage.locator('[data-download-primary]').click();assert.equal((await pending).suggestedFilename(),'Easter-Company-'+expected+'-placeholder.txt');}
+  if(expected){const pending=detectedPage.waitForEvent('download');await detectedPage.locator('[data-download-primary]').click();assert.equal((await pending).suggestedFilename(),files[expected]);}
   else{await detectedPage.locator('[data-download-primary]').click();assert(await detectedPage.locator('#launcher-downloads').isVisible());}
   await detected.close();
  }
@@ -84,9 +87,12 @@ try{
  await page.setViewportSize({width:1440,height:900});await page.getByRole('link',{name:'View Map',exact:true}).click();
  const ready=()=>page.waitForFunction(()=>window.mapFrame.tiles>0&&document.getElementById('map-status').hidden);
  await ready();await noOverflow();
- assert.equal(await page.getByRole('toolbar',{name:'Map controls'}).locator('button').count(),5,'only viewing controls are public');
+ assert.equal(await page.getByRole('toolbar',{name:'Map controls'}).locator('button').count(),4,'only viewing controls are public');
  assert.equal(await page.locator('nav a[aria-current="page"]').textContent(),'Map');
- assert.equal(await page.locator('.atlas-heading,.atlas-home').count(),0);
+ assert.equal(await page.locator('.atlas-heading,.atlas-home,#refresh').count(),0);
+ const toolbarBox=await page.locator('.map-controls').boundingBox(),compassBox=await page.locator('.compass').boundingBox();
+ assert(compassBox.x+compassBox.width<(await page.locator('.map-key').boundingBox()).x);
+ assert((await page.locator('.map-key').boundingBox()).y-(await page.locator('.atlas-stage').boundingBox()).y<=22);
  assert.equal(await page.locator('.arrival-mist,.skip-arrival').count(),0,'the atlas never plays the homepage intro');
  assert((await page.locator('#snapshot-date').textContent()).includes('Charted'));
  await page.screenshot({path:'/tmp/easter-public-map-desktop.png'});
@@ -134,11 +140,11 @@ try{
  manifestGate.resolve();await page.locator('#map-status').filter({hasText:'Updating the chart'}).waitFor();
  assert.deepEqual(await sample(),originalPixel);tileGate.resolve();
  await page.locator('#map-status').filter({hasText:'keeping saved terrain'}).waitFor();assert.deepEqual(await sample(),originalPixel);
- failTile=false;await page.locator('#refresh').click();
+ failTile=false;await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
  for(let i=0;i<100;i++){if((await sample()).join(',')==='255,0,255,255')break;await page.waitForTimeout(25);}
  assert.deepEqual(await sample(),[255,0,255,255]);
  // A deployment serving mismatched bytes must retain the prior verified tile.
- manifest.tiles.find(r=>r.x===tile.x&&r.z===tile.z).version=hashes[1];await page.locator('#refresh').click();
+ manifest.tiles.find(r=>r.x===tile.x&&r.z===tile.z).version=hashes[1];await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
  await page.locator('#map-status').filter({hasText:'keeping saved terrain'}).waitFor();assert.deepEqual(await sample(),[255,0,255,255]);
  assert(requests.every(r=>r.method==='GET'));
  assert(!requests.some(r=>r.url.includes('/minecraft/')||r.url.includes('/api/')));
