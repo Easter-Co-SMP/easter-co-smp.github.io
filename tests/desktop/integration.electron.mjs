@@ -156,6 +156,8 @@ try {
   await page.screenshot({path:'/tmp/launcher-assist-map.png'});
   await page.getByRole('link',{name:'Home',exact:true}).click();
   await page.locator('[data-desktop-play][data-action=play]').waitFor();
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
   await page.screenshot({path:'/tmp/launcher-assist-ready.png'});
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'/tmp/launcher-assist-mobile.png'});
