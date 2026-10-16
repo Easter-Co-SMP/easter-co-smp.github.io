@@ -3,10 +3,10 @@ const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog}=require(
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{pathToFileURL}=require('node:url');
 const {MicrosoftAuth,DEFAULT_CLIENT_ID}=require('./auth.cjs');
 const {AccountClient,publicAccount,companySession,storedSession,companyVaultName}=require('./accounts.cjs');
-const {apiOrigin,defaultInstallLocation,ensureLocation,resolveLocation}=require('./config.cjs');
+const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation}=require('./config.cjs');
 const vault=require('./vault.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings}=require('./security.cjs');
-const {ORIGIN,atomicJSON,installClient,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
+const {atomicJSON,installClient,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
 const APP_VERSION=require('../package.json').version;
 app.setName('Easter Company');
 protocol.registerSchemesAsPrivileged([{scheme:'easter',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
@@ -270,7 +270,7 @@ async function resource(request){
   if(url.pathname.endsWith('/'))file=path.join(file,'index.html');
   if(/^\/data\/(?:world\.json|client\.json|tiles\/[-\d]+\/[-\d]+\.png)$/.test(url.pathname)){
    try{
-    const response=await net.fetch(new URL(url.pathname+url.search,ORIGIN).href,{cache:'no-cache',signal:AbortSignal.timeout(12000)});
+    const response=await net.fetch(new URL(url.pathname+url.search,clientOrigin()).href,{cache:'no-cache',signal:AbortSignal.timeout(12000)});
     if(response.ok)return new Response(response.body,{headers:{'Content-Type':response.headers.get('Content-Type')||'application/octet-stream','Content-Security-Policy':CSP}});
    }catch{}
   }

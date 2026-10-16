@@ -18,6 +18,20 @@ function apiOrigin(value=process.env.EASTER_API_BASE_URL){
  if(url.protocol!=='https:'&&!(url.protocol==='http:'&&LOOPBACK.has(url.hostname.toLowerCase())))throw Error('EASTER_API_BASE_URL must use HTTPS.');
  return url.href.replace(/\/+$/,'');
 }
+// Where the published client manifest, the chunk files we redistribute and the
+// relative paths inside them are served from. Same rule as the API origin: HTTPS
+// only, with a loopback exception so a test can run the real flow against a local
+// server. No real deployment can be pointed at plaintext through it.
+const DEFAULT_CLIENT_ORIGIN='https://easter-co-smp.github.io/';
+function clientOrigin(value=process.env.EASTER_CLIENT_ORIGIN){
+ const candidate=String(value||'').trim();
+ if(!candidate)return DEFAULT_CLIENT_ORIGIN;
+ let url;
+ try{url=new URL(candidate);}catch{throw Error('EASTER_CLIENT_ORIGIN must be an absolute HTTPS URL.');}
+ if(url.protocol!=='https:'&&!(url.protocol==='http:'&&LOOPBACK.has(url.hostname.toLowerCase())))throw Error('EASTER_CLIENT_ORIGIN must use HTTPS.');
+ if(url.username||url.password)throw Error('EASTER_CLIENT_ORIGIN must not carry credentials.');
+ return url.href.replace(/\/+$/,'')+'/';
+}
 // ---- client installation location -------------------------------------------
 // The client tree is app-owned by default. A player may point it at a folder of
 // their own, and that choice is persisted here. Everything that decides whether a
@@ -101,4 +115,4 @@ function resolveLocation(requested,{saved='',defaultLocation}={}){
  if(fallback&&resolved===fallback)return resolved;
  throw Error('Choose the installation folder with the folder picker.');
 }
-module.exports={apiOrigin,DEFAULT_API_ORIGIN,LOOPBACK,CLIENT_FOLDER,MARKER,FOREIGN_ENTRIES,defaultInstallLocation,cleanLaunchSettings,locationProblem,checkLocation,ensureLocation,resolveLocation};
+module.exports={apiOrigin,DEFAULT_API_ORIGIN,clientOrigin,DEFAULT_CLIENT_ORIGIN,LOOPBACK,CLIENT_FOLDER,MARKER,FOREIGN_ENTRIES,defaultInstallLocation,cleanLaunchSettings,locationProblem,checkLocation,ensureLocation,resolveLocation};

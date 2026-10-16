@@ -196,7 +196,7 @@ test('a paused transfer stops fetching bytes and resumes to the same verified fi
  }finally{await server.close();await fs.rm(dir,{recursive:true,force:true});}
 });
 
-test('a cancelled transfer stops, keeps the previous file and leaves no part file',async()=>{
+test('a cancelled transfer stops, keeps the previous file and keeps the partial data for a resume',async()=>{
  const payload=crypto.randomBytes(256*1024);
  const server=await slowServer(payload);
  const dir=await tempDir('easter-cancel-');
@@ -211,7 +211,9 @@ test('a cancelled transfer stops, keeps the previous file and leaves no part fil
   control.cancel();
   await assert.rejects(download,error=>error.name==='CancelledError');
   assert.equal(await fs.readFile(file,'utf8'),'previous','a cancelled download replaces nothing');
-  assert.deepEqual(await fs.readdir(dir),['client.jar']);
+  const entries=await fs.readdir(dir);
+  assert(entries.includes('client.jar.part'),'the bytes already fetched are kept so the file can resume: '+JSON.stringify(entries));
+  assert((await fs.stat(path.join(dir,'client.jar.part'))).size>0,'the partial data is not empty');
  }finally{await server.close();await fs.rm(dir,{recursive:true,force:true});}
 });
 
