@@ -53,6 +53,15 @@ its own app.asar; scripts/verify_app_bundle.py gates that before publishing.
 Authentication matches /opt/minecraft/launch/mc-auth.py, including its inherited Prism
 public-client registration. EASTER_MICROSOFT_CLIENT_ID overrides it. Never borrow existing
 users' saved tokens. Save sessions only with OS-backed safeStorage; basic_text is refused.
-Use a dedicated app-owned Minecraft directory and checksum-verified upstream downloads.
-Never change the existing drun shortcut, installed clients, server or world as part of launcher work.
+Use a dedicated app-owned Minecraft directory as the default, offer the player a different
+installation location, and keep checksum-verified upstream downloads. Never write into an existing
+.minecraft, another launcher's files, the server or the world.
+Installing the launcher adds a launcher shortcut for all users of the machine, with an optional
+toggle offered at install time. An installed game gets no system shortcut of its own: the client is
+started from the launcher. Leave the existing drun shortcut and installed clients alone as part of
+launcher work.
+First run promotes downloading the client, and Play is gated on both a fully installed client and a
+connected account; neither alone is enough. A sticky, minimisable progress bar carries pause,
+resume, speed and percentage across every page. doc/launcher-states.md holds the frozen state
+contract between the main process and the shared UI; change it before changing either side.
 Real platform installers are published as GitHub Release assets. No source download option.
