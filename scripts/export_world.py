@@ -7,9 +7,13 @@ import hashlib
 import importlib
 import json
 import math
+import os
 from pathlib import Path
+import re
 import shutil
 import sys
+import urllib.parse
+import urllib.request
 import zipfile
 from zoneinfo import ZoneInfo
 
@@ -42,9 +46,104 @@ DEPENDENCIES = {
 }
 
 
+#: The pinned Fabric loader, which must equal the one desktop/install.cjs launches. It is
+#: read from that file at export time rather than copied, so the manifest cannot claim a
+#: loader the launcher does not install. The built-in value is only a substitute for a
+#: checkout that genuinely has no launcher source to read -- never an answer for one that
+#: does, because a silently-stale pin here is the same bug as a stale bundle, one layer down.
+FABRIC_FALLBACK = '0.19.5'
+INSTALL_RELEASE = 'desktop/install.cjs'
+#: The Java major version MC 26.2 requires, matching desktop/install.cjs's fallback. The
+#: exporter cannot read Mojang's catalogue, so it publishes our pin, not a guess at theirs.
+JAVA_MAJOR = 25
+
+#: The one manifest field added alongside the flat fields: the chunk list. Every other key
+#: keeps its former meaning and value, because the launcher already installed on a machine
+#: reads the flat ones.
+MANIFEST_KEYS = ('minecraft', 'mod', 'dependencies', 'fabric', 'chunks')
+
+MODRINTH_API = 'https://api.modrinth.com/v2/project/'
+MODRINTH_CDN_HOST = 'cdn.modrinth.com'
+#: The same identification the shipped launcher sends, so the publisher sees one client.
+MODRINTH_AGENT = 'EasterCompanyLauncher/1.0 (easter-co-smp.github.io)'
+_FABRIC_PATTERN = r"const FABRIC='([0-9][0-9A-Za-z.+-]*)'"
+
+
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + '\n')
+
+
+def manifest_text(value):
+    """The one canonical serialisation of a manifest object. Used for JSON and for hashes."""
+    return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + '\n'
+
+
+def chunk_version(chunk):
+    """A chunk's version is the digest of everything it contains, so it changes only on change.
+
+    The launcher compares this string against the installed marker: an equal version means
+    the chunk is already installed and is neither re-downloaded nor re-hashed.
+    """
+    return 'sha256:' + hashlib.sha256(manifest_text(chunk['files']).encode()).hexdigest()
+
+
+def declared_fabric(install):
+    """The Fabric loader the shipped launcher launches, read from its own source.
+
+    Three outcomes, deliberately kept distinct:
+
+    - the launcher source is there and declares a pin -> that pin;
+    - the launcher source is there but the pin cannot be read from it -> refuse, because
+      publishing a remembered 0.19.5 while the launcher installs something else is exactly
+      the drift the chunk list exists to catch;
+    - there is no launcher source to read at all (an isolated export fixture) -> the
+      built-in pin, said out loud rather than assumed.
+    """
+    install = Path(install)
+    if not install.exists():
+        print(f'Launcher source {install.name} is absent; fabric falls back to the built-in '
+              f'pin {FABRIC_FALLBACK}', flush=True)
+        return FABRIC_FALLBACK
+    match = re.search(_FABRIC_PATTERN, install.read_text())
+    if not match:
+        raise RuntimeError(f'The Fabric pin could not be read from {install.name}; refusing to '
+                           f'guess a loader the launcher may not install')
+    return match.group(1)
+
+
+def resolved_pins(root, dependencies):
+    """The pins the base chunk carries: the Minecraft version, the loader and the Java major.
+
+    The Fabric pin is read from the shipped launcher's own source, so the manifest cannot
+    claim a loader that launcher does not install. A launcher source that cannot be read is
+    an error, not a fallback.
+    """
+    return {'minecraft': dependencies['minecraft'],
+            'fabric': declared_fabric(Path(root) / INSTALL_RELEASE), 'java': JAVA_MAJOR}
+
+
+def packages(mod, dependencies, pins):
+    """The published chunk list: the frozen base chunk, and nothing else today.
+
+    There is deliberately no graphics chunk. Owen has not chosen the shader stack, so there
+    is no correct upstream file to describe yet; publishing one with invented contents would
+    claim a payload that does not exist. An optional chunk that is switched off is simply
+    absent, and its absence must not invalidate the base chunk.
+    """
+    return [{
+        'id': 'base',
+        'name': 'Minecraft ' + pins['minecraft'] + ' game, libraries and required mods',
+        'optional': False,
+        'immutable': True,
+        # The pinned Minecraft version IS the base chunk's version: it never changes for this
+        # server, which is what lets the launcher trust an already installed copy.
+        'version': pins['minecraft'],
+        'fabric': pins['fabric'],
+        'java': pins['java'],
+        'files': sorted([{**mod, 'id': 'easter-navy', 'name': mod['name']}] + list(dependencies['mods']),
+                        key=lambda entry: entry['path']),
+    }]
 
 
 def public_marker_kind(row):
@@ -112,8 +211,125 @@ def public_regions(doc):
     return result
 
 
-def export_client(destination, download_module):
-    """Only our custom mod is redistributed. Dependencies link to their publishers."""
+def parse_modrinth_files(versions, ident, version, minecraft):
+    """The one published file for a pinned project version, in the launcher's own terms.
+
+    The same rule desktop/install.cjs resolveMod applies: a version of the project that
+    lists our Minecraft version and the fabric loader, and whose primary file is served
+    from cdn.modrinth.com with a sha512 hash. A project that publishes no such file is
+    refused rather than described with a hash the upstream does not publish.
+    """
+    if not isinstance(versions, list):
+        raise ValueError(f'Modrinth returned no version list for {ident}')
+    for release in versions:
+        versions_listed = release.get('game_versions') or []
+        loaders = release.get('loaders') or []
+        files = release.get('files') or []
+        matches = (release.get('version_number') == version
+                   or any(version in (f.get('filename') or '') for f in files))
+        if not (minecraft in versions_listed and 'fabric' in loaders and matches):
+            continue
+        file = next((f for f in files if f.get('primary')), files[0] if files else None)
+        digest = (file or {}).get('hashes', {}).get('sha512')
+        if not file or not re.fullmatch('[a-f0-9]{128}', str(digest)):
+            raise ValueError(f'The pinned {ident} {version} has no sha512 from its publisher')
+        if urllib.parse.urlsplit(file.get('url', '')).hostname != MODRINTH_CDN_HOST:
+            raise ValueError(f'The pinned {ident} {version} is not served by {MODRINTH_CDN_HOST}')
+        if type(file.get('size')) is not int or file['size'] <= 0:
+            raise ValueError(f'The pinned {ident} {version} publishes no file size')
+        return {'name': (file.get('filename') or ident + '.jar').rsplit('/', 1)[-1], 'url': file['url'],
+                'hash': 'sha512:' + digest, 'size': file['size']}
+    raise ValueError(f'The pinned {ident} {version} is unavailable for Minecraft {minecraft} and fabric')
+
+
+def fetch_modrinth_versions(ident, minecraft, timeout=45):
+    """One GET against the publisher's JSON API. Only the project id and pins reach the URL."""
+    if not re.fullmatch('[a-z0-9-]{1,80}', ident):
+        raise ValueError('Invalid Modrinth project id')
+    query = urllib.parse.urlencode({'loaders': json.dumps(['fabric']),
+                                    'game_versions': json.dumps([minecraft])})
+    request = urllib.request.Request(MODRINTH_API + urllib.parse.quote(ident) + '/version?' + query,
+                                     headers={'Accept': 'application/json', 'User-Agent': MODRINTH_AGENT})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode('utf-8'))
+
+
+def read_resolution_state(path):
+    """A cached resolution, shaped {entries: {...}, checked: {...}}, or {} when unusable.
+
+    The cache only saves network round trips. Each entry records the pinned version it was
+    resolved for, and an entry is reused only while that version still matches, so a stale
+    cache can never disagree with what the export is about to publish.
+    """
+    try:
+        stored = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return {}
+    if isinstance(stored, dict) and isinstance(stored.get('entries'), dict):
+        return stored
+    return {'entries': stored, 'checked': {}} if isinstance(stored, dict) else {}
+
+
+def resolve_dependencies(resolver, dependencies, minecraft, state, now=None):
+    """The published file behind each pinned dependency, resolved once and remembered.
+
+    A dependency whose file cannot be confirmed fails the export. Omitting it would either
+    contradict the flat dependency list or publish an incomplete frozen base chunk, and
+    publishing an unverified URL is worse than not publishing.
+    """
+    entries = dict(state.get('entries') or {})
+    checked = dict(state.get('checked') or {})
+    today = (now or datetime.now(timezone.utc)).date()
+    wanted = [(ident, entry['version']) for ident, entry in dependencies.items()
+              if entry['version'] != entries.get(ident, {}).get('version')]
+    entries.update(resolver(entries, wanted, minecraft) if (wanted and resolver is not None) else {})
+    for ident, _ in wanted:
+        checked[ident] = today.isoformat()
+    state['entries'], state['checked'] = entries, checked
+    missing = [ident for ident, entry in dependencies.items()
+               if entries.get(ident, {}).get('version') != entry['version']]
+    if missing:
+        raise RuntimeError('No verified upstream file for ' + ', '.join(sorted(missing))
+                           + '; refusing to publish an unverifiable base chunk')
+    return [{'id': ident, 'name': entry['name'], 'version': entry['version'],
+             'path': entries[ident]['name'], 'url': entries[ident]['url'],
+             'hash': entries[ident]['hash'], 'size': entries[ident]['size']}
+            for ident, entry in dependencies.items()]
+
+
+def modrinth_resolver(fetch=fetch_modrinth_versions):
+    """Resolve only the dependencies handed to it; everything else is reused from the cache."""
+    def resolve(entries, wanted, minecraft):
+        resolved, failures = {}, []
+        for ident, version in wanted:
+            try:
+                resolved[ident] = {'version': version, 'fetched_at': datetime.now(timezone.utc).isoformat(),
+                                   **parse_modrinth_files(fetch(ident, minecraft), ident, version, minecraft)}
+            except Exception as error:  # one dependency's failure must not hide the others
+                failures.append(f'{ident} {version}: {error}')
+        if failures:
+            raise RuntimeError('Modrinth could not confirm ' + '; '.join(failures))
+        return resolved
+
+    return resolve
+
+
+def default_resolution_state():
+    """Resolution state is runtime state: it lives outside the repository, never in site/."""
+    override = os.environ.get('EASTER_MANIFEST_STATE')
+    if override:
+        return Path(override) / 'modrinth.json'
+    base = Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state')
+    return base / 'easter-co-pages/modrinth.json'
+
+
+def export_client(destination, download_module, resolver=None, now=None, state_path=None):
+    """Publish the additive client manifest: the flat fields, plus the chunk list.
+
+    The flat fields keep their exact former meaning and values so a launcher built before
+    chunks keeps working. The chunk list is a second, consistent description of the same
+    client, and validate.py refuses the pair when they disagree.
+    """
     mods = {}
     for path in download_module._mods():
         with zipfile.ZipFile(path) as jar:
@@ -131,14 +347,39 @@ def export_client(destination, download_module):
     if hashlib.sha256(custom.read_bytes()).hexdigest() != digest:
         raise RuntimeError('Custom mod changed during export; retry')
     minecraft = download_module.facts.stack().split(' · ', 1)[0].removeprefix('MC ')
+    # A resolved entry is only reused when it is still pinned to the same version, so the
+    # cache can never outvote the publisher's own answer.
+    state_path = Path(state_path) if state_path else default_resolution_state()
+    resolution = read_resolution_state(state_path)
+    mod_entries = {}
+    for ident in DEPENDENCIES:
+        name, version = mods[ident][1]['name'], mods[ident][1]['version']
+        mod_entries[ident] = {'name': name, 'version': version}
+    pins = resolved_pins(Path(__file__).resolve().parents[1], {'minecraft': minecraft})
+    if resolver is None:
+        resolver = modrinth_resolver()
+    files = resolve_dependencies(resolver, mod_entries, minecraft, resolution, now=now)
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(manifest_text(resolution))
+    size = target.stat().st_size  # the copied jar's own size, never a local path
+    custom_file = {'name': meta['name'], 'version': meta['version'], 'path': 'downloads/easter-navy.jar',
+                   'url': 'downloads/easter-navy.jar', 'hash': 'sha256:' + digest, 'size': size}
     client = {
         'minecraft': minecraft,
+        'fabric': pins['fabric'],
         'mod': {'name': meta['name'], 'version': meta['version'], 'sha256': digest,
-                'bytes': target.stat().st_size, 'url': 'downloads/easter-navy.jar'},
-        'dependencies': [{'id': ident, 'name': mods[ident][1]['name'], 'version': mods[ident][1]['version'], 'url': url}
-                         for ident, url in DEPENDENCIES.items()],
+                'bytes': size, 'url': 'downloads/easter-navy.jar'},
+        'dependencies': [{'id': ident, 'name': entry['name'], 'version': entry['version'],
+                          'url': DEPENDENCIES[ident]} for ident, entry in mod_entries.items()],
+        'chunks': packages(custom_file, {'mods': files}, pins),
     }
+    # Nothing local, private or absolute may reach the public manifest.
+    for chunk in client['chunks']:
+        for entry in chunk['files']:
+            if entry['path'].startswith('/') or ':' in entry['path'] or '\\' in entry['path']:
+                raise RuntimeError('Refusing to publish a non-relative file path')
     write_json(destination / 'data/client.json', client)
+    return client
 
 
 def export_snapshot(destination, source_root=Path('/root/e-server'), now=None, previous_day=None):

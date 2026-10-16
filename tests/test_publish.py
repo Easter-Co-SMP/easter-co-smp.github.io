@@ -7,18 +7,69 @@ import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest import mock
 import zipfile
 
-from scripts.export_world import (PUBLIC_MARKER_KINDS, public_marker, public_marker_kind,
-                                  write_json, export_client, DEPENDENCIES, ZONE)
+from scripts.export_world import (FABRIC_FALLBACK, MANIFEST_KEYS, PUBLIC_MARKER_KINDS, chunk_version,
+                                  declared_fabric, export_client, fetch_modrinth_versions, manifest_text,
+                                  modrinth_resolver, packages, parse_modrinth_files, public_marker,
+                                  public_marker_kind, read_resolution_state, resolve_dependencies,
+                                  resolved_pins, write_json, DEPENDENCIES, ZONE)
 from scripts.sync import publish
 from scripts.validate import validate_data, MARKER_KEYS
 
 PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=')
 NOW = datetime(2026, 10, 15, 14, tzinfo=timezone.utc)
+SHA512 = 'ab' * 64
 
 
-def fixture_export(root, source=None, now=NOW, previous_day=None, markers=None):
+def modrinth_release(ident, version, minecraft='26.2', loaders=('fabric',), digest=SHA512, size=1024,
+                     primary=True, filename=None, url=None, host='cdn.modrinth.com'):
+    """One fixture version record, shaped exactly as the publisher's API returns it."""
+    filename = filename or f'{ident}-{version}.jar'
+    return {'version_number': version, 'game_versions': [minecraft], 'loaders': list(loaders),
+            'files': [{'primary': primary, 'filename': filename, 'size': size,
+                       'url': url or f'https://{host}/data/AAAA/versions/BBBB/{filename}',
+                       'hashes': {'sha512': digest, 'sha1': 'c' * 40}}]}
+
+
+def fixture_resolver(dependencies, releases=None, calls=None):
+    """A resolver that answers from fixtures, so tests never touch the publisher's network.
+
+    It reports a dependency it cannot answer for the way the real resolver does: the whole
+    resolution fails, naming the dependency, rather than quietly dropping it.
+    """
+    def resolve(entries, wanted, minecraft):
+        resolved, failures = {}, []
+        for ident, version in wanted:
+            if calls is not None:
+                calls.append(ident)
+            try:
+                if releases is not None and ident in releases:
+                    resolved[ident] = {'version': version, 'fetched_at': NOW.isoformat(),
+                                       **parse_modrinth_files(releases[ident], ident, version, minecraft)}
+                else:
+                    resolved[ident] = {'version': version, 'fetched_at': NOW.isoformat(),
+                                       'name': f'{ident}-{version}.jar', 'size': 1024,
+                                       'url': f'https://cdn.modrinth.com/data/{ident}/{version}/{ident}-{version}.jar',
+                                       'hash': 'sha512:' + SHA512}
+            except ValueError as error:
+                failures.append(f'{ident} {version}: {error}')
+        if failures:
+            raise RuntimeError('Modrinth could not confirm ' + '; '.join(failures))
+        return resolved
+    return resolve
+
+
+def fixture_mod_jar(root, ident='easter-navy'):
+    """The one local jar the exporter redistributes, staged where the exporter expects it."""
+    target = Path(root) / f'downloads/{ident}.jar'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b'own-mod-fixture')
+    return target
+
+
+def fixture_export(root, source=None, now=NOW, previous_day=None, markers=None, client=None):
     root = Path(root)
     path = root / 'data/tiles/0/0.png'
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -31,12 +82,48 @@ def fixture_export(root, source=None, now=NOW, previous_day=None, markers=None):
         'tiles': [{'x': 0, 'z': 0, 'version': hashlib.sha256(PNG).hexdigest()}],
         'regions': [], 'markers': list(markers or []), 'unlocated_markers': 0, 'position_source': 'Saved non-player records',
     })
-    target = root / 'downloads/easter-navy.jar'
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(b'own-mod-fixture')
-    write_json(root / 'data/client.json', {
+    target = fixture_mod_jar(root)
+    write_json(root / 'data/client.json', client if client is not None else {
         'minecraft': '26.2', 'mod': {'version': 'test', 'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}, 'dependencies': [],
     })
+
+
+def fixture_package_files(root, dependencies=None):
+    """The file entries a chunk list needs to describe the flat fixture client exactly."""
+    dependencies = DEPENDENCIES if dependencies is None else dependencies
+    target = fixture_mod_jar(root)
+    entries = [{'id': 'easter-navy', 'name': 'Easter Co. client', 'version': 'test',
+                'path': 'downloads/easter-navy.jar', 'url': 'downloads/easter-navy.jar',
+                'hash': 'sha256:' + hashlib.sha256(target.read_bytes()).hexdigest(),
+                'size': target.stat().st_size}]
+    for ident in dependencies:
+        entries.append({'id': ident, 'name': ident, 'version': '1.0.0', 'path': f'{ident}-1.0.0.jar',
+                        'url': f'https://cdn.modrinth.com/data/{ident}/1.0.0/{ident}-1.0.0.jar',
+                        'hash': 'sha512:' + SHA512, 'size': 2048})
+    return entries
+
+
+def chunked_client(root, chunks=None, dependencies=None):
+    """A flat manifest plus a consistent chunk list: the shape the exporter publishes."""
+    dependencies = DEPENDENCIES if dependencies is None else dependencies
+    files = fixture_package_files(root, dependencies)
+    chunks = chunks if chunks is not None else [{
+        'id': 'base', 'name': 'Minecraft 26.2 game, libraries and required mods', 'optional': False,
+        'immutable': True, 'version': '26.2', 'fabric': '0.19.5', 'java': 25,
+        'files': sorted(files, key=lambda entry: entry['path']),
+    }]
+    for chunk in chunks:
+        if chunk.get('id') == 'base' and 'version' not in chunk:
+            chunk['version'] = chunk_version(chunk)
+    mod = next(f for f in files if f['path'] == 'downloads/easter-navy.jar')
+    return {
+        'minecraft': '26.2', 'fabric': '0.19.5',
+        'mod': {'name': 'Easter Co. client', 'version': mod['version'], 'sha256': mod['hash'].split(':', 1)[1],
+                'bytes': mod['size'], 'url': mod['url']},
+        'dependencies': [{'id': ident, 'name': ident, 'version': '1.0.0',
+                          'url': DEPENDENCIES[ident]} for ident in dependencies],
+        'chunks': chunks,
+    }
 
 
 def run_git(root, *args):
@@ -148,7 +235,8 @@ class PrivacyTests(unittest.TestCase):
                     jar.writestr('fabric.mod.json', json.dumps({'id': ident, 'name': ident, 'version': '1', 'depends': {'minecraft': '>=26.2'}}))
                 paths.append(path)
             target = root / 'public'
-            export_client(target, SimpleNamespace(_mods=lambda: paths, facts=SimpleNamespace(stack=lambda: 'MC 26.2 · Fabric 0.19.5')))
+            export_client(target, SimpleNamespace(_mods=lambda: paths, facts=SimpleNamespace(stack=lambda: 'MC 26.2 · Fabric 0.19.5')),
+                          resolver=fixture_resolver(DEPENDENCIES), state_path=root / 'state/modrinth.json')
             client = json.loads((target / 'data/client.json').read_text())
             self.assertEqual(client['minecraft'], '26.2')
             self.assertEqual([p.name for p in (target / 'downloads').iterdir()], ['easter-navy.jar'])
@@ -184,6 +272,449 @@ class PrivacyTests(unittest.TestCase):
             (root / 'data/tiles/0/0.png').write_bytes(PNG + b'changed')
             with self.assertRaises(AssertionError):
                 validate_data(root)
+
+
+class ClientChunkTests(unittest.TestCase):
+    """The published chunk list, which must agree with the flat fields an old launcher reads."""
+
+    def staged(self, root, client):
+        """Stage a complete public payload whose client manifest is the one under test."""
+        fixture_export(root, client=client)
+        return validate_data(root)
+
+    def chunked(self, root, chunks=None, dependencies=None):
+        return chunked_client(root, chunks=chunks, dependencies=dependencies)
+
+    def test_a_chunked_manifest_is_accepted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            world = self.staged(root, self.chunked(root))
+            self.assertEqual(len(world['tiles']), 1)
+            client = json.loads((root / 'data/client.json').read_text())
+            base = client['chunks'][0]
+            self.assertEqual(base['id'], 'base')
+            self.assertFalse(base['optional'])
+            self.assertTrue(base['immutable'])
+            self.assertEqual(base['version'], client['minecraft'])
+            self.assertEqual(base['fabric'], client['fabric'])
+            self.assertTrue(base['files'])
+
+    def test_the_flat_fields_still_validate_without_a_chunk_list(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            fixture_export(root)
+            client = json.loads((root / 'data/client.json').read_text())
+            self.assertEqual(set(client), {'minecraft', 'mod', 'dependencies'})
+            validate_data(root)  # an unchanged pre-change manifest stays publishable
+
+    def test_the_flat_fields_keep_their_meaning_and_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            client = self.chunked(root)
+            self.staged(root, client)
+            published = json.loads((root / 'data/client.json').read_text())
+            self.assertEqual(set(published) - {'chunks', 'fabric'}, {'minecraft', 'mod', 'dependencies'})
+            self.assertEqual(published['minecraft'], '26.2')
+            self.assertEqual(published['mod']['url'], 'downloads/easter-navy.jar')
+            self.assertEqual(published['mod']['sha256'], client['mod']['sha256'])
+            self.assertEqual([d['id'] for d in published['dependencies']], list(DEPENDENCIES))
+            self.assertTrue(all(d['url'].startswith('https://modrinth.com/') for d in published['dependencies']))
+            base = published['chunks'][0]
+            self.assertEqual(set(base) - {'id', 'name', 'optional', 'immutable', 'version', 'files'},
+                             {'fabric', 'java'})
+            for entry in base['files']:
+                self.assertEqual(set(entry), {'id', 'name', 'version', 'path', 'url', 'hash', 'size'})
+
+    def test_an_optional_chunk_is_allowed_and_a_required_one_must_have_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            graphics = {'id': 'graphics', 'name': 'Enhanced graphics and shaders', 'optional': True,
+                        'immutable': False, 'version': '26.2', 'fabric': None, 'java': None, 'files': [{
+                            'id': 'sodium', 'name': 'Sodium', 'version': '0.9.2', 'path': 'sodium-0.9.2.jar',
+                            'url': 'https://cdn.modrinth.com/data/AANobbMI/0.9.2/sodium.jar',
+                            'hash': 'sha512:' + SHA512, 'size': 100}]}
+            client = self.chunked(root, chunks=self.chunked(root)['chunks'] + [graphics])
+            self.staged(root, client)
+            self.assertEqual(len(client['chunks']), 2)
+            empty = dict(graphics, files=[])
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                fixture_export(root, client=self.chunked(root, chunks=self.chunked(root)['chunks'] + [empty]))
+                with self.assertRaises(AssertionError):
+                    validate_data(root)
+
+    def test_the_base_chunk_is_frozen_to_the_manifest_minecraft_version(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            base = self.chunked(root)['chunks'][0]
+            self.assertEqual(base['version'], '26.2')
+            self.assertNotEqual(chunk_version(dict(base, files=[])), chunk_version(base))
+            fixture_export(root, client=self.chunked(root))  # the consistent pair is accepted
+            validate_data(root)
+            broken = self.chunked(root)
+            broken['chunks'][0]['version'] = '26.3'
+            fixture_export(root, client=broken)
+            with self.assertRaises(AssertionError) as caught:
+                validate_data(root)
+            self.assertIn('differs from the manifest Minecraft version', str(caught.exception))
+
+    def test_a_chunk_list_that_disagrees_with_the_flat_fields_is_refused(self):
+        def missing_id(client):
+            client['chunks'][0]['id'] = ''
+            return client
+
+        def duplicated_id(client):
+            client['chunks'].append(json.loads(json.dumps(client['chunks'][0])))
+            return client
+
+        def not_a_boolean(client):
+            client['chunks'][0]['optional'] = 'false'
+            return client
+
+        def immutable_not_a_boolean(client):
+            client['chunks'][0]['immutable'] = 1
+            return client
+
+        def base_marked_optional(client):
+            client['chunks'][0]['optional'] = True
+            return client
+
+        def forged_hash(client):
+            client['chunks'][0]['files'][0]['hash'] = 'md5:abc'
+            return client
+
+        def shortened_hash(client):
+            client['chunks'][0]['files'][0]['hash'] = 'sha256:abc'
+            return client
+
+        def no_size(client):
+            client['chunks'][0]['files'][0].pop('size')
+            return client
+
+        def zero_size(client):
+            client['chunks'][0]['files'][0]['size'] = 0
+            return client
+
+        def missing_file(client):
+            client['chunks'][0]['files'].pop()
+            return client
+
+        def insecure_url(client):
+            client['chunks'][0]['files'][1]['url'] = 'http://cdn.modrinth.com/data/x.jar'
+            return client
+
+        def foreign_url(client):
+            client['chunks'][0]['files'][1]['url'] = 'file:///root/mods/x.jar'
+            return client
+
+        def absolute_path(client):
+            client['chunks'][0]['files'][1]['path'] = '/root/.minecraft/mods/x.jar'
+            return client
+
+        def private_detail(client):
+            client['chunks'][0]['name'] = 'base for /home/hannah'
+            return client
+
+        def mod_hash_disagrees(client):
+            client['mod']['sha256'] = 'f' * 64
+            return client
+
+        def dependency_version_disagrees(client):
+            client['dependencies'][0]['version'] = '9.9.9'
+            return client
+
+        def dependency_missing_from_chunks(client):
+            client['chunks'][0]['files'] = [e for e in client['chunks'][0]['files'] if e['id'] != 'tectonic']
+            return client
+
+        def required_chunk_not_immutable(client):
+            extra = {'id': 'extra', 'name': 'Extra required content', 'optional': False, 'immutable': False,
+                     'version': '26.2', 'fabric': None, 'java': None,
+                     'files': [{'id': 'extra', 'name': 'Extra', 'version': '1', 'path': 'extra.jar',
+                                'url': 'https://cdn.modrinth.com/data/x/1/extra.jar',
+                                'hash': 'sha512:' + SHA512, 'size': 5}]}
+            client['chunks'].append(extra)
+            return client
+
+        def empty_chunk_list(client):
+            client['chunks'] = []
+            return client
+
+        def chunk_list_not_a_list(client):
+            client['chunks'] = {'base': {}}
+            return client
+
+        def unknown_field(client):
+            client['chunks'][0]['owner'] = 'owen'
+            return client
+
+        refusals = {name: value for name, value in locals().items() if callable(value) and name != 'self'}
+        self.assertEqual(len(refusals), 21)
+        for name, mutate in sorted(refusals.items()):
+            with self.subTest(refusal=name):
+                with tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    fixture_export(root, client=mutate(self.chunked(root)))
+                    with self.assertRaises(AssertionError):
+                        validate_data(root)
+
+    def test_a_manifest_claiming_a_fabric_pin_without_chunks_is_refused(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            client = self.chunked(root)
+            del client['chunks']
+            fixture_export(root, client=client)
+            with self.assertRaises(AssertionError):
+                validate_data(root)
+
+    def test_validation_refuses_private_paths_or_player_detail_in_the_chunk_list(self):
+        for path in ('/root/client.jar', '/home/owen/client.jar', 'C:\\mods\\x.jar'):
+            with self.subTest(path=path):
+                with tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    client = self.chunked(root)
+                    client['chunks'][0]['files'][0]['path'] = path
+                    fixture_export(root, client=client)
+                    with self.assertRaises(AssertionError):
+                        validate_data(root)
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            client = self.chunked(root)
+            client['chunks'][0]['name'] = 'base for /home/hannah'
+            fixture_export(root, client=client)
+            with self.assertRaises(AssertionError):
+                validate_data(root)
+
+
+class ClientExportTests(unittest.TestCase):
+    """The exporter publishes the chunks, stays deterministic, and invents no checksums."""
+
+    def build(self, root, resolver=None, calls=None, state_path=None):
+        paths = []
+        for ident in ['easter-navy', *DEPENDENCIES]:
+            path = root / (ident + '.jar')
+            with zipfile.ZipFile(path, 'w') as jar:
+                jar.writestr('fabric.mod.json', json.dumps({'id': ident, 'name': ident, 'version': '1.0.0'}))
+            paths.append(path)
+        module = SimpleNamespace(_mods=lambda: paths, facts=SimpleNamespace(stack=lambda: 'MC 26.2 · Fabric 0.19.5'))
+        return export_client(root / 'public', module,
+                             resolver=resolver if resolver is not None else fixture_resolver(DEPENDENCIES, calls=calls),
+                             now=NOW, state_path=state_path if state_path else root / 'state/modrinth.json')
+
+    def test_the_export_is_additive_and_deterministic(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            client = self.build(root)
+            first = (root / 'public/data/client.json').read_bytes()
+            self.build(root)
+            self.assertEqual(first, (root / 'public/data/client.json').read_bytes())
+            published = json.loads(first)
+            self.assertEqual(set(published) <= set(MANIFEST_KEYS), True)
+            self.assertEqual(published['minecraft'], '26.2')
+            self.assertEqual(published['fabric'], '0.19.5')
+            self.assertEqual(published['mod']['url'], 'downloads/easter-navy.jar')
+            self.assertEqual([d['id'] for d in published['dependencies']], list(DEPENDENCIES))
+            base = published['chunks'][0]
+            self.assertEqual(base['version'], '26.2')
+            self.assertFalse(base['optional'])
+            self.assertTrue(base['immutable'])
+            self.assertEqual(sorted(f['path'] for f in base['files'])[0], 'downloads/easter-navy.jar')
+            self.assertEqual(len(base['files']), len(DEPENDENCIES) + 1)
+            self.assertEqual(client, published)
+
+    def test_the_published_base_chunk_matches_the_flat_fields(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            published = self.build(root)
+            target = root / 'public/downloads/easter-navy.jar'
+            by_path = {entry['url']: entry for entry in published['chunks'][0]['files']}
+            mod = by_path['downloads/easter-navy.jar']
+            self.assertEqual(mod['hash'], 'sha256:' + published['mod']['sha256'])
+            self.assertEqual(mod['size'], target.stat().st_size)
+            self.assertEqual(mod['version'], published['mod']['version'])
+            for dependency in published['dependencies']:
+                entry = by_path[f"https://cdn.modrinth.com/data/{dependency['id']}/1.0.0/{dependency['id']}-1.0.0.jar"]
+                self.assertEqual(entry['hash'], 'sha512:' + SHA512)
+                self.assertEqual(entry['version'], dependency['version'])
+
+    def test_an_unresolvable_dependency_fails_the_export_rather_than_omitting_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            # The pin exists on the project, but not for our Minecraft version and loader.
+            failures = {'tectonic': [modrinth_release('tectonic', '1.0.0', minecraft='1.21.1', loaders=('forge',))]}
+            with self.assertRaises(RuntimeError) as caught:
+                self.build(root, resolver=fixture_resolver(DEPENDENCIES, releases=failures))
+            self.assertIn('tectonic', str(caught.exception))
+            self.assertIn('could not confirm', str(caught.exception))
+            self.assertFalse((root / 'public/data/client.json').exists())
+
+    def test_the_publisher_s_own_answers_are_required_for_every_file_entry(self):
+        # A file that claims a checksum the upstream does not publish is refused.
+        for release in (modrinth_release('tectonic', '3.0.28', digest='nothex'),
+                        modrinth_release('tectonic', '3.0.28', url='https://example.invalid/x.jar'),
+                        modrinth_release('tectonic', '3.0.28', loaders=('forge',))):
+            with self.subTest(release=release['loaders']):
+                with self.assertRaises(ValueError):
+                    parse_modrinth_files([release], 'tectonic', '3.0.28', '26.2')
+        parsed = parse_modrinth_files([modrinth_release('tectonic', '3.0.28')], 'tectonic', '3.0.28', '26.2')
+        self.assertEqual(parsed['hash'], 'sha512:' + SHA512)
+        self.assertEqual(parsed['name'], 'tectonic-3.0.28.jar')
+
+    def test_the_primary_file_and_the_launcher_s_version_match_rule_are_used(self):
+        secondary = modrinth_release('x', '1.0.0', primary=False)
+        secondary['files'].append({**secondary['files'][0], 'primary': True, 'filename': 'x-1.0.0-primary.jar'})
+        parsed = parse_modrinth_files([secondary], 'x', '1.0.0', '26.2')
+        self.assertEqual(parsed['name'], 'x-1.0.0-primary.jar')
+        # The launcher also accepts a version whose filename carries the pin, as lithostitched does.
+        parsed = parse_modrinth_files([modrinth_release('lithostitched', '1.8.0-fabric-26.2')],
+                                      'lithostitched', '1.8.0', '26.2')
+        self.assertEqual(parsed['name'], 'lithostitched-1.8.0-fabric-26.2.jar')
+        with self.assertRaises(ValueError):
+            parse_modrinth_files([modrinth_release('tectonic', '3.0.28', minecraft='1.21.1')],
+                                 'tectonic', '3.0.28', '26.2')
+
+    def test_resolution_is_cached_and_re_resolved_only_when_the_pin_changes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            state = root / 'state/modrinth.json'
+            calls = []
+            self.build(root, calls=calls)
+            self.assertEqual(sorted(calls), sorted(DEPENDENCIES))
+            cached = read_resolution_state(state)
+            self.assertEqual(set(cached['entries']), set(DEPENDENCIES))
+            self.assertEqual(set(cached['checked']), set(DEPENDENCIES))
+            self.assertTrue(all(entry['version'] == '1.0.0' for entry in cached['entries'].values()))
+            # A second export reuses the cache: no publisher call, and the same manifest.
+            first = (root / 'public/data/client.json').read_bytes()
+            calls.clear()
+            self.build(root, calls=calls)
+            self.assertEqual(calls, [])
+            self.assertEqual(first, (root / 'public/data/client.json').read_bytes())
+            # A changed pin is resolved again instead of reusing the old answer.
+            state.write_text(manifest_text({'entries': dict(cached['entries'], tectonic={'version': '0.0.1'})}))
+            calls.clear()
+            self.build(root, calls=calls)
+            self.assertEqual(calls, ['tectonic'])
+
+    def test_resolution_state_lives_outside_the_published_site(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.build(root)
+            published = [p for p in (root / 'public').rglob('*') if p.is_file()]
+            self.assertEqual([p.name for p in published if p.name != 'client.json' and p.suffix == '.json'], [])
+            self.assertFalse((root / 'public/data/modrinth.json').exists())
+            client = json.loads((root / 'public/data/client.json').read_text())
+            self.assertEqual([k for k in client if k.startswith('fetched')], [])
+
+    def test_only_the_project_id_and_pins_reach_the_publisher(self):
+        captured = {}
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return b'[]'
+
+        def opener(request, timeout=None):
+            captured['url'] = request.full_url
+            captured['agent'] = request.get_header('User-agent')
+            return Response()
+
+        with mock.patch('urllib.request.urlopen', opener):
+            fetch_modrinth_versions('fabric-api', '26.2')
+        self.assertEqual(captured['url'],
+                         'https://api.modrinth.com/v2/project/fabric-api/version'
+                         '?loaders=%5B%22fabric%22%5D&game_versions=%5B%2226.2%22%5D')
+        self.assertEqual(captured['agent'], 'EasterCompanyLauncher/1.0 (easter-co-smp.github.io)')
+
+    def test_the_resolver_publishes_no_chunk_it_cannot_verify(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            state = {}
+            with self.assertRaises(RuntimeError) as caught:
+                resolve_dependencies(None, {'tectonic': {'name': 'Tectonic', 'version': '3.0.28'}},
+                                     '26.2', state, now=NOW)
+            self.assertIn('unverifiable base chunk', str(caught.exception))
+            self.assertFalse(state.get('entries'))
+            with self.assertRaises(RuntimeError):
+                modrinth_resolver(fetch=lambda ident, minecraft: [])({}, [('tectonic', '3.0.28')], '26.2')
+            self.assertTrue(root.exists())
+
+    def test_a_launcher_source_without_a_readable_pin_fails_the_export(self):
+        """A remembered loader is the same bug as a stale bundle, so it must be loud."""
+        cases = {
+            'pin renamed': "const LOADER='0.19.5';\n",
+            'pin templated': 'const FABRIC=`${BASE}`;\n',
+            'file emptied': '',
+            'value not a version': "const FABRIC='latest';\n",
+            'declaration removed': "async function prepare(){const fabric=await installer.installFabric();}\n",
+        }
+        for label, source in cases.items():
+            with self.subTest(launcher=label):
+                with tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    (root / 'desktop').mkdir()
+                    (root / 'desktop/install.cjs').write_text(source)
+                    with self.assertRaises(RuntimeError) as caught:
+                        resolved_pins(root, {'minecraft': '26.2'})
+                    self.assertIn('could not be read', str(caught.exception))
+                    self.assertIn('refusing to guess', str(caught.exception))
+                    self.assertNotIn(FABRIC_FALLBACK, str(caught.exception))
+
+    def test_a_genuinely_absent_launcher_source_is_the_only_fallback(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with mock.patch('sys.stdout') as quiet:  # the fallback says so out loud
+                pins = resolved_pins(root, {'minecraft': '26.2'})
+            self.assertEqual(pins, {'minecraft': '26.2', 'fabric': FABRIC_FALLBACK, 'java': 25})
+            self.assertIn('falls back to the built-in pin', quiet.write.call_args_list[0].args[0])
+            printed = ''.join(call.args[0] for call in quiet.write.call_args_list)
+            self.assertIn(FABRIC_FALLBACK, printed)
+        # And the pin really is read from the launcher source when there is one.
+        self.assertEqual(declared_fabric(Path('desktop/install.cjs')), '0.19.5')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'desktop').mkdir()
+            (root / 'desktop/install.cjs').write_text("const FABRIC='0.19.9';\n")
+            self.assertEqual(resolved_pins(root, {'minecraft': '26.2'})['fabric'], '0.19.9')
+
+    def test_the_exporter_refuses_a_non_relative_file_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            paths = []
+            for ident in ['easter-navy', *DEPENDENCIES]:
+                path = root / (ident + '.jar')
+                with zipfile.ZipFile(path, 'w') as jar:
+                    jar.writestr('fabric.mod.json', json.dumps({'id': ident, 'name': ident, 'version': '1.0.0'}))
+                paths.append(path)
+            module = SimpleNamespace(_mods=lambda: paths, facts=SimpleNamespace(stack=lambda: 'MC 26.2 · Fabric 0.19.5'))
+            honest = fixture_resolver(DEPENDENCIES)
+            resolved = []
+
+            def resolver(entries, wanted, minecraft):
+                resolved.extend(ident for ident, _ in wanted)
+                return honest(entries, wanted, minecraft)
+
+            # The exported path comes from the publisher's own file name, never from a local path.
+            client = export_client(root / 'public', module, resolver=resolver,
+                                   state_path=root / 'state/modrinth.json')
+            self.assertEqual(sorted(resolved), sorted(DEPENDENCIES))
+            for entry in client['chunks'][0]['files']:
+                self.assertFalse(entry['path'].startswith('/'))
+
+            def escaping(entries, wanted, minecraft):
+                return {ident: {'version': version, 'name': '/home/owen/' + ident + '.jar', 'size': 1,
+                                'url': 'https://cdn.modrinth.com/data/x/1/x.jar', 'hash': 'sha512:' + SHA512}
+                        for ident, version in wanted}
+
+            with self.assertRaises(RuntimeError) as caught:
+                export_client(root / 'public', module, resolver=escaping,
+                              state_path=root / 'state/other.json')
+            self.assertIn('non-relative file path', str(caught.exception))
 
 
 class RecoveryTests(unittest.TestCase):

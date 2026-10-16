@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, unquote
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.export_world import PUBLIC_MARKER_ICONS, PUBLIC_MARKER_KINDS
+from scripts.export_world import DEPENDENCIES, PUBLIC_MARKER_ICONS, PUBLIC_MARKER_KINDS
 
 #: 'kind' is a public marker category, never a row type or a player faction. A payload
 #: carrying 'faction' is refused outright rather than rewritten. Older snapshots in the
@@ -24,6 +24,123 @@ WORLD_KEYS = {'schema', 'captured_at', 'snapshot_day', 'missed_days', 'center', 
               'saved_chunk_slots', 'tiles', 'regions', 'markers', 'unlocated_markers', 'position_source'}
 REGION_KEYS = {'id', 'name', 'short_name', 'points', 'pvp_protection', 'pve_protection', 'edit_protection',
                'navy_controlled', 'guard_patrols', 'navy_patrols'}
+
+#: The published client manifest: the flat fields every shipped launcher already reads, plus
+#: the chunk list from doc/launcher-states.md. Both describe the same client, so a chunk list
+#: that disagrees with the flat fields is refused rather than published as a second truth.
+CLIENT_KEYS = {'minecraft', 'mod', 'dependencies', 'fabric', 'chunks'}
+MOD_KEYS = {'name', 'version', 'sha256', 'bytes', 'url'}
+DEPENDENCY_KEYS = {'id', 'name', 'version', 'url'}
+CHUNK_KEYS = {'id', 'name', 'optional', 'immutable', 'version', 'files', 'fabric', 'java'}
+PACKAGE_FILE_KEYS = {'id', 'name', 'version', 'path', 'url', 'hash', 'size'}
+PINNED_CHUNKS = {'base': (False, True), 'graphics': (True, False)}
+#: A packaged file may be served from our own relative tree or from its publisher over https.
+#: Nothing else: an http:// URL or an absolute local path is refused.
+HASH_PATTERN = re.compile('sha(256|512):[a-f0-9]+')
+HASH_LENGTHS = {'sha256': 64, 'sha512': 128}
+
+
+def valid_hash(value):
+    return (type(value) is str and HASH_PATTERN.fullmatch(value) is not None
+            and len(value.split(':', 1)[1]) == HASH_LENGTHS[value.split(':', 1)[0]])
+
+
+def published_url_ok(value, flat_mod_url):
+    if value == flat_mod_url and not urlsplit(value).scheme:
+        return True
+    return urlsplit(value).scheme == 'https'
+
+
+def validate_packages(client, mod_id, dependency_ids):
+    """Refuse a chunk list that contradicts the flat fields or cannot be downloaded.
+
+    Every shipped launcher, old and new, reads this one file. The chunks and the flat fields
+    describe the same client, so a disagreement between them is a publishing error, not a
+    preference, and it is refused here rather than shipped.
+    """
+    packages = client['chunks']
+    assert type(packages) is list and packages, 'A chunk list must be a non-empty list'
+    chunks, files, listed = {}, {}, set()
+    for chunk in packages:
+        assert type(chunk) is dict and set(chunk) == CHUNK_KEYS, 'Unexpected chunk fields'
+        ident, name, version = chunk['id'], chunk['name'], chunk['version']
+        assert type(ident) is str and re.fullmatch('[a-z][a-z0-9_-]{0,40}', ident), 'Invalid chunk id'
+        assert ident not in chunks, f'Duplicated chunk id: {ident}'
+        assert type(name) is str and name, f'Chunk {ident} has no name'
+        assert type(chunk['optional']) is bool, f'Chunk {ident} optional must be a boolean'
+        assert type(chunk['immutable']) is bool, f'Chunk {ident} immutable must be a boolean'
+        assert type(version) is str and version, f'Chunk {ident} has no version'
+        if ident in PINNED_CHUNKS:
+            optional, immutable = PINNED_CHUNKS[ident]
+            assert chunk['optional'] is optional, f'Chunk {ident} optional must be {optional}'
+            assert chunk['immutable'] is immutable, f'Chunk {ident} immutable must be {immutable}'
+        if ident == 'base':
+            # The frozen game identity: the launcher proves nothing changed from this.
+            assert version == client['minecraft'], \
+                f"Base chunk version {version} differs from the manifest Minecraft version {client['minecraft']}"
+            assert client.get('fabric') and chunk['fabric'] == client['fabric'], \
+                'Base chunk fabric differs from the manifest Fabric loader'
+            assert type(chunk['java']) is int and chunk['java'] > 0, 'Base chunk has no Java version'
+        elif not chunk['optional']:
+            # A chunk the launcher always installs is part of the frozen game: it must say
+            # what it belongs to, or it would be indistinguishable from the base the update
+            # rules trust and a stale copy could be accepted as current.
+            assert chunk['immutable'] is True, \
+                f'Required chunk {ident} must be marked immutable or made optional'
+            assert chunk['version'] == client['minecraft'], \
+                f"Required chunk {ident} does not state the manifest Minecraft version"
+        entries = chunk['files']
+        assert type(entries) is list and entries, f'Chunk {ident} has no files'
+        for entry in entries:
+            assert type(entry) is dict and set(entry) == PACKAGE_FILE_KEYS, \
+                f'Unexpected file fields in chunk {ident}'
+            path, url = entry['path'], entry['url']
+            assert type(path) is str and path
+            assert not path.startswith('/') and '\\' not in path and ':' not in path, \
+                f'Absolute or private path refused: {path}'
+            assert published_url_ok(url, client['mod'].get('url')), f'Insecure or foreign URL refused: {url}'
+            assert urlsplit(url).scheme != 'http', f'Plain http download refused: {url}'
+            assert valid_hash(entry['hash']), f"File {path} has no valid hex sha256 or sha512 hash"
+            assert type(entry['size']) is int and entry['size'] > 0, f'File {path} has no size'
+            assert path not in files, f'File {path} is published more than once'
+            files[path] = (ident, entry)
+        chunks[ident] = chunk
+    # The flat fields must survive verbatim and stay consistent with the chunks, so no
+    # launcher -- old or new -- can be handed two contradictory descriptions of one client.
+    mod_url = client['mod'].get('url', 'downloads/easter-navy.jar')
+    assert mod_url in files, 'The custom mod jar is missing from the chunks'
+    mod_chunk, mod_entry = files[mod_url]
+    assert mod_entry['hash'] == 'sha256:' + client['mod']['sha256'], 'Mod chunk hash disagrees with the manifest'
+    assert mod_entry['size'] == client['mod']['bytes'], 'Mod chunk size disagrees with the manifest'
+    assert mod_entry['version'] == client['mod']['version'], 'Mod chunk version disagrees with the manifest'
+    assert mod_entry['id'] == mod_id, 'Mod chunk id disagrees with the published jar'
+    assert mod_chunk == 'base', 'The required client mod belongs to the base chunk'
+    for dependency in client['dependencies']:
+        assert dependency['id'] in dependency_ids, f"Unpinned dependency id: {dependency['id']}"
+        # The launcher saves a jar under the project's own id, so a dependency is found by
+        # its id, not by a publisher file name the upstream is free to change.
+        matching = [path for path, (chunk_id, entry) in files.items() if entry['id'] == dependency['id']]
+        assert len(matching) == 1, f"Dependency {dependency['id']} is missing from the chunks"
+        chunk_id, entry = files[matching[0]]
+        assert entry['version'] == dependency['version'], \
+            f"Dependency {dependency['id']} chunk version disagrees with the manifest"
+        assert chunk_id == 'base' or chunks[chunk_id]['optional'], \
+            f"Dependency {dependency['id']} must be in the required base chunk"
+        listed.add(chunk_id)
+    assert 'base' in listed, 'Every pinned dependency must be part of the required base chunk'
+    for ident, chunk in chunks.items():
+        if ident in PINNED_CHUNKS and not PINNED_CHUNKS[ident][1]:
+            continue  # an optional chunk is published only when it has real content
+        assert chunk['files'], f'Chunk {ident} has no files'
+    # No omissions and no substitutions in what the launcher must install: the required
+    # chunks are exactly the client the flat fields describe, so the two cannot drift into
+    # two different clients. An optional chunk may carry extras of its own.
+    assert {entry['id'] for path, (chunk_id, entry) in files.items() if not chunks[chunk_id]['optional']} \
+        == {mod_id, *[d['id'] for d in client['dependencies']]}, \
+        'The required chunk files do not match the manifest mod and dependencies'
+    flattened = json.dumps(packages)
+    for forbidden in ('/home/', '/root/', '/opt/', 'player', 'faction', 'token', 'password', 'secret'):
+        assert forbidden not in flattened, f'Private detail in the chunk list: {forbidden}'
 
 
 def validate_data(root):
@@ -54,9 +171,21 @@ def validate_data(root):
         assert all(type(marker[a]) in (int, float) and math.isfinite(marker[a]) for a in ('x', 'z'))
         assert re.fullmatch('[a-f0-9]{20}', marker['id']), 'Raw entity ID refused'
     client = json.loads((root / 'data/client.json').read_text())
-    assert set(client) == {'minecraft', 'mod', 'dependencies'}
-    assert hashlib.sha256((root / 'downloads/easter-navy.jar').read_bytes()).hexdigest() == client['mod']['sha256']
+    assert set(client) <= CLIENT_KEYS and {'minecraft', 'mod', 'dependencies'} <= set(client), \
+        'Unexpected client manifest fields'
+    assert {'version', 'sha256'} <= set(client['mod']) <= MOD_KEYS, 'Unexpected client mod fields'
+    assert hashlib.sha256((root / 'downloads/easter-navy.jar').read_bytes()).hexdigest() == client['mod']['sha256'], \
+        'The published custom mod jar does not match the manifest checksum'
+    assert client['mod'].get('url', 'downloads/easter-navy.jar') == 'downloads/easter-navy.jar', \
+        'Unexpected custom mod location'
     assert all(urlsplit(d['url']).scheme == 'https' for d in client['dependencies'])
+    assert all(set(d) == DEPENDENCY_KEYS for d in client['dependencies']), 'Unexpected dependency fields'
+    # Absent chunks mean a manifest from before chunking: still valid, because a launcher
+    # already installed on a machine reads only the flat fields above.
+    if 'chunks' in client:
+        validate_packages(client, 'easter-navy', set(DEPENDENCIES))
+    else:
+        assert client.get('fabric') is None, 'A Fabric pin without a chunk list describes nothing'
     return world
 
 
