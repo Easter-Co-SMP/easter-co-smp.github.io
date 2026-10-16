@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, unquote
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.export_world import DEPENDENCIES, PUBLIC_MARKER_ICONS, PUBLIC_MARKER_KINDS
+from scripts.export_world import DEPENDENCIES, PUBLIC_MARKER_ICONS, PUBLIC_MARKER_KINDS, chunk_version
 
 #: 'kind' is a public marker category, never a row type or a player faction. A payload
 #: carrying 'faction' is refused outright rather than rewritten. Older snapshots in the
@@ -76,21 +76,18 @@ def validate_packages(client, mod_id, dependency_ids):
             assert chunk['immutable'] is immutable, f'Chunk {ident} immutable must be {immutable}'
         if ident == 'base':
             # The frozen game identity: the launcher proves nothing changed from this.
-            assert version == client['minecraft'], \
-                f"Base chunk version {version} differs from the manifest Minecraft version {client['minecraft']}"
-            assert client.get('fabric') and chunk['fabric'] == client['fabric'], \
+            assert chunk['fabric'] == client.get('fabric') and client.get('fabric'), \
                 'Base chunk fabric differs from the manifest Fabric loader'
             assert type(chunk['java']) is int and chunk['java'] > 0, 'Base chunk has no Java version'
-        elif not chunk['optional']:
-            # A chunk the launcher always installs is part of the frozen game: it must say
-            # what it belongs to, or it would be indistinguishable from the base the update
-            # rules trust and a stale copy could be accepted as current.
-            assert chunk['immutable'] is True, \
-                f'Required chunk {ident} must be marked immutable or made optional'
-            assert chunk['version'] == client['minecraft'], \
-                f"Required chunk {ident} does not state the manifest Minecraft version"
+            assert client['minecraft'] in chunk['name'], \
+                f"Base chunk name does not state the manifest Minecraft version {client['minecraft']}"
         entries = chunk['files']
         assert type(entries) is list and entries, f'Chunk {ident} has no files'
+        # A chunk version must be a function of its content. Our own mod jar lives in the base
+        # chunk and is updated while Minecraft stays frozen, so an identity such as '26.2'
+        # would leave a mod update invisible and a client would skip the chunk permanently.
+        assert chunk['version'] == chunk_version(chunk), \
+            f"Chunk {ident} version is not the digest of the files it publishes"
         for entry in entries:
             assert type(entry) is dict and set(entry) == PACKAGE_FILE_KEYS, \
                 f'Unexpected file fields in chunk {ident}'

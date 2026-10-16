@@ -82,8 +82,11 @@ def manifest_text(value):
 def chunk_version(chunk):
     """A chunk's version is the digest of everything it contains, so it changes only on change.
 
-    The launcher compares this string against the installed marker: an equal version means
-    the chunk is already installed and is neither re-downloaded nor re-hashed.
+    This is its identity, not the Minecraft version: the Easter Co. jar lives inside the base
+    chunk and is updated on its own schedule while Minecraft stays frozen, so an identity
+    fixed to '26.2' would leave a mod update invisible and a client would skip the chunk
+    forever. An equal version means the chunk is already installed and is neither
+    re-downloaded nor re-hashed; any change to any file changes it.
     """
     return 'sha256:' + hashlib.sha256(manifest_text(chunk['files']).encode()).hexdigest()
 
@@ -131,19 +134,22 @@ def packages(mod, dependencies, pins):
     claim a payload that does not exist. An optional chunk that is switched off is simply
     absent, and its absence must not invalidate the base chunk.
     """
-    return [{
+    base = {
         'id': 'base',
         'name': 'Minecraft ' + pins['minecraft'] + ' game, libraries and required mods',
         'optional': False,
         'immutable': True,
-        # The pinned Minecraft version IS the base chunk's version: it never changes for this
-        # server, which is what lets the launcher trust an already installed copy.
-        'version': pins['minecraft'],
         'fabric': pins['fabric'],
         'java': pins['java'],
         'files': sorted([{**mod, 'id': 'easter-navy', 'name': mod['name']}] + list(dependencies['mods']),
                         key=lambda entry: entry['path']),
-    }]
+    }
+    # The version is the digest of the file list, never the Minecraft version: our own mod
+    # jar lives in this chunk and is updated on its own schedule while Minecraft stays
+    # frozen, so a '26.2' identity would hide a mod update from every installed client
+    # forever. The pinned Minecraft version stays visible in the manifest, in this chunk's
+    # name, and beside it as the chunk's own fabric and java pins.
+    return [dict(base, version=chunk_version(base))]
 
 
 def public_marker_kind(row):
