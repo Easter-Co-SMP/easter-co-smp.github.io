@@ -81,5 +81,9 @@ Then confirm, rather than assume:
 
 - Windows installers are unsigned, so a SmartScreen warning is expected. Running the
   installer on real Windows is a separate, manual step that CI does not perform.
+  It has been done once, on 2026-10-16: Owen installed v1.0.4 on Windows and it ran
+  smoothly up to the sign-in modal. Everything past that point - the client
+  download, a real Microsoft approval, playing the game - has still only ever been
+  exercised on Linux with fixtures.
 - CI builds on runners; it does not launch the game, sign in a person, or exercise the
   client download end to end. Say so in the release notes rather than implying it.
