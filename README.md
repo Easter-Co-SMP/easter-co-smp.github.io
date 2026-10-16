@@ -110,8 +110,32 @@ origin-checked handlers with a bounded timeout. The API origin is the constant i
 override it (HTTPS required, with a loopback exception used by the tests). That hostname is
 stable while the stack exists and changes if the stack is destroyed and recreated.
 
+The launcher is download-first. On a fresh machine the hero promotes downloading the game
+rather than the launcher: the player picks an installation folder or accepts the default, may
+toggle enhanced graphics and shaders, and starts a transfer they can pause and resume while
+watching the percentage, the measured speed and the ETA. Play stays unavailable until the
+client is installed *and* an account is connected; `canPlay` in the state object is the only
+gate. The default installation folder is the app-owned `minecraft` directory under the app
+data directory; a folder chosen with the picker is persisted and the client tree is created
+there. A folder inside an existing `.minecraft`, inside the launcher's own app data, holding
+another launcher, the server or the world, or one the process cannot write is refused with a
+message instead of being used. Nothing is ever written into `~/.minecraft`.
+
+Progress follows `doc/launcher-states.md`, the frozen contract between the main process and
+the shared UI. Each step reports its own `label` and `percent`; a step whose sizes are known
+also reports `bytesDone`, `bytesTotal`, `bytesPerSecond` and `etaSeconds` measured from the
+bytes actually observed, and those byte fields stay null for a step whose unit is a count
+(asset verification, library installation, Java setup). `percent` is null exactly when the
+step has no total. Pausing parks the transfer: no further bytes are fetched, the state reports
+`paused: true`, and resuming continues the same transfer. Cancelling stops it and replaces
+nothing. An install that is already present checks the published manifest on launch and
+applies any difference through the same pipeline; when nothing differs the check reports
+nothing at all, so no progress bar flashes at the player. Enhanced graphics are only
+installed when the published manifest declares a payload; until Owen chooses that source, an
+install with the toggle on completes normally and reports that nothing extra was published.
+
 The app installs its own Java 25, Minecraft 26.2, Fabric 0.19.5, the custom mod, and the five
-pinned dependencies into its app-data/minecraft directory. It does not touch ~/.minecraft or
+pinned dependencies into its chosen client directory. It does not touch ~/.minecraft or
 an existing player's credentials. The default server is the same tailnet address as the drun
 shortcut; the launcher does not grant tailnet membership or change server network access.
 Java is spawned directly with argument arrays on Windows and Linux, without a shell. Game
@@ -139,6 +163,13 @@ invalid_minecraft_token`, a malformed body and a create-then-login pair) and the
 refusal of `basic_text`. `node tests/desktop/accounts.electron.mjs` additionally drives real
 Electron against a loopback stub through `EASTER_API_BASE_URL`, and needs the host's
 Playwright plus an X display: `xvfb-run -a node tests/desktop/accounts.electron.mjs`. The
+download-first flow has its own coverage: `tests/desktop/flow.test.cjs` runs in `npm test`
+and proves the Play gate, the installation-location refusals, the throughput estimator
+against a fake clock, pause/resume/cancel and the checksum gate against a loopback stub
+server that serves bytes slowly, and the update check against fixture manifests;
+`xvfb-run -a node tests/desktop/flow.electron.mjs` drives the real main process and asserts
+the state object it broadcasts for a fresh run, sign-in, download, pause, resume, cancel, a
+completed install, a quiet update check and the location handlers. The
 packaged-bundle guard has its own fixture tests in `tests/test_app_bundle.py`, which build
 minimal ASARs in a temporary directory rather than reading `release/`, so they hold with or
 without a build.

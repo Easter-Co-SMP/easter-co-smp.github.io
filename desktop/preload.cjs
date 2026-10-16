@@ -7,5 +7,10 @@ contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  signOut:invoke('sign-out'),play:invoke('play'),saveSettings:invoke('settings'),
  refreshAccount:invoke('account-refresh'),signOutAccount:invoke('account-sign-out'),
  chooseJava:invoke('choose-java'),openFolder:invoke('open-folder'),openMicrosoft:invoke('open-microsoft'),
+ // Download-first flow. The location handlers take no renderer path: the picker
+ // returns one, and every other request is checked against the saved setting.
+ chooseLocation:invoke('choose-location'),setLocation:invoke('set-location'),startInstall:invoke('start-install'),
+ pauseInstall:invoke('pause-install'),resumeInstall:invoke('resume-install'),cancelInstall:invoke('cancel-install'),
+ checkUpdates:invoke('check-updates'),
  onState(callback){const listener=(_event,state)=>callback(state);ipcRenderer.on('launcher:state',listener);return ()=>ipcRenderer.removeListener('launcher:state',listener);}
 }));
