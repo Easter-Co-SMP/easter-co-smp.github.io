@@ -60,7 +60,7 @@
  const message=$('.desktop-status'),progress=$('.desktop-progress'),playButton=$('.desktop-play');
  const installSection=$('.desktop-install'),locationField=$('input[name=installLocation]'),graphicsField=$('input[name=includeGraphics]');
  const installError=$('.desktop-install-error');
- let installTouched=false,installRequested=false;
+ let installTouched=false,graphicsTouched=false,installRequested=false;
  $('.dialog-close').onclick=()=>panel.close();
  panel.addEventListener('click',event=>{const r=panel.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)panel.close();});
  const open=()=>{if(!panel.open)panel.showModal();};
@@ -206,7 +206,7 @@
    // enhanced graphics toggle, and passes both to main when the download starts.
    const fallback=typeof install.defaultLocation==='string'?install.defaultLocation:'';
    if(!installTouched||!locationField.value)locationField.value=fallback;
-   graphicsField.checked=install.includeGraphics!==false;
+   if(!graphicsTouched)graphicsField.checked=install.includeGraphics!==false;
    $('.desktop-install-note').textContent='Choose where the Easter Company client is installed, then start the download.';
    $('.desktop-install-default').textContent=fallback?'Default: '+fallback:'';
    $('[data-choose-location]').hidden=typeof chooseLocation!=='function';
@@ -282,6 +282,7 @@
    const value=typeof result==='string'?result:result?.location;
    if(typeof value==='string'&&value){locationField.value=value;installTouched=true;installError.hidden=true;locationField.removeAttribute('aria-invalid');}
   }).catch(error=>{installError.hidden=false;installError.textContent=error&&error.message?error.message:String(error);});};
+ graphicsField.addEventListener('change',()=>{graphicsTouched=true;});
  $('.desktop-install-start').onclick=()=>void beginInstall();
  window.addEventListener('resize',()=>{if(current)renderBar(current);},{passive:true});
  window.addEventListener('storage',event=>{if(event.key!==BAR_KEY)return;minimised=readMinimised();if(current)renderBar(current);});

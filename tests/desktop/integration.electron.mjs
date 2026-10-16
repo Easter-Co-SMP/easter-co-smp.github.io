@@ -81,12 +81,14 @@ try {
   assert.equal(await installSection.locator('input[name="includeGraphics"]').isChecked(),s.install.includeGraphics,
     'enhanced graphics reflects the main-process default');
   note('download: location defaults and the graphics toggle is present', location);
+  await installSection.locator('input[name="includeGraphics"]').check();
   const picked=path.join(dir,'chosen-client');
   await fs.mkdir(picked);
   await app.evaluate(({dialog},picked)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[picked]});},picked);
   await installSection.getByRole('button',{name:'Choose folder…'}).click();
   await page.waitForFunction(picked=>document.querySelector('input[name="installLocation"]').value===picked,picked);
   assert.equal((await state()).install.location,picked,'the real picker object updates both UI and saved location');
+  assert.equal(await installSection.locator('input[name="includeGraphics"]').isChecked(),true,'choosing a folder preserves the graphics choice');
 
   await installSection.locator('.desktop-install-start, button[type="submit"]').first().click();
   await page.waitForFunction(() => document.getElementById('launcher-bar')?.hidden === false, {timeout: 20000});
