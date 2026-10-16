@@ -66,9 +66,12 @@ other than the folder picker or the saved setting.
 
 ## One entry point
 
-Players enter the game through the launcher, and the launcher is reachable only
-through the game's own shortcut. The shortcut is named for the game, not for a
-launcher. There is no second, separately discoverable launcher entry.
+Players enter the game through the launcher. The launcher is the only thing that
+gets a shortcut, and it gets one for all users of the machine, with an optional
+toggle offered during installation. An installed game does not get a system
+shortcut of its own: the client lives inside the launcher and is started from it.
+There is exactly one player-facing entry, and it opens the launcher, not a game
+that skips it.
 
 ## Rules that still hold
 
