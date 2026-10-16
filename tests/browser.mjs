@@ -105,6 +105,7 @@ try{
  assert(await page.getByRole('button',{name:'Wiki',exact:true}).isDisabled());await noOverflow();
  await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
  const skipPage=await context.newPage();await skipPage.goto(origin);
+ assert.equal(await skipPage.getByRole('button',{name:'Skip intro'}).count(),1);
  await skipPage.getByRole('button',{name:'Skip intro'}).click();
  assert.equal(await skipPage.locator('body').evaluate(el=>el.classList.contains('is-arriving')),false);
  assert(await skipPage.locator('.map-link').evaluate(el=>el===document.activeElement));await skipPage.close();
