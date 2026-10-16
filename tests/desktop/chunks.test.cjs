@@ -3,7 +3,7 @@
 // servers; no upstream download is involved.
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto'),http=require('node:http');
-const {installClient,clientStatus,downloadVerified,createControl,Transfer,chunkList,selectedChunks,pendingChunks,gamePins,installDiff,transferStats,resetTransferStats,partPath}=require('../../desktop/install.cjs');
+const {installClient,clientStatus,downloadVerified,createControl,Transfer,chunkList,selectedChunks,pendingChunks,gamePins,installDiff,transferStats,resetTransferStats,partPath,modFile,graphicsEntry,publishedManifest}=require('../../desktop/install.cjs');
 const {clientOrigin,DEFAULT_CLIENT_ORIGIN}=require('../../desktop/config.cjs');
 const {setTimeout:sleep}=require('node:timers/promises');
 const sha256=buffer=>crypto.createHash('sha256').update(buffer).digest('hex');
@@ -72,6 +72,51 @@ test('the client origin is overridable with the same rule as the API origin',()=
  assert.equal(clientOrigin('http://localhost:8080/'),'http://localhost:8080/');
  for(const value of ['http://example.test','http://192.168.1.5:8080','ftp://127.0.0.1','example.test','not a url','https://user:pass@example.test'])
   assert.throws(()=>clientOrigin(value),/EASTER_CLIENT_ORIGIN/,value+' must be refused');
+});
+
+test('the environment override is what clientOrigin reads, and a bad one is refused',()=>{
+ const saved=process.env.EASTER_CLIENT_ORIGIN;
+ try{
+  process.env.EASTER_CLIENT_ORIGIN='http://127.0.0.1:8123';
+  assert.equal(clientOrigin(),'http://127.0.0.1:8123/','a loopback override from the environment is accepted');
+  process.env.EASTER_CLIENT_ORIGIN='https://staging.example.test';
+  assert.equal(clientOrigin(),'https://staging.example.test/');
+  for(const value of ['http://example.test','http://192.168.1.5','ftp://127.0.0.1','nonsense']){
+   process.env.EASTER_CLIENT_ORIGIN=value;
+   assert.throws(()=>clientOrigin(),/EASTER_CLIENT_ORIGIN/,value+' must be refused from the environment too');
+  }
+  delete process.env.EASTER_CLIENT_ORIGIN;
+  assert.equal(clientOrigin(),DEFAULT_CLIENT_ORIGIN,'with no override the published origin is used');
+ }finally{
+  if(saved===undefined)delete process.env.EASTER_CLIENT_ORIGIN;else process.env.EASTER_CLIENT_ORIGIN=saved;
+ }
+});
+
+test('the manifest URL and the relative mod URL both come from the client origin',async()=>{
+ // The manifest.
+ const server=await fileServer({'/data/client.json':Buffer.from('{"minecraft":"26.2"}')});
+ try{
+  const manifest=await publishedManifest(server.origin);
+  assert.deepEqual(server.requests.map(request=>request.path),['/data/client.json']);
+  assert.equal(manifest.minecraft,'26.2');
+  // A client origin that answers nothing fails; it never quietly falls back to the
+  // published origin.
+  await assert.rejects(publishedManifest('http://127.0.0.1:9'));
+ }finally{await server.close();}
+ // The mod jar: relative on the manifest, resolved against the origin, and never
+ // allowed to leave it.
+ const client={mod:{url:'downloads/easter-navy.jar'}};
+ assert.equal(modFile(client),'https://easter-co-smp.github.io/downloads/easter-navy.jar');
+ assert.equal(modFile(client,'http://127.0.0.1:8123'),'http://127.0.0.1:8123/downloads/easter-navy.jar');
+ assert.equal(modFile(client,'http://localhost:8123/'),'http://localhost:8123/downloads/easter-navy.jar');
+ for(const url of ['https://evil.example/downloads/easter-navy.jar','downloads/other.jar','/etc/passwd','downloads/../private/easter-navy.jar',''])
+  assert.throws(()=>modFile({mod:{url}}),/Unexpected custom mod location/,'refused: '+url);
+ // The graphics payload resolves against the same origin.
+ const digest='c'.repeat(64);
+ const graphics={name:'Enhanced graphics',filename:'graphics.zip',url:'downloads/graphics.zip',sha256:digest};
+ assert.equal(graphicsEntry(graphics,'http://127.0.0.1:8123').url,'http://127.0.0.1:8123/downloads/graphics.zip');
+ assert.equal(graphicsEntry(graphics).url,'https://easter-co-smp.github.io/downloads/graphics.zip');
+ assert.throws(()=>graphicsEntry({...graphics,url:'https://evil.example/graphics.zip'},'http://127.0.0.1:8123'),/Unexpected graphics location/);
 });
 
 test('the manifest and its relative chunk files are built from the client origin',async()=>{

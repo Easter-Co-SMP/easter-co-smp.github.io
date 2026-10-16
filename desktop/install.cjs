@@ -303,20 +303,29 @@ function chunkFileTarget(root,relative){
 // Enhanced graphics + shaders travel as the optional graphics chunk. Nothing is
 // downloaded until the manifest declares it: the payload is Owen's decision, and an
 // install without one reports that instead of pretending it installed shaders.
-function graphicsEntry(graphics){
+function graphicsEntry(graphics,origin=clientOrigin()){
  if(!graphics||typeof graphics!=='object')return null;
  const filename=String(graphics.filename||'');
  if(!/^[a-z0-9][a-z0-9._-]{0,80}$/i.test(filename))throw Error('The published graphics payload has an invalid filename.');
- const url=new URL(String(graphics.url||''),clientOrigin());
- if(url.origin!==new URL(clientOrigin()).origin||url.username||url.password)throw Error('Unexpected graphics location.');
+ const base=originBase(origin);
+ const url=new URL(String(graphics.url||''),base);
+ if(url.origin!==new URL(base).origin||url.username||url.password)throw Error('Unexpected graphics location.');
  if(typeof graphics.sha256!=='string'||!/^[a-f0-9]{64}$/i.test(graphics.sha256))throw Error('The published graphics payload is missing its checksum.');
  return {name:String(graphics.name||'Enhanced graphics'),version:String(graphics.version||''),filename,hash:graphics.sha256,url:url.href};
 }
-function graphicsPlan(published,includeGraphics){
+function graphicsPlan(published,includeGraphics,origin=clientOrigin()){
  if(!includeGraphics)return {state:'skipped',entry:null,message:null};
- const entry=graphicsEntry(published?.graphics);
+ const entry=graphicsEntry(published?.graphics,origin);
  if(!entry)return {state:'not-published',entry:null,message:'Enhanced graphics are not published yet, so the client was installed without them.'};
  return {state:'install',entry,message:entry.name+' installed.'};
+}
+// The client's own jar is published as a relative path beside the manifest, so it
+// is resolved against the client origin and must stay on it.
+function modFile(client,origin=clientOrigin()){
+ const base=originBase(origin);
+ const url=new URL(String(client?.mod?.url||''),base);
+ if(url.origin!==new URL(base).origin||url.username||url.password||url.pathname!=='/downloads/easter-navy.jar')throw Error('Unexpected custom mod location.');
+ return url.href;
 }
 async function javaMajor(javaPath){
  const {stderr,stdout}=await promisify(execFile)(javaPath,['-version'],{timeout:15000,windowsHide:true,maxBuffer:16384});
@@ -440,7 +449,7 @@ function installDiff(published,record,{includeGraphics=false,fabric=FABRIC,origi
  if(fabric!==record.fabric)changes.push('fabric');
  if(String(published?.mod?.sha256||'')!==String(record.modSha256||''))changes.push('mod');
  if(!sameDependencies(published?.dependencies,record.dependencies))changes.push('dependencies');
- const publishedGraphics=graphicsEntry(published?.graphics);
+ const publishedGraphics=graphicsEntry(published?.graphics,origin);
  if(includeGraphics&&publishedGraphics&&publishedGraphics.hash!==record.graphics)changes.push('graphics');
  return {changed:changes.length>0,changes};
 }
@@ -561,9 +570,7 @@ async function installChunked({root,client,chunks,record,settings,notify,control
 async function installFlat({root,client,settings,notify,control,includeGraphics,mode,origin}){
  const updating=mode==='update',step=kind=>updating?'updating':kind;
  const game=await installGame({root,settings,client,chunks:null,notify,control,mode});
- const customURL=new URL(client.mod.url,origin);
- if(customURL.origin!==new URL(origin).origin||customURL.pathname!=='/downloads/easter-navy.jar')throw Error('Unexpected custom mod location.');
- const mods=[{name:'Easter Co. client',url:customURL.href,hash:client.mod.sha256,algorithm:'sha256',filename:'easter-navy.jar'}];
+ const mods=[{name:'Easter Co. client',url:modFile(client,origin),hash:client.mod.sha256,algorithm:'sha256',filename:'easter-navy.jar'}];
  for(const dependency of client.dependencies)mods.push(await resolveMod(dependency,client.minecraft));
  // Resolve every pinned version first. Only verified downloads replace managed files.
  const meter=new Transfer();
@@ -580,7 +587,7 @@ async function installFlat({root,client,settings,notify,control,includeGraphics,
  }
  if(!moved)notify({phase:step('verifying'),message:'Verifying the client files',progress:countProgress('Verifying the client files',100)});
  let graphics=null,graphicsMessage=null,graphicsFile=null;
- const plan=graphicsPlan(client,includeGraphics);
+ const plan=graphicsPlan(client,includeGraphics,origin);
  if(plan.state!=='skipped'){
   if(plan.state==='not-published'){graphics='not-published';graphicsMessage=plan.message;}
   else{
@@ -638,4 +645,4 @@ async function checkForUpdates({root,settings={},notify=()=>{},control=null,incl
 }
 // The Play gate, computed here in the main process and nowhere else.
 function canPlay(install,profile){return Boolean(install?.installed)&&profile!==null&&profile!==undefined;}
-module.exports={ORIGIN,FABRIC,MARKER,HASH,originBase,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};
+module.exports={ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};
