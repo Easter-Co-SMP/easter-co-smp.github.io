@@ -186,3 +186,72 @@ Rules the exporter and validator hold to:
 - The client install is its own tree and never touches an existing `~/.minecraft`,
   another launcher's files, the server or the world.
 - Personal drawings, player data and credentials never enter `site/` or Git.
+
+## Launcher startup update gate
+
+This section is frozen before any UI is built against it. It extends the state
+object; it does not change any field above it.
+
+The launcher updates itself on launch, so the next manually installed release is
+the last one. The startup gate is a desktop-only, per-window block: while it is
+not `ready`, the launcher's own UI must not be revealed. The website ignores this
+field entirely, because a browser has no launcher to update.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `launcherUpdate` | object | `{phase, percent, version, message}`. Always present in desktop mode |
+
+`launcherUpdate.phase` is one of:
+
+| Value | Meaning |
+|---|---|
+| `checking` | Asking the release feed whether a newer launcher exists. Indeterminate |
+| `downloading` | Fetching the new launcher. `percent` is 0-100 once a total size is known, otherwise null |
+| `installing` | Verified and staged; being applied. Indeterminate |
+| `restarting` | The old process is handing over to the new one. The old UI must not be revealed |
+| `ready` | The **running** launcher is safe to use. This is the only phase that reveals the UI |
+
+`percent` is `0`-`100` or `null`, and is `null` whenever the phase is not a
+measurable download. It is never a placeholder number. `version` is the version
+being fetched or installed, or `null` when there is nothing to install.
+`message` is a short human sentence suitable for direct display.
+
+### Rules
+
+1. **`ready` is the only revealing phase.** `checking`, `downloading`,
+   `installing` and `restarting` all keep the launcher's own UI hidden. At 100%
+   the UI is revealed only once the phase is `ready`, never at 99%, and never
+   while a process handover is in flight.
+2. **Nothing about the game changes.** `launcherUpdate` never writes to `phase`,
+   `progress`, `paused`, `install`, `actions`, `canPlay` or `bar`. The sticky bar
+   and the Play gate read exactly what they read before. A launcher update must
+   never interrupt a running game and must not start while `phase` is `running`.
+3. **Failure is never fatal and never blocks.** An unreachable feed, a timeout, a
+   checksum mismatch or a failed handover settles on `ready` against the version
+   already running, which stays usable. A failure may carry a `message`, but it
+   must not hold the gate at `checking` or `downloading`.
+4. **The check is bounded.** The feed lookup has a finite timeout; exceeding it is
+   rule 3, not an indefinite spinner.
+5. **Always emitted.** The desktop main process publishes `launcherUpdate` on
+   every state broadcast from the first one onward, including in development and
+   under the test harness, so no run can hang waiting for a phase that never
+   arrives. An unpackaged or dev run reports `ready` immediately.
+6. **Updates are verified before they are used.** The downloaded payload is
+   checksum verified against the release manifest before it is staged, and an
+   unverified or corrupt payload replaces nothing.
+7. **The player's data survives an update.** Settings, the saved session, the
+   client tree and its chunks live outside the replaced application files and are
+   never migrated, rewritten or removed by an update.
+8. **`version` describes the incoming launcher, not the installed client.**
+   `install.version` remains the game client's version and is unrelated.
+
+### Platform behaviour
+
+| Install kind | Self-updates | Notes |
+|---|---|---|
+| Windows NSIS | yes | Per-user install, so no elevation prompt |
+| Linux AppImage | yes | Replaced in place; the AppImage is the application |
+| Linux deb, pacman | **no** | Owned by the system package manager. The launcher must report that and settle `ready` rather than attempting an update that would need elevation |
+
+A build that cannot update itself for these reasons is a normal, non-error
+outcome: the gate still reaches `ready`.
