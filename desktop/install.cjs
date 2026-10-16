@@ -6,6 +6,7 @@ const {Version,generateArguments,launch}=require('@xmcl/core');
 const installer=require('@xmcl/installer');
 const {Agent,interceptors}=require('undici');
 const {locationProblem,MARKER,clientOrigin}=require('./config.cjs');
+const {qualitySettings,applyQualitySettings,recordQuality,SHADER_PACK_NAME}=require('./hardware.cjs');
 const dispatcher=new Agent({connections:8,connect:{family:4,timeout:30000},headersTimeout:45000,bodyTimeout:90000}).compose(interceptors.retry({maxRetries:3}));
 const ORIGIN='https://easter-co-smp.github.io/';
 const FABRIC='0.19.5';
@@ -300,7 +301,7 @@ function selectedChunks(chunks,includeGraphics){return chunks.filter(chunk=>!chu
 // A chunk whose recorded version still matches is not fetched and not re-verified.
 function pendingChunks(chunks,record,includeGraphics){
  const recorded=record?.chunks||{};
- return selectedChunks(chunks,includeGraphics).filter(chunk=>recorded[chunk.id]?.version!==chunk.version||chunk.files.some(file=>!recorded[chunk.id]?.files?.includes(file.path)));
+ return chunks.filter(chunk=>recorded[chunk.id]?.version!==chunk.version||chunk.files.some(file=>!recorded[chunk.id]?.files?.includes(file.path)));
 }
 function chunkFileTarget(root,relative){
  const base=path.resolve(root),target=path.resolve(base,relative);
@@ -521,6 +522,49 @@ async function installGame({root,settings={},client,chunks,notify,control=null,m
  await tracked(installer.installLibrariesTask(resolved,{dispatcher}),'Verifying Fabric libraries',notify,{control,phase:step('downloading')});
  return {version,javaPath,fabric:pins.fabric};
 }
+// ---- the client's own quality settings --------------------------------------
+// Owen's goal is that the client works out the highest quality settings it can
+// push for the hardware, so the settings are derived from the video memory the
+// machine reported and written into the app-owned client tree only: options.txt
+// and config/iris.properties. A tree without the launcher's own marker file is
+// refused, which is the same rule that keeps an existing ~/.minecraft, another
+// launcher and the server untouched.
+function deriveQuality(hardware){return qualitySettings({vramMB:hardware?.vramMB??null,tier:hardware?.tier||'unknown'});}
+// What was actually written, never what was intended: a failed write leaves the
+// tuned record untouched and says so. `shaders` may be forced off when the shader
+// payload is not published, because naming a shader pack that was never installed
+// would be a claim the client cannot honour.
+async function applyQuality(root,hardware,notify,{shaders}={}){
+ const quality={...deriveQuality(hardware),...(typeof shaders==='boolean'?{shaders}:{})};
+ if(typeof shaders==='boolean'&&!shaders)quality.shaderPack=null;
+ if(typeof shaders==='boolean'&&shaders)quality.shaderPack=quality.shaderPack||SHADER_PACK_NAME;
+ try{
+  await applyQualitySettings(root,quality);
+  await recordQuality(root,quality);
+ }catch(error){
+  const message='The client’s quality settings could not be written into the client folder.';
+  if(notify)notify({message});
+  return {quality:null,tuned:null,message};
+ }
+ return {quality,tuned:quality?{renderDistance:quality.renderDistance,shadowDistance:quality.shadowDistance,shaders:Boolean(quality.shaders)}:null,message:null};
+}
+// The graphics chunk is the optional half of the same pipeline: it is fetched only
+// while the toggle is on, its files are checksum verified like every other file,
+// and switching the toggle off fetches nothing and invalidates nothing.
+function graphicsSelection(chunks,includeGraphics){
+ if(!chunks)return {selected:null,graphics:null,selectedGraphics:null};
+ const selected=selectedChunks(chunks,includeGraphics);
+ return {selected,graphics:chunks.find(chunk=>chunk.id==='graphics')||null,selectedGraphics:selected.find(chunk=>chunk.id==='graphics')||null};
+}
+function graphicsMessageFor({includeGraphics,graphicsChunk,pending,record,only=null}){
+ // A graphics-only run is about the optional chunk. When there is no such chunk to
+ // install, saying so would be off-topic: the toggle's own handler reports it.
+ if(only&&only.size&&!only.has('graphics'))return null;
+ if(!includeGraphics)return null;
+ if(pending)return 'Enhanced graphics are not published yet, so the client was installed without them.';
+ const installed=Boolean(graphicsChunk)&&(pending===undefined?Boolean(record?.chunks?.graphics):true);
+ return installed?graphicsChunk.name+' installed.':null;
+}
 // ---- installing a chunk's files --------------------------------------------
 async function installChunkFiles(chunk,{root,notify,control,step}){
  const label='Downloading '+chunk.name;
@@ -544,44 +588,65 @@ async function installChunkFiles(chunk,{root,notify,control,step}){
  if(!moved)notify({phase:step('verifying'),message:'Verifying '+chunk.name,progress:countProgress('Verifying '+chunk.name,100)});
 }
 // ---- the pipeline -----------------------------------------------------------
-async function installChunked({root,client,chunks,record,settings,notify,control,includeGraphics,mode,origin}){
+// `only` restricts the run to named chunks. The graphics toggle uses it, so
+// switching enhanced graphics on or off never re-fetches or re-verifies the frozen
+// game even when the base chunk is not installed from this run.
+async function installChunked({root,client,chunks,record,settings,notify,control,includeGraphics,mode,origin,only=null,hardware=null}){
  const updating=mode==='update',step=kind=>updating?'updating':kind;
- const selected=selectedChunks(chunks,includeGraphics);
- const pending=pendingChunks(selected,record,includeGraphics);
+ const scope=only&&only.size?new Set(only):null;
+ const selection=graphicsSelection(chunks,includeGraphics);
+ const pending=selection.selected?pendingChunks(selection.selected,record):[];
+ const baseMissing=pending.some(chunk=>chunk.id==='base');
+ const gameIncomplete=pending.length>0&&selection.selected?.some(chunk=>chunk.id==='base')&&!(record?.chunks?.base);
  const pins=gamePins(chunks,client.fabric);
  const gameCurrent=Boolean(record&&record.game&&record.game.minecraft===client.minecraft&&record.game.fabric===pins.fabric&&record.java)&&await exists(record.java)&&await exists(path.join(root,'versions',record.version,record.version+'.json'));
- const graphicsChunk=selected.find(chunk=>chunk.id==='graphics');
- const graphicsMessage=includeGraphics&&!chunks.some(chunk=>chunk.id==='graphics')?'Enhanced graphics are not published yet, so the client was installed without them.':null;
+ const graphicsChunk=selection.graphics;
+ const graphicsPending=!graphicsChunk;
+ const graphicsMessage=graphicsMessageFor({includeGraphics,graphicsChunk,pending:graphicsPending,record,only:scope});
+ // Nothing published changed and the game is whole: report the client as ready
+ // without downloading or re-verifying anything. This is also the honest answer
+ // when the manifest has no graphics chunk and the toggle is on.
  if(!pending.length&&gameCurrent){
-  return {version:record.version,javaPath:record.java,updatedAt:record.updatedAt,includeGraphics,graphics:record.chunks?.graphics?.version||null,message:updating?'Client is up to date.':'Client ready.',unchanged:true,graphicsMessage};
+  const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
+  const installedGraphics=record.chunks?.graphics||null;
+  return {version:record.version,javaPath:record.java,updatedAt:record.updatedAt,includeGraphics,graphics:installedGraphics?.version||null,message:updating?'Client is up to date.':'Client ready.',unchanged:true,graphicsMessage,graphicsApplied:Boolean(installedGraphics),quality:quality.tuned,qualityMessage:quality.message,qualitySettings:quality.quality};
  }
+ const installing=pending.filter(chunk=>!scope||scope.has(chunk.id));
+ const installingBase=installing.some(chunk=>chunk.id==='base');
+ if(!installing.length)return {version:record?.version??null,javaPath:record?.java??null,updatedAt:record?.updatedAt??null,includeGraphics,graphics:record?.chunks?.graphics?.version||null,message:'Nothing to do.',unchanged:true,graphicsMessage:null,skipped:pending.map(chunk=>chunk.id)};
  let version=record?.version,javaPath=record?.java,fabric=record?.fabric;
- if(!gameCurrent){
+ // The game component is only touched when it is not already whole. A chunk-scoped
+ // run (the graphics toggle) still installs it when the client has never had one,
+ // because there would otherwise be nothing to apply settings to.
+ if(!gameCurrent&&(installingBase||gameIncomplete||baseMissing)){
   const game=await installGame({root,settings,client,chunks,notify,control,mode});
   version=game.version;javaPath=game.javaPath;fabric=game.fabric;
  }
  const records={...(record?.chunks||{})};
- let graphicsMessageOut=graphicsMessage;
- for(const chunk of pending){
+ let graphicsMessageOut=graphicsMessage,graphicsInstalled=false;
+ for(const chunk of installing){
   await control?.gate();
   await installChunkFiles(chunk,{root,notify,control,step});
   records[chunk.id]={id:chunk.id,version:chunk.version,immutable:chunk.immutable,files:chunk.files.map(entry=>entry.path),verified:true,updatedAt:new Date().toISOString()};
-  if(chunk.id==='graphics')graphicsMessageOut=chunk.name+' installed.';
+  if(chunk.id==='graphics'){graphicsMessageOut=chunk.name+' installed.';graphicsInstalled=true;}
  }
  const files=[...new Set(Object.values(records).flatMap(chunk=>chunk.files||[]))];
  const updatedAt=new Date().toISOString();
+ const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
  await atomicJSON(path.join(root,'installed.json'),{
   version,minecraft:client.minecraft,fabric,mod:client.mod?.version,modSha256:client.mod?.sha256,
   dependencies:(client.dependencies||[]).map(entry=>({id:entry.id,version:entry.version})),
-  files,chunks:records,game:{minecraft:client.minecraft,fabric,verified:true},graphics:records.graphics?.version||null,includeGraphics,java:javaPath,updatedAt
- });
- const message=(updating?'Client updated.':'Client ready.')+(graphicsMessageOut?' '+graphicsMessageOut:'');
+  files,chunks:records,game:{minecraft:client.minecraft,fabric,verified:true},graphics:records.graphics?.version||null,includeGraphics,java:javaPath,updatedAt,
+  ...(quality.quality?{quality:{...quality.tuned,graphicsMode:quality.quality.graphicsMode,shaderPack:quality.quality.shaders?quality.quality.shaderPack:null,updatedAt}}:{})});
+ // An install only replaces settings when the quality step knows the launcher owns
+ // the tree; a graphics-only run never touches the marker's own chunk records.
+ const message=[(updating?'Client updated.':'Client ready.'),graphicsMessageOut,quality.message].filter(Boolean).join(' ');
  notify({phase:'ready',message,progress:countProgress('Client ready',100)});
- return {version,javaPath,updatedAt,includeGraphics,graphics:records.graphics?.version||null,message,graphicsMessage:graphicsMessageOut};
+ return {version,javaPath,updatedAt,includeGraphics,graphics:records.graphics?.version||null,message,graphicsMessage:graphicsMessageOut,graphicsApplied:graphicsInstalled,quality:quality.tuned,qualityMessage:quality.message,qualitySettings:quality.quality};
 }
 // The flat manifest: no chunk list, so every pinned release is resolved from its
 // publisher on each run, exactly as the launcher has always done.
-async function installFlat({root,client,settings,notify,control,includeGraphics,mode,origin}){
+async function installFlat({root,client,settings,notify,control,includeGraphics,mode,origin,hardware=null}){
  const updating=mode==='update',step=kind=>updating?'updating':kind;
  const game=await installGame({root,settings,client,chunks:null,notify,control,mode});
  const mods=[{name:'Easter Co. client',url:modFile(client,origin),hash:client.mod.sha256,algorithm:'sha256',filename:'easter-navy.jar'}];
@@ -616,17 +681,21 @@ async function installFlat({root,client,settings,notify,control,includeGraphics,
   }
  }
  const updatedAt=new Date().toISOString();
- await atomicJSON(path.join(root,'installed.json'),{version:game.version,minecraft:client.minecraft,fabric:game.fabric,mod:client.mod.version,modSha256:client.mod.sha256,dependencies:client.dependencies.map(d=>({id:d.id,version:d.version})),files:[...mods.map(m=>'mods/'+m.filename),...(graphicsFile?[graphicsFile]:[])],game:{minecraft:client.minecraft,fabric:game.fabric,verified:true},graphics:graphics==='not-published'?null:graphics,includeGraphics,java:game.javaPath,updatedAt});
- const message=(updating?'Client updated.':'Client ready.')+(graphicsMessage?' '+graphicsMessage:'');
+ // The quality settings follow the same rule on a manifest without chunks: they
+ // are written when the toggle is on, and the payload's own absence is reported
+ // rather than papered over by turning shaders on with no shader pack to load.
+ const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
+ await atomicJSON(path.join(root,'installed.json'),{version:game.version,minecraft:client.minecraft,fabric:game.fabric,mod:client.mod.version,modSha256:client.mod.sha256,dependencies:client.dependencies.map(d=>({id:d.id,version:d.version})),files:[...mods.map(m=>'mods/'+m.filename),...(graphicsFile?[graphicsFile]:[])],game:{minecraft:client.minecraft,fabric:game.fabric,verified:true},graphics:graphics==='not-published'?null:graphics,includeGraphics,java:game.javaPath,updatedAt,...(quality.quality?{quality:{...quality.tuned,graphicsMode:quality.quality.graphicsMode,shaderPack:quality.quality.shaders?quality.quality.shaderPack:null,updatedAt}}:{})});
+ const message=[(updating?'Client updated.':'Client ready.'),graphicsMessage,quality.message].filter(Boolean).join(' ');
  notify({phase:'ready',message,progress:countProgress('Client ready',100)});
- return {version:game.version,javaPath:game.javaPath,updatedAt,includeGraphics,graphics,message};
+ return {version:game.version,javaPath:game.javaPath,updatedAt,includeGraphics,graphics,message,graphicsMessage,quality:quality.tuned,qualityMessage:quality.message,qualitySettings:quality.quality};
 }
-async function installClient({root,settings={},notify=()=>{},control=null,includeGraphics=false,mode='install',published=null,origin=clientOrigin()}={}){
+async function installClient({root,settings={},notify=()=>{},control=null,includeGraphics=false,mode='install',published=null,origin=clientOrigin(),only=null,hardware=null,fetchManifest=publishedManifest}={}){
  origin=originBase(origin);
  const problem=locationProblem(root,{});
  if(problem)throw Error(problem);
  const updating=mode==='update';
- const client=published||await publishedManifest(origin);
+ const client=published||await fetchManifest(origin);
  if(!client||typeof client!=='object'||typeof client.minecraft!=='string'||!/^\d[\w.+-]*$/.test(client.minecraft))throw Error('The client release manifest is invalid.');
  const chunks=chunkList(client,origin);
  // A chunked manifest carries its own pinned files; the flat fields only have to
@@ -638,8 +707,39 @@ async function installClient({root,settings={},notify=()=>{},control=null,includ
  await fs.mkdir(root,{recursive:true});
  await writeMarker(root);
  const record=await readInstalled(root);
- const options={root,client,chunks,record,settings,notify,control,includeGraphics,mode,origin,updating};
+ const options={root,client,chunks,record,settings,notify,control,includeGraphics,mode,origin,updating,only,hardware};
  return chunks?installChunked(options):installFlat(options);
+}
+// The graphics toggle's own entry point: the optional chunk is fetched and applied
+// through the checksum-verified pipeline, and nothing else in the client is
+// downloaded, re-hashed or invalidated by switching it on or off. The installed
+// client is required, because there is no settings file to tune without it.
+async function applyGraphics({root,settings={},notify=()=>{},control=null,includeGraphics=false,enabled=includeGraphics,hardware=null,origin=clientOrigin(),fetchManifest=publishedManifest,published=null}={}){
+ const record=await readInstalled(root);
+ if(!record)throw Error('Download the game before changing its graphics settings.');
+ const manifest=published||await fetchManifest(originBase(origin));
+ const chunks=chunkList(manifest,clientOrigin(origin));
+ const graphicsChunk=(chunks||[]).find(chunk=>chunk.id==='graphics')||null;
+ if(!chunks){
+  // A manifest that predates chunks has no optional graphics chunk at all, and the
+  // flat `graphics` payload is published under the same URL. Either way, nothing is
+  // invented and the caller reports what is available.
+  const quality=enabled?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
+  return {unchanged:true,applied:false,includeGraphics:Boolean(enabled),graphicsAvailable:Boolean(graphicsEntry(manifest?.graphics,origin)),graphics:record.graphics||null,message:quality.message||(enabled?'Enhanced graphics are not published yet, so the toggle is on but no shader pack was fetched.':'Enhanced graphics are off.'),graphicsMessage:enabled&&!graphicsEntry(manifest?.graphics,origin)?'Enhanced graphics are not published yet, so the toggle is on but no shader pack was fetched.':null,quality:quality.tuned,qualitySettings:quality.quality};
+ }
+ // The render settings are still the machine's answer even when the shader payload
+ // is missing: the client's own options are tuned, and only shaders are withheld
+ // because there is no pack to name.
+ if(enabled&&!graphicsChunk){
+  const message='Enhanced graphics are not published yet, so the toggle is on but no shader pack was fetched.';
+  const quality=await applyQuality(root,hardware,notify,{shaders:false});
+  return {unchanged:true,applied:Boolean(quality.tuned),includeGraphics:true,graphicsAvailable:false,graphics:record.chunks?.graphics?.version||null,message:quality.message||message,graphicsMessage:message,quality:quality.tuned,qualitySettings:quality.quality};
+ }
+ // Switching the toggle off stops nothing that is already installed: no chunk is
+ // selected, so nothing is fetched, and the quality files simply stay as they are.
+ if(!enabled)return {unchanged:true,applied:false,includeGraphics:false,graphicsAvailable:Boolean(graphicsChunk),graphics:record.chunks?.graphics?.version||null,message:'Enhanced graphics are off. Nothing already installed was removed.',graphicsMessage:null,quality:null,qualitySettings:null};
+ const result=await installClient({root,settings,notify,control,includeGraphics:true,mode:'update',published:manifest,origin,only:new Set(['graphics']),hardware,fetchManifest});
+ return {...result,applied:!result.unchanged||Boolean(result.quality),graphicsAvailable:true};
 }
 // Backwards-compatible entry point used by the launch path.
 async function prepare(root,settings,notify){return installClient({root,settings,notify,mode:'install'});}
@@ -647,16 +747,16 @@ async function prepare(root,settings,notify){return installClient({root,settings
 // every published field already matches, it returns without notifying anything at
 // all: no phase change and no progress bar, so the UI never flashes work that is
 // not happening.
-async function checkForUpdates({root,settings={},notify=()=>{},control=null,includeGraphics=false,fetchManifest=publishedManifest,install=installClient,origin=clientOrigin()}={}){
+async function checkForUpdates({root,settings={},notify=()=>{},control=null,includeGraphics=false,fetchManifest=publishedManifest,install=installClient,origin=clientOrigin(),hardware=null}={}){
  origin=originBase(origin);
  const record=await readInstalled(root);
  if(!record)return {checked:false,changed:true,applied:false,changes:['missing'],result:null};
  const published=await fetchManifest(origin);
  const diff=installDiff(published,record,{includeGraphics,origin});
  if(!diff.changed)return {checked:true,changed:false,applied:false,changes:[],result:null};
- const result=await install({root,settings,notify,control,includeGraphics,mode:'update',published,origin});
+ const result=await install({root,settings,notify,control,includeGraphics,mode:'update',published,origin,hardware});
  return {checked:true,changed:true,applied:true,changes:diff.changes,result};
 }
 // The Play gate, computed here in the main process and nowhere else.
 function canPlay(install,profile){return Boolean(install?.installed)&&profile!==null&&profile!==undefined;}
-module.exports={ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};
+module.exports={ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};

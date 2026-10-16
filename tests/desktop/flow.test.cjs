@@ -377,8 +377,42 @@ test('the install pipeline refuses a root inside an existing .minecraft before i
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
-test('the location guard is what the main process uses, not a second copy',async()=>{
- // The renderer-facing handlers must resolve through these helpers, so a path can
+test('the graphics toggle is exposed on the isolated preload and handled origin-checked',async()=>{
+ const preload=await fs.readFile(path.join(__dirname,'../../desktop/preload.cjs'),'utf8');
+ assert.match(preload,/contextBridge\.exposeInMainWorld\('easterDesktop'/);
+ assert.match(preload,/setGraphics:invoke\('set-graphics'\)/,'setGraphics is on the existing bridge surface');
+ // No renderer gets a path, a command or a filesystem from this: the whole bridge is
+ // still a list of named channels.
+ assert.equal(/\brequire\(['"]node:fs/.test(preload),false);
+ const channels=[...preload.matchAll(/invoke\('([^']+)'\)/g)].map(match=>match[1]);
+ assert(channels.length>=14,'the bridge exposes the launcher channels');
+ assert.equal(channels.includes('set-graphics'),true);
+ assert.equal(/ipcRenderer\.(send|sendSync|postMessage)|webFrame|process\.binding/.test(preload),false,'no other renderer-to-main path exists');
+ const main=await fs.readFile(path.join(__dirname,'../../desktop/main.cjs'),'utf8');
+ assert.match(main,/handle\('set-graphics',/,'the handler exists');
+ assert.match(main,/if\(!trustedFrame\(event\)\)throw Error\('Untrusted launcher request\.'\)/,'and follows the origin-checked pattern every other handler uses');
+ // The state the contract publishes, merged into the object status() already returns.
+ for(const field of ['hardware','graphics','servers'])assert.match(main,new RegExp('handle\\(.status.,\\(\\)=>\\(\\{\\.\\.\\.state'),'status() spreads the state that carries '+field);
+ assert.match(main,/hardware:hardwareState\(\),graphics:graphicsState\(\),servers:serversState\(\)/,'every broadcast carries hardware, graphics and servers');
+ assert.match(main,/function chooseGraphicsDefault\(stored,recommended\)/,'the first-run default is decided once');
+ assert.match(main,/require\('\.\/hardware\.cjs'\)/,'detection lives in its own module');
+ assert.match(main,/app\.getGPUInfo\('complete'\)/);
+ assert.match(main,/app\.getGPUFeatureStatus\(\)/);
+ // The toggle's own path is the verified pipeline, never a second downloader.
+ assert.match(main,/applyGraphics\(\{root:gameRoot\(\),settings,notify,control,includeGraphics:enabled,hardware:hardwareState\(\)\}\)/);
+});
+
+test('the published graphics state carries the contract shape',()=>{
+ const graphics={enabled:true,recommended:true,tunable:true,tuned:{renderDistance:14,shadowDistance:10,shaders:true}};
+ assert.deepEqual(Object.keys(graphics).sort(),['enabled','recommended','tunable','tuned']);
+ const hardware={gpu:'NVIDIA GeForce RTX 4060',vendor:'NVIDIA',vramMB:8188,tier:'capable',reason:'NVIDIA GPU NVIDIA GeForce RTX 4060 with 8188 MB of video memory.'};
+ assert.deepEqual(Object.keys(hardware).sort(),['gpu','reason','tier','vendor','vramMB']);
+ assert.equal(['capable','weak','unknown'].includes(hardware.tier),true);
+ assert.equal(typeof hardware.reason,'string');
+ assert.equal(hardware.reason.includes('\n'),false,'the reason is one displayable sentence');
+});
+
+test('the location guard is what the main process uses, not a second copy',async()=>{ // The renderer-facing handlers must resolve through these helpers, so a path can
  // only ever arrive from the picker or the saved setting.
  const source=await fs.readFile(path.join(__dirname,'../../desktop/main.cjs'),'utf8');
  assert.match(source,/require\('\.\/config\.cjs'\)/);
