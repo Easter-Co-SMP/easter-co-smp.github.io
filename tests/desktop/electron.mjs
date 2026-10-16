@@ -83,6 +83,9 @@ try{
   await page.screenshot({path:'/tmp/easter-desktop-launcher.png'});
   await app.evaluate(()=>global.easterTestGame.emit('exit',0));
   await page.locator('.desktop-status').filter({hasText:'Welcome back'}).waitFor();
+  await page.locator('[data-desktop-play][data-action=play]').waitFor();
+  assert.equal(await page.locator('[data-desktop-play]').isDisabled(),false,'game exit restores the Play action');
+  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).phase,'ready');
   await page.getByRole('button',{name:'Sign out',exact:true}).click();
   await page.locator('.desktop-account').filter({hasText:'Connect your Microsoft'}).waitFor();
  });

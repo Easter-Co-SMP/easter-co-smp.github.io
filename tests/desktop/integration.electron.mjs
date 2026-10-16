@@ -1,7 +1,7 @@
 // Integration verification for the download-first launcher flow.
 //
 // Run from the repository root after the flow branches are merged:
-//   xvfb-run -a node /tmp/launcher-e2e/flow.mjs [--keep]
+//   xvfb-run -a node tests/desktop/integration.electron.mjs [--keep]
 //
 // What this proves that the unit suites cannot: the REAL main process and the REAL shared UI
 // agree about the flow. It launches the app with the existing fixture harness (which stubs
@@ -9,9 +9,8 @@
 // drives the actual state machine and asserts what a player would see at each step.
 //
 // What it deliberately does not prove: the download mechanics themselves (chunk selection,
-// byte progress, pause and resume of real transfers). Those belong to the pipeline tests, and
-// the fixture origin at /tmp/launcher-e2e/fixture-origin.mjs exists to exercise them against a
-// tiny payload once the pipeline honours an overridable client origin.
+// byte progress, pause and resume of real transfers). Those belong to
+// tests/desktop/loopback.electron.mjs, which uses a real local HTTP fixture.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -82,6 +81,12 @@ try {
   assert.equal(await installSection.locator('input[name="includeGraphics"]').isChecked(), true,
     'enhanced graphics is offered and on by default');
   note('download: location defaults and the graphics toggle is present', location);
+  const picked=path.join(dir,'chosen-client');
+  await fs.mkdir(picked);
+  await app.evaluate(({dialog},picked)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[picked]});},picked);
+  await installSection.getByRole('button',{name:'Choose folder…'}).click();
+  await page.waitForFunction(picked=>document.querySelector('input[name="installLocation"]').value===picked,picked);
+  assert.equal((await state()).install.location,picked,'the real picker object updates both UI and saved location');
 
   await installSection.locator('.desktop-install-start, button[type="submit"]').first().click();
   await page.waitForFunction(() => document.getElementById('launcher-bar')?.hidden === false, {timeout: 20000});
