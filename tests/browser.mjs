@@ -580,7 +580,7 @@ try{
    assert.equal(await barVisibleNow(),true,'the bar persists after the client is ready');
    // 6. Ready with an account but an install update still pending: still no Play.
    await pushState({phase:'updating',actions:['download'],profile:{name:'Owen'},progress:progressFor({label:'Updating the client',percent:8}),canPlay:false});
-   heroAction({name:'ready-with-account-update-pending',...await hero(),expect:'download'});
+   heroAction({name:'ready-with-account-update-pending',...await hero(),expect:'busy'});
    // 7. Fully ready: one large PLAY NOW, and only now.
    await pushState({phase:'ready',actions:[],progress:null,canPlay:true});
    heroAction({name:'fully-ready',...await hero(),expect:'play'});
@@ -596,7 +596,7 @@ try{
    assert((await launcherPage.locator('.launcher-bar-tab-text').textContent()).includes('PLAY NOW'),'minimised while everything is ready shows PLAY NOW');
    assert.equal(await barVisibleNow(),true,'minimising keeps the bar on screen as a side tab');
    await pushState({phase:'downloading',progress:progressFor({percent:42}),actions:['signin'],canPlay:false});
-   assert.equal((await launcherPage.locator('.launcher-bar-tab-text').textContent()).trim(),'Downloading the Easter Company client 42%','minimised during a transfer shows percentages');
+   assert.equal((await launcherPage.locator('.launcher-bar-tab-text').textContent()).trim(),'42%','minimised during a transfer shows percentages');
    await launcherPage.locator('[data-bar-toggle]').click();
    assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),false,'the tab re-opens the bar');
 

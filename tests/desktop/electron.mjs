@@ -5,18 +5,13 @@ import path from 'node:path';
 import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
 const root=process.cwd();
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'easter-electron-test-'));
-// The shared UI in site/ is owned by the parallel download-first ticket. The renderer
-// checked out here still assigns state.progress to a <progress> as if it were the old
-// number, while doc/launcher-states.md makes it an object; that one legacy line throws
-// and is tolerated. Every other page error still fails this run.
-const legacyProgressError=message=>/HTMLProgressElement/.test(message);
 const run=async(entry,exercise,manageArrival)=>{
  const app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',entry],env:{...process.env,EASTER_TEST_HOME:temp}});
  try{const page=await app.firstWindow();page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',error=>errors.push(error.message));
   await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
   const arriving=await page.evaluate(()=>document.body.classList.contains('is-arriving'));
   if(!manageArrival)await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
-  await exercise(app,page,arriving);assert.deepEqual(errors.filter(message=>!legacyProgressError(message)),[]);}finally{await app.close();}
+  await exercise(app,page,arriving);assert.deepEqual(errors,[]);}finally{await app.close();}
 };
 // The Skip intro control must not exist in the desktop DOM at all, and the arrival must still be
 // skippable and bounded without it. Launch one runs the arrival both ways; launch two runs the shell.
@@ -58,7 +53,7 @@ try{
   assert.equal(await page.locator('.atlas-home').count(),0);
   assert.equal(await page.locator('.arrival-mist').count(),0);
   assert.equal(await page.locator('nav [popovertarget]').count(),0);
-  await page.getByRole('button',{name:'Play',exact:true}).click();
+  await page.getByRole('button',{name:'My client',exact:true}).click();
   await page.locator('.desktop-settings summary').click();
   assert.equal(await page.locator('input[name=server]').inputValue(),'test.example:25565');
   await page.keyboard.press('Escape');
@@ -71,15 +66,19 @@ try{
  const saved=JSON.parse(await fs.readFile(path.join(temp,'settings.json'),'utf8'));assert.equal(saved.server,'test.example:25565');
  await run(path.join(root,'tests/desktop/harness.cjs'),async(app,page)=>{
   await page.locator('[data-desktop-play]').click();
+  await page.getByRole('button',{name:'Start download',exact:true}).click();
+  await page.locator('#desktop-launcher').waitFor({state:'hidden'});
+  await page.locator('[data-desktop-play]').click();
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   assert(!(await page.evaluate(()=>JSON.stringify(document.body.textContent))).includes('fixture-private'));
   await page.getByRole('button',{name:'Cancel sign-in',exact:true}).click();
   await page.locator('.desktop-status').filter({hasText:'cancelled'}).waitFor();
-  await page.getByRole('button',{name:'Sign in & Play',exact:true}).click();
+  await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   await app.evaluate(()=>global.easterTestApprove());
+  await page.locator('#desktop-launcher').getByRole('button',{name:'PLAY NOW',exact:true}).click();
   await page.locator('.desktop-status').filter({hasText:'Minecraft is running'}).waitFor();
-  assert(await page.getByRole('button',{name:'Minecraft is running',exact:true}).isDisabled());
+  assert(await page.locator('[data-desktop-play]').isDisabled());
   const status=await page.evaluate(()=>window.easterDesktop.status());assert.equal(status.profile.name,'TestCaptain');assert(!JSON.stringify(status).includes('fixture-private'));
   await page.screenshot({path:'/tmp/easter-desktop-launcher.png'});
   await app.evaluate(()=>global.easterTestGame.emit('exit',0));

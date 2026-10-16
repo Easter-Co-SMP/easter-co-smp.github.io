@@ -24,7 +24,7 @@ const companyFile=()=>path.join(configRoot(),companyVaultName());
 const clientId=process.env.EASTER_MICROSOFT_CLIENT_ID||DEFAULT_CLIENT_ID;
 const auth=new MicrosoftAuth({clientId});
 const accounts=new AccountClient({baseUrl:apiOrigin(),client:'launcher/'+APP_VERSION});
-const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false};
+const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:true};
 // The launcher state contract in doc/launcher-states.md. `phase` and `progress`
 // are the live pipeline's; everything else is derived from the installed client,
 // the account session and the saved settings on every broadcast, so no view has to
@@ -103,7 +103,7 @@ function safeError(error){
  return message.includes('token')||message.includes('Bearer')?'The session could not be refreshed. Please sign in again.':message.slice(0,350);
 }
 async function exclusively(action){
- if(working||game)throw Error(game?'Minecraft is already running.':'Another launcher operation is still running.');
+ if(working||game||controller)throw Error(game?'Minecraft is already running.':'Another launcher operation is still running.');
  working=true;
  try{return await action();}catch(error){
   const message=safeError(error);
@@ -148,7 +148,7 @@ async function runUpdate(){
 }
 async function login(){
  controller=new AbortController();
- notify({message:'Opening Microsoft sign-in…',device:null,progress:null});
+ notify({message:'Opening Microsoft sign-in…',device:null,...(control?{}:{progress:null})});
  try{
   session=await auth.signIn(device=>notify({device,message:'Enter this code on Microsoft’s sign-in page.'}),controller.signal);
   await saveSession();await enrolAccount();
@@ -194,7 +194,16 @@ function registerIPC(){
   try{return {ok:true,value:await fn(...args)};}catch(error){return {ok:false,error:safeError(error)};}
  });
  handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
- handle('sign-in',()=>exclusively(login));
+ handle('sign-in',async()=>{
+  if(controller)throw Error('Microsoft sign-in is already running.');
+  // Authentication can overlap the install pipeline, but never starts a second
+  // pipeline or clears its progress when authentication fails or is cancelled.
+  if(control){
+   try{return await login();}
+   catch(error){notify({message:safeError(error),device:null});throw error;}
+  }
+  return exclusively(login);
+ });
  handle('cancel-sign-in',()=>controller?.abort());
  handle('sign-out',async()=>{if(working)throw Error('Wait for the current operation to finish.');session=null;await forgetCompany();await fs.rm(vaultFile(),{force:true});notify({remembered:false,device:null,message:'Signed out on this device.'});});
  // Re-issues the account session from the Mojang token the launcher already has.
@@ -304,7 +313,7 @@ if(instance){
   // The saved location is a path this launcher wrote itself after the picker
   // validated it. It is never taken from anywhere else.
   if(typeof stored.location==='string'&&path.isAbsolute(stored.location))settings.location=path.resolve(stored.location);
-  settings.includeGraphics=Boolean(stored.includeGraphics);
+  settings.includeGraphics='includeGraphics' in stored?Boolean(stored.includeGraphics):defaultSettings.includeGraphics;
   if(secureStorageAvailable())try{session=JSON.parse(safeStorage.decryptString(await fs.readFile(vaultFile())));if(!session?.refreshToken||!session?.profile)session=null;else state.remembered=true;}catch{}
   // Restore the Easter Company session from the vault without a network call, so
   // launch never waits on the account API. Sign-in and play re-issue it.

@@ -40,15 +40,19 @@ try{
 	const errors=[];page.on('pageerror',e=>errors.push(e.message));
 	await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
 	await page.locator('[data-desktop-play]').click();
+	await page.getByRole('button',{name:'Start download',exact:true}).click();
+	await page.locator('#desktop-launcher').waitFor({state:'hidden'});
+	await page.locator('[data-desktop-play]').click();
 	await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
 	await app.evaluate(()=>global.easterTestApprove());
+	await page.locator('#desktop-launcher').getByRole('button',{name:'PLAY NOW',exact:true}).click();
 	await page.locator('.desktop-status').filter({hasText:'Minecraft is running'}).waitFor();
 	await page.locator('.desktop-company').filter({hasText:'Captain Testbeard'}).waitFor();
 	const login=calls.filter(c=>c.url==='/v1/accounts/login');
 	// Sign-in enrols, then play re-posts the same Mojang token to issue a session.
 	assert.equal(login.length,2,'sign-in and play each post the enrolment credential');
 	for(const call of login){
-		assert.deepEqual(JSON.parse(call.body),{minecraftAccessToken:'fixture-private-token',client:'launcher/1.0.1'});
+		assert.deepEqual(JSON.parse(call.body),{minecraftAccessToken:'fixture-private-token',client:'launcher/'+JSON.parse(await fs.readFile(path.join(root,'package.json'),'utf8')).version});
 		assert.equal(call.authorization,undefined,'the login call is authenticated by the Minecraft token, not a Bearer header');
 	}
 	const status=await page.evaluate(()=>window.easterDesktop.status());

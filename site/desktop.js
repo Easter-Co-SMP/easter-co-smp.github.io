@@ -14,7 +14,7 @@
 
  const TRANSFER=['downloading','paused','verifying','installing','updating'];
  const LOGIN_ACTION='Sign in with Microsoft';
- let current=null,settings,totalMemoryMB=0,heroButton=null;
+ let current=null,settings,totalMemoryMB=0,heroButton=null,signInPending=false;
 
  // A launcher build older than the download half exposes no install, pause, resume,
  // choose-location or update handler. Looking them up defensively hides those controls
@@ -22,8 +22,8 @@
  const bridge=(...names)=>{for(const name of names)if(typeof desktop[name]==='function')return desktop[name].bind(desktop);};
  const chooseLocation=bridge('chooseInstallLocation','chooseLocation');
  const startInstall=bridge('startInstall','startDownload');
- const pauseTransfer=bridge('pause');
- const resumeTransfer=bridge('resume');
+ const pauseTransfer=bridge('pauseInstall','pause');
+ const resumeTransfer=bridge('resumeInstall','resume');
  const playAction=bridge('play','launch');
 
  const phaseOf=state=>state&&typeof state.phase==='string'?state.phase:'';
@@ -40,14 +40,13 @@
  // so no second view can invent its own version of the gate.
  function primaryAction(state){
   const phase=phaseOf(state),account=current?.profile?.name,install=installOf(state),actions=actionsOf(state);
-  if(state&&state.canPlay)return {kind:'play',label:'PLAY NOW',note:'Set sail'};
+  if(signInPending)return {kind:'busy',label:'Connecting your account…',note:'Complete Microsoft sign-in'};
+  if(state&&state.canPlay&&phase!=='launching'&&phase!=='running')return {kind:'play',label:'PLAY NOW',note:'Set sail'};
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Hold fast'};
   if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
-  // A download or install under way asks for the account while the player waits. The order the
-  // main process publishes matters: while the download is still required and has not started,
-  // the hero asks for the game first, because that is what gets the player invested.
-  const needsDownloadFirst=actions[0]==='download'&&!transferring(state);
-  if(!account&&!needsDownloadFirst&&(actions.includes('signin')||transferring(state)))return {kind:'signin',label:LOGIN_ACTION,note:'Your crew is waiting'};
+  // A download or install under way asks for the account while the player waits.
+  if(!account&&(transferring(state)||(!actions.includes('download')&&actions.includes('signin'))))return {kind:'signin',label:LOGIN_ACTION,note:'Your crew is waiting'};
+  if(account&&transferring(state))return {kind:'busy',label:phase==='paused'?'Download paused':'Preparing your client…',note:'Follow progress below'};
   // Fresh install: nothing downloaded and no account requirement to show yet.
   if(actions.includes('download')||!(account&&install.installed===true))
    return {kind:'download',label:'Download the game',note:'Easter Company client'};
@@ -61,7 +60,7 @@
  const message=$('.desktop-status'),progress=$('.desktop-progress'),playButton=$('.desktop-play');
  const installSection=$('.desktop-install'),locationField=$('input[name=installLocation]'),graphicsField=$('input[name=includeGraphics]');
  const installError=$('.desktop-install-error');
- let installTouched=false;
+ let installTouched=false,installRequested=false;
  $('.dialog-close').onclick=()=>panel.close();
  panel.addEventListener('click',event=>{const r=panel.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)panel.close();});
  const open=()=>{if(!panel.open)panel.showModal();};
@@ -80,11 +79,12 @@
  // One control does both jobs: it reads as the bar's own switch while the bar is open and
  // becomes the whole side tab once minimised, so there is always something to press with
  // a mouse or a keyboard.
- bar.innerHTML='<button type="button" class="launcher-bar-tab" data-bar-toggle aria-pressed="false"><span class="launcher-bar-tab-icon" aria-hidden="true">▾</span><span class="launcher-bar-tab-text" data-bar-tab-text></span></button><div class="launcher-bar-body" id="launcher-bar-body"><div class="launcher-bar-info"><p class="launcher-bar-label"></p><p class="launcher-bar-meta"></p></div><div class="launcher-bar-track" role="progressbar" aria-label="Download progress"><i data-bar-fill></i></div><div class="launcher-bar-actions"><button type="button" class="launcher-bar-button" data-bar-pause hidden>Pause</button><button type="button" class="launcher-bar-button" data-bar-resume hidden>Resume</button></div></div>';
+ bar.innerHTML='<button type="button" class="launcher-bar-tab" data-bar-toggle aria-pressed="false"><span class="launcher-bar-tab-icon" aria-hidden="true">▾</span><span class="launcher-bar-tab-text" data-bar-tab-text></span></button><div class="launcher-bar-body" id="launcher-bar-body"><div class="launcher-bar-info"><p class="launcher-bar-label"></p><p class="launcher-bar-meta"></p></div><div class="launcher-bar-track" role="progressbar" aria-label="Download progress"><i data-bar-fill></i></div><div class="launcher-bar-actions"><button type="button" class="launcher-bar-button" data-bar-primary hidden></button><button type="button" class="launcher-bar-button" data-bar-pause hidden>Pause</button><button type="button" class="launcher-bar-button" data-bar-resume hidden>Resume</button></div></div>';
  document.body.append(bar);
  const barToggle=bar.querySelector('[data-bar-toggle]'),barBody=bar.querySelector('.launcher-bar-body'),barFill=bar.querySelector('[data-bar-fill]');
  const barTrack=bar.querySelector('.launcher-bar-track'),barLabel=bar.querySelector('.launcher-bar-label'),barMeta=bar.querySelector('.launcher-bar-meta');
  const barTabText=bar.querySelector('[data-bar-tab-text]');
+ const barPrimary=bar.querySelector('[data-bar-primary]');
  const pauseButton=bar.querySelector('[data-bar-pause]'),resumeButton=bar.querySelector('[data-bar-resume]');
 
  // Sit above whatever the page already docks at the bottom (the map's footer and status
@@ -140,13 +140,15 @@
   // Minimised: percentages only while a download or install is active, otherwise the play
   // or sign-in action the state dictates.
   const action=primaryAction(state);
-  const percentText=percent===null?'':label+' '+Math.round(percent)+'%';
+  const percentText=percent===null?'':Math.round(percent)+'%';
   if(minimised&&!active)barTabText.textContent=action.kind==='play'?'PLAY NOW':action.kind==='signin'?LOGIN_ACTION:action.label;
-  else barTabText.textContent=percentText||label;
-  barLabel.textContent=label;
+  else barTabText.textContent=percentText||'…';
+  barLabel.textContent=active?label:state.canPlay?'Ready to set sail':installOf(state).installed?'Your client is ready':label;
+  barPrimary.hidden=active||!['play','signin','download'].includes(action.kind);
+  barPrimary.textContent=action.label;
   const bytes=progressState&&typeof progressState.bytesDone==='number'&&typeof progressState.bytesTotal==='number'?formatBytes(progressState.bytesDone)+' of '+formatBytes(progressState.bytesTotal):null;
   const speed=progressState&&typeof progressState.bytesPerSecond==='number'?formatSpeed(progressState.bytesPerSecond):null;
-  barMeta.textContent=joinParts([bytes,speed,formatEta(progressState?.etaSeconds)]);
+  barMeta.textContent=joinParts([percent===null?null:Math.round(percent)+'%',bytes,speed,formatEta(progressState?.etaSeconds)]);
   barMeta.hidden=barMeta.textContent==='';
   // Nothing is transferring: the bar carries the state's action and no progress at all,
   // rather than an idle bar sitting at zero.
@@ -167,6 +169,7 @@
  // ---- State rendering -------------------------------------------------------
  function render(state){
   current={...current,...state};
+  if(installRequested&&transferring(current)){installRequested=false;if(panel.open)panel.close();}
   const busy=['signing-in','refreshing','launching','running'].includes(phaseOf(current));
   const account=current.profile?.name,action=primaryAction(current),install=installOf(current),phase=phaseOf(current);
   message.textContent=current.message||'Your crew is waiting.';
@@ -190,7 +193,7 @@
   $('[data-sign-out]').hidden=!account;$('[data-sign-out]').disabled=busy&&phase!=='running';
   const device=current.device;$('.desktop-device').hidden=!device;
   if(device){$('.desktop-code').textContent=device.code;$('.desktop-provider').textContent='Microsoft will identify this sign-in as '+(current.authName||'the launcher')+'.';}
-  progress.hidden=phase!=='installing';
+  progress.hidden=true; // The themed sticky bar owns progress on every page.
   // A progress object without a numeric percent is indeterminate: no value attribute,
   // because a raw browser progress bar would otherwise sit at an invented position.
   const installedPercent=progressOf(current)?.percent;
@@ -214,6 +217,11 @@
    // The action kind is published on the element so a test can assert the gate without
    // reading the label back out of the copy.
    heroButton.dataset.action=action.kind;
+   const icon=heroButton.querySelector('svg');
+   if(icon){
+    icon.setAttribute('viewBox','0 0 24 24');
+    icon.innerHTML=action.kind==='signin'?'<path fill="currentColor" stroke="none" d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/>':action.kind==='play'?'<path fill="currentColor" stroke="none" d="M7 4v16l13-8z"/>':action.kind==='download'?'<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>':'<path d="M8 5v14M16 5v14"/>';
+   }
    heroButton.querySelector('span').firstChild.textContent=action.label;
    heroButton.querySelector('small').textContent=action.kind==='play'?joinParts([action.note,account]):action.note;
   }
@@ -221,7 +229,7 @@
  }
 
  // ---- Wiring ----------------------------------------------------------------
- const signIn=()=>{open();void Promise.resolve(desktop.signIn()).catch(report);};
+ const signIn=()=>{if(signInPending)return;open();signInPending=true;render(current||{});void Promise.resolve(desktop.signIn()).catch(report).finally(()=>{signInPending=false;render(current||{});});};
  const start=()=>{open();void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
  const openInstall=()=>{open();installError.hidden=true;if(typeof chooseLocation==='function'){
   // Prefill from the contract default, then let the folder picker replace it.
@@ -238,13 +246,15 @@
   if(typeof startInstall!=='function')return;
   const location=(locationField.value||'').trim()||installOf(current||{}).defaultLocation||'';
   installError.hidden=true;
+  installRequested=true;
+  $('.desktop-install-start').disabled=true;
   try{
    await startInstall({location,includeGraphics:Boolean(graphicsField.checked)});
   }catch(error){
    // A refused location is shown, and the flow stays usable.
-   installError.hidden=false;installError.textContent=error&&error.message?error.message:String(error);
+   open();installError.hidden=false;installError.textContent=error&&error.message?error.message:String(error);
    locationField.setAttribute('aria-invalid','true');locationField.focus?.();
-  }
+  }finally{installRequested=false;$('.desktop-install-start').disabled=false;}
  }
 
  const hero=document.querySelector('[data-download-primary]');
@@ -258,17 +268,18 @@
   document.querySelector('.launcher-picker')?.remove();
   document.querySelector('.map-caption').textContent='Your launcher. Your world. Your crew.';
  }
- for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"]')){
-  const replacement=trigger.cloneNode(false);replacement.removeAttribute('popovertarget');replacement.removeAttribute('aria-expanded');replacement.removeAttribute('aria-haspopup');replacement.textContent='Play';replacement.dataset.desktopNav='';trigger.replaceWith(replacement);replacement.onclick=open;
- }
+ // One client control in navigation; the hero and sticky bar carry the current action.
+ for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"]'))trigger.remove();
  const settingsButton=document.createElement('button');settingsButton.type='button';settingsButton.className='desktop-account-nav';settingsButton.textContent='My client';settingsButton.onclick=open;document.querySelector('.site-header nav').append(settingsButton);
 
+ barPrimary.onclick=()=>heroAction();
  barToggle.onclick=()=>{minimised=!minimised;writeMinimised(minimised);renderBar(current||{});if(!minimised)barToggle.focus();};
  pauseButton.onclick=()=>{if(typeof pauseTransfer==='function')void Promise.resolve(pauseTransfer()).catch(report);};
  resumeButton.onclick=()=>{if(typeof resumeTransfer==='function')void Promise.resolve(resumeTransfer()).catch(report);};
   locationField.addEventListener('input',()=>{installTouched=true;locationField.removeAttribute('aria-invalid');installError.hidden=true;});
  $('[data-choose-location]').onclick=()=>{if(typeof chooseLocation!=='function')return;
-  void Promise.resolve(chooseLocation()).then(value=>{
+  void Promise.resolve(chooseLocation()).then(result=>{
+   const value=typeof result==='string'?result:result?.location;
    if(typeof value==='string'&&value){locationField.value=value;installTouched=true;installError.hidden=true;locationField.removeAttribute('aria-invalid');}
   }).catch(error=>{installError.hidden=false;installError.textContent=error&&error.message?error.message:String(error);});};
  $('.desktop-install-start').onclick=()=>void beginInstall();
