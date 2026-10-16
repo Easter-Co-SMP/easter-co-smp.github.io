@@ -435,6 +435,283 @@ try{
  }
  assert(requests.every(r=>r.method==='GET'));
  assert(!requests.some(r=>r.url.includes('/minecraft/')||r.url.includes('/api/')));
+ // The download-first flow is desktop-only. A plain browser must show none of it.
+ assert.equal(await page.locator('#launcher-bar').count(),0,'the sticky bar is a launcher affordance');
+ assert.equal(await page.locator('[data-desktop-play],[data-desktop-nav],.desktop-account-nav,.desktop-install').count(),0,'no desktop affordance may leak into the public page');
+ assert.equal(await page.getByRole('button',{name:/sign in/i}).count(),0,'the public page never offers sign-in');
+ assert(!(await page.locator('body').innerText()).includes('Download the game'),'the public page keeps its own download copy');
  assert.deepEqual(errors,[]);
  console.log('PUBLIC SITE PASS: responsive home, launcher downloads, read-only map, six-entry key with per-category filtering, snapshots with an unknown marker kind refused, pan/zoom/middle/fullscreen, preferences, persistent cached rendering, incremental refresh, failure retention, checksum validation, no private API calls');
+ // The shared-UI half of the download-first flow, driven entirely through a stub of the
+ // existing easterDesktop bridge. Every state in doc/launcher-states.md is pushed into the
+ // renderer here, so the hero, the bar and the Play gate are proven against the contract
+ // rather than against the happy path. This is not the live main process.
+ {
+  // A controllable bridge: status() hands over one state object, onState gives the renderer
+  // its updates, and every action the UI can take is recorded and answered locally.
+  const desktopFixture=state=>{
+   // A real main process keeps broadcasting its state, so the last state pushed before a
+   // navigation is merged back over the initial one here. Calls are kept the same way,
+   // because a navigation reloads the page but not the process behind the bridge.
+   let carried={};
+   try{carried=JSON.parse(localStorage.getItem('easter-renderer-state')||'{}');}catch{carried={};}
+   window.easterRenderer={state:Object.assign({},state,carried),nextLocation:null,refuse:null,calls:[],errors:[]};
+   window.addEventListener('pageerror',event=>window.easterRenderer.errors.push(event.message));
+   const renderer=window.easterRenderer;
+   const log=(name,payload)=>{renderer.calls.push(payload===undefined?{name}:{name,payload});try{localStorage.setItem('easter-renderer-calls',JSON.stringify(renderer.calls));}catch{}};
+   try{renderer.calls=JSON.parse(localStorage.getItem('easter-renderer-calls')||'[]');}catch{renderer.calls=[];}
+   window.easterDesktop={
+    mode:'desktop',
+    status:async()=>renderer.state,
+    onState:callback=>{renderer.emit=callback;},
+    signIn:async()=>{log('signIn');},
+    play:async()=>{log('play');},
+    chooseInstallLocation:async()=>{log('chooseInstallLocation');return renderer.nextLocation||renderer.state.install.defaultLocation;},
+    startInstall:async options=>{log('startInstall',options);if(renderer.refuse){const message=renderer.refuse;renderer.refuse=null;throw Error(message);}},
+    pause:async()=>{log('pause');},
+    resume:async()=>{log('resume');},
+    cancelSignIn:async()=>{log('cancelSignIn');},
+    refreshAccount:async()=>{log('refreshAccount');},
+    signOut:async()=>{log('signOut');},
+    signOutAccount:async()=>{log('signOutAccount');},
+    openFolder:async()=>{},
+    openMicrosoft:async()=>{},
+    chooseJava:async()=>null,
+    saveSettings:async values=>values
+   };
+  };
+  const launcherState=patch=>Object.assign({version:'1.0.0',totalMemoryMB:16384,remembered:true,profile:null,account:null,device:null,sessionExpiresAt:0,message:'',
+   settings:{memoryMB:4096,server:'',javaPath:''},install:{location:null,defaultLocation:'/home/player/.easter-company/minecraft',installed:false,includeGraphics:true,version:null,updatedAt:null},
+   progress:null,actions:['download'],paused:false,canPlay:false,bar:{visible:false}},patch);
+  const progressFor=patch=>Object.assign({label:'Downloading the Easter Company client',percent:42,bytesDone:438304768,bytesTotal:1048576000,bytesPerSecond:6291456,etaSeconds:97},patch);
+  const INSTALLED={location:'/home/player/.easter-company/minecraft',defaultLocation:'/home/player/.easter-company/minecraft',installed:true,includeGraphics:true,version:'26.2',updatedAt:null};
+  const launcherContext=await browser.newContext({viewport:{width:1440,height:900}});
+  const launcherErrors=[];
+  try{
+   await launcherContext.addInitScript(desktopFixture,launcherState({}));
+   const launcherPage=await launcherContext.newPage();
+   // Collect failures for the whole block: the fixture array is reset by every reload.
+   launcherPage.on('pageerror',error=>launcherErrors.push(error.message));
+   await launcherPage.goto(origin);
+   // The preference is renderer-local and survives a reload, so the run starts by clearing it
+   // once, here rather than in an init script: an init script would erase the very preference
+   // the navigation checks are about.
+   await launcherPage.evaluate(()=>{try{for(const key of ['easter-co-launcher-bar','easter-renderer-calls','easter-renderer-state'])localStorage.removeItem(key);}catch{}});
+   await launcherPage.reload();
+   await launcherPage.waitForFunction(()=>window.easterRenderer&&window.easterRenderer.emit);
+   const heroButton=launcherPage.locator('[data-desktop-play]');
+   await heroButton.waitFor();
+   const pushState=async patch=>{await launcherPage.evaluate(values=>{
+    Object.assign(window.easterRenderer.state,values);
+    try{localStorage.setItem('easter-renderer-state',JSON.stringify(window.easterRenderer.state));}catch{}
+    window.easterRenderer.emit(window.easterRenderer.state);
+   },patch);};
+   const heroAction=summary=>{
+    assert.equal(summary.action,summary.expect,summary.name+': hero action must follow the state');
+    // Play must never appear because the install finished alone, so outside canPlay the
+    // hero carries no Play label at all.
+    if(summary.expect==='play')assert(summary.text.startsWith('PLAY NOW'),summary.name+': the hero must become one large PLAY NOW: '+summary.text);
+    else assert(!/play/i.test(summary.text),summary.name+': Play must be absent until canPlay: '+summary.text);
+   };
+   const hero=async()=>({text:(await heroButton.innerText()).replace(/\s+/g,' '),action:await heroButton.getAttribute('data-action')});
+   const barVisibleNow=()=>launcherPage.locator('#launcher-bar').isVisible();
+   const calls=()=>launcherPage.evaluate(()=>window.easterRenderer.calls);
+   const callsNamed=async name=>(await calls()).filter(call=>call.name===name);
+
+   // 1. Uninstalled: the hero asks for the game, and no bar exists yet.
+   heroAction({name:'uninstalled',...await hero(),expect:'download'});
+   assert.equal(await barVisibleNow(),false,'the bar must stay hidden until a download starts');
+   assert.equal(await launcherPage.evaluate(()=>document.documentElement.classList.contains('desktop-mode')),true);
+
+   // 2. Downloading without an account: the bar appears and the hero asks for sign-in.
+   await pushState({phase:'downloading',progress:progressFor(),actions:['signin'],bar:{visible:true}});
+   heroAction({name:'downloading',...await hero(),expect:'signin'});
+   assert.equal(await barVisibleNow(),true,'the bar must appear once the download starts');
+   assert.equal((await launcherPage.locator('.launcher-bar-label').textContent()).includes('Downloading'),true);
+   const barMeta=await launcherPage.locator('.launcher-bar-meta').textContent();
+   assert(barMeta.includes('418 MB of 1000 MB'),'the bar must show the transfer size: '+barMeta);
+   assert(barMeta.includes('6.0 MB/s'),'the bar must show the transfer speed: '+barMeta);
+   assert(barMeta.includes('left'),'the bar must show the remaining time when one is known: '+barMeta);
+   assert.equal(await launcherPage.locator('.launcher-bar-track').getAttribute('aria-valuenow'),'42');
+   assert.equal(await launcherPage.locator('[data-bar-pause]').isVisible(),true,'pause is offered during a transfer');
+   assert.equal(await launcherPage.locator('[data-bar-resume]').isVisible(),false,'resume is not offered mid-download');
+   // The bar's contents are left aligned, as the contract requires.
+   const barBox=await launcherPage.locator('#launcher-bar').boundingBox();
+   const infoBox=await launcherPage.locator('.launcher-bar-info').boundingBox();
+   assert(Math.abs(infoBox.x-(barBox.x+(infoBox.x-barBox.x)))<1&&infoBox.x-barBox.x<barBox.width/2,'bar contents must be left aligned');
+   assert(Math.abs((barBox.x+barBox.width/2)-720)<2,'the bar must sit at the bottom centre: '+(barBox.x+barBox.width/2));
+   assert(barBox.y+barBox.height<=900&&barBox.y>900*0.8,'the bar must sit at the bottom of the viewport: '+barBox.y+' '+barBox.height);
+   // A themed bar, never a raw OS progress element.
+   assert.equal(await launcherPage.locator('#launcher-bar progress').count(),0,'the bar must be themed, not a raw progress element');
+
+   // 3. Paused: resume replaces pause, and the tab keeps showing the percentage.
+   await pushState({phase:'paused',paused:true,progress:progressFor({percent:57})});
+   heroAction({name:'paused',...await hero(),expect:'signin'});
+   assert.equal(await launcherPage.locator('[data-bar-pause]').isVisible(),false,'pause is withdrawn while paused');
+   assert.equal(await launcherPage.locator('[data-bar-resume]').isVisible(),true,'resume is offered while a paused transfer can continue');
+   // The transfer moves on to work that cannot be paused or resumed, so neither is offered.
+   await pushState({phase:'verifying',paused:false});
+   assert.equal(await launcherPage.locator('[data-bar-resume]').isVisible(),false,'resume is withdrawn once the transfer can no longer continue');
+   assert.equal(await launcherPage.locator('[data-bar-pause]').isVisible(),false,'pause is only offered while a transfer can actually be paused');
+
+   // 4. Indeterminate progress: activity without an invented percentage, and absent fields
+   //    stay absent rather than being shown as zero.
+   await pushState({phase:'verifying',progress:{label:'Verifying the download',percent:null,bytesDone:null,bytesTotal:null,bytesPerSecond:null,etaSeconds:null}});
+   heroAction({name:'verifying',...await hero(),expect:'signin'});
+   assert.equal(await launcherPage.locator('.launcher-bar-track').getAttribute('aria-valuenow'),null,'an unknown percentage must not be published as a number');
+   assert(!(await launcherPage.locator('.launcher-bar-label').textContent()).includes('%'),'no percentage may be invented while it is unknown');
+   assert.equal(await launcherPage.locator('.launcher-bar-meta').isVisible(),false,'missing byte and speed fields must be absent, not zero');
+   assert.equal(await barVisibleNow(),true,'the bar stays visible while the install is under way');
+   await pushState({phase:'installing',progress:progressFor({label:'Installing the client',percent:73})});
+   heroAction({name:'installing',...await hero(),expect:'signin'});
+   assert.equal(await launcherPage.locator('.launcher-bar-track').getAttribute('aria-valuenow'),'73');
+   // With nothing transferring, the bar shows the action and no progress at all rather
+   // than an idle bar parked at zero.
+   await pushState({phase:'ready',progress:null,canPlay:false,actions:['signin'],profile:null});
+   assert.equal(await launcherPage.locator('.launcher-bar-track').isVisible(),false,'an idle bar must not show a zeroed progress track');
+   assert.equal(await launcherPage.locator('.launcher-bar-meta').isVisible(),false,'an idle bar must not show empty transfer figures');
+   assert.equal(await barVisibleNow(),true,'the bar stays on screen once a download has started');
+   await pushState({canPlay:false,actions:['signin'],progress:{label:'Installing the client',percent:73},phase:'installing'});
+   assert.equal(await launcherPage.locator('.launcher-bar-track').getAttribute('aria-valuenow'),'73');
+
+   // 5. Ready without an account: the install finished alone, so Play must not appear.
+   await pushState({phase:'ready',progress:null,actions:['signin'],install:INSTALLED});
+   heroAction({name:'ready-without-account',...await hero(),expect:'signin'});
+   assert.equal(await barVisibleNow(),true,'the bar persists after the client is ready');
+   // 6. Ready with an account but an install update still pending: still no Play.
+   await pushState({phase:'updating',actions:['download'],profile:{name:'Owen'},progress:progressFor({label:'Updating the client',percent:8}),canPlay:false});
+   heroAction({name:'ready-with-account-update-pending',...await hero(),expect:'download'});
+   // 7. Fully ready: one large PLAY NOW, and only now.
+   await pushState({phase:'ready',actions:[],progress:null,canPlay:true});
+   heroAction({name:'fully-ready',...await hero(),expect:'play'});
+   assert.equal(await launcherPage.locator('[data-desktop-play]').isDisabled(),false);
+   // One Play entry point on the page while the launcher dialog is closed, and it is the hero.
+   assert.equal(await launcherPage.locator('.hero-actions [data-desktop-play]').getAttribute('data-action'),'play');
+   assert.equal(await launcherPage.locator('.hero-actions [data-desktop-play]').getAttribute('aria-disabled'),null);
+
+   // Minimised, the bar follows the same state: percentages while transferring, the play or
+   // sign-in action otherwise.
+   await launcherPage.locator('[data-bar-toggle]').click();
+   assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),true);
+   assert((await launcherPage.locator('.launcher-bar-tab-text').textContent()).includes('PLAY NOW'),'minimised while everything is ready shows PLAY NOW');
+   assert.equal(await barVisibleNow(),true,'minimising keeps the bar on screen as a side tab');
+   await pushState({phase:'downloading',progress:progressFor({percent:42}),actions:['signin'],canPlay:false});
+   assert.equal((await launcherPage.locator('.launcher-bar-tab-text').textContent()).trim(),'Downloading the Easter Company client 42%','minimised during a transfer shows percentages');
+   await launcherPage.locator('[data-bar-toggle]').click();
+   assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),false,'the tab re-opens the bar');
+
+   // Keyboard access: the bar's own controls are reachable and operable, with names.
+   assert.equal(await launcherPage.locator('[data-bar-toggle]').getAttribute('aria-label'),'Minimise download progress');
+   assert.equal(await launcherPage.getByRole('button',{name:'Pause',exact:true}).count(),1);
+   assert.equal(await launcherPage.getByRole('button',{name:'Resume',exact:true}).count(),0);
+   await launcherPage.getByRole('button',{name:'Pause',exact:true}).focus();
+   assert.equal(await launcherPage.evaluate(()=>document.activeElement.dataset.barPause!==undefined),true,'pause takes keyboard focus');
+   await launcherPage.keyboard.press('Enter');
+   assert.equal((await callsNamed('pause')).length,1,'Enter on the focused pause control must reach main');
+   await launcherPage.locator('[data-bar-toggle]').focus();
+   await launcherPage.keyboard.press('Enter');
+   assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),true,'the tab toggles with the keyboard');
+   await launcherPage.keyboard.press('Enter');
+   assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),false,'the same key re-opens it');
+
+   // The first-run flow collects a location and the graphics toggle, and passes both to main.
+   await pushState({phase:'uninstalled',progress:null,actions:['download'],install:launcherState({}).install,profile:null,canPlay:false});
+   await launcherPage.evaluate(()=>{window.easterRenderer.nextLocation='/mnt/games/easter-company/minecraft';});
+   await heroButton.click();
+   assert.equal(await launcherPage.locator('#desktop-launcher').isVisible(),true,'the hero download action opens the launcher dialog');
+   const locationInput=launcherPage.locator('#desktop-launcher input[name=installLocation]');
+   assert.equal(await locationInput.inputValue(),'/home/player/.easter-company/minecraft','the location field defaults to install.defaultLocation');
+   await launcherPage.getByRole('button',{name:'Choose folder…'}).click();
+   assert.equal(await locationInput.inputValue(),'/mnt/games/easter-company/minecraft','the folder picker replaces the default');
+   const graphicsToggle=launcherPage.locator('#desktop-launcher input[name=includeGraphics]');
+   assert.equal(await graphicsToggle.isChecked(),true,'enhanced graphics default to the contract value');
+   await graphicsToggle.uncheck();
+   await launcherPage.getByRole('button',{name:'Start download'}).click();
+   await launcherPage.waitForFunction(()=>window.easterRenderer.calls.some(call=>call.name==='startInstall'));
+   const startCalls=await callsNamed('startInstall');
+   assert.deepEqual(startCalls[0].payload,{location:'/mnt/games/easter-company/minecraft',includeGraphics:false},'the chosen location and toggle must be passed to main');
+
+   // A refused location is shown and the flow stays usable.
+   await launcherPage.evaluate(()=>{window.easterRenderer.refuse='That folder is not writable.';});
+   await launcherPage.getByRole('button',{name:'Start download'}).click();
+   const installError=launcherPage.locator('.desktop-install-error');
+   await installError.waitFor({state:'visible'});
+   assert.equal(await installError.textContent(),'That folder is not writable.','a refused location must be shown');
+   assert.equal(await locationInput.getAttribute('aria-invalid'),'true');
+   await locationInput.fill('/home/player/games/easter');
+   assert.equal(await installError.isVisible(),false,'the refusal clears once the location is edited');
+   await launcherPage.getByRole('button',{name:'Start download'}).click();
+   await launcherPage.waitForFunction(()=>window.easterRenderer.calls.filter(call=>call.name==='startInstall').length>=3);
+   const retried=(await callsNamed('startInstall')).at(-1);
+   assert.deepEqual(retried.payload,{location:'/home/player/games/easter',includeGraphics:false},'the flow stays usable after a refusal');
+   await launcherPage.keyboard.press('Escape');
+
+   // The bar and the tab preference follow the player across pages and across a reload.
+   await pushState({phase:'downloading',progress:progressFor(),actions:['signin'],bar:{visible:true},canPlay:false});
+   // Start this section from the open bar whatever the bridge recipe left behind.
+   if(await launcherPage.locator('[data-bar-toggle]').getAttribute('aria-pressed')==='true')await launcherPage.locator('[data-bar-toggle]').click();
+   assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),false);
+   await launcherPage.locator('[data-bar-toggle]').click();
+   assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),true);
+   await launcherPage.getByRole('link',{name:'View Map',exact:true}).click();
+   // Wait for the chart document itself, not just the bridge: the preference has to survive
+   // a real navigation, not merely a re-render.
+   await launcherPage.waitForFunction(()=>!!document.getElementById('terrain')&&window.easterRenderer&&window.easterRenderer.emit);
+   assert.equal(await launcherPage.locator('#launcher-bar').isVisible(),true,'the bar follows the player to the map');
+   assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),true,'the minimised preference follows the player to the map');
+   assert((await launcherPage.locator('.launcher-bar-tab-text').textContent()).includes('42%'),'the minimised tab keeps showing the percentage on the map');
+   const tabBox=await launcherPage.locator('.launcher-bar-tab').boundingBox();
+   assert(tabBox.x>=0&&tabBox.x+tabBox.width<=1441,'the side tab must stay inside the viewport on the map');
+   // Re-opened, the bar must sit clear of whatever the chart already docks at the bottom.
+   await launcherPage.locator('[data-bar-toggle]').click();
+   await launcherPage.setViewportSize({width:1440,height:901});
+   await launcherPage.setViewportSize({width:1440,height:900});
+   const barOnMap=await launcherPage.locator('#launcher-bar').boundingBox();
+   const mapBottom=await launcherPage.locator('.map-bottom').boundingBox();
+   assert(barOnMap.y+barOnMap.height<=mapBottom.y+1,'the bar must sit above the map footer: '+(barOnMap.y+barOnMap.height)+' vs '+mapBottom.y);
+   await launcherPage.locator('[data-bar-toggle]').click();
+   await launcherPage.screenshot({path:'/tmp/easter-launcher-bar-map.png'});
+   await launcherPage.reload();
+   await launcherPage.waitForFunction(()=>!!document.getElementById('terrain')&&window.easterRenderer&&window.easterRenderer.emit);
+   assert.equal(await launcherPage.locator('#launcher-bar').isVisible(),true,'the bar survives a reload as the state says it should');
+   assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),true,'the minimised preference survives a reload');
+   await launcherPage.goto(origin);
+   await launcherPage.waitForFunction(()=>window.easterRenderer&&window.easterRenderer.emit);
+   assert.equal(await launcherPage.locator('#launcher-bar').isVisible(),true,'the bar still shows after the trip back home');
+   assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),true,'the minimised preference survives the trip back home');
+   await launcherPage.locator('[data-bar-toggle]').click();
+   assert.equal(await launcherPage.locator('.launcher-bar-body').isVisible(),true,'re-opening the minimised tab restores the bar body');
+
+   // Reduced motion: the honest indeterminate treatment still renders, and the arrival
+   // behaviour the website owns is untouched.
+   const launcherReduced=await browser.newContext({viewport:{width:1440,height:900},reducedMotion:'reduce'});
+   try{
+    await launcherReduced.addInitScript(()=>{try{localStorage.removeItem('easter-co-launcher-bar');}catch{}});
+    await launcherReduced.addInitScript(desktopFixture,launcherState({phase:'downloading',progress:progressFor({label:'Downloading the Easter Company client',percent:null,bytesDone:null,bytesTotal:null,bytesPerSecond:null,etaSeconds:null}),actions:['signin'],bar:{visible:true}}));
+    const reducedLauncher=await launcherReduced.newPage();
+    await reducedLauncher.goto(origin);
+    await reducedLauncher.locator('#launcher-bar').waitFor({state:'visible'});
+    assert.equal(await reducedLauncher.locator('body').evaluate(el=>el.classList.contains('is-arriving')),false,'desktop mode must not start the arrival for a reduced-motion player');
+    assert.equal(await reducedLauncher.locator('.launcher-bar-track').getAttribute('aria-valuenow'),null);
+    assert.equal(await reducedLauncher.getByRole('button',{name:'Minimise download progress'}).count(),1,'the bar keeps an operable control under reduced motion');
+   }finally{await launcherReduced.close().catch(()=>{});}
+
+   // Narrow viewports: the bar and its tab stay inside the viewport, and the hero still works.
+   for(const size of [{width:390,height:844},{width:320,height:568}]){
+    await launcherPage.setViewportSize(size);
+    await pushState({phase:'downloading',progress:progressFor(),actions:['signin'],bar:{visible:true},canPlay:false});
+    const narrow=await launcherPage.locator('#launcher-bar').boundingBox();
+    assert(narrow.x>=0&&narrow.x+narrow.width<=size.width+1&&narrow.y>=0&&narrow.y+narrow.height<=size.height+1,`the bar must fit ${size.width}x${size.height}: ${JSON.stringify(narrow)}`);
+    assert(await launcherPage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`the bar must not cause horizontal overflow at ${size.width}px`);
+    assert.equal(await launcherPage.locator('[data-desktop-play]').isVisible(),true,`the hero action must stay usable at ${size.width}px`);
+   }
+   await launcherPage.setViewportSize({width:1440,height:900});
+
+   // The launcher must not have broken the map or produced console errors in desktop mode.
+   assert.deepEqual(launcherErrors,[],'desktop mode must not throw');
+   assert.deepEqual(await launcherPage.evaluate(()=>window.easterRenderer.errors),[],'the fixture saw no page error on its last load');
+   await launcherContext.close();
+  }finally{await launcherContext.close().catch(()=>{});}
+  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; location and graphics collected on start; refusals shown; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
+ }
 }finally{await browser.close();}
