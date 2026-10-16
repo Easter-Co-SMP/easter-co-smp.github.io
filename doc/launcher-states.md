@@ -73,6 +73,34 @@ shortcut of its own: the client lives inside the launcher and is started from it
 There is exactly one player-facing entry, and it opens the launcher, not a game
 that skips it.
 
+## Content chunks
+
+The published manifest describes the client as named chunks, not one blob. A chunk
+is a component bundle with its own version, its own file list and its own hashes:
+
+- `base` is the game itself: the pinned Minecraft version, its libraries, its assets
+  and the required client mods. Its Minecraft version is frozen for this server and
+  will never change, so it is marked immutable: it is verified once and then trusted,
+  and an update must not re-hash or re-download it.
+- `graphics` is the enhanced graphics and shaders bundle. It is optional and is only
+  downloaded when the player turns the toggle on.
+- Further chunks may be added later, each independently versioned.
+
+Update rules:
+
+- A chunk whose recorded version and hash still match what the manifest publishes is
+  not downloaded and not re-verified; only changed chunks are fetched.
+- An optional chunk that is switched off is never fetched, and switching it off must
+  not invalidate anything else.
+- Inside a chunk, files are still individually checksum verified, and a mismatched or
+  failed download replaces nothing.
+- The installed marker records which chunk version is installed, so "nothing to do"
+  is provable rather than assumed.
+
+Chunking here means component granularity, not byte segmentation: a chunk is fetched
+as regular verified files. Byte-level segmentation would only pay off for a single
+very large object that changes often, which we do not have.
+
 ## Rules that still hold
 
 - Downloads stay checksum verified, and an unverified or failed download replaces
