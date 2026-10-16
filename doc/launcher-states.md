@@ -187,71 +187,97 @@ Rules the exporter and validator hold to:
   another launcher's files, the server or the world.
 - Personal drawings, player data and credentials never enter `site/` or Git.
 
-## Launcher startup update gate
 
-This section is frozen before any UI is built against it. It extends the state
-object; it does not change any field above it.
+## Launcher update
 
-The launcher updates itself on launch, so the next manually installed release is
-the last one. The startup gate is a desktop-only, per-window block: while it is
-not `ready`, the launcher's own UI must not be revealed. The website ignores this
-field entirely, because a browser has no launcher to update.
+The launcher updates itself, so the next manually installed release is the last
+one a player needs to fetch by hand. This reuses the hero's existing action,
+stage and progress machinery rather than adding a second mechanism: the launcher's
+own requirement is simply the first entry in `actions`, and it is driven by the
+same dialog, the same sticky bar and the same progress fields as the game install.
+
+The launcher never blocks its own UI on this. A player on a slow connection can
+use the launcher while an update downloads, and the download is not a reason to
+withhold anything.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `launcherUpdate` | object | `{phase, percent, version, message}`. Always present in desktop mode |
+| `launcherUpdate` | object | Always present in desktop mode |
+| `actions[n]` | string | Gains one new value, `launcher`, ordered **before** `download` and `signin` |
 
-`launcherUpdate.phase` is one of:
+`launcherUpdate` is:
 
-| Value | Meaning |
-|---|---|
-| `checking` | Asking the release feed whether a newer launcher exists. Indeterminate |
-| `downloading` | Fetching the new launcher. `percent` is 0-100 once a total size is known, otherwise null |
-| `installing` | Verified and staged; being applied. Indeterminate |
-| `restarting` | The old process is handing over to the new one. The old UI must not be revealed |
-| `ready` | The **running** launcher is safe to use. This is the only phase that reveals the UI |
+| Field | Type | Meaning |
+|---|---|---|
+| `phase` | string | `idle`, `checking`, `available`, `downloading`, `verifying`, `staged`, `error` |
+| `percent` | number \| null | `0`-`100` while a measurable download is running, otherwise null. Never a placeholder |
+| `bytesDone`, `bytesTotal`, `bytesPerSecond`, `etaSeconds` | number \| null | The same meanings and the same null rules as `progress` |
+| `version` | string \| null | The version being fetched |
+| `installedVersion` | string | The launcher version actually running |
+| `message` | string | One short human sentence, safe to display as-is |
+| `canApply` | boolean | True only when a verified update is staged and applying it is safe |
+| `bar` | object | `{visible}`: whether the sticky bar carries this transfer, exactly as the game's `bar` does |
 
-`percent` is `0`-`100` or `null`, and is `null` whenever the phase is not a
-measurable download. It is never a placeholder number. `version` is the version
-being fetched or installed, or `null` when there is nothing to install.
-`message` is a short human sentence suitable for direct display.
+`available` is the phase the hero depends on: an update exists and is waiting for
+the player to ask for it, so `actions[0]` is `launcher` and the hero offers the
+button. `checking` is deliberately **not** an action phase. A check in flight must
+not put a launcher button in front of the player, because most launches will find
+nothing and the hero must not flicker a requirement that immediately disappears.
+Only `available`, `downloading`, `verifying` and `staged` put `launcher` into
+`actions`.
+
+There is no startup gate and no phase that hides the launcher's own UI. The mist
+arrival and the hero are revealed immediately and normally; the launcher update
+proceeds alongside whatever else the player is doing, exactly as the game's
+download does. An earlier draft of this section described a blocking startup
+overlay. That is withdrawn: Owen's instruction is that a player on a slow
+connection can explore the launcher while the launcher downloads.
+
+`percent` is `100` only when a download genuinely reached 100 while `phase` is
+`staged`; it is null in every other phase, including `available`, `error` and
+`idle`. A failed or offline check never shows a completed percentage.
+
+### The update is the app bundle, not the installer
+
+An ordinary launcher update replaces the application's own JavaScript, HTML and
+CSS. It does **not** re-download a 116 MB installer, and it does not require
+elevation or a package manager on any platform. The staged payload is the app
+bundle published as its own release asset alongside the installers, checksum
+verified before it is accepted, and applied from a per-user location.
+
+Replacing the Electron and Chromium runtime is a separate, infrequent path that
+still needs a real installer. That path is allowed to be manual; the routine
+update is not.
 
 ### Rules
 
-1. **`ready` is the only revealing phase.** `checking`, `downloading`,
-   `installing` and `restarting` all keep the launcher's own UI hidden. At 100%
-   the UI is revealed only once the phase is `ready`, never at 99%, and never
-   while a process handover is in flight.
-2. **Nothing about the game changes.** `launcherUpdate` never writes to `phase`,
-   `progress`, `paused`, `install`, `actions`, `canPlay` or `bar`. The sticky bar
-   and the Play gate read exactly what they read before. A launcher update must
-   never interrupt a running game and must not start while `phase` is `running`.
-3. **Failure is never fatal and never blocks.** An unreachable feed, a timeout, a
-   checksum mismatch or a failed handover settles on `ready` against the version
-   already running, which stays usable. A failure may carry a `message`, but it
-   must not hold the gate at `checking` or `downloading`.
-4. **The check is bounded.** The feed lookup has a finite timeout; exceeding it is
-   rule 3, not an indefinite spinner.
-5. **Always emitted.** The desktop main process publishes `launcherUpdate` on
-   every state broadcast from the first one onward, including in development and
-   under the test harness, so no run can hang waiting for a phase that never
-   arrives. An unpackaged or dev run reports `ready` immediately.
-6. **Updates are verified before they are used.** The downloaded payload is
-   checksum verified against the release manifest before it is staged, and an
-   unverified or corrupt payload replaces nothing.
-7. **The player's data survives an update.** Settings, the saved session, the
-   client tree and its chunks live outside the replaced application files and are
-   never migrated, rewritten or removed by an update.
-8. **`version` describes the incoming launcher, not the installed client.**
-   `install.version` remains the game client's version and is unrelated.
-
-### Platform behaviour
-
-| Install kind | Self-updates | Notes |
-|---|---|---|
-| Windows NSIS | yes | Per-user install, so no elevation prompt |
-| Linux AppImage | yes | Replaced in place; the AppImage is the application |
-| Linux deb, pacman | **no** | Owned by the system package manager. The launcher must report that and settle `ready` rather than attempting an update that would need elevation |
-
-A build that cannot update itself for these reasons is a normal, non-error
-outcome: the gate still reaches `ready`.
+1. **The launcher is always usable.** No phase of `launcherUpdate` hides the
+   launcher's own UI. There is no blocking startup gate. `checking`,
+   `downloading` and `verifying` all leave the player free to look at the map,
+   read their settings or queue the game download.
+2. **The launcher's requirement comes first.** While the launcher has an update
+   to apply, `actions[0]` is `launcher`, so the hero offers it before the game's
+   `download`. The hero renders it from `actions` exactly as it renders every
+   other requirement; no view invents its own ordering.
+3. **Nothing about the game changes.** `launcherUpdate` never writes to `phase`,
+   `progress`, `paused`, `install`, `actions`' other entries, `canPlay` or the
+   game's `bar.visible`. The launcher must not apply an update while `phase` is
+   `running`.
+4. **Failure is quiet and non-blocking.** An unreachable feed, a timeout, a
+   checksum mismatch or a failed apply leaves the running launcher untouched and
+   usable, reports `error` with a `message`, and does not hold anything closed.
+   The player keeps working on the version they have.
+5. **Never left broken.** Before an update is applied it is staged and verified;
+   if the staged bundle fails to start, the launcher falls back to the version it
+   was installed with rather than failing to open. A corrupt or unverified
+   payload replaces nothing.
+6. **The check is bounded** by a finite timeout, so `checking` cannot hang.
+7. **Always emitted.** The desktop main process publishes `launcherUpdate` on
+   every broadcast from the first one onward, including development, unpackaged
+   runs and the test harness, so nothing can wait forever on a phase that will
+   never arrive. An unpackaged run reports `idle` with `canApply` false.
+8. **The player's data survives.** Settings, the saved session, the client tree
+   and its chunks live outside the replaced files and are never migrated,
+   rewritten or removed by a launcher update.
+9. **`version` is the launcher, `install.version` is the game client.** They are
+   unrelated and must never be rendered as if they were the same thing.
