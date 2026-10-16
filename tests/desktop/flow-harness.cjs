@@ -16,10 +16,13 @@ auth.MicrosoftAuth=class{
  async refresh(session){return session;}
 };
 const install=require('../../desktop/install.cjs');
-let installed=false;
+// The second launch in flow.electron.mjs starts with an install already present.
+let installed=process.env.EASTER_FLOW_INSTALLED==='1';
 let graphicsPublished=false;
 install.clientStatus=async()=>({installed,version:installed?'fixture-2.0.0':null,updatedAt:installed?'2026-10-15T00:00:00.000Z':null,record:installed?{version:'fixture-fabric',mod:'fixture-2.0.0',java:'/fixture/java'}:null});
-install.checkForUpdates=async()=>({checked:true,changed:false,applied:false,changes:[],result:null});
+// Counted so the launch-time update check can be asserted from the main process.
+global.easterTestUpdateChecks=0;
+install.checkForUpdates=async()=>{global.easterTestUpdateChecks++;return {checked:true,changed:false,applied:false,changes:[],result:null};};
 // Steps through the contract's own progress shape, parking on the real control so
 // pause, resume and cancel behave exactly as they do around a real transfer.
 install.installClient=async({notify,control,includeGraphics=false})=>{

@@ -154,9 +154,29 @@ try{
  check(JSON.stringify(beforeUpdate)===JSON.stringify(afterUpdate),'a quiet update check changes no state at all');
  check(quiet.every(state=>state.progress===null||state.phase==='ready'),'no phase the UI would render as work, and no progress bar');
 
- console.log('\n9. the state a paused resume left behind, end to end');
+ console.log('\n9. the final state the main process broadcast');
  console.log(JSON.stringify({final:await latest()},null,1));
  check(pageErrors.filter(message=>!/HTMLProgressElement/.test(message)).length===0,'the main process raised no unexpected renderer error: '+JSON.stringify(pageErrors.filter(message=>!/HTMLProgressElement/.test(message))));
- console.log(failures===0?'\nFLOW PASS: the live main process produced the frozen state contract for every step (fresh run, sign-in, download, pause, resume, cancel, install, timeout-free update no-op, location refusals) and gated Play on both requirements':'\nFLOW FAIL: '+failures+' check(s) failed');
- process.exitCode=failures===0?0:1;
-}finally{await app.close();await fs.rm(temp,{recursive:true,force:true});}
+}finally{await app.close();}
+
+// A second launch, with an install already present, checks for updates on start.
+console.log('\n10. an installed client checks for updates on launch');
+try{
+ const relaunch=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'tests/desktop/flow-harness.cjs')],env:{...process.env,EASTER_TEST_HOME:temp,EASTER_FLOW_INSTALLED:'1'}});
+ let launchState;
+ try{
+  const relaunchPage=await relaunch.firstWindow();
+  relaunchPage.setDefaultTimeout(20000);
+  await relaunchPage.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
+  await sleep(1500);
+  const checks=await relaunch.evaluate(()=>global.easterTestUpdateChecks);
+  check(checks>=1,'the launcher checked for updates on launch ('+checks+' call(s))');
+  launchState=await relaunchPage.evaluate(()=>window.easterDesktop.status());
+ }finally{await relaunch.close();}
+ check(launchState.install.installed===true&&launchState.phase==='ready','an existing install reports ready without a download phase');
+ check(launchState.progress===null&&launchState.paused===false,'a quiet launch check shows no progress and nothing paused');
+ check(launchState.canPlay===false,'an installed client with no account is still not playable');
+ check(JSON.stringify(launchState.actions)===JSON.stringify(['signin']),'the only remaining requirement is the sign-in');
+}finally{await fs.rm(temp,{recursive:true,force:true});}
+console.log(failures===0?'\nFLOW PASS: the live main process produced the frozen state contract for every step (fresh run, sign-in, download, pause, resume, cancel, install, quiet update no-op, launch update check, location refusals) and gated Play on both requirements':'\nFLOW FAIL: '+failures+' check(s) failed');
+process.exitCode=failures===0?0:1;
