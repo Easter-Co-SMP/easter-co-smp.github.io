@@ -153,6 +153,35 @@ test('a new graphics chunk is fetched alone and the base chunk is left untouched
  }finally{await server.close();await tree.cleanup();}
 });
 
+test('a new base chunk fetches only its own files and never re-reads the frozen game',async()=>{
+ const oldJar=Buffer.from('easter-navy-2.0.0'),newJar=Buffer.from('easter-navy-2.0.1-longer');
+ const server=await fileServer({'/files/base.jar':newJar});
+ const tree=await installedTree({extraFiles:['mods/easter-navy.jar']});
+ try{
+  const oldBase={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(oldJar),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',oldJar)]};
+  const newBase={...oldBase,version:'sha256:'+sha256(newJar),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',newJar)]};
+  await fs.writeFile(path.join(tree.root,'mods','easter-navy.jar'),oldJar);
+  const record=tree.record();
+  record.chunks={base:{id:'base',version:oldBase.version,immutable:true,files:['mods/easter-navy.jar'],verified:true}};
+  record.files=['mods/easter-navy.jar'];
+  await fs.writeFile(path.join(tree.root,'installed.json'),JSON.stringify(record));
+  const gameJson=path.join(tree.root,'versions',FABRIC_VERSION,FABRIC_VERSION+'.json');
+  const gameBefore=await fs.stat(gameJson);
+  const published=chunkFixture({base:newBase});
+  assert.deepEqual(installDiff(published,tree.record(),{includeGraphics:false,origin:server.origin}).changes,['chunk:base']);
+  resetTransferStats();
+  await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false});
+  assert.deepEqual(server.requests.map(request=>request.path),['/files/base.jar'],'only the changed chunk was fetched');
+  assert.equal(transferStats().hashReads,1,'one read: the file that changed');
+  assert.equal(await fs.readFile(path.join(tree.root,'mods','easter-navy.jar'),'utf8'),'easter-navy-2.0.1-longer');
+  assert.equal((await fs.stat(gameJson)).mtimeMs,gameBefore.mtimeMs,'the frozen game files were not touched');
+  const after=tree.record();
+  assert.equal(after.chunks.base.version,newBase.version);
+  assert.deepEqual(after.game,tree.record().game);
+  assert.deepEqual(after.game,{minecraft:'26.2',fabric:'0.19.5',verified:true},'the game pin record is unchanged');
+ }finally{await server.close();await tree.cleanup();}
+});
+
 test('switching enhanced graphics off downloads nothing and invalidates nothing',async()=>{
  const base=Buffer.from('base-mod-jar'),graphics=Buffer.from('shader-bundle');
  const server=await fileServer({'/files/base.jar':base,'/files/graphics.zip':graphics});
