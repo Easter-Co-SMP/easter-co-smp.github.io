@@ -65,3 +65,6 @@ connected account; neither alone is enough. A sticky, minimisable progress bar c
 resume, speed and percentage across every page. doc/launcher-states.md holds the frozen state
 contract between the main process and the shared UI; change it before changing either side.
 Real platform installers are published as GitHub Release assets. No source download option.
+Releases follow doc/releasing.md: the tag comes from package.json, the workflow is dispatched by
+hand, the packaged app is checked against site/ before publishing, and /releases/latest ignores
+prereleases, so a launcher release must not be marked prerelease while it is the only one.
