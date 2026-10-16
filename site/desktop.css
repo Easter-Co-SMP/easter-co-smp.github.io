@@ -10,11 +10,17 @@
 .desktop-progress{width:100%;height:7px;accent-color:#d7b879;margin-bottom:22px}
 .desktop-play{width:100%;margin:16px 0 24px;text-align:center}
 .desktop-play:disabled{cursor:progress;background:#a39673;border-color:#b7a981;box-shadow:none}
-.desktop-device{padding:20px;border:1px solid #cfb88b40;border-radius:12px;background:#081a2360;text-align:center}
-.desktop-device p{font-size:12px;margin:0 0 14px}
-.desktop-code{display:block;font:30px ui-monospace,monospace;letter-spacing:.15em;color:#f5dda7;user-select:all}
-.desktop-device .text-link{display:block;margin:18px auto 8px}
-.desktop-provider{display:block;font-size:10px;line-height:1.7;color:#a9bbb3}
+.desktop-device{padding:24px 20px;border:1px solid #cfb88b40;border-radius:12px;background:#081a2360;text-align:center}
+.desktop-device-instruction{font-size:13px;margin:0 0 18px;color:#c4d0c6}
+.desktop-code{display:block;font:34px ui-monospace,monospace;letter-spacing:.18em;color:#f5dda7;user-select:all}
+.desktop-device-action{display:block;width:100%;margin:22px 0 0;text-align:center}
+.desktop-device-foot{display:flex;flex-direction:column;align-items:center;gap:10px;margin:16px 0 0}
+.desktop-provider{display:block;font-size:10px;line-height:1.6;color:#a9bbb3}
+/* A pending device-code sign-in is the whole task, so the dialog shows the instruction, the
+   code, the one button that opens Microsoft, and the status line. Every other control the
+   dialog can carry is hidden, so nothing competes with the button that actually matters. */
+#desktop-launcher.is-signing-in>*:not(.dialog-close):not(.desktop-device):not(.desktop-status){display:none!important}
+#desktop-launcher.is-signing-in .desktop-status{min-height:0;margin:16px 0 0;font-size:11px;color:#a9bbb3}
 .desktop-settings{border-top:1px solid #cfb88b30;padding-top:20px;font-size:12px}
 .desktop-settings summary{cursor:pointer;color:#c9b58c}
 .desktop-settings label{display:block;margin:22px 0;color:#c4d0c6}
