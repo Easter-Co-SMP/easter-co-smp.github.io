@@ -115,13 +115,20 @@ try {
   assert.deepEqual((await state()).progress,pausedProgress,'cancel preserves transfer progress');
   await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
   await page.locator('.desktop-code').waitFor({state:'visible'});
+  // Let the client finish while Microsoft approval is still pending. The code must
+  // survive installation completing, and Play must stay gated on the account.
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'Resume',exact:true}).click();
+  await page.waitForFunction(async()=>(await window.easterDesktop.status()).install.installed);
+  assert.equal((await state()).canPlay,false,'a completed client still needs Microsoft approval');
+  await page.getByRole('button',{name:'My client',exact:true}).click();
+  await page.locator('.desktop-code').waitFor({state:'visible'});
+  assert.equal((await state()).device.code,'TEST-CODE','install completion preserves the pending device code');
   await app.evaluate(() => global.easterTestApprove());
   await page.waitForFunction(async () => (await window.easterDesktop.status()).profile !== null, null, {timeout: 30000});
   note('sign-in: the account connects through the device-code flow');
 
-  assert.equal((await state()).canPlay,false,'a signed-in account cannot play a paused install');
   await page.keyboard.press('Escape');
-  await page.getByRole('button',{name:'Resume',exact:true}).click();
 
   // 5. Both halves satisfied: Play is finally revealed.
   await page.waitForFunction(async () => (await window.easterDesktop.status()).canPlay === true, null, {timeout: 30000});

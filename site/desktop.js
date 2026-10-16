@@ -170,7 +170,7 @@
  function render(state){
   current={...current,...state};
   if(installRequested&&transferring(current)){installRequested=false;if(panel.open)panel.close();}
-  const busy=['signing-in','refreshing','launching','running'].includes(phaseOf(current));
+  const busy=signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
   const account=current.profile?.name,action=primaryAction(current),install=installOf(current),phase=phaseOf(current);
   message.textContent=current.message||'Your crew is waiting.';
   playButton.disabled=busy||action.kind==='busy';

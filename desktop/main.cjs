@@ -49,7 +49,7 @@ function notify(patch={}){
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
 // sign-in action through `actions`, and the phase returns to the resting value.
-function settle(message,extra={}){phase=null;progress=null;control=null;notify({message,device:null,...extra});}
+function settle(message,extra={}){phase=null;progress=null;control=null;notify({message,device:controller?state.device:null,...extra});}
 async function refreshClient(){client=await clientStatus(gameRoot());}
 function secureStorageAvailable(){return safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');}
 const vaultOptions=()=>({safeStorage,platform:process.platform});
@@ -121,7 +121,7 @@ async function withControl(action){
   if(error&&error.name==='CancelledError'){
    await refreshClient();
    control=null;phase=null;progress=null;
-   notify({message:'Download cancelled. Nothing already installed was changed.',device:null});
+   notify({message:'Download cancelled. Nothing already installed was changed.',device:controller?state.device:null});
    return null;
   }
   throw error;
@@ -184,8 +184,8 @@ async function play(){
  game=child;
  // Do not store launch arguments or raw stdout; Minecraft writes its own latest.log.
  child.stdout?.on('data',()=>{});child.stderr?.on('data',()=>{});
- child.once('error',()=>{game=null;notify({message:'Minecraft could not start. Check Java and try again.',progress:null});});
- child.once('exit',code=>{game=null;notify({message:code===0?'Welcome back. Ready for another voyage?':'Minecraft closed with code '+code+'. Its log is in the client folder.',progress:null});});
+ child.once('error',()=>{game=null;settle('Minecraft could not start. Check Java and try again.');});
+ child.once('exit',code=>{game=null;settle(code===0?'Welcome back. Ready for another voyage?':'Minecraft closed with code '+code+'. Its log is in the client folder.');});
  notify({phase:'running',message:'Minecraft is running. Your map stays right here.',progress:null});
 }
 function registerIPC(){
@@ -205,14 +205,14 @@ function registerIPC(){
   return exclusively(login);
  });
  handle('cancel-sign-in',()=>controller?.abort());
- handle('sign-out',async()=>{if(working)throw Error('Wait for the current operation to finish.');session=null;await forgetCompany();await fs.rm(vaultFile(),{force:true});notify({remembered:false,device:null,message:'Signed out on this device.'});});
+ handle('sign-out',async()=>{if(working||controller)throw Error('Wait for the current operation to finish.');session=null;await forgetCompany();await fs.rm(vaultFile(),{force:true});notify({remembered:false,device:null,message:'Signed out on this device.'});});
  // Re-issues the account session from the Mojang token the launcher already has.
  handle('account-refresh',()=>exclusively(async()=>{if(!session)throw Error('Sign in first.');await enrolAccount({throwOnError:true});return publicAccount(company);}));
  // Company account only: the Microsoft session on this device is kept.
- handle('account-sign-out',async()=>{if(working)throw Error('Wait for the current operation to finish.');await forgetCompany();notify({message:'Signed out of your Easter Company account.'});});
+ handle('account-sign-out',async()=>{if(working||controller)throw Error('Wait for the current operation to finish.');await forgetCompany();notify({message:'Signed out of your Easter Company account.'});});
  handle('play',async()=>{if(backgroundUpdate)await backgroundUpdate;return exclusively(play);});
  handle('settings',async input=>{
-  if(working||game)throw Error('Close Minecraft and wait for the current operation before changing settings.');
+  if(working||game||controller)throw Error('Close Minecraft and wait for the current operation before changing settings.');
   // The location is never taken from this handler: it comes from the folder
   // picker or the saved setting, nowhere else.
   settings={...cleanSettings(input,Math.floor(os.totalmem()/1024/1024)),location:settings.location,includeGraphics:'includeGraphics' in input?Boolean(input.includeGraphics):settings.includeGraphics};
@@ -221,7 +221,7 @@ function registerIPC(){
  handle('choose-java',async()=>{const selected=await dialog.showOpenDialog(window,{title:'Choose Java 25 executable',properties:['openFile'],filters:process.platform==='win32'?[{name:'Java',extensions:['exe']}]:[]});return selected.canceled?null:selected.filePaths[0];});
  // The picker is the only source of a new installation folder.
  handle('choose-location',async()=>{
-  if(working||game)throw Error(game?'Minecraft is already running.':'Wait for the current operation to finish.');
+  if(working||game||controller)throw Error(game?'Minecraft is already running.':'Wait for the current operation to finish.');
   const selected=await dialog.showOpenDialog(window,{title:'Choose where to install the game',buttonLabel:'Install here',properties:['openDirectory','createDirectory']});
   if(selected.canceled||!selected.filePaths[0])return null;
   const target=await ensureLocation(selected.filePaths[0],{defaultLocation:defaultLocation(),configRoot:configRoot(),home:os.homedir()});
@@ -233,7 +233,7 @@ function registerIPC(){
  });
  // Switching back to the default needs no picker, and no other path is accepted.
  handle('set-location',async input=>{
-  if(working||game)throw Error('Wait for the current operation to finish.');
+  if(working||game||controller)throw Error('Wait for the current operation to finish.');
   const requested=input&&typeof input==='object'?input.location:input;
   const target=await ensureLocation(resolveLocation(requested,{saved:settings.location,defaultLocation:defaultLocation()}),{defaultLocation:defaultLocation(),configRoot:configRoot(),home:os.homedir()});
   settings={...settings,location:target===defaultLocation()?'':target};
