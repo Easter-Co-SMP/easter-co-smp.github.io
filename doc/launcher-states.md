@@ -324,10 +324,12 @@ writes the client's own quality settings; flipping it off stops nothing that is
 already installed and never invalidates the base chunk.
 
 **The machine decides the default, once, honestly.** "On unless the GPU is clearly
-weak": integrated graphics, a software renderer (llvmpipe, SwiftShader) or an
-unknown adapter with no reported video memory leaves enhanced graphics off, and
-anything else turns it on. The player's explicit choice always wins from then on
-and is never re-decided behind them.
+weak": integrated graphics and a software renderer (llvmpipe, SwiftShader) are
+clearly weak, so enhanced graphics stay off there. An adapter the platform will not
+identify is not known to be weak, so the toggle is offered on and the launcher says
+so plainly instead of pretending to know; `tunable` is false for such a machine,
+which means no quality level is promised and none is written. The player's explicit
+choice always wins from then on and is never re-decided behind them.
 
 | Field | Type | Meaning |
 |---|---|---|
