@@ -43,8 +43,11 @@
   if(state&&state.canPlay)return {kind:'play',label:'PLAY NOW',note:'Set sail'};
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Hold fast'};
   if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
-  // A download or install under way asks for the account while the player waits.
-  if(!account&&(actions.includes('signin')||transferring(state)))return {kind:'signin',label:LOGIN_ACTION,note:'Your crew is waiting'};
+  // A download or install under way asks for the account while the player waits. The order the
+  // main process publishes matters: while the download is still required and has not started,
+  // the hero asks for the game first, because that is what gets the player invested.
+  const needsDownloadFirst=actions[0]==='download'&&!transferring(state);
+  if(!account&&!needsDownloadFirst&&(actions.includes('signin')||transferring(state)))return {kind:'signin',label:LOGIN_ACTION,note:'Your crew is waiting'};
   // Fresh install: nothing downloaded and no account requirement to show yet.
   if(actions.includes('download')||!(account&&install.installed===true))
    return {kind:'download',label:'Download the game',note:'Easter Company client'};
