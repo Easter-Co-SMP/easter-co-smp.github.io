@@ -5,11 +5,36 @@ import path from 'node:path';
 import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
 const root=process.cwd();
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'easter-electron-test-'));
-const run=async(entry,exercise)=>{
+const run=async(entry,exercise,manageArrival)=>{
  const app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',entry],env:{...process.env,EASTER_TEST_HOME:temp}});
- try{const page=await app.firstWindow();page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));await exercise(app,page);assert.deepEqual(errors,[]);}finally{await app.close();}
+ try{const page=await app.firstWindow();page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
+  const arriving=await page.evaluate(()=>document.body.classList.contains('is-arriving'));
+  if(!manageArrival)await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
+  await exercise(app,page,arriving);assert.deepEqual(errors,[]);}finally{await app.close();}
 };
+// The Skip intro control must not exist in the desktop DOM at all, and the arrival must still be
+// skippable and bounded without it. Launch one runs the arrival both ways; launch two runs the shell.
+const noSkipControl=async page=>{
+ assert.equal(await page.locator('.skip-arrival').count(),0);
+ assert.equal(await page.getByRole('button',{name:'Skip intro'}).count(),0);
+};
+const arrival=async()=>await run(path.join(root,'desktop/main.cjs'),async(app,page,arriving)=>{
+ // Absence is a DOM fact, so it is asserted while the arrival is still running, not only after it ends.
+ await noSkipControl(page);
+ assert(arriving,'the desktop home plays the bounded arrival');
+ await page.keyboard.press('Escape');
+ await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
+ await noSkipControl(page);
+ // Left untouched after a fresh load, the bounded 4.6s timer still ends the arrival.
+ await page.reload();
+ await page.waitForFunction(()=>document.body.classList.contains('is-arriving'));
+ await noSkipControl(page);
+ await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
+ await noSkipControl(page);
+},true);
 try{
+ await arrival();
  await run(path.join(root,'desktop/main.cjs'),async(app,page)=>{
   await page.getByRole('button',{name:'My client',exact:true}).click();
   assert(await page.getByRole('dialog',{name:'Your next voyage.'}).isVisible());
@@ -35,6 +60,7 @@ try{
   await page.screenshot({path:'/tmp/easter-desktop-map.png'});
   await page.getByRole('link',{name:'Home',exact:true}).click();
   await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
+  assert.equal(await page.getByRole('button',{name:'Skip intro'}).count(),0);
   await page.screenshot({path:'/tmp/easter-desktop-home.png',fullPage:true});
  });
  const saved=JSON.parse(await fs.readFile(path.join(temp,'settings.json'),'utf8'));assert.equal(saved.server,'test.example:25565');
@@ -56,5 +82,5 @@ try{
   await page.getByRole('button',{name:'Sign out',exact:true}).click();
   await page.locator('.desktop-account').filter({hasText:'Connect your Microsoft'}).waitFor();
  });
- console.log('DESKTOP PASS: real Electron, isolated renderer, shared Home/Map, native settings persistence, sign-in cancellation, device-code UI, authenticated Play, game lifecycle, no tokens in UI');
+ console.log('DESKTOP PASS: no Skip intro control in the desktop DOM (Escape and the 4.6s bound still end the arrival), real Electron, isolated renderer, shared Home/Map, native settings persistence, sign-in cancellation, device-code UI, authenticated Play, game lifecycle, no tokens in UI');
 }finally{await fs.rm(temp,{recursive:true,force:true});}

@@ -23,6 +23,7 @@ has its own service. No console mutations, world generation, or changes to game 
 
 Keep the mist arrival exclusive to the homepage. Map and future Wiki use regular utility
 interfaces. The intro must be skippable, bounded, and respect reduced-motion preferences.
+The desktop launcher omits the website's skip control and relies on Escape plus that bound.
 
 Hero copy is "Easter Co. SMP" and "The Ultimate Minecraft Experience".
 Download Launcher is the primary gold CTA, left of the secondary View Map action. The

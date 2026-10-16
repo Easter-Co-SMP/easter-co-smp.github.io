@@ -4,7 +4,8 @@ const skipArrival=document.querySelector('.skip-arrival');
 let arrivalTimer;
 const finishArrival=()=>{
  document.body.classList.remove('is-arriving');
- skipArrival.hidden=true;
+ // Desktop mode removes the control; the bounded timer and Escape still finish the arrival.
+ if(skipArrival)skipArrival.hidden=true;
  clearTimeout(arrivalTimer);
 };
 if(!motionPreference.matches){
