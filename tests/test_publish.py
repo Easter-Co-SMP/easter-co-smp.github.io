@@ -113,8 +113,8 @@ def chunked_client(root, chunks=None, dependencies=None):
         'files': sorted(files, key=lambda entry: entry['path']),
     }]
     for chunk in chunks:
-        if chunk.get('id') == 'base' and 'version' not in chunk:
-            chunk['version'] = chunk_version(chunk)
+        if chunk['files']:
+            chunk['version'] = chunk_version(chunk)  # the same content digest the exporter publishes
     mod = next(f for f in files if f['path'] == 'downloads/easter-navy.jar')
     return {
         'minecraft': '26.2', 'fabric': '0.19.5',
@@ -295,7 +295,9 @@ class ClientChunkTests(unittest.TestCase):
             self.assertEqual(base['id'], 'base')
             self.assertFalse(base['optional'])
             self.assertTrue(base['immutable'])
-            self.assertEqual(base['version'], client['minecraft'])
+            self.assertEqual(base['version'], chunk_version(base))
+            self.assertNotEqual(base['version'], client['minecraft'])
+            self.assertIn(client['minecraft'], base['name'])
             self.assertEqual(base['fabric'], client['fabric'])
             self.assertTrue(base['files'])
 
@@ -343,20 +345,33 @@ class ClientChunkTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     validate_data(root)
 
-    def test_the_base_chunk_is_frozen_to_the_manifest_minecraft_version(self):
+    def test_the_base_chunk_version_is_the_digest_of_its_files(self):
+        """The identity must be content, not the Minecraft version: see the mod-bump test."""
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             base = self.chunked(root)['chunks'][0]
-            self.assertEqual(base['version'], '26.2')
+            self.assertRegex(base['version'], r'^sha256:[a-f0-9]{64}$')
+            self.assertNotEqual(base['version'], '26.2')
+            self.assertIn('26.2', base['name'])
+            self.assertEqual(base['version'], chunk_version(base))  # recomputed, not echoed
             self.assertNotEqual(chunk_version(dict(base, files=[])), chunk_version(base))
             fixture_export(root, client=self.chunked(root))  # the consistent pair is accepted
             validate_data(root)
             broken = self.chunked(root)
-            broken['chunks'][0]['version'] = '26.3'
+            broken['chunks'][0]['version'] = '26.2'
             fixture_export(root, client=broken)
             with self.assertRaises(AssertionError) as caught:
                 validate_data(root)
-            self.assertIn('differs from the manifest Minecraft version', str(caught.exception))
+            self.assertIn('not the digest of the files', str(caught.exception))
+            for field, value in (('name', 'Frozen game'), ('fabric', '0.18.0'), ('java', None)):
+                with self.subTest(field=field):
+                    with tempfile.TemporaryDirectory() as temp:
+                        root = Path(temp)
+                        amended = self.chunked(root)
+                        amended['chunks'][0][field] = value
+                        fixture_export(root, client=amended)
+                        with self.assertRaises(AssertionError):
+                            validate_data(root)
 
     def test_a_chunk_list_that_disagrees_with_the_flat_fields_is_refused(self):
         def missing_id(client):
@@ -489,17 +504,41 @@ class ClientChunkTests(unittest.TestCase):
 class ClientExportTests(unittest.TestCase):
     """The exporter publishes the chunks, stays deterministic, and invents no checksums."""
 
-    def build(self, root, resolver=None, calls=None, state_path=None):
+    def build(self, root, resolver=None, calls=None, state_path=None, mod_version='1.0.0'):
+        root.mkdir(parents=True, exist_ok=True)
         paths = []
         for ident in ['easter-navy', *DEPENDENCIES]:
             path = root / (ident + '.jar')
+            version = mod_version if ident == 'easter-navy' else '1.0.0'
             with zipfile.ZipFile(path, 'w') as jar:
-                jar.writestr('fabric.mod.json', json.dumps({'id': ident, 'name': ident, 'version': '1.0.0'}))
+                jar.writestr('fabric.mod.json', json.dumps({'id': ident, 'name': ident, 'version': version}))
             paths.append(path)
         module = SimpleNamespace(_mods=lambda: paths, facts=SimpleNamespace(stack=lambda: 'MC 26.2 · Fabric 0.19.5'))
         return export_client(root / 'public', module,
                              resolver=resolver if resolver is not None else fixture_resolver(DEPENDENCIES, calls=calls),
                              now=NOW, state_path=state_path if state_path else root / 'state/modrinth.json')
+
+    def test_the_base_chunk_version_changes_when_only_our_mod_changes(self):
+        """An Easter Co. jar update while Minecraft stays frozen must be visible to a client.
+
+        The base chunk version is the digest of its files, not the Minecraft version. If it
+        were '26.2', bumping our mod would leave the chunk version unchanged, an installed
+        client would skip the chunk, and the player would keep the old jar forever.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            first = self.build(root, mod_version='2.0.0')
+            before = first['chunks'][0]['version']
+            self.assertEqual(first['minecraft'], '26.2')
+            second = self.build(root / 'again', mod_version='2.1.0')
+            after = second['chunks'][0]['version']
+            self.assertEqual(second['minecraft'], first['minecraft'])  # Minecraft is unchanged
+            self.assertEqual(second['mod']['version'], '2.1.0')
+            self.assertEqual([entry['version'] for entry in first['chunks'][0]['files'][1:]],
+                             [entry['version'] for entry in second['chunks'][0]['files'][1:]])
+            self.assertEqual(first['chunks'][0]['immutable'], second['chunks'][0]['immutable'])
+            self.assertNotEqual(before, after)
+            self.assertEqual(after, chunk_version(second['chunks'][0]))
 
     def test_the_export_is_additive_and_deterministic(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -515,7 +554,8 @@ class ClientExportTests(unittest.TestCase):
             self.assertEqual(published['mod']['url'], 'downloads/easter-navy.jar')
             self.assertEqual([d['id'] for d in published['dependencies']], list(DEPENDENCIES))
             base = published['chunks'][0]
-            self.assertEqual(base['version'], '26.2')
+            self.assertEqual(base['version'], chunk_version(base))
+            self.assertNotEqual(base['version'], published['minecraft'])
             self.assertFalse(base['optional'])
             self.assertTrue(base['immutable'])
             self.assertEqual(sorted(f['path'] for f in base['files'])[0], 'downloads/easter-navy.jar')

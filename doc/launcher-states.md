@@ -126,10 +126,21 @@ Each chunk carries exactly these fields:
 | `name` | string | Human-readable label for progress text |
 | `optional` | boolean | `false` on `base`: it is always installed. `true` on `graphics`: an optional chunk that is switched off is never fetched |
 | `immutable` | boolean | `true` on `base`: the frozen game. Verified once, then trusted; an update must not re-hash or re-download it. A required chunk must be immutable, or a stale copy could pass as current |
-| `version` | string | On `base`, exactly the manifest's `minecraft` value: the pinned version IS the base chunk's version, which is what makes "nothing changed" provable. On a required added chunk, the Minecraft version it belongs to. On an optional chunk, its own version |
-| `files` | array | At least one file; an empty required chunk is refused |
+| `version` | string | The chunk's identity: a content digest, `sha256:<hex>` over the chunk's own file list. It changes when any file in the chunk changes and is byte-identical when nothing does. It is deliberately NOT the Minecraft version |
+| `files` | array | At least one file; an empty chunk is refused |
 | `fabric` | string \| null | The pinned Fabric loader, only meaningful on `base` |
 | `java` | integer \| null | The required Java major version, only meaningful on `base` |
+
+A chunk version must be a function of content, and the validator recomputes the digest
+from the published file list and refuses a version that is not it. The reason is concrete:
+our own mod jar lives inside the base chunk and is updated on its own schedule while the
+Minecraft version is frozen at 26.2. If the base chunk version were `26.2`, bumping our mod
+would leave the published version unchanged, an installed client would compare equal, skip
+the chunk, and keep the old jar permanently, with nothing reporting a problem. The pinned
+Minecraft version stays fully visible without being the identity: it is the manifest's
+`minecraft` field, it is written into the base chunk's `name`, and it is carried beside the
+chunk's own `fabric` and `java` pins. The validator refuses a base chunk that does not
+repeat the Minecraft version in its name.
 
 Each file entry carries exactly these fields:
 
