@@ -1,0 +1,35 @@
+# Line endings are pinned to LF on every platform, including Windows.
+#
+# scripts/verify_app_bundle.py compares the text assets bundled into the packaged app
+# against the repository's site/ byte for byte. The Windows installer is built on a
+# Windows runner, where Git's default autocrlf setting rewrites LF to CRLF on checkout,
+# so the Windows app.asar carried CRLF copies of all 14 site/ text assets and the bundle
+# check failed on a bundle that was not stale at all (launcher-v1.0.2 run 38835252575:
+# site/index.html 46 CRLF, desktop.js 311, data/world.json 2134, and the size difference
+# equalled the CRLF count exactly, while the Linux bundle matched).
+#
+# `eol` in .gitattributes takes precedence over core.autocrlf, so these rules make a
+# checkout on any platform produce the same bytes the index holds. The index already
+# stores every one of these as LF (`git ls-files --eol` reports no i/crlf), so this adds
+# no renormalisation churn.
+#
+# The suffixes are exactly the ones verify_app_bundle.py compares; binary assets it
+# deliberately skips (.png imagery, the third-party .jar) are left alone.
+*.html        text eol=lf
+*.js          text eol=lf
+*.mjs         text eol=lf
+*.css         text eol=lf
+*.json        text eol=lf
+*.svg         text eol=lf
+*.txt         text eol=lf
+*.md          text eol=lf
+*.webmanifest text eol=lf
+.nojekyll     text eol=lf
+
+# The release pipeline itself is read by bash on the Linux runner and by Node on the
+# Windows runner; keep both reading the same bytes.
+*.yml         text eol=lf
+*.yaml        text eol=lf
+*.sh          text eol=lf
+*.py          text eol=lf
+*.cjs         text eol=lf

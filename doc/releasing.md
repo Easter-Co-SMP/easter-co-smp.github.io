@@ -48,6 +48,18 @@ release, marking it prerelease makes `/releases/latest/download/` unresolvable a
 breaks all four download buttons at once. The workflow does not pass `--prerelease`
 and there is a comment there saying why.
 
+## Line endings are pinned, and the bundle check depends on it
+
+`.gitattributes` pins every text type the bundle check compares to LF, and
+`tests/test_line_endings.py` enforces the pin. Keep both. The Windows installer is
+built on a Windows runner, where Git's default `autocrlf` rewrites LF to CRLF on
+checkout, so the Windows `app.asar` would carry CRLF copies of all 14 `site/` text
+assets and `verify_app_bundle.py` would fail on a bundle that is not stale at all.
+That is what stopped launcher-v1.0.2 run 38835252575: `site/index.html` had 46 CRLF
+pairs, `desktop.js` 311 and `data/world.json` 2134, and each size difference equalled
+its CRLF count exactly while the Linux bundle matched. If the bundle check ever fails
+with every text asset listed and no binary one, check line endings before rebuilding.
+
 ## Verify after it publishes
 
     gh release view launcher-v<version> -R Easter-Co-SMP/easter-co-smp.github.io \

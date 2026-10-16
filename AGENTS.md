@@ -68,3 +68,14 @@ Real platform installers are published as GitHub Release assets. No source downl
 Releases follow doc/releasing.md: the tag comes from package.json, the workflow is dispatched by
 hand, the packaged app is checked against site/ before publishing, and /releases/latest ignores
 prereleases, so a launcher release must not be marked prerelease while it is the only one.
+
+Frontend work under site/ gets its final visual and interaction pass from the designated frontend
+reviewer before it reaches production. Passing tests, the browser suite and even the packaged-app
+bundle check are necessary but not sufficient: they prove behaviour, not design. Do not ship a
+site/ change on test evidence alone, and do not treat a green gate as the sign-off.
+
+Text line endings are pinned to LF in .gitattributes and tests/test_line_endings.py enforces it.
+scripts/verify_app_bundle.py compares the packaged app.asar against site/ byte for byte, and the
+Windows installer is built on a Windows runner where Git's default autocrlf would rewrite every
+site/ text asset to CRLF, so the bundle check would fail on a bundle that is not stale at all.
+That is exactly what happened to launcher-v1.0.2 run 38835252575. Keep the pin and the guard.
