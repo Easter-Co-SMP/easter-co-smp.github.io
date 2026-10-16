@@ -146,23 +146,28 @@ try {
 
   assert.deepEqual(errors, [], 'the flow must not raise renderer errors');
 
+  await page.addInitScript(()=>{
+   window.__terrainTiles=0;
+   const draw=CanvasRenderingContext2D.prototype.drawImage;
+   CanvasRenderingContext2D.prototype.drawImage=function(...args){if(this.canvas.id==='terrain')window.__terrainTiles++;return draw.apply(this,args);};
+  });
   // 6. The bar follows the player to the other page.
   await page.getByRole('link', {name: 'Map', exact: true}).click();
   await page.waitForFunction(() => window.easterDesktop?.mode === 'desktop');
   const barOnMap = await barVisible();
   assert.equal(barOnMap,true,'ready bar persists on map');
-  await page.waitForFunction(()=>!/^Loading/.test(document.getElementById('map-status')?.textContent||''));
+  await page.waitForFunction(()=>window.__terrainTiles>0&&document.getElementById('snapshot-date')?.textContent.startsWith('Charted'));
   await page.setViewportSize({width:1280,height:800});
   await page.screenshot({path:'/tmp/launcher-assist-map.png'});
   await page.getByRole('link',{name:'Home',exact:true}).click();
   await page.locator('[data-desktop-play][data-action=play]').waitFor();
   await page.keyboard.press('Escape');
-  await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
+  await page.waitForFunction(()=>!document.body.classList.contains('is-arriving')&&Number(getComputedStyle(document.querySelector('.hero-copy')).opacity)>.99);
   await page.screenshot({path:'/tmp/launcher-assist-ready.png'});
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:'/tmp/launcher-assist-mobile.png'});
   await page.getByRole('link',{name:'Map',exact:true}).click();
-  await page.waitForFunction(()=>!/^Loading/.test(document.getElementById('map-status')?.textContent||''));
+  await page.waitForFunction(()=>window.__terrainTiles>0&&document.getElementById('snapshot-date')?.textContent.startsWith('Charted'));
   await page.locator('#launcher-bar').waitFor({state:'visible'});
   await page.screenshot({path:'/tmp/launcher-assist-mobile-map.png'});
   note('map: the bar follows the player across pages', String(barOnMap));
