@@ -46,6 +46,13 @@ jobs:
             release/*.pacman
             release/*.exe
           if-no-files-found: error
+      # The unpacked build is what carries site/ inside app.asar, so it is uploaded even
+      # though it is not published. The release job checks it against the repository site/.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launcher-unpacked-${{ runner.os }}
+          path: release/*-unpacked
+          if-no-files-found: error
   release:
     needs: package
     runs-on: ubuntu-latest
@@ -58,6 +65,24 @@ jobs:
           pattern: launcher-*
           path: release
           merge-multiple: true
+      - name: Download unpacked builds for the bundle check
+        uses: actions/download-artifact@v4
+        with:
+          pattern: launcher-unpacked-*
+          path: release
+          merge-multiple: true
+      - name: Verify the packaged app carries the current site/
+        run: |
+          set -euo pipefail
+          # Electron bundles site/ into resources/app.asar. A launcher-v1.0.0 installer
+          # shipped an older site snapshot, so its in-app map legend offered layers the
+          # published chart no longer had. This compares every text asset in the bundle
+          # with site/ at this commit. Every *-unpacked directory the package job uploaded
+          # must contain resources/app.asar, and one without it is a failure rather than a
+          # silent pass. Binary imagery and site/downloads/ are stated as skipped by the
+          # script; no build step is needed because it reads the ASAR header with the
+          # standard library only.
+          python3 scripts/verify_app_bundle.py
       - name: Verify installers and build release notes
         working-directory: release
         run: |

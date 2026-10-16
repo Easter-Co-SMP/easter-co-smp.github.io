@@ -47,6 +47,8 @@ Keep middle-mouse drag exclusively for camera movement, including in drawing mod
 The Electron desktop entry is desktop/main.cjs. Reuse site/ for the UI. Native capabilities
 must stay behind the isolated preload and origin-checked IPC; do not enable renderer Node
 or expose arbitrary commands, tokens, file access, or remote privileged web content.
+A launcher release must carry the current site/, because the packaged app bundles site/ into
+its own app.asar; scripts/verify_app_bundle.py gates that before publishing.
 Authentication matches /opt/minecraft/launch/mc-auth.py, including its inherited Prism
 public-client registration. EASTER_MICROSOFT_CLIENT_ID overrides it. Never borrow existing
 users' saved tokens. Save sessions only with OS-backed safeStorage; basic_text is refused.
