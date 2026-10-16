@@ -267,8 +267,13 @@ function chunkList(published,origin=clientOrigin()){
   const optional=Boolean(chunk.optional),immutable=Boolean(chunk.immutable);
   // A required chunk that is not immutable could let a stale copy pass as current.
   if(!optional&&!immutable)throw Error('The required '+id+' chunk must be immutable.');
-  const version=String(chunk.version||'');
-  if(!HASH.test(version))throw Error('The '+id+' chunk version is not a content digest.');
+  // The version is the chunk's identity and is derived from its content, but it is
+  // consumed as an opaque string: it is compared with what the installed marker
+  // records and never parsed, so a future digest scheme cannot break the launcher.
+  const version=chunk.version;
+  if(typeof version!=='string'||!version.trim())throw Error('The '+id+' chunk has no version.');
+  const name=String(chunk.name??'').trim();
+  if(!name)throw Error('The '+id+' chunk has no name.');
   if(!Array.isArray(chunk.files)||!chunk.files.length)throw Error('The '+id+' chunk has no files.');
   const files=chunk.files.map(entry=>{
    const relative=String(entry?.path||'');
@@ -286,7 +291,9 @@ function chunkList(published,origin=clientOrigin()){
    if(url.protocol!=='https:'&&!(url.protocol==='http:'&&LOOPBACK.has(url.hostname.toLowerCase())))throw Error('The '+id+' chunk has an insecure file location.');
    return {id:String(entry.id||''),name:String(entry.name||''),version:String(entry.version||''),path:relative,url:url.href,hash:digest,algorithm,size};
   });
-  return {id,name:String(chunk.name||id),optional,immutable,version,files,fabric:chunk.fabric??null,java:chunk.java??null};
+  if(chunk.fabric!==undefined&&chunk.fabric!==null&&typeof chunk.fabric!=='string')throw Error('The '+id+' chunk has an invalid fabric pin.');
+  if(chunk.java!==undefined&&chunk.java!==null&&!Number.isInteger(chunk.java))throw Error('The '+id+' chunk has an invalid Java pin.');
+  return {id,name,optional,immutable,version,files,fabric:chunk.fabric??null,java:chunk.java??null};
  });
 }
 function selectedChunks(chunks,includeGraphics){return chunks.filter(chunk=>!chunk.optional||includeGraphics);}
@@ -441,7 +448,7 @@ function installDiff(published,record,{includeGraphics=false,fabric=FABRIC,origi
  if(chunks){
   const recorded=record.chunks||{};
   for(const chunk of selectedChunks(chunks,includeGraphics))if(recorded[chunk.id]?.version!==chunk.version)changes.push('chunk:'+chunk.id);
-  const pinned=gamePins(chunks,fabric);
+  const pinned=gamePins(chunks,published?.fabric===undefined?fabric:published.fabric);
   if(record.game?.minecraft!==published?.minecraft||record.game?.fabric!==pinned.fabric)changes.push('game');
   return {changed:changes.length>0,changes};
  }
@@ -453,16 +460,23 @@ function installDiff(published,record,{includeGraphics=false,fabric=FABRIC,origi
  if(includeGraphics&&publishedGraphics&&publishedGraphics.hash!==record.graphics)changes.push('graphics');
  return {changed:changes.length>0,changes};
 }
-function gamePins(chunks,fallback=FABRIC){
+// The base chunk carries the pins for the component the launcher installs; the
+// manifest's flat field mirrors them for launchers that predate chunks. If the two
+// disagree the manifest is inconsistent, and guessing which one is current would
+// install the wrong loader, so it is refused instead.
+function gamePins(chunks,manifestFabric){
  const base=(chunks||[]).find(chunk=>chunk.id==='base');
- return {fabric:base?.fabric||fallback,java:Number.isInteger(base?.java)?base.java:null};
+ const declared=typeof manifestFabric==='string'?manifestFabric.trim():'';
+ const pinned=typeof base?.fabric==='string'?base.fabric.trim():'';
+ if(declared&&pinned&&declared!==pinned)throw Error('The client release manifest disagrees about the Fabric pin ('+pinned+' in the base chunk, '+declared+' in the manifest).');
+ return {fabric:pinned||declared||FABRIC,java:Number.isInteger(base?.java)?base.java:null};
 }
 // ---- the game itself --------------------------------------------------------
 // Java, the frozen Minecraft version, its assets and the Fabric libraries. Recorded
 // as one verified unit so a later run that finds it unchanged touches none of it.
 async function installGame({root,settings={},client,chunks,notify,control=null,mode='install'}){
  const updating=mode==='update',step=kind=>updating?'updating':kind;
- const pins=gamePins(chunks);
+ const pins=gamePins(chunks,client.fabric);
  const list=await json('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json');
  const meta=list.versions.find(v=>v.id===client.minecraft);
  if(!meta)throw Error('Minecraft '+client.minecraft+' is not in Mojang’s release catalogue.');
@@ -534,7 +548,7 @@ async function installChunked({root,client,chunks,record,settings,notify,control
  const updating=mode==='update',step=kind=>updating?'updating':kind;
  const selected=selectedChunks(chunks,includeGraphics);
  const pending=pendingChunks(selected,record,includeGraphics);
- const pins=gamePins(chunks);
+ const pins=gamePins(chunks,client.fabric);
  const gameCurrent=Boolean(record&&record.game&&record.game.minecraft===client.minecraft&&record.game.fabric===pins.fabric&&record.java)&&await exists(record.java);
  const graphicsChunk=selected.find(chunk=>chunk.id==='graphics');
  const graphicsMessage=includeGraphics&&!chunks.some(chunk=>chunk.id==='graphics')?'Enhanced graphics are not published yet, so the client was installed without them.':null;

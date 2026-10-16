@@ -275,6 +275,88 @@ test('an optional chunk is never fetched while its toggle is off',async()=>{
  }finally{await server.close();await tree.cleanup();}
 });
 
+test('a chunk version is opaque: it is compared, never parsed',async()=>{
+ const body=Buffer.from('base-jar-bytes');
+ const server=await fileServer({'/files/base.jar':body});
+ const tree=await installedTree();
+ try{
+  // A version that is not a digest at all is still a valid identity.
+  const odd={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'release-2026-10-16.1',files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',body)]};
+  const published=chunkFixture({base:odd});
+  assert.equal(chunkList(published,server.origin)[0].version,'release-2026-10-16.1');
+  resetTransferStats();
+  await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false});
+  assert.equal(tree.record().chunks.base.version,'release-2026-10-16.1','the marker records it verbatim');
+  assert.deepEqual(server.requests.map(request=>request.path),['/files/base.jar']);
+  // The same opaque version means nothing to do; a different one means fetch again.
+  const before=server.requests.length;
+  resetTransferStats();
+  const repeat=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false});
+  assert.equal(repeat.unchanged,true);
+  assert.equal(server.requests.length,before);
+  assert.equal(transferStats().hashReads,0);
+  assert.deepEqual(installDiff(published,tree.record(),{origin:server.origin}),{changed:false,changes:[]});
+  assert.deepEqual(installDiff(chunkFixture({base:{...odd,version:'release-2026-10-16.2'}}),tree.record(),{origin:server.origin}).changes,['chunk:base']);
+  for(const version of ['','   ',undefined,null,0,{}])
+   assert.throws(()=>chunkList(chunkFixture({base:{...odd,version}}),server.origin),/no version/,JSON.stringify(version)+' must be refused');
+ }finally{await server.close();await tree.cleanup();}
+});
+
+test('a chunk file hash may be sha512 and the parser must not assume sha256',async()=>{
+ const body=Buffer.from('a-mod-jar-verified-with-sha512');
+ const digest=crypto.createHash('sha512').update(body).digest('hex');
+ const server=await fileServer({'/files/base.jar':body});
+ const tree=await installedTree();
+ try{
+  const base={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'v1',files:[{id:'easter-navy',name:'Easter Co. client',version:'2.0.0',path:'mods/easter-navy.jar',url:server.origin+'/files/base.jar',hash:'sha512:'+digest,size:body.length}]};
+  const parsed=chunkList(chunkFixture({base}),server.origin)[0].files[0];
+  assert.equal(parsed.algorithm,'sha512');
+  assert.equal(parsed.hash,digest);
+  const published=chunkFixture({base});
+  assert.deepEqual(installDiff(published,{minecraft:'26.2',fabric:'0.19.5',game:{minecraft:'26.2',fabric:'0.19.5'},chunks:{base:{version:'v0'}}}).changes,['chunk:base']);
+  await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false});
+  assert.equal(require('node:crypto').createHash('sha512').update(await fs.readFile(path.join(tree.root,'mods','easter-navy.jar'))).digest('hex'),digest,'the sha512 file was verified and installed');
+  // A hash that names an algorithm we do not verify is refused rather than guessed.
+  for(const hash of ['md5:'+digest,'sha1:'+digest,'sha256:'+digest,'sha512:nothex',digest,'']){
+   assert.throws(()=>chunkList(chunkFixture({base:{...base,files:[{...base.files[0],hash}]}}),server.origin),/checksum|truncated/,hash.slice(0,12)+' must be refused');
+  }
+ }finally{await server.close();await tree.cleanup();}
+});
+
+test('a manifest with only a base chunk handles the graphics toggle honestly',async()=>{
+ const body=Buffer.from('base-jar-bytes');
+ const server=await fileServer({'/files/base.jar':body});
+ const tree=await installedTree();
+ try{
+  const published=chunkFixture({base:{id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'v1',fabric:'0.19.5',java:25,files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',body)]}});
+  assert.equal(chunkList(published,server.origin).length,1);
+  assert.deepEqual(gamePins(chunkList(published,server.origin),'0.19.5'),{fabric:'0.19.5',java:25},'the base chunk carries the loader and Java pins');
+  assert.throws(()=>gamePins(chunkList(published,server.origin),'9.9.9'),/disagrees about the Fabric pin/,'a manifest that contradicts the chunk is refused, not resolved');
+  // The install completes normally with the toggle on and says what is missing.
+  const result=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:true});
+  assert.match(result.message,/not published yet/,'the honest message: '+result.message);
+  assert.equal(result.graphics,null);
+  assert.equal(result.includeGraphics,true,'the toggle is still reported back');
+  assert.equal(tree.record().chunks.graphics,undefined,'no graphics record was invented');
+  assert.deepEqual(server.requests.map(request=>request.path),['/files/base.jar'],'nothing extra was fetched');
+  assert.equal(await fs.stat(path.join(tree.root,'shaderpacks')).then(()=>'present',()=>'absent'),'absent');
+  // A manifest whose flat Fabric field contradicts the base chunk is refused
+  // rather than resolved by picking one.
+  const conflicting={...published,fabric:'0.19.6'};
+  assert.throws(()=>gamePins(chunkList(conflicting,server.origin),conflicting.fabric),/disagrees about the Fabric pin/,'the rule itself refuses the contradiction');
+  await assert.rejects(installClient({root:tree.root,published:conflicting,origin:server.origin,includeGraphics:false}),/disagrees about the Fabric pin/,'so does the pipeline');
+  assert.deepEqual(installDiff(published,tree.record(),{origin:server.origin}),{changed:false,changes:[]},'the agreeing manifest is still the quiet case');
+  // And a second run that finds nothing to do repeats it rather than failing.
+  const second=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:true});
+  assert.equal(second.unchanged,true);
+  assert.match(second.graphicsMessage,/not published yet/);
+  // With the toggle off there is nothing to say.
+  const off=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false});
+  assert.equal(off.graphicsMessage,null);
+  assert.doesNotMatch(off.message||'',/not published yet/);
+ }finally{await server.close();await tree.cleanup();}
+});
+
 test('a chunked manifest is validated, and a required chunk must be immutable',()=>{
  const base={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+'a'.repeat(64),files:[entry('files/x.jar','mods/x.jar',Buffer.from('x'))]};
  const published=chunkFixture({base});
@@ -287,7 +369,10 @@ test('a chunked manifest is validated, and a required chunk must be immutable',(
  assert.equal(chunkList({minecraft:'26.2'},'https://x/'),null,'a manifest with no chunk list stays valid');
  const broken=[
   [{...base,immutable:false},/must be immutable/],
-  [{...base,version:'26.2'},/not a content digest/],
+  [{...base,version:'   '},/no version/],
+  [{...base,name:''},/no name/],
+  [{...base,fabric:19},/invalid fabric pin/],
+  [{...base,java:'25'},/invalid Java pin/],
   [{...base,files:[]},/no files/],
   [{...base,files:[{...entry('files/x.jar','mods/x.jar',Buffer.from('x')),hash:'sha256:abc'}]},/truncated checksum/],
   [{...base,files:[{...entry('files/x.jar','../escape.jar',Buffer.from('x'))}]},/invalid file path/],
