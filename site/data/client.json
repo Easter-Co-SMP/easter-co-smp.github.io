@@ -64,6 +64,26 @@
       "name": "Minecraft 26.2 game, libraries and required mods",
       "optional": false,
       "version": "sha256:768b1233241a38c1775ecb77580f853514d1d1bc1aa6b23a7d7761a19510c3ff"
+    },
+    {
+      "fabric": null,
+      "files": [
+        {
+          "hash": "sha512:a085d1d8cda67cd17a2b414eeba48bbd809da069f269bab46246235ec8fe714a275013c70d0504527b0987d810deddddba4564332414ab3b3bd7435932ff808c",
+          "id": "R6NEzAwj",
+          "name": "Complementary Shaders - Unbound",
+          "path": "shaderpacks/ComplementaryUnbound_r5.9.3.zip",
+          "size": 553400,
+          "url": "https://cdn.modrinth.com/data/R6NEzAwj/versions/B1kyfoUZ/ComplementaryUnbound_r5.9.3.zip",
+          "version": "r5.9.3"
+        }
+      ],
+      "id": "graphics",
+      "immutable": false,
+      "java": null,
+      "name": "Complementary Shaders - Unbound for Minecraft 26.2",
+      "optional": true,
+      "version": "sha256:35b665395826d2c708cfdf504c9f305e4a953aed74b89e724253c5029bc5c0c7"
     }
   ],
   "dependencies": [

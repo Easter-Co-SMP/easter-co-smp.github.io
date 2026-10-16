@@ -176,9 +176,13 @@ Rules the exporter and validator hold to:
   outside `site/`.
 - The exporter is deterministic: re-running it on unchanged inputs produces a
   byte-identical `client.json`.
-- Chunks are absent until they have real content. There is no `graphics` chunk yet,
-  because the shader stack has not been chosen; an optional chunk that is switched off
-  is simply absent, and its absence invalidates nothing else.
+- Chunks are absent until they have real content. The `graphics` chunk is published as
+  of 2026-10-16: it carries the one shader pack the server's look is built on,
+  Complementary Unbound r5.9.3, taken from that publisher's own artifact — its project
+  id, its CDN URL and its own published sha512 — and the version is pinned in the
+  exporter rather than resolved to "latest". An optional chunk that is switched off is
+  simply not fetched, and its absence invalidates nothing else, which is still what a
+  player sees before they turn the toggle on.
 
 ## Rules that still hold
 

@@ -3,18 +3,23 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
+from urllib.parse import urlsplit
 import zipfile
 
-from scripts.export_world import (FABRIC_FALLBACK, MANIFEST_KEYS, PUBLIC_MARKER_KINDS, chunk_version,
-                                  declared_fabric, export_client, fetch_modrinth_versions, manifest_text,
-                                  modrinth_resolver, packages, parse_modrinth_files, public_marker,
-                                  public_marker_kind, read_resolution_state, resolve_dependencies,
-                                  resolved_pins, write_json, DEPENDENCIES, ZONE)
+from scripts.export_world import (FABRIC_FALLBACK, GRAPHICS_PACK_NAME, GRAPHICS_PACK_VERSION,
+                                  GRAPHICS_PATH_PREFIX, GRAPHICS_PROJECT_ID, MANIFEST_KEYS,
+                                  MODRINTH_CDN_HOST, PUBLIC_MARKER_KINDS, chunk_version,
+                                  declared_fabric, export_client, fetch_modrinth_versions,
+                                  manifest_text, modrinth_resolver, packages, parse_graphics_release,
+                                  parse_modrinth_files, public_marker, public_marker_kind,
+                                  read_resolution_state, resolve_dependencies, resolved_pins, write_json,
+                                  DEPENDENCIES, ZONE)
 from scripts.sync import publish
 from scripts.validate import validate_data, MARKER_KEYS
 
@@ -59,6 +64,25 @@ def fixture_resolver(dependencies, releases=None, calls=None):
             raise RuntimeError('Modrinth could not confirm ' + '; '.join(failures))
         return resolved
     return resolve
+
+
+def graphics_release(loaders=('iris', 'optifine'), minecraft='26.2', version=GRAPHICS_PACK_VERSION,
+                     filename=GRAPHICS_PACK_NAME, size=553400, host=MODRINTH_CDN_HOST, hashes=None):
+    """One shader-pack release, shaped exactly as the publisher's API returns it."""
+    files = [{'primary': True, 'filename': filename, 'size': size,
+              'url': f'https://{host}/data/{GRAPHICS_PROJECT_ID}/versions/B1kyfoUZ/{filename}',
+              'hashes': {'sha512': SHA512, 'sha1': 'c' * 40} if hashes is None else hashes}]
+    return [{'version_number': version, 'game_versions': [minecraft], 'loaders': list(loaders), 'files': files}]
+
+
+def graphics_fixture_resolver(loaders=('iris', 'optifine'), minecraft='26.2', version=GRAPHICS_PACK_VERSION,
+                              filename=GRAPHICS_PACK_NAME, size=553400, host=MODRINTH_CDN_HOST, hashes=None):
+    """A graphics fetch that answers from a fixture, so tests never touch the publisher."""
+    def fetch(project, wanted_version, game_version):
+        assert project == GRAPHICS_PROJECT_ID and wanted_version == GRAPHICS_PACK_VERSION, 'the pinned pack is fetched'
+        return graphics_release(loaders, minecraft, version, filename, size, host, hashes)
+
+    return fetch
 
 
 def fixture_mod_jar(root, ident='easter-navy'):
@@ -236,7 +260,8 @@ class PrivacyTests(unittest.TestCase):
                 paths.append(path)
             target = root / 'public'
             export_client(target, SimpleNamespace(_mods=lambda: paths, facts=SimpleNamespace(stack=lambda: 'MC 26.2 · Fabric 0.19.5')),
-                          resolver=fixture_resolver(DEPENDENCIES), state_path=root / 'state/modrinth.json')
+                          resolver=fixture_resolver(DEPENDENCIES), state_path=root / 'state/modrinth.json',
+                          graphics_resolver=graphics_fixture_resolver())
             client = json.loads((target / 'data/client.json').read_text())
             self.assertEqual(client['minecraft'], '26.2')
             self.assertEqual([p.name for p in (target / 'downloads').iterdir()], ['easter-navy.jar'])
@@ -322,8 +347,10 @@ class ClientChunkTests(unittest.TestCase):
             self.assertEqual([d['id'] for d in published['dependencies']], list(DEPENDENCIES))
             self.assertTrue(all(d['url'].startswith('https://modrinth.com/') for d in published['dependencies']))
             base = published['chunks'][0]
-            self.assertEqual(set(base) - {'id', 'name', 'optional', 'immutable', 'version', 'files'},
-                             {'fabric', 'java'})
+            # Every chunk carries the same field set; the game pins are the base chunk's own.
+            for chunk in published['chunks']:
+                self.assertEqual(set(chunk) - {'id', 'name', 'optional', 'immutable', 'version', 'files'},
+                                 {'fabric', 'java'})
             for entry in base['files']:
                 self.assertEqual(set(entry), {'id', 'name', 'version', 'path', 'url', 'hash', 'size'})
 
@@ -504,7 +531,8 @@ class ClientChunkTests(unittest.TestCase):
 class ClientExportTests(unittest.TestCase):
     """The exporter publishes the chunks, stays deterministic, and invents no checksums."""
 
-    def build(self, root, resolver=None, calls=None, state_path=None, mod_version='1.0.0'):
+    def build(self, root, resolver=None, calls=None, state_path=None, mod_version='1.0.0',
+              graphics_resolver=None):
         root.mkdir(parents=True, exist_ok=True)
         paths = []
         for ident in ['easter-navy', *DEPENDENCIES]:
@@ -516,7 +544,102 @@ class ClientExportTests(unittest.TestCase):
         module = SimpleNamespace(_mods=lambda: paths, facts=SimpleNamespace(stack=lambda: 'MC 26.2 · Fabric 0.19.5'))
         return export_client(root / 'public', module,
                              resolver=resolver if resolver is not None else fixture_resolver(DEPENDENCIES, calls=calls),
-                             now=NOW, state_path=state_path if state_path else root / 'state/modrinth.json')
+                             now=NOW, state_path=state_path if state_path else root / 'state/modrinth.json',
+                             graphics_resolver=graphics_resolver if graphics_resolver is not None
+                             else graphics_fixture_resolver())
+
+    def test_the_graphics_chunk_publishes_the_pinned_pack_from_its_publisher(self):
+        """The optional graphics chunk: one shader pack, its publisher's own artifact.
+
+        Owen's server look is Complementary Unbound r5.9.3 and the other three packs the
+        clients arrived with were trimmed, so the chunk describes exactly that one file.
+        A shader pack is published for the iris/optifine loaders, so it cannot be resolved
+        the way a fabric mod is; the pinned version is fetched directly and held to the same
+        rules -- the publisher's own CDN and the publisher's own sha512 -- and a release that
+        does not fit is refused rather than published.
+        """
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            calls = []
+            def fetch(project, version, minecraft):
+                calls.append((project, version, minecraft))
+                return graphics_release()
+            client = self.build(root, graphics_resolver=fetch)
+            chunks = {chunk['id']: chunk for chunk in client['chunks']}
+            self.assertEqual(sorted(chunks), ['base', 'graphics'])
+            graphics = chunks['graphics']
+            self.assertTrue(graphics['optional'], 'the graphics chunk is switched off by default, so it is optional')
+            self.assertFalse(graphics['immutable'], 'an optional chunk is re-verified, not trusted once')
+            self.assertEqual(graphics['version'], chunk_version(graphics))
+            self.assertIn('26.2', graphics['name'])
+            entry, = graphics['files']
+            self.assertEqual(set(entry), {'id', 'name', 'version', 'path', 'url', 'hash', 'size'})
+            self.assertEqual(entry['id'], GRAPHICS_PROJECT_ID)
+            self.assertEqual(entry['version'], GRAPHICS_PACK_VERSION)
+            self.assertEqual(entry['path'], GRAPHICS_PATH_PREFIX + GRAPHICS_PACK_NAME)
+            self.assertEqual(urlsplit(entry['url']).hostname, 'cdn.modrinth.com')
+            self.assertEqual(entry['hash'], 'sha512:' + SHA512)
+            self.assertEqual(entry['size'], 553400)
+            # The resolver is asked for the pinned project and version, like every other pin.
+            self.assertEqual(calls, [(GRAPHICS_PROJECT_ID, GRAPHICS_PACK_VERSION, '26.2')])
+            # The pack filename becomes a path in the manifest, so it is validated, not
+            # sanitised: a publisher filename that would escape the chunk is refused.
+            for filename in ('../../etc/passwd', 'pack.zip/../../x', '', 'pack.tar.gz'):
+                with self.subTest(filename=filename):
+                    with self.assertRaises(ValueError):
+                        parse_graphics_release(graphics_release(filename=filename), GRAPHICS_PACK_VERSION, '26.2')
+            # The chunk is a function of its own file list: a different artifact is a
+            # different chunk version, which is what makes an installed client update.
+            other = packages(chunks['base']['files'][0], {'mods': chunks['base']['files'][1:]},
+                             {'minecraft': '26.2', 'fabric': '0.19.5', 'java': 25},
+                             {'name': 'Complementary Shaders - Unbound', 'version': GRAPHICS_PACK_VERSION,
+                              'path': GRAPHICS_PACK_NAME, 'url': entry['url'],
+                              'hash': 'sha512:' + 'cd' * 64, 'size': 553400})[1]
+            self.assertNotEqual(other['version'], graphics['version'])
+            # And the exported manifest is the shape the site validator accepts, staged as
+            # the public payload the exporter would publish: the manifest with the jar it
+            # actually describes, never a fixture jar under its checksum.
+            fixture_export(root, client=client)
+            shutil.copyfile(root / 'public/downloads/easter-navy.jar', root / 'downloads/easter-navy.jar')
+            validate_data(root)
+            self.assertEqual(json.loads((root / 'data/client.json').read_text())['chunks'][1], graphics)
+            # The resolver is asked for the pinned project and version, like every other pin.
+            self.assertEqual(calls, [(GRAPHICS_PROJECT_ID, GRAPHICS_PACK_VERSION, '26.2')])
+            # The cached confirmation is reused, so a second export into another tree makes
+            # no second call: the pin is confirmed once, not once per export.
+            self.build(root / 'again', state_path=root / 'state/modrinth.json',
+                       graphics_resolver=lambda *args: (_ for _ in ()).throw(AssertionError('the confirmed artifact was not reused')))
+            self.assertEqual(calls, [(GRAPHICS_PROJECT_ID, GRAPHICS_PACK_VERSION, '26.2')])
+
+    def test_an_unusable_graphics_release_is_refused_rather_than_published(self):
+        """A pack that does not fit, or an unreachable publisher, fails the export.
+
+        Silently omitting the chunk would switch every player's enhanced graphics off with
+        nothing reporting a problem, which is the same class of bug as publishing a stale
+        chunk version, so the export refuses loudly instead.
+        """
+        broken = [
+            (graphics_release(loaders=('optifine',)), 'iris'),
+            (graphics_release(minecraft='1.21.1'), 'Minecraft 26.2'),
+            (graphics_release(host='example.invalid'), 'cdn.modrinth.com'),
+            (graphics_release(size=0), 'file size'),
+            (graphics_release(hashes={'sha1': 'c' * 40}), 'sha512'),
+            (None, 'could not be confirmed'),
+            ('not a list', 'no version list'),
+        ]
+        for versions, expected in broken:
+            with self.subTest(expected=expected):
+                with tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    if versions is None:
+                        def resolver(project, wanted, game):
+                            raise OSError('the publisher is unreachable')
+                    else:
+                        def resolver(project, wanted, game, published=versions):
+                            return published
+                    with self.assertRaises(RuntimeError) as caught:
+                        self.build(root, graphics_resolver=resolver)
+                    self.assertIn(expected, str(caught.exception))
 
     def test_the_base_chunk_version_changes_when_only_our_mod_changes(self):
         """An Easter Co. jar update while Minecraft stays frozen must be visible to a client.
@@ -744,7 +867,8 @@ class ClientExportTests(unittest.TestCase):
 
             # The exported path comes from the publisher's own file name, never from a local path.
             client = export_client(root / 'public', module, resolver=resolver,
-                                   state_path=root / 'state/modrinth.json')
+                                   state_path=root / 'state/modrinth.json',
+                                   graphics_resolver=graphics_fixture_resolver())
             self.assertEqual(sorted(resolved), sorted(DEPENDENCIES))
             for entry in client['chunks'][0]['files']:
                 self.assertFalse(entry['path'].startswith('/'))
@@ -756,7 +880,8 @@ class ClientExportTests(unittest.TestCase):
 
             with self.assertRaises(RuntimeError) as caught:
                 export_client(root / 'public', module, resolver=escaping,
-                              state_path=root / 'state/other.json')
+                              state_path=root / 'state/other.json',
+                              graphics_resolver=graphics_fixture_resolver())
             self.assertIn('non-relative file path', str(caught.exception))
 
 

@@ -144,10 +144,12 @@ while its toggle is off, and a chunk the manifest marks immutable is verified on
 trusted, so a launch that finds nothing changed performs no content reads at all. Chunk files are still individually checksum verified,
 and `installed.json` records each installed chunk's version so "nothing to do" is provable. The
 base chunk carries the frozen game and the required mods; enhanced graphics and shaders are the
-optional `graphics` chunk, installed only when the toggle is on and the manifest declares it.
-Until that chunk is published, an install with the toggle on completes normally and reports that
-nothing extra was published. A manifest with no chunk list stays valid and keeps working exactly
-as before.
+optional `graphics` chunk, installed only when the toggle is on and the manifest declares it. As
+of 2026-10-16 that chunk carries the one shader pack the server's look is built on — Complementary
+Unbound r5.9.3, from its publisher's own Modrinth artifact, with the pack version pinned in the
+exporter rather than resolved to "latest". A manifest that declares no graphics chunk still
+installs normally and reports that nothing extra was published. A manifest with no chunk list stays
+valid and keeps working exactly as before.
 
 Where the published manifest and the launcher's own files live is the constant in
 `desktop/config.cjs`, overridable with `EASTER_CLIENT_ORIGIN` under the same rule as the API
