@@ -88,10 +88,10 @@ Microsoft session, so `basic_text` is refused there too. Signing out revokes it 
 Only the account name, its roles and the session's expiry reach the renderer: no token, UUID
 or response body crosses IPC, and every cloud call happens in the main process behind the
 origin-checked handlers with a bounded timeout. The API origin is the constant in
-`desktop/config.cjs`; set `EASTER_API_BASE_URL` to override it (HTTPS required, with a
-loopback exception used by the tests). The account API is not deployed yet, so a real
-sign-in currently reports that the account service could not be reached and keeps the
-Microsoft session usable; nothing else depends on it.
+`desktop/config.cjs`, currently the deployed API Gateway host of the accounts HTTP API
+(`https://jyjshd22z3.execute-api.us-east-2.amazonaws.com`); set `EASTER_API_BASE_URL` to
+override it (HTTPS required, with a loopback exception used by the tests). That hostname is
+stable while the stack exists and changes if the stack is destroyed and recreated.
 
 The app installs its own Java 25, Minecraft 26.2, Fabric 0.19.5, the custom mod, and the five
 pinned dependencies into its app-data/minecraft directory. It does not touch ~/.minecraft or

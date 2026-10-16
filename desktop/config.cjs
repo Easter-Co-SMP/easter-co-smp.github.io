@@ -1,8 +1,9 @@
 'use strict';
 // Easter Company API origin. Build-time constant, overridable at runtime with
 // EASTER_API_BASE_URL exactly like EASTER_MICROSOFT_CLIENT_ID overrides the
-// Microsoft registration. Keep this in step with the deployed HTTP API.
-const DEFAULT_API_ORIGIN='https://accounts.eastercompany.ltd';
+// Microsoft registration. This is the deployed API Gateway origin of the
+// accounts HTTP API; it changes only if that stack is destroyed and recreated.
+const DEFAULT_API_ORIGIN='https://jyjshd22z3.execute-api.us-east-2.amazonaws.com';
 const LOOPBACK=new Set(['127.0.0.1','[::1]','::1','localhost']);
 function apiOrigin(value=process.env.EASTER_API_BASE_URL){
  const candidate=String(value||'').trim();

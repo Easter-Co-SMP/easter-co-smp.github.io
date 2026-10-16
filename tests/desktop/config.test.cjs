@@ -51,3 +51,18 @@ test('no token or response body can be logged from the account path',async()=>{
  assert.match(main,/function safeError/);
  assert.equal(main.indexOf("error.name==='AccountError'")>main.indexOf('function safeError'),true);
 });
+
+test('the account path writes nothing outside the app data directory',async()=>{
+ // The launcher runs with the user's privileges, so a fixed path outside app data
+ // is both a stray artefact and a symlink hazard. Vault writes go to
+ // app.getPath('userData') through the paths main.cjs builds from configRoot().
+ const source=['desktop/main.cjs','desktop/accounts.cjs','desktop/vault.cjs','desktop/config.cjs','desktop/security.cjs','desktop/preload.cjs'].map(read).join('\n');
+ assert.equal(/['"`]\/tmp/.test(source),false,'no fixed /tmp path in the account path');
+ assert.equal(/tmpdir\(/.test(source),false,'the account path must not use a temporary directory');
+ assert.equal(/appendFileSync|writeFileSync|writeSync|createWriteStream/.test(source),false,'no synchronous or stream writes in the account path');
+ const vault=read('desktop/vault.cjs');
+ assert.match(vault,/require\('node:fs\/promises'\)/);
+ assert.equal(/require\('node:fs'\)/.test(vault),false,'vault writes must be async');
+ assert.match(read('desktop/main.cjs'),/const configRoot=\(\)=>app\.getPath\('userData'\)/);
+ assert.match(read('desktop/main.cjs'),/const companyFile=\(\)=>path\.join\(configRoot\(\),companyVaultName\(\)\)/);
+});

@@ -51,7 +51,6 @@ class AccountClient{
   try{
    response=await this.request(this.baseUrl+pathname,{method,headers,body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([signal,deadline]):deadline});
   }catch(error){
-   require('node:fs').appendFileSync('/tmp/ec-debug.log','call='+this.baseUrl+pathname+' err='+error.name+' '+error.message+' cause='+String(error.cause&&(error.cause.message||error.cause))+'\n');
    if(error.name==='AbortError'&&signal?.aborted)throw error;
    // Unreachable host, DNS failure, refused connection or elapsed timeout.
    // The cause is deliberately dropped so it can never reach the renderer.
