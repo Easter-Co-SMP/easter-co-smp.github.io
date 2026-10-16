@@ -3,10 +3,10 @@ const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog}=require(
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{pathToFileURL}=require('node:url');
 const {MicrosoftAuth,DEFAULT_CLIENT_ID}=require('./auth.cjs');
 const {AccountClient,publicAccount,companySession,storedSession,companyVaultName}=require('./accounts.cjs');
-const {apiOrigin}=require('./config.cjs');
+const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation}=require('./config.cjs');
 const vault=require('./vault.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings}=require('./security.cjs');
-const {ORIGIN,atomicJSON,prepare,launchOptions,launch}=require('./install.cjs');
+const {atomicJSON,installClient,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
 const APP_VERSION=require('../package.json').version;
 app.setName('Easter Company');
 protocol.registerSchemesAsPrivileged([{scheme:'easter',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
@@ -16,16 +16,41 @@ if(!instance)app.quit();
 let window,settings,session=null,working=false,game=null,controller,company=null;
 const siteRoot=path.resolve(__dirname,'../site');
 const configRoot=()=>app.getPath('userData');
-const gameRoot=()=>path.join(configRoot(),'minecraft');
+const defaultLocation=()=>defaultInstallLocation(configRoot());
+const gameRoot=()=>settings?.location||defaultLocation();
 const settingsFile=()=>path.join(configRoot(),'settings.json');
 const vaultFile=()=>path.join(configRoot(),'account.enc');
 const companyFile=()=>path.join(configRoot(),companyVaultName());
 const clientId=process.env.EASTER_MICROSOFT_CLIENT_ID||DEFAULT_CLIENT_ID;
 const auth=new MicrosoftAuth({clientId});
 const accounts=new AccountClient({baseUrl:apiOrigin(),client:'launcher/'+APP_VERSION});
-const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565'};
-let state={phase:'idle',message:'Your crew is waiting.',progress:null,profile:null,remembered:false,account:null};
-function notify(patch){state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null};if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);}
+const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false};
+// The launcher state contract in doc/launcher-states.md. `phase` and `progress`
+// are the live pipeline's; everything else is derived from the installed client,
+// the account session and the saved settings on every broadcast, so no view has to
+// guess. canPlay is computed here and nowhere else.
+let state={message:'Your crew is waiting.',device:null,progress:null,profile:null,remembered:false,account:null};
+let phase=null,progress=null,control=null,installStarted=false,backgroundUpdate=null;
+let client={installed:false,version:null,updatedAt:null,record:null};
+function installInfo(){
+ const installed=Boolean(client.installed);
+ return {location:gameRoot(),defaultLocation:defaultLocation(),installed,includeGraphics:Boolean(settings?.includeGraphics),version:installed?client.version:null,updatedAt:installed?client.updatedAt:null};
+}
+function notify(patch={}){
+ if('progress' in patch)progress=patch.progress;
+ if(typeof patch.phase==='string')phase=patch.phase;
+ state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null};
+ const install=installInfo(),profile=publicProfile(session),actions=[];
+ if(!install.installed)actions.push('download');
+ if(!profile)actions.push('signin');
+ const paused=Boolean(control&&control.paused&&!control.cancelled);
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,canPlay:canPlay(install,profile),bar:{visible:install.installed||installStarted}}};
+ if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
+}
+// Nothing is transferring after this: the bar falls back to PLAY NOW or the
+// sign-in action through `actions`, and the phase returns to the resting value.
+function settle(message,extra={}){phase=null;progress=null;control=null;notify({message,device:null,...extra});}
+async function refreshClient(){client=await clientStatus(gameRoot());}
 function secureStorageAvailable(){return safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');}
 const vaultOptions=()=>({safeStorage,platform:process.platform});
 async function saveSession(){
@@ -70,6 +95,7 @@ function safeError(error){
  // AccountError messages are fixed launcher wording chosen from the API error
  // code, so they are safe to show and carry no token or response body.
  if(error.name==='AccountError')return error.message;
+ if(error.name==='CancelledError')return 'The download was cancelled.';
  if(error.code==='ENOSPC')return 'There is not enough disk space to install the client.';
  if(error.code==='EACCES')return 'The launcher cannot write to its client folder. Check its permissions.';
  if(error.name==='TypeError'||error.name==='TimeoutError')return 'The connection failed. Check your network and try again.';
@@ -79,20 +105,67 @@ function safeError(error){
 async function exclusively(action){
  if(working||game)throw Error(game?'Minecraft is already running.':'Another launcher operation is still running.');
  working=true;
- try{return await action();}catch(error){notify({phase:'error',message:safeError(error),progress:null,device:null});throw Error(safeError(error));}finally{working=false;}
+ try{return await action();}catch(error){
+  const message=safeError(error);
+  if(error.name!=='CancelledError')settle(message,{device:null});
+  throw Error(message);
+ }finally{working=false;}
+}
+// One control per pipeline run: it is what pause, resume and cancel act on, and
+// what makes the state report `paused` only while a paused transfer can continue.
+async function withControl(action){
+ control=createControl({onChange:()=>notify({})});
+ installStarted=true;
+ try{return await action();}
+ catch(error){
+  if(error&&error.name==='CancelledError'){
+   await refreshClient();
+   control=null;phase=null;progress=null;
+   notify({message:'Download cancelled. Nothing already installed was changed.',device:null});
+   return null;
+  }
+  throw error;
+ }finally{control=null;}
+}
+async function runInstall({includeGraphics=Boolean(settings.includeGraphics)}={}){
+ return withControl(async()=>{
+  const result=await installClient({root:gameRoot(),settings,notify,control,mode:'install',includeGraphics});
+  await refreshClient();
+  settle(result.message||'Client ready.');
+  return result;
+ });
+}
+// The same pipeline and the same reporting as a first install. A check that finds
+// nothing publishes nothing: withControl only sets the flag, and checkForUpdates
+// does not notify at all unless it is going to do work.
+async function runUpdate(){
+ return withControl(async()=>{
+  const result=await checkForUpdates({root:gameRoot(),settings,notify,control,includeGraphics:Boolean(settings.includeGraphics)});
+  await refreshClient();
+  if(result.applied)settle(result.result?.message||'Client updated.');
+  return result;
+ });
 }
 async function login(){
  controller=new AbortController();
- notify({phase:'signing-in',message:'Opening Microsoft sign-in…',device:null,progress:null});
+ notify({message:'Opening Microsoft sign-in…',device:null,progress:null});
  try{
   session=await auth.signIn(device=>notify({device,message:'Enter this code on Microsoft’s sign-in page.'}),controller.signal);
   await saveSession();await enrolAccount();
-  notify({phase:'idle',device:null,message:'Welcome aboard, '+session.profile.name+'.'});
+  notify({device:null,message:'Welcome aboard, '+session.profile.name+'.'});
  }finally{controller=undefined;}
+}
+// Install or update before launch. Returns the prepared release, or null when the
+// installed client is already current.
+async function ensureClient(){
+ await refreshClient();
+ if(!client.installed)return runInstall();
+ const checked=await runUpdate();
+ return checked?.result||null;
 }
 async function play(){
  if(!session)await login();
- notify({phase:'refreshing',message:'Checking your Minecraft session…',device:null,progress:null});
+ notify({phase:'launching',message:'Checking your Minecraft session…',device:null,progress:null});
  try{session=await auth.refresh(session);}catch(error){
   if(!['invalid_grant','invalid_request','unauthorized_client'].includes(error.code))throw error;
   session=null;company=null;await fs.rm(vaultFile(),{force:true});await vault.remove(companyFile());await login();
@@ -101,14 +174,18 @@ async function play(){
  // The Mojang token is the enrolment credential: every sign-in re-posts it, so a
  // session the API has forgotten or revoked is reissued here instead of on launch.
  await enrolAccount({announce:false});
- const prepared=await prepare(gameRoot(),settings,notify);
+ const prepared=await ensureClient();
+ const record=client.record;
+ const version=prepared?.version||record?.version;
+ const javaPath=settings.javaPath||prepared?.javaPath||record?.java;
+ if(!version||!javaPath)throw Error('The game client is not installed yet.');
  notify({phase:'launching',message:'Setting sail…',progress:null});
- const child=await launch(launchOptions({root:gameRoot(),...prepared,session,settings}));
+ const child=await launch(launchOptions({root:gameRoot(),version,javaPath,session,settings}));
  game=child;
  // Do not store launch arguments or raw stdout; Minecraft writes its own latest.log.
  child.stdout?.on('data',()=>{});child.stderr?.on('data',()=>{});
- child.once('error',()=>{game=null;notify({phase:'error',message:'Minecraft could not start. Check Java and try again.',progress:null});});
- child.once('exit',code=>{game=null;notify({phase:code===0?'idle':'error',message:code===0?'Welcome back. Ready for another voyage?':'Minecraft closed with code '+code+'. Its log is in the client folder.',progress:null});});
+ child.once('error',()=>{game=null;notify({message:'Minecraft could not start. Check Java and try again.',progress:null});});
+ child.once('exit',code=>{game=null;notify({message:code===0?'Welcome back. Ready for another voyage?':'Minecraft closed with code '+code+'. Its log is in the client folder.',progress:null});});
  notify({phase:'running',message:'Minecraft is running. Your map stays right here.',progress:null});
 }
 function registerIPC(){
@@ -119,15 +196,70 @@ function registerIPC(){
  handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
  handle('sign-in',()=>exclusively(login));
  handle('cancel-sign-in',()=>controller?.abort());
- handle('sign-out',async()=>{if(working)throw Error('Wait for the current operation to finish.');session=null;await forgetCompany();await fs.rm(vaultFile(),{force:true});notify({phase:game?'running':'idle',remembered:false,device:null,message:'Signed out on this device.'});});
+ handle('sign-out',async()=>{if(working)throw Error('Wait for the current operation to finish.');session=null;await forgetCompany();await fs.rm(vaultFile(),{force:true});notify({remembered:false,device:null,message:'Signed out on this device.'});});
  // Re-issues the account session from the Mojang token the launcher already has.
  handle('account-refresh',()=>exclusively(async()=>{if(!session)throw Error('Sign in first.');await enrolAccount({throwOnError:true});return publicAccount(company);}));
  // Company account only: the Microsoft session on this device is kept.
  handle('account-sign-out',async()=>{if(working)throw Error('Wait for the current operation to finish.');await forgetCompany();notify({message:'Signed out of your Easter Company account.'});});
- handle('play',()=>exclusively(play));
- handle('settings',async input=>{if(working||game)throw Error('Close Minecraft and wait for the current operation before changing settings.');settings=cleanSettings(input,Math.floor(os.totalmem()/1024/1024));await atomicJSON(settingsFile(),settings);return settings;});
+ handle('play',async()=>{if(backgroundUpdate)await backgroundUpdate;return exclusively(play);});
+ handle('settings',async input=>{
+  if(working||game)throw Error('Close Minecraft and wait for the current operation before changing settings.');
+  // The location is never taken from this handler: it comes from the folder
+  // picker or the saved setting, nowhere else.
+  settings={...cleanSettings(input,Math.floor(os.totalmem()/1024/1024)),location:settings.location,includeGraphics:'includeGraphics' in input?Boolean(input.includeGraphics):settings.includeGraphics};
+  await atomicJSON(settingsFile(),settings);return settings;
+ });
  handle('choose-java',async()=>{const selected=await dialog.showOpenDialog(window,{title:'Choose Java 25 executable',properties:['openFile'],filters:process.platform==='win32'?[{name:'Java',extensions:['exe']}]:[]});return selected.canceled?null:selected.filePaths[0];});
- handle('open-folder',async()=>{await fs.mkdir(gameRoot(),{recursive:true});const error=await shell.openPath(gameRoot());if(error)throw Error('Could not open the client folder.');});
+ // The picker is the only source of a new installation folder.
+ handle('choose-location',async()=>{
+  if(working||game)throw Error(game?'Minecraft is already running.':'Wait for the current operation to finish.');
+  const selected=await dialog.showOpenDialog(window,{title:'Choose where to install the game',buttonLabel:'Install here',properties:['openDirectory','createDirectory']});
+  if(selected.canceled||!selected.filePaths[0])return null;
+  const target=await ensureLocation(selected.filePaths[0],{defaultLocation:defaultLocation(),configRoot:configRoot(),home:os.homedir()});
+  settings={...settings,location:target===defaultLocation()?'':target};
+  await atomicJSON(settingsFile(),settings);
+  await refreshClient();
+  notify({message:'The game will be installed in '+target+'.'});
+  return {location:target,defaultLocation:defaultLocation()};
+ });
+ // Switching back to the default needs no picker, and no other path is accepted.
+ handle('set-location',async input=>{
+  if(working||game)throw Error('Wait for the current operation to finish.');
+  const requested=input&&typeof input==='object'?input.location:input;
+  const target=await ensureLocation(resolveLocation(requested,{saved:settings.location,defaultLocation:defaultLocation()}),{defaultLocation:defaultLocation(),configRoot:configRoot(),home:os.homedir()});
+  settings={...settings,location:target===defaultLocation()?'':target};
+  await atomicJSON(settingsFile(),settings);
+  await refreshClient();
+  notify({message:'The game will be installed in '+target+'.'});
+  return {location:target,defaultLocation:defaultLocation()};
+ });
+ handle('start-install',input=>exclusively(async()=>{
+  const options=input&&typeof input==='object'?input:{};
+  const target=await ensureLocation(resolveLocation(options.location,{saved:settings.location,defaultLocation:defaultLocation()}),{defaultLocation:defaultLocation(),configRoot:configRoot(),home:os.homedir()});
+  settings={...settings,location:target===defaultLocation()?'':target,includeGraphics:'includeGraphics' in options?Boolean(options.includeGraphics):settings.includeGraphics};
+  await atomicJSON(settingsFile(),settings);
+  await runInstall({includeGraphics:settings.includeGraphics});
+  return installInfo();
+ }));
+ handle('pause-install',async()=>{
+  if(!control)throw Error('There is no download to pause.');
+  control.pause();
+  notify({message:'Download paused. Resume when you are ready.'});
+  return {paused:true};
+ });
+ handle('resume-install',async()=>{
+  if(!control||!control.paused)throw Error('Nothing is paused.');
+  control.resume();
+  notify({message:'Download resumed.'});
+  return {paused:false};
+ });
+ handle('cancel-install',async()=>{
+  if(!control)throw Error('There is no download to cancel.');
+  control.cancel();
+  return {cancelled:true};
+ });
+ handle('check-updates',()=>exclusively(runUpdate));
+ handle('open-folder',async()=>{const root=gameRoot();await fs.mkdir(root,{recursive:true});const error=await shell.openPath(root);if(error)throw Error('Could not open the client folder.');});
  handle('open-microsoft',()=>shell.openExternal('https://www.microsoft.com/link'));
 }
 const CSP="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'none'";
@@ -138,7 +270,7 @@ async function resource(request){
   if(url.pathname.endsWith('/'))file=path.join(file,'index.html');
   if(/^\/data\/(?:world\.json|client\.json|tiles\/[-\d]+\/[-\d]+\.png)$/.test(url.pathname)){
    try{
-    const response=await net.fetch(new URL(url.pathname+url.search,ORIGIN).href,{cache:'no-cache',signal:AbortSignal.timeout(12000)});
+    const response=await net.fetch(new URL(url.pathname+url.search,clientOrigin()).href,{cache:'no-cache',signal:AbortSignal.timeout(12000)});
     if(response.ok)return new Response(response.body,{headers:{'Content-Type':response.headers.get('Content-Type')||'application/octet-stream','Content-Security-Policy':CSP}});
    }catch{}
   }
@@ -156,19 +288,34 @@ function createWindow(){
  window.loadURL('easter://easter/');
  window.on('closed',()=>{window=null;});
 }
+// An existing install checks for updates on launch, in the background, through the
+// same pipeline. A check that finds nothing changes no state at all.
+function updateOnLaunch(){
+ if(!client.installed)return;
+ backgroundUpdate=exclusively(runUpdate).catch(()=>{}).finally(()=>{backgroundUpdate=null;});
+}
 if(instance){
  app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.focus();}});
  app.whenReady().then(async()=>{
   await fs.mkdir(configRoot(),{recursive:true});
-  try{settings=cleanSettings(JSON.parse(await fs.readFile(settingsFile(),'utf8')),Math.floor(os.totalmem()/1024/1024));}catch{settings=defaultSettings;}
+  let stored={};
+  try{stored=JSON.parse(await fs.readFile(settingsFile(),'utf8'));}catch{}
+  try{settings={...defaultSettings,...cleanSettings(stored,Math.floor(os.totalmem()/1024/1024))};}catch{settings={...defaultSettings};}
+  // The saved location is a path this launcher wrote itself after the picker
+  // validated it. It is never taken from anywhere else.
+  if(typeof stored.location==='string'&&path.isAbsolute(stored.location))settings.location=path.resolve(stored.location);
+  settings.includeGraphics=Boolean(stored.includeGraphics);
   if(secureStorageAvailable())try{session=JSON.parse(safeStorage.decryptString(await fs.readFile(vaultFile())));if(!session?.refreshToken||!session?.profile)session=null;else state.remembered=true;}catch{}
   // Restore the Easter Company session from the vault without a network call, so
   // launch never waits on the account API. Sign-in and play re-issue it.
   company=storedSession(await vault.readEncrypted(companyFile(),vaultOptions()));
   if(company&&company.expiresAt<=Date.now())company=null;
+  await refreshClient();
   protocol.handle('easter',resource);registerIPC();createWindow();
+  notify({message:client.installed?'Client ready.':'Your crew is waiting.'});
+  updateOnLaunch();
  });
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
  app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
- app.on('before-quit',()=>controller?.abort());
+ app.on('before-quit',()=>{controller?.abort();control?.cancel();});
 }

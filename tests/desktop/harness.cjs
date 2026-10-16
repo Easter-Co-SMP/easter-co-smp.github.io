@@ -13,10 +13,16 @@ auth.MicrosoftAuth=class{
  async refresh(session){return session;}
 };
 const install=require('../../desktop/install.cjs');
-install.prepare=async(_root,_settings,notify)=>{
- notify({phase:'installing',message:'Verifying test client',progress:50});
+let installed=false;
+const record=()=>({version:'fixture-fabric',mod:'fixture-2.0.0',java:'/fixture/java'});
+install.clientStatus=async()=>({installed,version:installed?'fixture-2.0.0':null,updatedAt:installed?'2026-10-15T00:00:00.000Z':null,record:installed?record():null});
+install.checkForUpdates=async()=>({checked:true,changed:false,applied:false,changes:[],result:null});
+install.installClient=async({notify,control,includeGraphics=false})=>{
+ notify({phase:'downloading',message:'Downloading the test client',progress:{label:'Downloading the test client',percent:50,bytesDone:50,bytesTotal:100,bytesPerSecond:null,etaSeconds:null}});
  await new Promise(resolve=>setTimeout(resolve,150));
- return {version:'fixture-fabric',javaPath:'/fixture/java'};
+ await control?.gate();
+ installed=true;
+ return {version:'fixture-fabric',javaPath:'/fixture/java',includeGraphics,message:'Client ready.'};
 };
 install.launch=async()=>{const game=new EventEmitter();game.stdout=new EventEmitter();game.stderr=new EventEmitter();global.easterTestGame=game;return game;};
 require('../../desktop/main.cjs');
