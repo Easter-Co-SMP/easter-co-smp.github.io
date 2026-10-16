@@ -25,6 +25,7 @@
 *.md          text eol=lf
 *.webmanifest text eol=lf
 .nojekyll     text eol=lf
+LICENSE       text eol=lf
 
 # The release pipeline itself is read by bash on the Linux runner and by Node on the
 # Windows runner; keep both reading the same bytes.

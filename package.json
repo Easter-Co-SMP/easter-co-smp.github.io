@@ -1,6 +1,6 @@
 {
   "name": "easter-company-launcher",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Easter Company Minecraft launcher, world map and crew companion",
   "main": "desktop/main.cjs",
   "scripts": {
@@ -45,9 +45,20 @@
   "build": {
     "appId": "ltd.easter.company.launcher",
     "productName": "Easter Company",
+    "copyright": "Copyright © Easter LTD. All rights reserved.",
     "directories": {
       "output": "release"
     },
+    "extraResources": [
+      {
+        "from": "LICENSE",
+        "to": "LICENSE.txt"
+      },
+      {
+        "from": "THIRD-PARTY-NOTICES.md",
+        "to": "THIRD-PARTY-NOTICES.md"
+      }
+    ],
     "files": [
       "desktop/*.cjs",
       "site/**/*",
@@ -71,7 +82,8 @@
         "nsis"
       ],
       "icon": "desktop/icon.png",
-      "artifactName": "Easter-Company-Windows-${arch}.${ext}"
+      "artifactName": "Easter-Company-Windows-${arch}.${ext}",
+      "legalTrademarks": "Easter Company is a trading name of Easter LTD."
     },
     "nsis": {
       "oneClick": false,

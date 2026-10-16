@@ -1,0 +1,47 @@
+Copyright © Easter LTD. All rights reserved.
+
+Easter LTD is the legal entity. "Easter Company" and "Easter Co. SMP" are trading
+names used by Easter LTD for this project.
+
+# Proprietary notice
+
+The Easter Company launcher, the Easter Co. SMP website, the Easter Co. client
+modification, the published world map and its tiles, the Easter Co. SMP crest,
+artwork and all other original content in this repository are the property of
+Easter LTD, or are used by Easter LTD with the permission of their owner or under
+a licence that Easter LTD has acquired.
+
+No licence is granted to copy, modify, redistribute, sublicense or sell any of
+that material. Permission to play on the Easter Co. SMP, and to install and run
+the Easter Company launcher in order to do so, is granted to invited players only
+and is not transferable. "UNLICENSED" in package.json means exactly this: this is
+proprietary software, and the SPDX identifier for "no public licence granted".
+It does not mean the material is unowned or unlicensed.
+
+Reverse engineering, decompiling or modifying the launcher or the client
+modification, and redistributing either to anyone outside the invited player
+group, are not permitted.
+
+# What is not ours, and is not distributed by us
+
+Minecraft is the property of Mojang Studios and Microsoft. It is **not** included
+in this repository or in any installer we publish. The launcher downloads the
+game at install time from Mojang's own distribution servers, and using it is
+governed by the Minecraft End User Licence Agreement, not by this notice. We
+claim no rights over it and we do not redistribute it.
+
+The same applies to the Fabric loader and to the third-party mods that the
+launcher installs: they are fetched from their own upstream sources at install
+time, and each remains under its own author's licence. We do not redistribute
+them and claim no rights over them.
+
+# Third-party components we do distribute
+
+The launcher embeds third-party libraries, which we do redistribute inside the
+installers. Their licence notices are reproduced in THIRD-PARTY-NOTICES.md, which
+is installed alongside the application.
+
+# Questions
+
+Any question about ownership, permission or licensing of anything in this
+repository should be directed to Easter LTD before the material is reused.
