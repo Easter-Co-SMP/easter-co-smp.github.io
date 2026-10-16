@@ -266,11 +266,24 @@ class NoPackagedOutputTests(unittest.TestCase):
             code, output = run_guard(temp, '--require', 'win-unpacked')
             self.assertEqual(code, 0, output)
 
-    def test_the_repository_itself_has_no_packaged_output_to_check(self):
-        # On a fresh clone this is the state the documented unittest command runs in.
-        code, output = run_guard(ROOT)
-        self.assertEqual(code, 0, output)
-        self.assertIn('Packaged launcher bundle(s) match the repository site/.', output)
+    def test_a_root_with_no_release_directory_has_nothing_to_check(self):
+        # The exact claim the documented unittest command depends on, checked on a fixture
+        # root: a checkout that has never been built. The fixture is a plain directory with
+        # site/ and no release/, which is what a fresh clone looks like. It deliberately
+        # does not read the repository's own release/: that directory is gitignored and any
+        # developer may have a packaged build in it, matching or stale, and whether one is
+        # present must not decide whether this behaviour is tested.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'site' / 'map').mkdir(parents=True)
+            (root / 'site' / 'index.html').write_text('<p>Easter Co.</p>')
+            (root / 'site' / 'map' / 'map.js').write_text('const layers={ship:{}};')
+            self.assertFalse((root / 'release').exists())
+            code, output = run_guard(root)
+            self.assertEqual(code, 0, output)
+            self.assertIn('nothing to check', output)
+            self.assertIn(f'No packaged launcher bundles under {root / "release"}', output)
+            self.assertNotIn('FAIL:', output)
 
 
 class ClassificationTests(unittest.TestCase):
