@@ -136,10 +136,12 @@ same pipeline; when nothing differs the check reports nothing at all, so no prog
 flashes at the player.
 
 The manifest can describe the client as named chunks instead of one blob (`doc/launcher-states.md`,
-"Content chunks"). A chunk whose recorded version still matches what is published is neither
-fetched nor re-verified, an optional chunk is never fetched while its toggle is off, and a chunk
-the manifest marks immutable is verified once and then trusted, so a launch that finds nothing
-changed performs no content reads at all. Chunk files are still individually checksum verified,
+"Content chunks"). A chunk's version is derived from its content, and the launcher consumes it as
+an opaque string: it is compared with what the installed marker records and never parsed, so a
+chunk whose recorded version still matches what is published is neither fetched nor re-verified,
+and a future version scheme cannot break an installed launcher. An optional chunk is never fetched
+while its toggle is off, and a chunk the manifest marks immutable is verified once and then
+trusted, so a launch that finds nothing changed performs no content reads at all. Chunk files are still individually checksum verified,
 and `installed.json` records each installed chunk's version so "nothing to do" is provable. The
 base chunk carries the frozen game and the required mods; enhanced graphics and shaders are the
 optional `graphics` chunk, installed only when the toggle is on and the manifest declares it.
