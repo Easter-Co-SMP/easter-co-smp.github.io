@@ -58,7 +58,7 @@ class MicrosoftAuth{
   if(!mc.access_token)throw new AuthError('Minecraft did not return a session.','response');
   const profile=await this.json('https://api.minecraftservices.com/minecraft/profile',{headers:{Authorization:'Bearer '+mc.access_token}},signal);
   if(!/^[a-f0-9]{32}$/i.test(profile.id)||!/^\w{1,16}$/.test(profile.name))throw new AuthError('This account has no valid Minecraft Java profile.','profile');
-  return {clientId:this.clientId,xuid:xsts.DisplayClaims.xui[0].xid||'0',refreshToken:msa.refresh_token||oldRefresh,accessToken:mc.access_token,expiresAt:Date.now()+(mc.expires_in||86400)*1000,profile:{id:profile.id,name:profile.name}};
+  return {clientId:this.clientId,xuid:xsts.DisplayClaims.xui[0].xid||'0',refreshToken:msa.refresh_token||oldRefresh,accessToken:mc.access_token,expiresAt:Date.now()+(mc.expires_in||86400)*1000,profile:{id:profile.id,name:profile.name,skinURL:profile.skins?.find(s=>s.state==='ACTIVE')?.url||null}};
  }
 }
 module.exports={MicrosoftAuth,AuthError,DEFAULT_CLIENT_ID};

@@ -103,6 +103,8 @@ jobs:
             echo
             echo "Download, install and open Easter Company; it signs in with a Microsoft account, installs its own Java 25, Minecraft, Fabric and the Easter Co. client into an app-owned directory, and launches onto the Easter Isles. It does not touch an existing ~/.minecraft or any saved account."
             echo
+            echo "This release fixes installed-client recognition and the download-again dead end, adds Settings and a skin-face profile menu with Add account, Switch Account and Logout, and replaces placeholder download instructions and OS icons. Older client chunk paths are repaired through checksum-verified downloads."
+            echo
             echo "Installers are unsigned: there is no Authenticode or package signature, so a Windows SmartScreen or Linux package-manager warning is expected."
             echo
             echo "Each installer is built on its own platform: the Windows .exe on a native windows-latest runner and the Linux packages on ubuntu-latest. None of the four has been launched from a clean machine, so first-run behaviour on a freshly installed PC is still unverified."

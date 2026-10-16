@@ -480,3 +480,23 @@ test('a source that ignores Range is not appended to a prefix it did not continu
   assert.deepEqual(await fs.readdir(dir),['client.jar'],'the abandoned prefix is gone');
  }finally{await server.close();await fs.rm(dir,{recursive:true,force:true});}
 });
+
+// Published download paths must not become the local mod installation paths.
+test('published JAR paths install into mods and legacy markers request repair',async()=>{
+ const body=Buffer.from('fixture-mod');
+ const server=await fileServer({'/files/mod.jar':body});
+ const fixture=await installedTree();
+ try{
+  const base={id:'base',name:'Minecraft 26.2',optional:false,immutable:true,version:'fixture-v1',fabric:'0.19.5',java:25,files:[entry(server.origin+'/files/mod.jar','downloads/easter-navy.jar',body),entry(server.origin+'/files/mod.jar','dependency.jar',body)]};
+  const published=chunkFixture({base});
+  const record=fixture.record();
+  record.chunks={base:{version:'fixture-v1',files:['downloads/easter-navy.jar','dependency.jar'],verified:true}};
+  await fs.writeFile(path.join(fixture.root,'installed.json'),JSON.stringify(record));
+  assert.deepEqual(installDiff(published,record,{origin:server.origin}).changes,['chunk:base']);
+  await installClient({root:fixture.root,published,origin:server.origin});
+  assert.equal((await clientStatus(fixture.root)).installed,true);
+  assert.equal(await fs.readFile(path.join(fixture.root,'mods/easter-navy.jar'),'utf8'),'fixture-mod');
+  assert.equal(await fs.readFile(path.join(fixture.root,'mods/dependency.jar'),'utf8'),'fixture-mod');
+  assert.equal(installDiff(published,fixture.record(),{origin:server.origin}).changed,false);
+ }finally{await server.close();await fixture.cleanup();}
+});

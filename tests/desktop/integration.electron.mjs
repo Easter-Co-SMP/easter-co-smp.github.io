@@ -128,7 +128,7 @@ try {
   await page.getByRole('button',{name:'Resume',exact:true}).click();
   await page.waitForFunction(async()=>(await window.easterDesktop.status()).install.installed);
   assert.equal((await state()).canPlay,false,'a completed client still needs Microsoft approval');
-  await page.getByRole('button',{name:'My client',exact:true}).click();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
   await page.locator('.desktop-code').waitFor({state:'visible'});
   assert.equal((await state()).device.code,'TEST-CODE','install completion preserves the pending device code');
   await app.evaluate(() => global.easterTestApprove());

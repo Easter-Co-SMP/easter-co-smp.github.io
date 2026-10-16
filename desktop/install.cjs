@@ -289,7 +289,7 @@ function chunkList(published,origin=clientOrigin()){
    let url;
    try{url=new URL(location,origin);}catch{throw Error('The '+id+' chunk has an invalid file location.');}
    if(url.protocol!=='https:'&&!(url.protocol==='http:'&&LOOPBACK.has(url.hostname.toLowerCase())))throw Error('The '+id+' chunk has an insecure file location.');
-   return {id:String(entry.id||''),name:String(entry.name||''),version:String(entry.version||''),path:relative,url:url.href,hash:digest,algorithm,size};
+   return {id:String(entry.id||''),name:String(entry.name||''),version:String(entry.version||''),path:relative.endsWith('.jar')?'mods/'+path.posix.basename(relative):relative,url:url.href,hash:digest,algorithm,size};
   });
   if(chunk.fabric!==undefined&&chunk.fabric!==null&&typeof chunk.fabric!=='string')throw Error('The '+id+' chunk has an invalid fabric pin.');
   if(chunk.java!==undefined&&chunk.java!==null&&!Number.isInteger(chunk.java))throw Error('The '+id+' chunk has an invalid Java pin.');
@@ -300,7 +300,7 @@ function selectedChunks(chunks,includeGraphics){return chunks.filter(chunk=>!chu
 // A chunk whose recorded version still matches is not fetched and not re-verified.
 function pendingChunks(chunks,record,includeGraphics){
  const recorded=record?.chunks||{};
- return selectedChunks(chunks,includeGraphics).filter(chunk=>recorded[chunk.id]?.version!==chunk.version);
+ return selectedChunks(chunks,includeGraphics).filter(chunk=>recorded[chunk.id]?.version!==chunk.version||chunk.files.some(file=>!recorded[chunk.id]?.files?.includes(file.path)));
 }
 function chunkFileTarget(root,relative){
  const base=path.resolve(root),target=path.resolve(base,relative);
@@ -447,7 +447,7 @@ function installDiff(published,record,{includeGraphics=false,fabric=FABRIC,origi
  const changes=[],chunks=chunkList(published,origin);
  if(chunks){
   const recorded=record.chunks||{};
-  for(const chunk of selectedChunks(chunks,includeGraphics))if(recorded[chunk.id]?.version!==chunk.version)changes.push('chunk:'+chunk.id);
+  for(const chunk of selectedChunks(chunks,includeGraphics))if(recorded[chunk.id]?.version!==chunk.version||chunk.files.some(file=>!recorded[chunk.id]?.files?.includes(file.path)))changes.push('chunk:'+chunk.id);
   const pinned=gamePins(chunks,published?.fabric===undefined?fabric:published.fabric);
   if(record.game?.minecraft!==published?.minecraft||record.game?.fabric!==pinned.fabric)changes.push('game');
   return {changed:changes.length>0,changes};
@@ -549,7 +549,7 @@ async function installChunked({root,client,chunks,record,settings,notify,control
  const selected=selectedChunks(chunks,includeGraphics);
  const pending=pendingChunks(selected,record,includeGraphics);
  const pins=gamePins(chunks,client.fabric);
- const gameCurrent=Boolean(record&&record.game&&record.game.minecraft===client.minecraft&&record.game.fabric===pins.fabric&&record.java)&&await exists(record.java);
+ const gameCurrent=Boolean(record&&record.game&&record.game.minecraft===client.minecraft&&record.game.fabric===pins.fabric&&record.java)&&await exists(record.java)&&await exists(path.join(root,'versions',record.version,record.version+'.json'));
  const graphicsChunk=selected.find(chunk=>chunk.id==='graphics');
  const graphicsMessage=includeGraphics&&!chunks.some(chunk=>chunk.id==='graphics')?'Enhanced graphics are not published yet, so the client was installed without them.':null;
  if(!pending.length&&gameCurrent){

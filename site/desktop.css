@@ -91,3 +91,5 @@
  .launcher-bar-actions{justify-content:flex-start;flex-wrap:wrap}
  .launcher-bar.is-minimised{right:12px}
 }
+
+.desktop-account-nav{display:inline-flex;align-items:center;justify-content:center;gap:10px}.desktop-account-nav[hidden]{display:none!important}.desktop-account-nav canvas{width:32px;height:32px;image-rendering:pixelated;border-radius:4px;flex:none}.desktop-settings-button{background:none;border:0;cursor:pointer;font:inherit}.desktop-profile-menu{position:fixed;inset:auto;margin:0;min-width:190px;padding:8px;border:1px solid #cfb88b50;border-radius:10px;background:#142e38;color:#e9e0cd;box-shadow:0 14px 40px #0008}.desktop-profile-menu button{display:block;width:100%;text-align:left;padding:12px;border:0;border-radius:5px;background:none;color:inherit;cursor:pointer}.desktop-profile-menu button:hover,.desktop-profile-menu button:focus-visible{background:#cfb88b20}.desktop-profile-menu button:disabled{opacity:.5;cursor:default}.desktop-account-list{border-top:1px solid #cfb88b40;margin-top:6px;padding-top:6px}

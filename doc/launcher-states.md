@@ -281,3 +281,21 @@ update is not.
    rewritten or removed by a launcher update.
 9. **`version` is the launcher, `install.version` is the game client.** They are
    unrelated and must never be rendered as if they were the same thing.
+
+## Account menu and installation recognition
+
+Desktop Home uses Settings as its secondary hero action. The header has no client
+settings button. Once signed in it shows the username followed by the skin face;
+that control opens Add account, Switch Account and Logout. Add account keeps the
+previous session until sign-in succeeds. Switch Account lists app-owned accounts
+and refreshes the selected session before activation. Logout removes the active
+account, including its saved session, without deleting other accounts. Account
+sessions persist only in an OS-backed encrypted vault, otherwise for this process.
+The state includes `accounts` (public profiles only) and an optional skin PNG data
+URL in each public profile. Tokens remain in the main process. Switching is refused
+while Minecraft or authentication is running.
+
+Manifest paths identify published files; JARs install under mods/ regardless of
+their public download path. Old chunk records with different installation paths
+require repair through the verified pipeline. Completion re-reads the installed
+marker before reporting ready; installed but signed-out clients request sign-in.

@@ -36,13 +36,12 @@ const arrival=async()=>await run(path.join(root,'desktop/main.cjs'),async(app,pa
 try{
  await arrival();
  await run(path.join(root,'desktop/main.cjs'),async(app,page)=>{
-  await page.getByRole('button',{name:'My client',exact:true}).click();
-  assert(await page.getByRole('dialog',{name:'Your next voyage.'}).isVisible());
-  assert((await page.locator('.desktop-status').textContent()).includes('crew'));
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  assert(await page.getByRole('dialog',{name:'Settings'}).isVisible());
+  assert((await page.locator('.desktop-status').textContent()).includes('Download'));
   assert.equal(await page.evaluate(()=>typeof window.require),'undefined');
   assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences().nodeIntegration),false);
   assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences().contextIsolation),true);
-  await page.locator('.desktop-settings summary').click();
   await page.locator('input[name=memoryMB]').fill('3072');
   await page.locator('input[name=server]').fill('test.example:25565');
   await page.getByRole('button',{name:'Save settings',exact:true}).click();
@@ -53,8 +52,7 @@ try{
   assert.equal(await page.locator('.atlas-home').count(),0);
   assert.equal(await page.locator('.arrival-mist').count(),0);
   assert.equal(await page.locator('nav [popovertarget]').count(),0);
-  await page.getByRole('button',{name:'My client',exact:true}).click();
-  await page.locator('.desktop-settings summary').click();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
   assert.equal(await page.locator('input[name=server]').inputValue(),'test.example:25565');
   await page.keyboard.press('Escape');
   await page.screenshot({path:'/tmp/easter-desktop-map.png'});
@@ -100,12 +98,12 @@ try{
   const status=await page.evaluate(()=>window.easterDesktop.status());assert.equal(status.profile.name,'TestCaptain');assert(!JSON.stringify(status).includes('fixture-private'));
   await page.screenshot({path:'/tmp/easter-desktop-launcher.png'});
   await app.evaluate(()=>global.easterTestGame.emit('exit',0));
-  await page.locator('.desktop-status').filter({hasText:'Welcome back'}).waitFor();
+  await page.locator('.desktop-status').filter({hasText:'Minecraft closed.'}).waitFor();
   await page.locator('[data-desktop-play][data-action=play]').waitFor();
   assert.equal(await page.locator('[data-desktop-play]').isDisabled(),false,'game exit restores the Play action');
   assert.equal((await page.evaluate(()=>window.easterDesktop.status())).phase,'ready');
   await page.getByRole('button',{name:'Sign out',exact:true}).click();
-  await page.locator('.desktop-account').filter({hasText:'Connect your Microsoft'}).waitFor();
+  await page.locator('.desktop-account').filter({hasText:'Sign in with the Microsoft'}).waitFor();
  });
  console.log('DESKTOP PASS: no Skip intro control in the desktop DOM (Escape and the 4.6s bound still end the arrival), real Electron, isolated renderer, shared Home/Map, native settings persistence, sign-in cancellation, device-code UI, authenticated Play, game lifecycle, no tokens in UI');
 }finally{await fs.rm(temp,{recursive:true,force:true});}

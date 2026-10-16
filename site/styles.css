@@ -94,3 +94,14 @@ dialog{width:min(580px,calc(100% - 32px));max-height:calc(100dvh - 40px);overflo
 @media(max-width:600px){.atlas .compass{left:12px;top:15px;width:22px}.map-key{left:48px}.map-drawing{top:12px;left:148px}.map-drawing>summary{font-size:10px;padding:10px 12px;gap:12px}.drawing-panel{left:-136px;width:min(280px,calc(100vw - 92px));padding:14px;max-height:calc(100dvh - 210px)}}
 
 .key-content{width:min(232px,calc(100vw - 124px))}@media(max-width:600px){.key-content{width:min(220px,calc(100vw - 124px))}}
+
+.download-chevron-icon{width:18px;height:18px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.site-header nav>button[popovertarget]{display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.launcher-picker{padding:0;align-items:center;justify-content:center;line-height:1}
+.platform-icon{width:30px;height:30px;object-fit:contain;padding:4px;box-sizing:content-box}
+#launcher-setup{max-height:calc(100dvh - 40px);overflow:auto}
+.setup-instructions{font-size:14px;line-height:1.65}.setup-instructions .install-steps li{display:list-item;margin:18px 0}.setup-instructions strong{display:block}.setup-instructions pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#07151b;padding:12px;border-radius:6px;line-height:1.6}.setup-instructions code{font-size:12px}.fuse-packages{margin:16px 0}.fuse-packages dt{font-weight:600}.fuse-packages dd{margin:0 0 14px}
+
+.download-icon-credit{display:block;font-size:10px;opacity:.6;margin:12px 6px 2px;text-align:right}
+
+.platform-icon{filter:invert(89%) sepia(20%) saturate(550%) hue-rotate(345deg)}

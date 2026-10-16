@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+const temp=await fs.mkdtemp(path.join(os.tmpdir(),'easter-deslop-'));
+const app=await electron.launch({executablePath:path.resolve('node_modules/electron/dist/electron'),args:['--no-sandbox',path.resolve('tests/desktop/deslop-harness.cjs')],env:{...process.env,EASTER_TEST_HOME:temp}});
+try{
+ const page=await app.firstWindow();await page.setViewportSize({width:1360,height:920});page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');await page.keyboard.press('Escape');
+ assert.equal(await page.locator('.desktop-account-nav:visible').count(),0);
+ assert.equal(await page.getByRole('link',{name:'View Map',exact:true}).count(),0);
+ await page.getByRole('button',{name:'Settings',exact:true}).click();await page.keyboard.press('Escape');
+ await page.evaluate(()=>window.easterDesktop.startInstall({}));
+ await page.locator('[data-desktop-play][data-action=signin]').waitFor();
+ const signIn=async()=>{
+  await page.evaluate(()=>{window.pending=window.easterDesktop.signIn().catch(e=>e.message);});
+  await page.waitForFunction(async()=>Boolean((await window.easterDesktop.status()).device));
+  await app.evaluate(()=>global.easterTestApprove());await page.evaluate(()=>window.pending);
+ };
+ await signIn();await page.locator('[data-desktop-play][data-action=play]').waitFor();
+ assert.equal((await page.evaluate(()=>window.easterDesktop.status())).canPlay,true);
+ await page.waitForFunction(()=>document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(16,16,1,1).data[0]===200);
+ await page.locator('.desktop-account-nav').click();
+ await page.getByRole('button',{name:'Add account',exact:true}).click();
+ await page.waitForFunction(async()=>Boolean((await window.easterDesktop.status()).device));
+ await page.evaluate(()=>window.easterDesktop.cancelSignIn());
+ await page.waitForFunction(async()=>(await window.easterDesktop.status()).device===null);
+ assert.equal((await page.evaluate(()=>window.easterDesktop.status())).profile.name,'Captain1');
+ await page.keyboard.press('Escape');await signIn();
+ assert.equal((await page.evaluate(()=>window.easterDesktop.status())).accounts.length,2);
+ await page.locator('.desktop-account-nav').click();await page.waitForTimeout(250);await page.screenshot({path:'/tmp/easter-deslop-profile.png'});await page.getByRole('button',{name:'Switch Account',exact:true}).click();
+ await page.getByRole('button',{name:'Captain1',exact:true}).click();
+ await page.waitForFunction(async()=>(await window.easterDesktop.status()).profile?.name==='Captain1');
+ await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Logout',exact:true}).click();
+ await page.waitForFunction(async()=>(await window.easterDesktop.status()).profile===null);
+ const state=await page.evaluate(()=>window.easterDesktop.status());assert.equal(state.install.installed,true);assert.deepEqual(state.actions,['signin']);assert.equal(state.accounts.length,1);
+ await page.locator('[data-desktop-play][data-action=signin]').waitFor();
+ await page.screenshot({path:'/tmp/easter-deslop-home.png'});
+ assert.deepEqual(errors,[]);console.log('PASS: install → sign in → Play Now; cancelled add; add/switch/logout; Settings; profile visibility');
+}finally{await app.close();await fs.rm(temp,{recursive:true,force:true});}

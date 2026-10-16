@@ -97,3 +97,9 @@ claims no rights over them. Each remains under its own author's licence.
 `site/downloads/easter-navy.jar` is the Easter Co. SMP client modification, built
 from Easter LTD's own source in the Easter Navy project. It is proprietary, it is
 covered by LICENSE, and it is the only client payload we host ourselves.
+
+## OS icons
+
+Windows 10, Ubuntu, Arch Linux and Linux menu artwork: Icons8, supplied in
+the project asset references. Attribution: https://icons8.com/icons (also linked
+in the download menu). OS names and logos belong to their respective owners.

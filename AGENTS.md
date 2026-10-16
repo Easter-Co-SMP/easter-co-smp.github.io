@@ -30,7 +30,7 @@ Download Launcher is the primary gold CTA, left of the secondary View Map action
 custom launcher is built separately. The nav always opens the shared dropdown. The hero is a split control: main button
 auto-selects Windows x64 or Linux AppImage; attached arrow opens that shared platform
 dropdown (Windows 10+, Ubuntu, Arch, AppImage), not a download page. Use the real installer URLs in site/downloads.js. Both automatic and manual selections open the Setup & Install modal
-after starting the download. Instruction copy is a placeholder by user request.
+after starting the download. Instruction copy must describe the actual downloaded package, including platform dependencies and commands.
 Wire real release URLs in site/downloads.js; do not mislabel the server mod as a launcher. Write release copy with no Coming soon badges or availability placeholders.
 The download will include the custom Easter Company launcher and Minecraft client.
 

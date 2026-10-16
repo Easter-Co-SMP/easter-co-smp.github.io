@@ -39,22 +39,22 @@
  // The hero's primary action and the dialog's primary button both read this one function,
  // so no second view can invent its own version of the gate.
  function primaryAction(state){
-  const phase=phaseOf(state),account=current?.profile?.name,install=installOf(state),actions=actionsOf(state);
+  const phase=phaseOf(state),account=state?.profile?.name,install=installOf(state),actions=actionsOf(state);
   if(signInPending)return {kind:'busy',label:'Connecting your account…',note:'Complete Microsoft sign-in'};
-  if(state&&state.canPlay&&phase!=='launching'&&phase!=='running')return {kind:'play',label:'PLAY NOW',note:'Set sail'};
-  if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Hold fast'};
+  if(state&&state.canPlay&&phase!=='launching'&&phase!=='running')return {kind:'play',label:'PLAY NOW',note:'Minecraft Java Edition'};
+  if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Please wait'};
   if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
   // A download or install under way asks for the account while the player waits.
-  if(!account&&(transferring(state)||(!actions.includes('download')&&actions.includes('signin'))))return {kind:'signin',label:LOGIN_ACTION,note:'Your crew is waiting'};
-  if(account&&transferring(state))return {kind:'busy',label:phase==='paused'?'Download paused':'Preparing your client…',note:'Follow progress below'};
+  if(!account&&(transferring(state)||(!actions.includes('download')&&actions.includes('signin'))))return {kind:'signin',label:LOGIN_ACTION,note:'Microsoft account required'};
+  if(account&&transferring(state))return {kind:'busy',label:phase==='paused'?'Download paused':'Installing Minecraft…',note:'Follow progress below'};
   // Fresh install: nothing downloaded and no account requirement to show yet.
-  if(actions.includes('download')||!(account&&install.installed===true))
+  if(actions.includes('download')||install.installed!==true)
    return {kind:'download',label:'Download the game',note:'Easter Company client'};
-  return {kind:'signin',label:LOGIN_ACTION,note:'Your crew is waiting'};
+  return {kind:'signin',label:LOGIN_ACTION,note:'Microsoft account required'};
  }
 
  const panel=document.createElement('dialog');panel.id='desktop-launcher';panel.setAttribute('aria-labelledby','desktop-title');
- panel.innerHTML='<button class="dialog-close" type="button" aria-label="Close launcher">×</button><p class="eyebrow">Easter Company · Desktop</p><h2 id="desktop-title">Your next voyage.</h2><p class="desktop-account"></p><p class="desktop-company" hidden></p><button type="button" class="text-link" data-account-refresh hidden>Refresh account</button><button type="button" class="text-link" data-account-sign-out hidden>Sign out of Easter Company</button><section class="desktop-install" hidden><p class="desktop-install-note"></p><label>Installation folder<input name="installLocation" autocomplete="off" spellcheck="false"><small class="desktop-install-default"></small></label><button type="button" class="text-link" data-choose-location hidden>Choose folder…</button><p class="desktop-install-error" role="alert" hidden></p><label class="desktop-toggle"><input type="checkbox" name="includeGraphics" checked> Include enhanced graphics + shaders</label><button type="button" class="launcher-button desktop-install-start">Start download</button></section><div class="desktop-status" role="status" aria-live="polite"></div><progress class="desktop-progress" max="100" hidden></progress><section class="desktop-device" hidden><p class="desktop-device-instruction" id="desktop-device-instruction">Enter this code on the Microsoft sign-in page.</p><strong class="desktop-code"></strong><button type="button" class="launcher-button desktop-device-action" data-open-microsoft><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg><span>Login with Microsoft</span></button><p class="desktop-device-foot"><small class="desktop-provider"></small><button type="button" class="text-link" data-cancel>Cancel sign-in</button></p></section><button class="desktop-play launcher-button" type="button">Sign in &amp; Play</button><details class="desktop-settings"><summary>Client settings</summary><form><label>Memory <output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"></label><label>Server address<input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><label>Java executable <small>Leave empty to install the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label><button type="submit" class="text-link">Save settings</button><output class="desktop-settings-result" role="status"></output></form></details><div class="desktop-utilities"><button class="text-link" type="button" data-open-folder>Open client folder ↗</button><button class="text-link" type="button" data-sign-out>Sign out</button><small class="desktop-version"></small></div>';
+ panel.innerHTML='<button class="dialog-close" type="button" aria-label="Close launcher">×</button><p class="eyebrow">Easter Company · Desktop</p><h2 id="desktop-title">Settings</h2><p class="desktop-account"></p><p class="desktop-company" hidden></p><button type="button" class="text-link" data-account-refresh hidden>Refresh account</button><button type="button" class="text-link" data-account-sign-out hidden>Sign out of Easter Company</button><section class="desktop-install" hidden><p class="desktop-install-note"></p><label>Installation folder<input name="installLocation" autocomplete="off" spellcheck="false"><small class="desktop-install-default"></small></label><button type="button" class="text-link" data-choose-location hidden>Choose folder…</button><p class="desktop-install-error" role="alert" hidden></p><label class="desktop-toggle"><input type="checkbox" name="includeGraphics" checked> Include enhanced graphics + shaders</label><button type="button" class="launcher-button desktop-install-start">Start download</button></section><div class="desktop-status" role="status" aria-live="polite"></div><progress class="desktop-progress" max="100" hidden></progress><section class="desktop-device" hidden><p class="desktop-device-instruction" id="desktop-device-instruction">Enter this code on the Microsoft sign-in page.</p><strong class="desktop-code"></strong><button type="button" class="launcher-button desktop-device-action" data-open-microsoft><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg><span>Login with Microsoft</span></button><p class="desktop-device-foot"><small class="desktop-provider"></small><button type="button" class="text-link" data-cancel>Cancel sign-in</button></p></section><button class="desktop-play launcher-button" type="button">Sign in &amp; Play</button><details class="desktop-settings"><summary>Client settings</summary><form><label>Memory <output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"></label><label>Server address<input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><label>Java executable <small>Leave empty to install the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label><button type="submit" class="text-link">Save settings</button><output class="desktop-settings-result" role="status"></output></form></details><div class="desktop-utilities"><button class="text-link" type="button" data-open-folder>Open client folder ↗</button><button class="text-link" type="button" data-sign-out>Sign out</button><small class="desktop-version"></small></div>';
  document.body.append(panel);
  const $=selector=>panel.querySelector(selector);
  const message=$('.desktop-status'),progress=$('.desktop-progress'),playButton=$('.desktop-play');
@@ -143,7 +143,7 @@
   const percentText=percent===null?'':Math.round(percent)+'%';
   if(minimised&&!active)barTabText.textContent=action.kind==='play'?'PLAY NOW':action.kind==='signin'?LOGIN_ACTION:action.label;
   else barTabText.textContent=percentText||'…';
-  barLabel.textContent=active?label:state.canPlay?'Ready to set sail':installOf(state).installed?'Your client is ready':label;
+  barLabel.textContent=active?label:state.canPlay?'Ready to play':installOf(state).installed?'Your client is ready':label;
   barPrimary.hidden=active||!['play','signin','download'].includes(action.kind);
   barPrimary.textContent=action.label;
   const bytes=progressState&&typeof progressState.bytesDone==='number'&&typeof progressState.bytesTotal==='number'?formatBytes(progressState.bytesDone)+' of '+formatBytes(progressState.bytesTotal):null;
@@ -173,13 +173,13 @@
   const busy=signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
   const account=current.profile?.name,action=primaryAction(current),install=installOf(current),phase=phaseOf(current);
   message.classList.remove('is-error');
-  message.textContent=current.message||'Your crew is waiting.';
+  message.textContent=current.message||'Sign in to play.';
   playButton.disabled=busy||action.kind==='busy';
   // The first-run section carries its own Start download action, so the dialog's primary
   // button would be a second way to do the same thing.
   playButton.hidden=action.kind==='running'||action.kind==='download';
   playButton.textContent=action.kind==='play'?'PLAY NOW':action.kind==='signin'?LOGIN_ACTION:action.kind==='busy'?'Launching Minecraft…':action.kind==='running'?'Minecraft is running':'Install the client';
-  $('.desktop-account').textContent=account?'Signed in as '+account+(current.remembered?' · Remembered on this device':' · This session only'):'Connect your Microsoft account to set sail.';
+  $('.desktop-account').textContent=account?'Signed in as '+account+(current.remembered?' · Remembered on this device':' · This session only'):'Sign in with the Microsoft account that owns Minecraft Java Edition.';
   // Easter Company account state. Only a name and roles ever arrive from IPC.
   const company=current.account;
   $('.desktop-company').hidden=!account;
@@ -189,7 +189,7 @@
   // it lapses, so a player can see that signing in again is enough.
   const live=Boolean(company)&&current.sessionExpiresAt>Date.now();
   $('[data-account-sign-out]').hidden=!live||busy;
-  settingsButton.textContent=account||'My client';
+  renderProfile(current);
   $('.desktop-settings form').inert=busy;
   $('[data-sign-out]').hidden=!account;$('[data-sign-out]').disabled=busy&&phase!=='running';
   const device=current.device;$('.desktop-device').hidden=!device;
@@ -278,11 +278,48 @@
   replacement.querySelector('small').textContent='Easter Company client';
   replacement.onclick=heroAction;
   document.querySelector('.launcher-picker')?.remove();
-  document.querySelector('.map-caption').textContent='Your launcher. Your world. Your crew.';
+  document.querySelector('.map-caption')?.remove();
  }
- // One client control in navigation; the hero and sticky bar carry the current action.
+ // Settings belongs beside the primary hero action; the header is account-only.
  for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"]'))trigger.remove();
- const settingsButton=document.createElement('button');settingsButton.type='button';settingsButton.className='desktop-account-nav';settingsButton.textContent='My client';settingsButton.onclick=open;document.querySelector('.site-header nav').append(settingsButton);
+ const secondary=document.querySelector('.hero-actions .map-link');
+ const settingsButton=document.createElement('button');settingsButton.type='button';settingsButton.className='map-link desktop-settings-button';settingsButton.textContent='Settings';
+ settingsButton.onclick=()=>{open();$('.desktop-settings').open=true;$('.desktop-settings summary').focus();};
+ if(secondary)secondary.replaceWith(settingsButton);
+ // Utility pages also provide settings without occupying the profile's header slot.
+ if(!secondary){settingsButton.className='text-link';settingsButton.style.cssText='position:fixed;left:24px;bottom:24px;z-index:20';document.body.append(settingsButton);}
+ const profileButton=document.createElement('button');profileButton.type='button';profileButton.className='desktop-account-nav';profileButton.hidden=true;profileButton.setAttribute('aria-haspopup','true');profileButton.setAttribute('aria-expanded','false');
+ const profileName=document.createElement('span'),face=document.createElement('canvas');face.width=32;face.height=32;face.setAttribute('aria-hidden','true');profileButton.append(profileName,face);document.querySelector('.site-header nav').append(profileButton);
+ const profileMenu=document.createElement('div');profileMenu.className='desktop-profile-menu';profileMenu.popover='auto';profileMenu.setAttribute('aria-label','Profile');
+ for(const [label,action] of [['Add account',()=>{profileMenu.hidePopover();signIn();}],['Switch Account',()=>{renderAccountList();}],['Logout',()=>{profileMenu.hidePopover();void desktop.signOut().catch(error=>{open();report(error);});}]]){
+  const button=document.createElement('button');button.type='button';button.textContent=label;button.onclick=action;profileMenu.append(button);
+ }
+ const accountList=document.createElement('div');accountList.className='desktop-account-list';accountList.hidden=true;profileMenu.append(accountList);document.body.append(profileMenu);
+ const positionProfile=()=>{const rect=profileButton.getBoundingClientRect();profileMenu.style.top=rect.bottom+8+'px';profileMenu.style.right=Math.max(12,innerWidth-rect.right)+'px';};
+ profileButton.onclick=()=>{accountList.hidden=true;profileMenu.togglePopover();positionProfile();};
+ profileMenu.addEventListener('toggle',event=>profileButton.setAttribute('aria-expanded',String(event.newState==='open')));
+ window.addEventListener('resize',positionProfile);
+ let skinSource=null;
+ function renderProfile(state){
+  profileButton.hidden=!state.profile;profileName.textContent=state.profile?.name||'';
+  if(!state.profile){if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
+  const ctx=face.getContext('2d');
+  const source=state.profile.skin||'';
+  const key=state.profile.id+source;if(key===skinSource)return;skinSource=key;
+  ctx.fillStyle='#536b66';ctx.fillRect(0,0,32,32);ctx.fillStyle='#eedbb2';ctx.font='bold 20px sans-serif';ctx.textAlign='center';ctx.fillText(state.profile.name[0],16,24);
+  if(source.startsWith('data:image/png;base64,')){
+   const image=new Image();image.onload=()=>{if(skinSource!==key)return;ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;ctx.drawImage(image,8,8,8,8,0,0,32,32);ctx.drawImage(image,40,8,8,8,0,0,32,32);};image.src=source;
+  }
+ }
+ function renderAccountList(){
+  accountList.replaceChildren();accountList.hidden=false;
+  const accounts=current?.accounts||[];
+  for(const account of accounts){
+   const button=document.createElement('button');button.type='button';button.textContent=account.name+(account.id===current.profile?.id?' (current)':'');button.disabled=account.id===current.profile?.id;
+   button.onclick=async()=>{button.disabled=true;try{await desktop.switchAccount(account.id);profileMenu.hidePopover();}catch(error){open();report(error);}finally{button.disabled=false;}};accountList.append(button);
+  }
+  if(!accounts.length)accountList.textContent='No saved accounts. Use Add account.';
+ }
 
  barPrimary.onclick=()=>heroAction();
  barToggle.onclick=()=>{minimised=!minimised;writeMinimised(minimised);renderBar(current||{});if(!minimised)barToggle.focus();};

@@ -653,7 +653,7 @@ try{
    assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),false);
    await launcherPage.locator('[data-bar-toggle]').click();
    assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),true);
-   await launcherPage.getByRole('link',{name:'View Map',exact:true}).click();
+   await launcherPage.getByRole('link',{name:'Map',exact:true}).click();
    // Wait for the chart document itself, not just the bridge: the preference has to survive
    // a real navigation, not merely a re-render.
    await launcherPage.waitForFunction(()=>!!document.getElementById('terrain')&&window.easterRenderer&&window.easterRenderer.emit);

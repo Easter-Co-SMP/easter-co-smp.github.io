@@ -4,7 +4,7 @@ const invoke=channel=>(...args)=>ipcRenderer.invoke('launcher:'+channel,...args)
 contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  mode:'desktop',
  status:invoke('status'),signIn:invoke('sign-in'),cancelSignIn:invoke('cancel-sign-in'),
- signOut:invoke('sign-out'),play:invoke('play'),saveSettings:invoke('settings'),
+ signOut:invoke('sign-out'),switchAccount:invoke('switch-account'),play:invoke('play'),saveSettings:invoke('settings'),
  refreshAccount:invoke('account-refresh'),signOutAccount:invoke('account-sign-out'),
  chooseJava:invoke('choose-java'),openFolder:invoke('open-folder'),openMicrosoft:invoke('open-microsoft'),
  // Download-first flow. The location handlers take no renderer path: the picker

@@ -17,7 +17,7 @@ function externalURL(value){
  if(url.protocol!=='https:'||url.username||url.password)throw Error('Only HTTPS links can open outside the launcher');
  return url.href;
 }
-function publicProfile(session){return session?.profile?{name:session.profile.name,id:session.profile.id}:null;}
+function publicProfile(session){return session?.profile?{name:session.profile.name,id:session.profile.id,skin:typeof session.profile.skin==='string'&&session.profile.skin.startsWith('data:image/png;base64,')?session.profile.skin:null}:null;}
 // fetch-shaped request on Node's own TLS stack. Chromium's fetch inside Electron
 // refuses Node-served TLS endpoints during the handshake, so the account API is
 // reached with the same HTTP module the rest of the launcher already uses. The
