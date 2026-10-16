@@ -60,6 +60,28 @@ pairs, `desktop.js` 311 and `data/world.json` 2134, and each size difference equ
 its CRLF count exactly while the Linux bundle matched. If the bundle check ever fails
 with every text asset listed and no binary one, check line endings before rebuilding.
 
+## The Arch package states its own dependencies
+
+electron-builder's default dependency list for the `pacman` target is not installable on
+Arch. It names `http-parser`, which the repositories dropped, and `libappindicator-gtk3`,
+which left them, and nothing in the packaged app links either one. launcher-v1.0.5 shipped
+that default list, so `sudo pacman -U` refused the download outright:
+
+    warning: cannot resolve "http-parser", a dependency of "easter-company-launcher"
+    error: failed to prepare transaction (could not satisfy dependencies)
+
+`build.pacman.depends` in package.json now states the libraries the shipped binaries actually
+link, and `tests/test_pacman_depends.py` fails if that list is deleted or if a name known to
+be gone reappears. To check a built package, read its metadata and confirm every name still
+resolves:
+
+    bsdtar -xOf release/*.pacman .PKGINFO | grep depend
+    pacman -Sp --print-format '%n' <those names>
+
+The `deb` target needs no equivalent: Ubuntu 24.04 and Debian 13 renamed `libgtk-3-0` and
+`libatspi2.0-0` to t64 builds, but the new packages `Provides:` the old names, so the
+dependencies already listed still resolve.
+
 ## Verify after it publishes
 
     gh release view launcher-v<version> -R Easter-Co-SMP/easter-co-smp.github.io \

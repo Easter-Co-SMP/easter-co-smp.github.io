@@ -103,7 +103,7 @@ jobs:
             echo
             echo "Download, install and open Easter Company; it signs in with a Microsoft account, installs its own Java 25, Minecraft, Fabric and the Easter Co. client into an app-owned directory, and launches onto the Easter Isles. It does not touch an existing ~/.minecraft or any saved account."
             echo
-            echo "This release fixes installed-client recognition and the download-again dead end, adds Settings and a skin-face profile menu with Add account, Switch Account and Logout, and replaces placeholder download instructions and OS icons. Older client chunk paths are repaired through checksum-verified downloads."
+            echo "This release fixes the Arch package. It shipped with dependencies that electron-builder defaults to and that Arch no longer carries, so pacman -U could not resolve http-parser or libappindicator-gtk3 and the download could not be installed at all. The package now depends only on libraries that exist in the official repositories and that the shipped binaries actually link. The launcher itself is unchanged from 1.0.5."
             echo
             echo "Installers are unsigned: there is no Authenticode or package signature, so a Windows SmartScreen or Linux package-manager warning is expected."
             echo
