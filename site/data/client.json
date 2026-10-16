@@ -1,4 +1,71 @@
 {
+  "chunks": [
+    {
+      "fabric": "0.19.5",
+      "files": [
+        {
+          "hash": "sha256:3cb0b28b1f7de7c818cb35072846ce922975be9f23f1fab988bda3c329f8936f",
+          "id": "easter-navy",
+          "name": "Easter Co. Mod Pack: Guards & Villagers",
+          "path": "downloads/easter-navy.jar",
+          "size": 656819,
+          "url": "downloads/easter-navy.jar",
+          "version": "2.0.0"
+        },
+        {
+          "hash": "sha512:2502fa5ade78e9a120b3747bc1a9a2167d6671743bea45bf115d3174c94121aeda87c549446d1a604a9c11fb828de17a551e3514ce42f3e93069dd14bdaee55b",
+          "id": "fabric-api",
+          "name": "Fabric API",
+          "path": "fabric-api-0.161.0+26.2.jar",
+          "size": 2566123,
+          "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/ewUK83HI/fabric-api-0.161.0%2B26.2.jar",
+          "version": "0.161.0+26.2"
+        },
+        {
+          "hash": "sha512:4f15257578ee94fcb3b2b35d96fd7accb2a8acdbe916a66fd3b992fa7c9b4bee3b890ac9e00c1fe939c8f875fe62e6705bb8286bad2d03cedaa75eff1bbe86a6",
+          "id": "ingeniumapi",
+          "name": "IngeniumAPI",
+          "path": "ingeniumapi-1.0.2-FABRIC-MC-26.X.jar",
+          "size": 8479,
+          "url": "https://cdn.modrinth.com/data/bhnA6sV8/versions/VYmEo1o8/ingeniumapi-1.0.2-FABRIC-MC-26.X.jar",
+          "version": "1.0.2"
+        },
+        {
+          "hash": "sha512:a1736f1fa4b94ee7eae38ee13f0625f1128523f330e9972ca2f1be3186cf7b8cc4d8003d1d5f4fee7cb186a97723b3bce8e4e3587f92e5ca64fc8b0b9830e4e2",
+          "id": "lithostitched",
+          "name": "Lithostitched",
+          "path": "lithostitched-1.8.0-fabric-26.2.jar",
+          "size": 1022295,
+          "url": "https://cdn.modrinth.com/data/XaDC71GB/versions/sGGUpIGT/lithostitched-1.8.0-fabric-26.2.jar",
+          "version": "1.8.0"
+        },
+        {
+          "hash": "sha512:4109f37ed6282520b938efc25fecfc3da24396a0cebfb8de843ee8509dc333933c791d6a392f9e156fbc5a4fd626633a816951f91321a6a5789e1bf29f167ce9",
+          "id": "shippy-ships",
+          "name": "Shippy Ships",
+          "path": "shippy-ships-1.0.23.1-FABRIC-MC-26.2.jar",
+          "size": 363232,
+          "url": "https://cdn.modrinth.com/data/oxBNHOmi/versions/hxTlTxHv/shippy-ships-1.0.23.1-FABRIC-MC-26.2.jar",
+          "version": "1.0.23.1"
+        },
+        {
+          "hash": "sha512:c653ee42fe48c1be9512fa7791e8495095ae01cb607555202714bbb95cb49da272128bb295e8f8c262b63739e7ca2de4bba9196e1738b06012b498d220b55acf",
+          "id": "tectonic",
+          "name": "Tectonic",
+          "path": "tectonic-3.0.28-fabric-26.2.jar",
+          "size": 451635,
+          "url": "https://cdn.modrinth.com/data/lWDHr9jE/versions/tGbplDzo/tectonic-3.0.28-fabric-26.2.jar",
+          "version": "3.0.28"
+        }
+      ],
+      "id": "base",
+      "immutable": true,
+      "java": 25,
+      "name": "Minecraft 26.2 game, libraries and required mods",
+      "optional": false,
+      "version": "sha256:768b1233241a38c1775ecb77580f853514d1d1bc1aa6b23a7d7761a19510c3ff"
+    }
+  ],
   "dependencies": [
     {
       "id": "fabric-api",
@@ -31,6 +98,7 @@
       "version": "1.8.0"
     }
   ],
+  "fabric": "0.19.5",
   "minecraft": "26.2",
   "mod": {
     "bytes": 656819,
