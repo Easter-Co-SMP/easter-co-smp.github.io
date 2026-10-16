@@ -24,7 +24,7 @@ const companyFile=()=>path.join(configRoot(),companyVaultName());
 const clientId=process.env.EASTER_MICROSOFT_CLIENT_ID||DEFAULT_CLIENT_ID;
 const auth=new MicrosoftAuth({clientId});
 const accounts=new AccountClient({baseUrl:apiOrigin(),client:'launcher/'+APP_VERSION});
-const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:true};
+const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false};
 // The launcher state contract in doc/launcher-states.md. `phase` and `progress`
 // are the live pipeline's; everything else is derived from the installed client,
 // the account session and the saved settings on every broadcast, so no view has to

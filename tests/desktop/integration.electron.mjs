@@ -78,8 +78,8 @@ try {
   await installSection.waitFor({state: 'visible'});
   const location = await installSection.locator('input[name="installLocation"]').inputValue();
   assert(location.length > 0, 'the install folder defaults to something the player can accept');
-  assert.equal(await installSection.locator('input[name="includeGraphics"]').isChecked(), true,
-    'enhanced graphics is offered and on by default');
+  assert.equal(await installSection.locator('input[name="includeGraphics"]').isChecked(),s.install.includeGraphics,
+    'enhanced graphics reflects the main-process default');
   note('download: location defaults and the graphics toggle is present', location);
   const picked=path.join(dir,'chosen-client');
   await fs.mkdir(picked);
@@ -149,7 +149,18 @@ try {
   await page.waitForFunction(() => window.easterDesktop?.mode === 'desktop');
   const barOnMap = await barVisible();
   assert.equal(barOnMap,true,'ready bar persists on map');
+  await page.waitForFunction(()=>!/^Loading/.test(document.getElementById('map-status')?.textContent||''));
+  await page.setViewportSize({width:1280,height:800});
   await page.screenshot({path:'/tmp/launcher-assist-map.png'});
+  await page.getByRole('link',{name:'Home',exact:true}).click();
+  await page.locator('[data-desktop-play][data-action=play]').waitFor();
+  await page.screenshot({path:'/tmp/launcher-assist-ready.png'});
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:'/tmp/launcher-assist-mobile.png'});
+  await page.getByRole('link',{name:'Map',exact:true}).click();
+  await page.waitForFunction(()=>!/^Loading/.test(document.getElementById('map-status')?.textContent||''));
+  await page.locator('#launcher-bar').waitFor({state:'visible'});
+  await page.screenshot({path:'/tmp/launcher-assist-mobile-map.png'});
   note('map: the bar follows the player across pages', String(barOnMap));
 } catch (error) {
   failed = error;

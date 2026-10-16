@@ -20,7 +20,7 @@
  // choose-location or update handler. Looking them up defensively hides those controls
  // instead of throwing at the player.
  const bridge=(...names)=>{for(const name of names)if(typeof desktop[name]==='function')return desktop[name].bind(desktop);};
- const chooseLocation=bridge('chooseInstallLocation','chooseLocation');
+ const chooseLocation=bridge('chooseLocation','chooseInstallLocation');
  const startInstall=bridge('startInstall','startDownload');
  const pauseTransfer=bridge('pauseInstall','pause');
  const resumeTransfer=bridge('resumeInstall','resume');
