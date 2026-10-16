@@ -455,10 +455,15 @@ try{
    // because a navigation reloads the page but not the process behind the bridge.
    let carried={};
    try{carried=JSON.parse(localStorage.getItem('easter-renderer-state')||'{}');}catch{carried={};}
-   window.easterRenderer={state:Object.assign({},state,carried),nextLocation:null,refuse:null,calls:[],errors:[]};
+   const merge=Object.assign({},state,carried);
+   // The nested objects are the ones the renderer reads every field of, so the carried
+   // copy must be its own rather than aliasing the recipe the run was built from.
+   for(const key of ['settings','install','graphics','hardware','bar'])if(merge[key]&&typeof merge[key]==='object')merge[key]=Object.assign({},merge[key]);
+   window.easterRenderer={state:merge,nextLocation:null,refuse:null,calls:[],errors:[]};
    window.addEventListener('pageerror',event=>window.easterRenderer.errors.push(event.message));
    const renderer=window.easterRenderer;
    const log=(name,payload)=>{renderer.calls.push(payload===undefined?{name}:{name,payload});try{localStorage.setItem('easter-renderer-calls',JSON.stringify(renderer.calls));}catch{}};
+   const mirror=()=>{try{localStorage.setItem('easter-renderer-state',JSON.stringify(renderer.state));}catch{}};
    try{renderer.calls=JSON.parse(localStorage.getItem('easter-renderer-calls')||'[]');}catch{renderer.calls=[];}
    window.easterDesktop={
     mode:'desktop',
@@ -470,6 +475,9 @@ try{
     startInstall:async options=>{log('startInstall',options);if(renderer.refuse){const message=renderer.refuse;renderer.refuse=null;throw Error(message);}},
     pause:async()=>{log('pause');},
     resume:async()=>{log('resume');},
+    // The amended contract's graphics choice: main writes the client's own quality
+    // settings and reports the new state back, which the renderer then renders.
+    setGraphics:async enabled=>{log('setGraphics',enabled);renderer.state.graphics=Object.assign({},renderer.state.graphics,{enabled:Boolean(enabled)});mirror();renderer.emit?.(renderer.state);},
     cancelSignIn:async()=>{log('cancelSignIn');},
     refreshAccount:async()=>{log('refreshAccount');},
     signOut:async()=>{log('signOut');},
@@ -477,11 +485,20 @@ try{
     openFolder:async()=>{},
     openMicrosoft:async()=>{},
     chooseJava:async()=>null,
-    saveSettings:async values=>values
+    // A real main persists the client settings, so the values are kept here and the
+    // status() handed back carries them, exactly as a relaunch would.
+    saveSettings:async values=>{log('saveSettings',values);renderer.state.settings=Object.assign({},renderer.state.settings,values);mirror();return renderer.state.settings;}
    };
   };
   const launcherState=patch=>Object.assign({version:'1.0.0',totalMemoryMB:16384,remembered:true,profile:null,account:null,device:null,sessionExpiresAt:0,message:'',
-   settings:{memoryMB:4096,server:'',javaPath:''},install:{location:null,defaultLocation:'/home/player/.easter-company/minecraft',installed:false,includeGraphics:true,version:null,updatedAt:null},
+   settings:{memoryMB:4096,server:'100.100.1.0:25565',javaPath:''},install:{location:null,defaultLocation:'/home/player/.easter-company/minecraft',installed:false,includeGraphics:true,version:null,updatedAt:null},
+   // The amended contract's own fields: what the machine is, what the graphics
+   // choice will be, and the servers main publishes in display order.
+   hardware:{gpu:'NVIDIA GeForce RTX 3070',vendor:'NVIDIA',vramMB:8192,tier:'capable',reason:'Discrete GPU with 8192 MB of video memory.'},
+   graphics:{enabled:false,recommended:true,tunable:true,tuned:null,reason:'Discrete GPU with 8192 MB of video memory.'},
+   servers:[{id:'isles',label:'Easter Co. Isles',address:'100.100.1.0:25565',note:'The public server',pending:false},
+            {id:'local',label:'Local server',address:'127.0.0.1:25565',note:'This machine',pending:false},
+            {id:'smp',label:'smp.easter.company',address:'smp.easter.company:25565',note:'No DNS record yet',pending:true}],
    progress:null,actions:['download'],paused:false,canPlay:false,bar:{visible:false}},patch);
   const progressFor=patch=>Object.assign({label:'Downloading the Easter Company client',percent:42,bytesDone:438304768,bytesTotal:1048576000,bytesPerSecond:6291456,etaSeconds:97},patch);
   const INSTALLED={location:'/home/player/.easter-company/minecraft',defaultLocation:'/home/player/.easter-company/minecraft',installed:true,includeGraphics:true,version:'26.2',updatedAt:null};
@@ -502,7 +519,7 @@ try{
    const heroButton=launcherPage.locator('[data-desktop-play]');
    await heroButton.waitFor();
    const pushState=async patch=>{await launcherPage.evaluate(values=>{
-    Object.assign(window.easterRenderer.state,values);
+    for(const [key,value] of Object.entries(values))window.easterRenderer.state[key]=value&&typeof value==='object'?structuredClone(value):value;
     try{localStorage.setItem('easter-renderer-state',JSON.stringify(window.easterRenderer.state));}catch{}
     window.easterRenderer.emit(window.easterRenderer.state);
    },patch);};
@@ -614,37 +631,196 @@ try{
    await launcherPage.keyboard.press('Enter');
    assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),false,'the same key re-opens it');
 
-   // The first-run flow collects a location and the graphics toggle, and passes both to main.
+   // The first-run flow: the install card is its own surface behind the hero's own
+   // Download the game action, and it is the only place a folder is chosen.
    await pushState({phase:'uninstalled',progress:null,actions:['download'],install:launcherState({}).install,profile:null,canPlay:false});
+   assert.equal(await launcherPage.locator('#desktop-install-card').isVisible(),true,'the first run leads with the install card');
    await launcherPage.evaluate(()=>{window.easterRenderer.nextLocation='/mnt/games/easter-company/minecraft';});
-   await heroButton.click();
-   assert.equal(await launcherPage.locator('#desktop-launcher').isVisible(),true,'the hero download action opens the launcher dialog');
-   const locationInput=launcherPage.locator('#desktop-launcher input[name=installLocation]');
-   assert.equal(await locationInput.inputValue(),'/home/player/.easter-company/minecraft','the location field defaults to install.defaultLocation');
-   await launcherPage.getByRole('button',{name:'Choose folder…'}).click();
-   assert.equal(await locationInput.inputValue(),'/mnt/games/easter-company/minecraft','the folder picker replaces the default');
-   const graphicsToggle=launcherPage.locator('#desktop-launcher input[name=includeGraphics]');
-   assert.equal(await graphicsToggle.isChecked(),true,'enhanced graphics default to the contract value');
-   await graphicsToggle.uncheck();
-   await launcherPage.getByRole('button',{name:'Start download'}).click();
+   const installCard=launcherPage.locator('#desktop-install-card');
+   await installCard.waitFor({state:'visible'});
+   assert.equal(await launcherPage.locator('#desktop-launcher').isVisible(),false,'the install card is not the settings dialog');
+   // The card lives in the hero, right after the actions the player just used.
+   assert.equal(await installCard.evaluate(el=>el.closest('dialog')===null),true,'the install card is never inside the settings dialog');
+   assert.equal(await installCard.evaluate(el=>el.parentElement.classList.contains('hero-copy')),true,'the install card belongs to the hero');
+   assert.equal(await installCard.evaluate(el=>Boolean(el.previousElementSibling)===true),true,'the install card follows the hero actions');
+   assert.equal(await installCard.getByRole('heading',{name:'Install the Easter Company client'}).count(),1,'the card names itself');
+   assert.equal(await installCard.locator('[data-choose-location]').isVisible(),true,'choosing the folder is a real button');
+   assert.equal(await installCard.locator('.desktop-folder-button').count(),1);
+   assert.equal(await installCard.locator('.desktop-folder-button').evaluate(el=>el.tagName),'BUTTON');
+   const folderDefault=await installCard.locator('.desktop-install-default').textContent();
+   assert(folderDefault.length>0,'the folder row explains itself instead of a bare path: '+folderDefault);
+   assert(/app-owned folder|default/i.test(folderDefault),'the default path is supporting text, not the row itself: '+folderDefault);
+   assert((await installCard.locator('.desktop-install-current').textContent()).includes('/home/player/.easter-company/minecraft'),'the card names the folder that will be used');
+   await installCard.locator('[data-choose-location]').click();
+   assert((await installCard.locator('.desktop-install-current').textContent()).includes('/mnt/games/easter-company/minecraft'),'the folder picker replaces the default');
+   assert((await installCard.locator('.desktop-install-default').textContent()).includes('/home/player/.easter-company/minecraft'),'the default stays visible as supporting text after a choice');
+   // The card states what the automatic graphics choice will be. It offers no second
+   // copy of the control: the toggle under the hero action is the only one.
+   const graphicsNote=await installCard.locator('.desktop-install-graphics').textContent();
+   assert(graphicsNote.includes('Discrete GPU with 8192 MB of video memory.'),'the card carries the machine note from the contract: '+graphicsNote);
+   assert(/enhanced graphics and shaders/i.test(graphicsNote),'the note states the automatic graphics choice: '+graphicsNote);
+   assert.equal(await installCard.locator('input[type=checkbox]').count(),0,'the install card offers no second graphics control');
+   await installCard.getByRole('button',{name:'Start download',exact:true}).click();
    await launcherPage.waitForFunction(()=>window.easterRenderer.calls.some(call=>call.name==='startInstall'));
    const startCalls=await callsNamed('startInstall');
-   assert.deepEqual(startCalls[0].payload,{location:'/mnt/games/easter-company/minecraft',includeGraphics:false},'the chosen location and toggle must be passed to main');
+   assert.deepEqual(startCalls[0].payload,{location:'/mnt/games/easter-company/minecraft',includeGraphics:true},'the chosen folder and the machine\'s graphics answer are passed to main');
+   // A transfer under way is not a reason to keep offering the install card.
+   await pushState({phase:'downloading',progress:progressFor(),canPlay:false});
+   assert.equal(await installCard.isVisible(),false,'the install card closes once the download starts');
 
-   // A refused location is shown and the flow stays usable.
+   // A refused folder is shown in the card, and the flow stays usable.
+   await pushState({phase:'uninstalled',progress:null,actions:['download'],canPlay:false});
+   await installCard.waitFor({state:'visible'});
    await launcherPage.evaluate(()=>{window.easterRenderer.refuse='That folder is not writable.';});
-   await launcherPage.getByRole('button',{name:'Start download'}).click();
-   const installError=launcherPage.locator('.desktop-install-error');
+   await installCard.getByRole('button',{name:'Start download',exact:true}).click();
+   const installError=installCard.locator('.desktop-install-error');
    await installError.waitFor({state:'visible'});
-   assert.equal(await installError.textContent(),'That folder is not writable.','a refused location must be shown');
-   assert.equal(await locationInput.getAttribute('aria-invalid'),'true');
-   await locationInput.fill('/home/player/games/easter');
-   assert.equal(await installError.isVisible(),false,'the refusal clears once the location is edited');
-   await launcherPage.getByRole('button',{name:'Start download'}).click();
+   assert.equal(await installError.textContent(),'That folder is not writable.','a refused folder must be shown in the card');
+   assert.equal(await installCard.locator('[data-choose-location]').getAttribute('aria-invalid'),null,'the refusal belongs to the card, not to a dialog field');
+   // The refusal clears as soon as another folder is chosen.
+   await launcherPage.evaluate(()=>{window.easterRenderer.nextLocation='/home/player/games/easter';});
+   await installCard.locator('[data-choose-location]').click();
+   assert.equal(await installError.isVisible(),false,'the refusal clears once another folder is chosen');
+   await installCard.getByRole('button',{name:'Start download',exact:true}).click();
    await launcherPage.waitForFunction(()=>window.easterRenderer.calls.filter(call=>call.name==='startInstall').length>=3);
    const retried=(await callsNamed('startInstall')).at(-1);
-   assert.deepEqual(retried.payload,{location:'/home/player/games/easter',includeGraphics:false},'the flow stays usable after a refusal');
+   assert.deepEqual(retried.payload,{location:'/home/player/games/easter',includeGraphics:true},'the flow stays usable after a refusal');
+   assert.equal(await launcherPage.locator('#desktop-launcher').isVisible(),false,'the install flow never needs the settings dialog');
+
+   // Settings is the hero's secondary action, offered only at the Play Now stage.
+   await pushState({phase:'ready',progress:null,actions:['signin'],install:INSTALLED,profile:{name:'Owen'},canPlay:false});
+   const settingsButton=launcherPage.locator('.desktop-settings-button');
+   await settingsButton.waitFor({state:'visible'});
+   assert.equal((await settingsButton.textContent()).trim(),'Settings');
+   assert.equal(await launcherPage.locator('.site-header .desktop-settings-button').count(),0,'the header carries no client settings button');
+   await pushState({phase:'ready',actions:['download'],profile:null,canPlay:false,install:launcherState({}).install});
+   assert.equal(await settingsButton.isVisible(),false,'Settings is not offered before the Play Now stage');
+   await pushState({phase:'ready',actions:[],profile:{name:'Owen'},canPlay:true,install:INSTALLED});
+
+   // The Settings dialog is client settings only: no install, update or play action,
+   // no transfer and no status hint.
+   await settingsButton.click();
+   const dialog=launcherPage.locator('#desktop-launcher');
+   await dialog.waitFor({state:'visible'});
+   assert.equal(await launcherPage.getByRole('dialog',{name:'Settings'}).isVisible(),true);
+   const dialogText=await dialog.innerText();
+   for(const forbidden of ['Start download','Include enhanced graphics + shaders'])
+    assert(!dialogText.includes(forbidden),'the settings dialog must not carry "'+forbidden+'"');
+   assert(!dialogText.includes('Install the Easter Company client'),'the install card never lives in the settings dialog');
+   assert.equal(await dialog.locator('.desktop-install').count(),0,'the settings dialog holds no install section');
+   assert.equal(await dialog.locator('[data-choose-location]').count(),0,'choosing the install folder is not a settings action');
+   assert.equal(await dialog.getByRole('button',{name:/play/i}).count(),0,'the dialog offers no play action');
+   assert.equal(await dialog.locator('.desktop-play,.desktop-progress,.launcher-bar-track').count(),0,'the dialog carries no play button, no progress bar and no transfer');
+   assert.equal(await dialog.locator('.desktop-install-start').count(),0,'no download action lives in the dialog');
+   assert.equal(await installCard.isVisible(),false,'opening Settings does not open the install card');
+
+   // Server address: published by main, with the pending entry unusable rather than
+   // silently failing, and a Custom option that reveals a field of the player's own.
+   const serverSelect=dialog.locator('select[name=serverSelect]');
+   assert.equal(await serverSelect.inputValue(),'100.100.1.0:25565','the published default is selected');
+   const serverOptions=await serverSelect.locator('option').evaluateAll(options=>options.map(option=>({value:option.value,label:option.textContent,disabled:option.disabled})));
+   const available=serverOptions.filter(option=>!option.disabled).map(option=>option.value);
+   assert(available.includes('127.0.0.1:25565'),'the local server is available: '+JSON.stringify(available));
+   const pending=serverOptions.find(option=>option.value==='smp.easter.company:25565');
+   assert(pending,'the pending server is listed');
+   assert.equal(pending.disabled,true,'a pending server is shown as unavailable rather than selectable: '+pending.label);
+   const customOption=serverOptions.find(option=>option.value==='__custom__');
+   assert(customOption,'a Custom option is offered');
+   await serverSelect.selectOption('127.0.0.1:25565');
+   assert.equal(await dialog.locator('input[name=server]').isVisible(),false,'a published entry needs no text field');
+   // Choosing the pending entry is refused by the control rather than silently failing
+   // to connect: only the custom entry is offered as a live address, and the pending one
+   // carries no address a player could select.
+   assert.equal(await dialog.locator('input[name=server]').isVisible(),false,'a published entry needs no text field');
+   assert.equal(await serverSelect.locator('option:checked').getAttribute('value'),'127.0.0.1:25565','a published entry is selectable');
+   await serverSelect.selectOption('__custom__');
+   const serverField=dialog.locator('input[name=server]');
+   assert.equal(await serverField.isVisible(),true,'the Custom option reveals a text field');
+   await serverField.fill('ashore.example.net:25565');
+   await dialog.getByRole('button',{name:'Save settings',exact:true}).click();
+   await dialog.locator('.desktop-settings-result').filter({hasText:'Saved.'}).waitFor();
+   const savedServers=(await callsNamed('saveSettings')).map(call=>call.payload.server);
+   assert.equal(savedServers.at(-1),'ashore.example.net:25565','a typed address is kept as the player\'s own choice');
    await launcherPage.keyboard.press('Escape');
+   await pushState({canPlay:true});
+   await settingsButton.click();
+   await dialog.waitFor({state:'visible'});
+   assert.equal(await serverSelect.locator('option:checked').getAttribute('value'),'__custom__','a custom address stays the custom choice');
+   assert.equal(await serverField.inputValue(),'ashore.example.net:25565','the custom address survives a re-open');
+   await launcherPage.keyboard.press('Escape');
+   // A relaunch hands status() the saved settings: the custom value must come back unchanged.
+   await launcherPage.goto(origin);
+   await launcherPage.waitForFunction(()=>window.easterRenderer&&window.easterRenderer.emit);
+   await pushState({phase:'ready',actions:[],progress:null,profile:{name:'Owen'},canPlay:true,install:INSTALLED});
+   await settingsButton.click();
+   await dialog.waitFor({state:'visible'});
+   assert.equal(await dialog.locator('input[name=server]').inputValue(),'ashore.example.net:25565','a custom address round-trips unchanged through a reload');
+   assert.equal(await launcherPage.evaluate(()=>window.easterRenderer.state.settings.server),'ashore.example.net:25565');
+
+   // A saved entry that is still pending shows the entry and says why it is unusable.
+   await pushState({settings:{memoryMB:6144,server:'smp.easter.company:25565',javaPath:''}});
+   assert.equal(await serverSelect.locator('option:checked').getAttribute('value'),'smp.easter.company:25565','a saved pending entry is the current choice');
+   assert.equal(await dialog.locator('.desktop-settings-note').isVisible(),true,'a pending entry says why it cannot be used');
+   assert((await dialog.locator('.desktop-settings-note').textContent()).includes('No DNS record yet'),'the pending note is the contract\'s own');
+   await pushState({settings:{memoryMB:6144,server:'ashore.example.net:25565',javaPath:''}});
+
+   // Memory is an explained advanced setting, not a bare row.
+   const advanced=dialog.locator('.desktop-advanced');
+   assert.equal(await advanced.evaluate(el=>el.open),false,'advanced settings start folded away');
+   await advanced.locator('summary').click();
+   assert((await advanced.innerText()).includes('Memory allocated to the game'),'the memory control names what it sets');
+   assert((await advanced.locator('.desktop-advanced-note').textContent()).length>80,'the advanced area explains what moving the memory value changes');
+   assert((await advanced.locator('#memory-value').textContent()).includes('GB'),'the memory value is shown in GB');
+   await advanced.locator('input[name=memoryMB]').fill('6144');
+   assert((await advanced.locator('#memory-value').textContent())===('6.0 GB'),'the readout follows the control');
+   await dialog.getByRole('button',{name:'Save settings',exact:true}).click();
+   await dialog.locator('.desktop-settings-result').filter({hasText:'Saved.'}).waitFor();
+   assert.equal((await callsNamed('saveSettings')).at(-1).payload.memoryMB,6144,'the memory choice reaches main');
+
+   // Two accounts, two labelled lines, and the company line is omitted when there
+   // is no company account rather than advertised as an absence.
+   assert((await dialog.locator('.desktop-account').textContent()).startsWith('Microsoft account: Owen'),'the Microsoft line is labelled');
+   assert.equal(await dialog.locator('.desktop-company').isVisible(),false,'with no company account the line is omitted');
+   assert(!dialogText.includes('No Easter Company account on this device yet.'),'a signed-in Microsoft account is never followed by that sentence');
+   await pushState({account:{name:'Captain Owen',roles:['crew']}});
+   assert((await dialog.locator('.desktop-company').textContent()).includes('Easter Company account: Captain Owen'),'the company line is labelled separately');
+   await launcherPage.keyboard.press('Escape');
+
+   // The themed graphics toggle sits below the hero's primary action, at the Play Now
+   // stage, and drives the new setGraphics bridge method.
+   const graphicsToggle=launcherPage.locator('.hero-graphics [data-graphics-toggle]');
+   const graphicsLabel=launcherPage.locator('.hero-graphics .desktop-graphics-label');
+   await launcherPage.locator('.hero-graphics').waitFor({state:'visible'});
+   assert.equal((await graphicsLabel.textContent()).trim(),'Enable Enhanced Graphics & Shaders');
+   assert.equal(await graphicsToggle.isChecked(),false,'the toggle reflects graphics.enabled');
+   const heroBox=await heroButton.boundingBox(),graphicsBox=await launcherPage.locator('.hero-graphics').boundingBox();
+   assert(graphicsBox.y>=heroBox.y+heroBox.height-2,'the toggle renders below the hero\'s primary action: '+graphicsBox.y+' vs '+(heroBox.y+heroBox.height));
+   assert((await launcherPage.locator('.hero-graphics .desktop-graphics-note').textContent()).includes('Discrete GPU with 8192 MB of video memory.'),'the toggle shows the graphics reason as supporting copy');
+   await graphicsToggle.check();
+   await launcherPage.waitForFunction(()=>window.easterRenderer.calls.some(call=>call.name==='setGraphics'));
+   const graphicsCalls=await callsNamed('setGraphics');
+   assert.deepEqual(graphicsCalls.at(-1).payload,true,'flipping the toggle on reaches main as setGraphics(true)');
+   assert.equal(await graphicsToggle.isChecked(),true,'the toggle follows the state main reports back');
+   assert((await launcherPage.locator('.hero-graphics').evaluate(el=>el.classList.contains('is-on'))),'the switch shows its on state');
+   // The same component with graphics.enabled already true, as a relaunch reports it.
+   await pushState({graphics:{enabled:true,recommended:true,tunable:true,reason:'Discrete GPU with 8192 MB of video memory.',tuned:{renderDistance:12,shadowDistance:8,shaders:true}}});
+   assert.equal(await graphicsToggle.isChecked(),true,'a persisted choice renders as on');
+   assert((await launcherPage.locator('.hero-graphics .desktop-graphics-note').textContent()).includes('Render distance 12'),'the toggle reports what was written into the client');
+   await graphicsToggle.uncheck();
+   await launcherPage.waitForFunction(()=>window.easterRenderer.calls.filter(call=>call.name==='setGraphics').length>=2);
+   assert.deepEqual((await callsNamed('setGraphics')).at(-1).payload,false,'flipping it off reaches main as setGraphics(false)');
+   await launcherPage.screenshot({path:'/tmp/easter-desktop-playnow-graphics.png',fullPage:true});
+   // Not at the Play Now stage the toggle is withdrawn entirely.
+   await pushState({graphics:{enabled:false,recommended:true,tunable:true},canPlay:false,install:launcherState({}).install,phase:'uninstalled',actions:['download'],profile:null});
+   assert.equal(await launcherPage.locator('.hero-graphics').isVisible(),false,'the toggle is withdrawn before the client is installed');
+   assert.equal(await launcherPage.locator('.hero-graphics').evaluate(el=>el.hidden),true,'the toggle leaves the DOM visible area, not merely the fold');
+   // A build that cannot set graphics offers no toggle rather than a dead control.
+   await pushState({phase:'ready',actions:[],canPlay:true,install:INSTALLED,graphics:null});
+   assert.equal(await launcherPage.locator('.hero-graphics').isVisible(),false,'no graphics contract, no toggle');
+   await pushState({graphics:{enabled:false,recommended:true,tunable:true,reason:'Discrete GPU with 8192 MB of video memory.'}});
+
+   // The vague second hint the review called out is gone from the launcher entirely.
+   assert(!(await launcherPage.locator('body').innerText()).includes('Download the game to get started'),'the launcher prints no second, vaguer hint');
 
    // The bar and the tab preference follow the player across pages and across a reload.
    await pushState({phase:'downloading',progress:progressFor(),actions:['signin'],bar:{visible:true},canPlay:false});
@@ -712,6 +888,6 @@ try{
    assert.deepEqual(await launcherPage.evaluate(()=>window.easterRenderer.errors),[],'the fixture saw no page error on its last load');
    await launcherContext.close();
   }finally{await launcherContext.close().catch(()=>{});}
-  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; location and graphics collected on start; refusals shown; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
+  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; the install card behind the hero action with a real folder affordance; a settings-only dialog offered only at the Play Now stage with a published server choice and an explained memory setting; the themed enhanced graphics toggle driving setGraphics; refusals shown; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
  }
 }finally{await browser.close();}
