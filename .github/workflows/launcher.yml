@@ -105,7 +105,7 @@ jobs:
             echo
             echo "Installers are unsigned: there is no Authenticode or package signature, so a Windows SmartScreen or Linux package-manager warning is expected."
             echo
-            echo "The Windows build was produced on Linux with electron-builder, so its runtime behaviour has not been exercised on Windows. The Linux artifacts were built on Linux but not launched from a clean machine."
+            echo "Each installer is built on its own platform: the Windows .exe on a native windows-latest runner and the Linux packages on ubuntu-latest. None of the four has been launched from a clean machine, so first-run behaviour on a freshly installed PC is still unverified."
             echo
             echo "SHA256SUMS covers all four installers. Verify with \`sha256sum -c SHA256SUMS\`."
           } > notes.md
