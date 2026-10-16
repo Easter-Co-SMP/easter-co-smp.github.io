@@ -15,7 +15,15 @@ const PHASES=['uninstalled','downloading','paused','verifying','installing','upd
 const PROGRESS_FIELDS=['label','percent','bytesDone','bytesTotal','bytesPerSecond','etaSeconds'];
 let failures=0;
 function check(condition,message){if(condition)console.log('  ok   '+message);else{failures++;console.log('  FAIL '+message);}}
-const app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'tests/desktop/flow-harness.cjs')],env:{...process.env,EASTER_TEST_HOME:temp}});
+// The graphics profile this run is told to assume: a software renderer, so the
+// "on unless the GPU is clearly weak" rule has something weak to answer about. The
+// launcher reads it only in an unpackaged test run.
+const WEAK_GPU_PROFILE=JSON.stringify({
+ gpu:null,vendor:null,vramMB:null,tier:'weak',reason:'Software graphics (llvmpipe (LLVM 23.1.1, 256 bits)): enhanced graphics stay off.',
+ source:'none',software:true,recommended:false,tunable:false,
+ adapters:[{name:'llvmpipe (LLVM 23.1.1, 256 bits)',vendorId:null,deviceId:null,vramMB:null,source:'system_profiler'}]
+});
+const app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'tests/desktop/flow-harness.cjs')],env:{...process.env,EASTER_TEST_HOME:temp,EASTER_TEST_GPU:WEAK_GPU_PROFILE}});
 try{
  const page=await app.firstWindow();
  page.setDefaultTimeout(20000);
@@ -52,12 +60,34 @@ try{
  check(initial.progress===null,'progress is null when nothing is transferring');
  check(initial.paused===false,'paused is false when nothing can be resumed');
  for(const field of ['location','defaultLocation','installed','includeGraphics','version','updatedAt'])check(field in initial.install,'install.'+field+' is present');
+ for(const field of ['gpu','vendor','vramMB','tier','reason'])check(field in initial.hardware,'hardware.'+field+' is present');
+ check(['capable','weak','unknown'].includes(initial.hardware.tier),'the tier is one of the contract values: '+initial.hardware.tier);
+ check(typeof initial.hardware.reason==='string'&&initial.hardware.reason.length>0,'hardware.reason is displayable: '+initial.hardware.reason);
+ for(const field of ['enabled','recommended','tunable','tuned'])check(field in initial.graphics,'graphics.'+field+' is present');
+ check(initial.graphics.enabled===initial.install.includeGraphics,'graphics.enabled is install.includeGraphics under its player-facing name');
+ check(typeof initial.graphics.recommended==='boolean','graphics.recommended is the automatic answer for this machine');
+ check(Array.isArray(initial.servers)&&initial.servers.length>0,'status() publishes the server list');
+ check(JSON.stringify(initial.servers.map(entry=>entry.address))===JSON.stringify(['100.100.1.0:25565','127.0.0.1:25565','smp.easter.company:25565']),'the servers are in display order: '+JSON.stringify(initial.servers.map(entry=>entry.address)));
+ check(initial.servers.filter(entry=>entry.pending).length===1&&initial.servers[2].pending===true,'the entry with no DNS record is marked pending');
  check(initial.install.location===initial.install.defaultLocation,'the app-owned directory is the default location');
  check(path.resolve(initial.install.location)===path.resolve(path.join(temp,'minecraft')),'the default location is inside the app data directory');
  check(initial.install.installed===false&&initial.install.version===null&&initial.install.updatedAt===null,'an uninstalled client reports no version and no timestamp');
  check(JSON.stringify(initial.actions)===JSON.stringify(['download','signin']),'actions are the ordered remaining requirements');
  check(initial.canPlay===false,'an uninstalled client with no account cannot play');
  check(initial.bar.visible===false,'the bar is hidden before any download starts');
+ // This run is told to assume a weak adapter, so the machine's answer is off and the
+ // first run has already decided and persisted it.
+ check(initial.hardware.tier==='weak','the injected weak adapter is reported as weak: '+JSON.stringify(initial.hardware));
+ check(initial.graphics.recommended===false,'a clearly weak GPU recommends enhanced graphics off');
+ check(initial.install.includeGraphics===false&&initial.graphics.enabled===false,'and the first run takes that answer');
+ const firstRunSettings=JSON.parse(await fs.readFile(path.join(temp,'settings.json'),'utf8'));
+ check(firstRunSettings.includeGraphics===false&&firstRunSettings.graphicsChosen===true,'the automatic answer is persisted as the recorded choice: '+JSON.stringify({includeGraphics:firstRunSettings.includeGraphics,graphicsChosen:firstRunSettings.graphicsChosen}));
+ // The player's own choice then wins over the machine's, and is kept.
+ const chosen=await invoke(()=>window.easterDesktop.setGraphics(true).catch(error=>'error: '+error.message));
+ check(typeof chosen==='object'||String(chosen).startsWith('error'),'the toggle answers even before the client exists: '+JSON.stringify(chosen));
+ const afterChoice=JSON.parse(await fs.readFile(path.join(temp,'settings.json'),'utf8'));
+ check(afterChoice.includeGraphics===true,'an explicit player choice is persisted');
+ check(afterChoice.graphicsChosen===true,'and is never re-decided later');
 
  console.log('\n2. signing in without a client');
  await invoke(()=>{window.__signIn=window.easterDesktop.signIn().catch(error=>error.message);});

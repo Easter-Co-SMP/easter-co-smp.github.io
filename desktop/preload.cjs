@@ -12,5 +12,8 @@ contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  chooseLocation:invoke('choose-location'),setLocation:invoke('set-location'),startInstall:invoke('start-install'),
  pauseInstall:invoke('pause-install'),resumeInstall:invoke('resume-install'),cancelInstall:invoke('cancel-install'),
  checkUpdates:invoke('check-updates'),
+ // Enhanced Graphics & Shaders: one boolean, and the main process decides what
+ // that means for the client. The renderer still gets no path and no command.
+ setGraphics:invoke('set-graphics'),
  onState(callback){const listener=(_event,state)=>callback(state);ipcRenderer.on('launcher:state',listener);return ()=>ipcRenderer.removeListener('launcher:state',listener);}
 }));

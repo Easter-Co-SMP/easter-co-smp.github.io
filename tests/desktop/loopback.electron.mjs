@@ -17,6 +17,7 @@ const temp=await fs.mkdtemp(path.join(os.tmpdir(),'easter-loopback-test-'));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const sha256=buffer=>crypto.createHash('sha256').update(buffer).digest('hex');
 let failures=0;
+let tunedDistance=null;
 function check(condition,message){if(condition)console.log('  ok   '+message);else{failures++;console.log('  FAIL '+message);}}
 
 // ---- the published fixture --------------------------------------------------
@@ -77,7 +78,17 @@ await fs.writeFile(path.join(clientRoot,'installed.json'),JSON.stringify({
 }));
 await fs.writeFile(path.join(temp,'settings.json'),JSON.stringify({memoryMB:4096,server:'',javaPath:'',location:clientRoot,includeGraphics:true}));
 
-const app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'desktop/main.cjs')],env:{...process.env,EASTER_TEST_HOME:temp,EASTER_CLIENT_ORIGIN:origin}});
+// The graphics profile this run is told to assume: the discrete card the ticket's
+// real run found on this machine, so the quality settings the toggle writes are the
+// ones a capable adapter gets. The launcher reads it only in an unpackaged test run.
+const GPU_PROFILE=JSON.stringify({
+ gpu:null,vendor:null,vramMB:null,tier:'capable',
+ reason:'NVIDIA GPU NVIDIA GeForce RTX 4060 with 8188 MB of video memory.',
+ source:'nvidia-smi',software:false,recommended:true,tunable:true,
+ adapters:[{name:'NVIDIA Corporation AD107 [GeForce RTX 4060]',vendorId:'10de',deviceId:'2882',vramMB:8188,busId:'03:00.0',source:'lspci'}]
+});
+const launchEnv={...process.env,EASTER_TEST_HOME:temp,EASTER_CLIENT_ORIGIN:origin,EASTER_TEST_GPU:GPU_PROFILE};
+const app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'desktop/main.cjs')],env:launchEnv});
 const marker=async()=>JSON.parse(await fs.readFile(path.join(clientRoot,'installed.json'),'utf8'));
 try{
  const page=await app.firstWindow();
@@ -157,12 +168,82 @@ try{
  check((await marker()).chunks.graphics.version==='sha256:'+sha256(graphicsV2),'the marker records the resumed chunk version');
  check(moving.progress.bytesTotal===graphicsV2.length,'the transfer knew its total from the manifest');
 
- console.log('\n4. the state the running app broadcasts');
+ console.log('\n4. the enhanced graphics toggle in the running app');
+ const servers=started.servers;
+ check(Array.isArray(servers)&&servers.length===3,'status() publishes the server list');
+ check(Array.isArray(servers)&&servers.map(entry=>entry.address).join(',')==='100.100.1.0:25565,127.0.0.1:25565,smp.easter.company:25565','the servers are published in display order: '+JSON.stringify((servers||[]).map(entry=>entry.address)));
+ check(Array.isArray(servers)&&servers.filter(entry=>entry.pending).length===1&&servers[2].pending===true,'the name without a DNS record is the pending one');
+ check(Boolean(started.hardware)&&['capable','weak','unknown'].includes(started.hardware.tier),'status() publishes a detected hardware tier: '+JSON.stringify(started.hardware));
+ check(typeof started.hardware?.reason==='string'&&started.hardware.reason.length>0,'with a displayable reason: '+started.hardware?.reason);
+ check(Boolean(started.hardware)&&'vramMB' in started.hardware,'vramMB is published, null when the platform will not report it: '+started.hardware?.vramMB);
+ check(Boolean(started.graphics)&&'enabled' in started.graphics&&'recommended' in started.graphics&&'tunable' in started.graphics&&'tuned' in started.graphics,'status() publishes the graphics state shape: '+JSON.stringify(started.graphics));
+ check(started.graphics.enabled===true,'the player\'s saved toggle is what graphics.enabled reports');
+ // The client is installed and the manifest publishes the graphics chunk, so the
+ // toggle has real work to do in both directions.
+ requests.length=0;
+ await mark();
+ await page.evaluate(()=>{window.__off=window.easterDesktop.setGraphics(false).then(()=> 'done',error=>'error: '+error.message);});
+ check(await page.evaluate(()=>window.__off)==='done','turning enhanced graphics off settles');
+ const offState=await latest();
+ check(offState.graphics.enabled===false,'the toggle is off in the broadcast state');
+ check(requests.every(entry=>!entry.path.startsWith('/files/')),'switching off fetches no client content: '+JSON.stringify(requests.map(entry=>entry.path)));
+ check(sha256(await fs.readFile(path.join(clientRoot,'shaderpacks','graphics.zip')))===sha256(graphicsV2),'and removes nothing that was already installed');
+ check((await marker()).chunks.graphics.version==='sha256:'+sha256(graphicsV2),'the installed graphics record survives with the toggle off');
+ check((await marker()).chunks.base.version===manifest.chunks[0].version,'the base chunk is still the verified one');
+ const savedOff=JSON.parse(await fs.readFile(path.join(temp,'settings.json'),'utf8'));
+ check(savedOff.includeGraphics===false&&savedOff.graphicsChosen===true,'the choice is persisted as the player\'s own: '+JSON.stringify({includeGraphics:savedOff.includeGraphics,graphicsChosen:savedOff.graphicsChosen}));
+ // Turning it back on downloads the payload only when the published chunk differs,
+ // and writes the client's own quality settings inside the app-owned tree.
+ files['/data/client.json']=Buffer.from(JSON.stringify({...manifest,chunks:[manifest.chunks[0],{...manifest.chunks[1],version:'sha256:'+sha256(graphicsV3),files:[{...manifest.chunks[1].files[0],hash:'sha256:'+sha256(graphicsV3),size:graphicsV3.length}]}]}));
+ files['/files/graphics.zip']=graphicsV3;
+ requests.length=0;
+ await mark();
+ await page.evaluate(()=>{window.__on=window.easterDesktop.setGraphics(true).then(()=> 'done',error=>'error: '+error.message);});
+ const graphicsProgress=await waitFor(state=>state.progress&&(state.progress.bytesDone||0)>0,'the graphics transfer to report progress');
+ check(await page.evaluate(()=>window.__on)==='done','turning enhanced graphics on settles');
+ check(requests.every(entry=>entry.path==='/data/client.json'||entry.path==='/files/graphics.zip'),'only the graphics chunk was fetched: '+JSON.stringify(requests.map(entry=>entry.path)));
+ check(requests.filter(entry=>entry.path==='/files/base.jar').length===0,'the frozen base chunk was neither fetched nor re-verified');
+ check(typeof graphicsProgress.progress.bytesTotal==='number','the sticky bar carried the transfer with a total: '+graphicsProgress.progress.bytesTotal);
+ check(graphicsProgress.phase==='updating'||graphicsProgress.phase==='downloading','through the existing pipeline phases: '+graphicsProgress.phase);
+ check(sha256(await fs.readFile(path.join(clientRoot,'shaderpacks','graphics.zip')))===sha256(graphicsV3),'the fetched shader chunk matches its published checksum');
+ const onState=await latest();
+ check(onState.graphics.enabled===true,'the toggle is on in the broadcast state');
+ check(onState.graphics.tuned&&typeof onState.graphics.tuned.renderDistance==='number','graphics.tuned reports what was written into the client: '+JSON.stringify(onState.graphics.tuned));
+ const options=await fs.readFile(path.join(clientRoot,'options.txt'),'utf8');
+ const iris=await fs.readFile(path.join(clientRoot,'config','iris.properties'),'utf8');
+ check(/^graphicsMode:(fancy|fast)$/m.test(options),'the client options carry a graphics mode: '+options.trim().split('\n').join(' '));
+ check(new RegExp('^renderDistance:'+onState.graphics.tuned.renderDistance+'$','m').test(options),'and the render distance that was reported');
+ check(/^enableShaders:true$/m.test(iris),'the shader loader is switched on');
+ check(/^shaderPack:ComplementaryUnbound_r5\.9\.3\.zip$/m.test(iris),'and names the pack Owen chose');
+ check(onState.graphics.tuned.shaders===true||onState.graphics.tuned.shaders===false,'shaders are reported as written');
+ tunedDistance=onState.graphics.tuned.renderDistance;
+
+ console.log('\n5. the state the running app broadcasts');
  console.log(JSON.stringify({final:await latest()},null,1));
- console.log(failures===0?'\nLOOPBACK PASS: the real launcher fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, and recorded what it installed':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
- process.exitCode=failures===0?0:1;
 }finally{
  await app.close();
+}
+
+// A fresh run of the app keeps the player's choice rather than re-deciding it. The
+// first instance has to be gone first: the launcher holds a single-instance lock.
+console.log('\n6. a fresh run keeps the player\'s own choice');
+try{
+ const relaunch=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'desktop/main.cjs')],env:launchEnv});
+ try{
+  const relaunchPage=await relaunch.firstWindow();
+  relaunchPage.setDefaultTimeout(20000);
+  await relaunchPage.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
+  await sleep(500);
+  const restarted=await relaunchPage.evaluate(()=>window.easterDesktop.status());
+  check(restarted.graphics.enabled===true,'the player\'s own choice survives a restart');
+  check(restarted.install.installed===true,'the client tree is still recognised');
+  check(restarted.graphics.tuned&&restarted.graphics.tuned.renderDistance===tunedDistance,'the tuned record is read back from the client: '+JSON.stringify(restarted.graphics.tuned));
+  check(restarted.hardware.tier==='capable','and the hardware answer is unchanged: '+JSON.stringify({tier:restarted.hardware.tier,vramMB:restarted.hardware.vramMB}));
+ }finally{await relaunch.close();}
+}finally{
  server.close();
  await fs.rm(temp,{recursive:true,force:true});
 }
+
+console.log(failures===0?'\nLOOPBACK PASS: the real launcher fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, and applied the enhanced graphics toggle in both directions by writing the client\'s own quality files':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
+process.exitCode=failures===0?0:1;

@@ -3,10 +3,11 @@ const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog}=require(
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{pathToFileURL}=require('node:url');
 const {MicrosoftAuth,DEFAULT_CLIENT_ID}=require('./auth.cjs');
 const {AccountClient,publicAccount,companySession,storedSession,companyVaultName}=require('./accounts.cjs');
-const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation}=require('./config.cjs');
+const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation,serverList}=require('./config.cjs');
 const vault=require('./vault.cjs');
-const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings}=require('./security.cjs');
-const {atomicJSON,installClient,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
+const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,includeGraphicsValue}=require('./security.cjs');
+const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
+const {detectHardware,installedQuality}=require('./hardware.cjs');
 const APP_VERSION=require('../package.json').version;
 app.setName('Easter Company');
 protocol.registerSchemesAsPrivileged([{scheme:'easter',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
@@ -34,6 +35,31 @@ const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalm
 let state={message:'Download the game to get started.',device:null,progress:null,profile:null,remembered:false,account:null};
 let phase=null,progress=null,control=null,installStarted=false,backgroundUpdate=null;
 let client={installed:false,version:null,updatedAt:null,record:null};
+// doc/launcher-states.md, "Home actions, Settings and enhanced graphics": the
+// machine decides the default once, and the player's own choice wins from then on.
+// `graphics` is always present in desktop mode, so no view has to wait for it.
+let graphics=null,hardware=null,quality=null;
+// A player who has never seen the control has no recorded choice; the launcher then
+// answers for the machine. `chosen` is what makes "once" true across restarts: an
+// explicit choice is never re-decided, and a fresh settings file is not a choice.
+function chooseGraphicsDefault(stored,recommended){
+ const state=stored&&typeof stored==='object'?stored:{};
+ if(state.graphicsChosen===true)return {includeGraphics:Boolean(state.includeGraphics),chosen:true};
+ if(typeof state.includeGraphics==='boolean')return {includeGraphics:state.includeGraphics,chosen:true};
+ return {includeGraphics:Boolean(recommended),chosen:false};
+}
+function hardwareState(){
+ if(hardware)return hardware;
+ if(graphics)return graphics;
+ // Detection runs before the first broadcast; this is only reached if it failed.
+ return {gpu:null,vendor:null,vramMB:null,tier:'unknown',reason:'The graphics adapter could not be identified, so enhanced graphics are left on.',source:'none',recommended:true,tunable:false};
+}
+function graphicsState(){
+ const recommended=hardware?hardware.recommended:true;
+ return {enabled:Boolean(settings?.includeGraphics),recommended,tunable:Boolean(hardware?.tunable),tuned:quality};
+}
+function serversState(){return serverList();}
+async function readQuality(){quality=await installedQuality(gameRoot());return quality;}
 function installInfo(){
  const installed=Boolean(client.installed);
  return {location:gameRoot(),defaultLocation:defaultLocation(),installed,includeGraphics:Boolean(settings?.includeGraphics),version:installed?client.version:null,updatedAt:installed?client.updatedAt:null};
@@ -46,13 +72,13 @@ function notify(patch={}){
  if(!install.installed)actions.push('download');
  if(!profile)actions.push('signin');
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,canPlay:canPlay(install,profile),bar:{visible:install.installed||installStarted}}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,canPlay:canPlay(install,profile),bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState()}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
 // sign-in action through `actions`, and the phase returns to the resting value.
 function settle(message,extra={}){phase=null;progress=null;control=null;notify({message,device:controller?state.device:null,...extra});}
-async function refreshClient(){client=await clientStatus(gameRoot());}
+async function refreshClient(){client=await clientStatus(gameRoot());await readQuality();}
 function secureStorageAvailable(){return safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');}
 const vaultOptions=()=>({safeStorage,platform:process.platform});
 function saveSession(){
@@ -150,7 +176,7 @@ async function withControl(action){
 }
 async function runInstall({includeGraphics=Boolean(settings.includeGraphics)}={}){
  return withControl(async()=>{
-  const result=await installClient({root:gameRoot(),settings,notify,control,mode:'install',includeGraphics});
+  const result=await installClient({root:gameRoot(),settings,notify,control,mode:'install',includeGraphics,hardware:hardwareState()});
   await refreshClient();
   if(!client.installed)throw Error('Installation did not complete. Retry to repair the missing client files.');
   settle(result.message||'Client ready.');
@@ -162,10 +188,44 @@ async function runInstall({includeGraphics=Boolean(settings.includeGraphics)}={}
 // does not notify at all unless it is going to do work.
 async function runUpdate(){
  return withControl(async()=>{
-  const result=await checkForUpdates({root:gameRoot(),settings,notify,control,includeGraphics:Boolean(settings.includeGraphics)});
+  const result=await checkForUpdates({root:gameRoot(),settings,notify,control,includeGraphics:Boolean(settings.includeGraphics),hardware:hardwareState()});
   await refreshClient();
   if(result.applied)settle(result.result?.message||'Client updated.');
   return result;
+ });
+}
+// The player's own choice, kept as their choice. Nothing here re-decides it: the
+// machine's automatic answer is only ever the value a fresh settings file gets.
+async function persistGraphics(enabled){
+ settings={...settings,includeGraphics:Boolean(enabled)};
+ await atomicJSON(settingsFile(),{...settings,graphicsChosen:true});
+ return settings;
+}
+// One toggle, one pipeline. On: the optional graphics chunk is fetched through the
+// checksum-verified pipeline and the client's quality settings are written inside
+// the app-owned client tree. Off: nothing is fetched, nothing already installed is
+// removed, and the base chunk is never invalidated.
+async function setGraphics(enabled){
+ if(typeof enabled!=='boolean')throw Error('The enhanced graphics toggle must be on or off.');
+ await persistGraphics(enabled);
+ await refreshClient();
+ if(!client.installed){
+  notify({message:enabled?'Enhanced graphics will be installed with the game.':'Enhanced graphics are off.'});
+  return installInfo();
+ }
+ return withControl(async()=>{
+  let result;
+  try{
+   result=await applyGraphics({root:gameRoot(),settings,notify,control,includeGraphics:enabled,hardware:hardwareState()});
+  }catch(error){
+   // The toggle itself succeeded: the player's choice is saved and the next check
+   // picks the chunk up. Only the transfer failed, and that is what is reported.
+   settle(safeError(error));
+   throw error;
+  }
+  await refreshClient();
+  settle(result.message||(enabled?'Enhanced graphics installed.':'Enhanced graphics are off.'));
+  return {...installInfo(),graphics:graphicsState(),graphicsMessage:result.graphicsMessage||null};
  });
 }
 async function login(){
@@ -218,7 +278,7 @@ function registerIPC(){
   if(!trustedFrame(event))throw Error('Untrusted launcher request.');
   try{return {ok:true,value:await fn(...args)};}catch(error){return {ok:false,error:safeError(error)};}
  });
- handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(publicProfile),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
+ handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(publicProfile),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
  handle('sign-in',async()=>{
   if(controller)throw Error('Microsoft sign-in is already running.');
   // Authentication can overlap the install pipeline, but never starts a second
@@ -251,7 +311,7 @@ function registerIPC(){
   if(working||game||controller)throw Error('Close Minecraft and wait for the current operation before changing settings.');
   // The location is never taken from this handler: it comes from the folder
   // picker or the saved setting, nowhere else.
-  settings={...cleanSettings(input,Math.floor(os.totalmem()/1024/1024)),location:settings.location,includeGraphics:'includeGraphics' in input?Boolean(input.includeGraphics):settings.includeGraphics};
+  settings={...cleanSettings(input,Math.floor(os.totalmem()/1024/1024)),location:settings.location,includeGraphics:includeGraphicsValue(input,settings.includeGraphics)};
   await atomicJSON(settingsFile(),settings);return settings;
  });
  handle('choose-java',async()=>{const selected=await dialog.showOpenDialog(window,{title:'Choose Java 25 executable',properties:['openFile'],filters:process.platform==='win32'?[{name:'Java',extensions:['exe']}]:[]});return selected.canceled?null:selected.filePaths[0];});
@@ -304,6 +364,9 @@ function registerIPC(){
   return {cancelled:true};
  });
  handle('check-updates',()=>exclusively(runUpdate));
+ // The enhanced graphics toggle. It takes a boolean and nothing else; the path it
+ // writes to is the saved client location, never a renderer-supplied one.
+ handle('set-graphics',enabled=>setGraphics(enabled));
  handle('open-folder',async()=>{const root=gameRoot();await fs.mkdir(root,{recursive:true});const error=await shell.openPath(root);if(error)throw Error('Could not open the client folder.');});
  handle('open-microsoft',()=>shell.openExternal('https://www.microsoft.com/link'));
 }
@@ -339,17 +402,56 @@ function updateOnLaunch(){
  if(!client.installed)return;
  backgroundUpdate=exclusively(runUpdate).catch(()=>{}).finally(()=>{backgroundUpdate=null;});
 }
+// What this machine says about its own graphics, asked once at startup. Electron
+// answers only after the app is ready, and it never reports video memory, so the
+// system probe is what supplies that number. A failure here is not fatal: the tier
+// is `unknown`, which is the same "on unless clearly weak" answer as any other
+// machine the launcher cannot see into.
+async function detectGraphicsHardware(){
+ const fallback={gpu:null,vendor:null,vramMB:null,tier:'unknown',reason:'The graphics adapter could not be identified, so enhanced graphics are left on.',source:'none',software:false};
+ // Tests only, and only in an unpackaged run: an explicit GPU profile instead of the
+ // host's, so a suite can prove what the launcher does with a weak adapter without
+ // owning one. Packaged builds ignore it entirely.
+ if(!app.isPackaged&&typeof process.env.EASTER_TEST_GPU==='string'&&process.env.EASTER_TEST_GPU){
+  try{
+   const fixture=JSON.parse(process.env.EASTER_TEST_GPU);
+   hardware=await detectHardware({gpuInfo:fixture.gpuInfo??null,featureStatus:fixture.featureStatus??null,platform:process.platform,env:process.env,adapters:fixture.adapters??[]});
+   graphics={recommended:hardware.recommended,tunable:hardware.tunable};
+   return hardware;
+  }catch{}
+ }
+ try{
+  const [gpuInfo,featureStatus]=await Promise.all([
+   app.getGPUInfo('complete').catch(()=>null),
+   Promise.resolve().then(()=>app.getGPUFeatureStatus()).catch(()=>null)
+  ]);
+  hardware=await detectHardware({gpuInfo,featureStatus});
+ }catch{hardware=fallback;}
+ hardware={...fallback,...hardware,recommended:hardware?.recommended!==false,tunable:Boolean(hardware?.tunable)};
+ graphics={recommended:hardware.recommended,tunable:hardware.tunable};
+ return hardware;
+}
 if(instance){
  app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.focus();}});
  app.whenReady().then(async()=>{
   await fs.mkdir(configRoot(),{recursive:true});
+  // The machine's answer is needed before anything reads the saved settings, and
+  // before the first state is broadcast, so no view ever sees a missing default.
+  await detectGraphicsHardware();
   let stored={};
   try{stored=JSON.parse(await fs.readFile(settingsFile(),'utf8'));}catch{}
   try{settings={...defaultSettings,...cleanSettings(stored,Math.floor(os.totalmem()/1024/1024))};}catch{settings={...defaultSettings};}
   // The saved location is a path this launcher wrote itself after the picker
   // validated it. It is never taken from anywhere else.
   if(typeof stored.location==='string'&&path.isAbsolute(stored.location))settings.location=path.resolve(stored.location);
-  settings.includeGraphics='includeGraphics' in stored?Boolean(stored.includeGraphics):defaultSettings.includeGraphics;
+  // First run: the machine decides, and the decision is persisted immediately.
+  // Afterwards the saved choice is the player's and is never re-decided — not even
+  // on a machine where the GPU has changed since.
+  const choice=chooseGraphicsDefault(stored,graphics.recommended);
+  if(settings.includeGraphics!==choice.includeGraphics||!choice.chosen){
+   settings.includeGraphics=choice.includeGraphics;
+   await atomicJSON(settingsFile(),{...settings,graphicsChosen:true});
+  }
   const saved=await vault.readEncrypted(accountsFile(),vaultOptions());
   if(saved&&Array.isArray(saved.accounts)){
    savedAccounts=saved.accounts.filter(entry=>entry?.refreshToken&&/^[a-f0-9]{32}$/i.test(entry.profile?.id)&&/^\w{1,16}$/.test(entry.profile?.name));

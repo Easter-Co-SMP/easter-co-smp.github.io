@@ -46,6 +46,20 @@ const MARKER='.easter-client';
 // launcher's files, the server or the world.
 const FOREIGN_ENTRIES=['.minecraft','launcher_profiles.json','launcher_accounts.json','launcher_profiles_microsoft_store.json','versions','libraries','assets','mods','saves','server.properties','eula.txt','usercache.json','banned-ips.json','banned-players.json','level.dat','world','server.jar'];
 function defaultInstallLocation(configRoot){return path.join(configRoot,CLIENT_FOLDER);}
+// ---- the servers the launcher offers ----------------------------------------
+// doc/launcher-states.md: the entries are published by the main process in display
+// order rather than hardcoded in the view. `address` is the value written into
+// settings.server, which stays a plain string; `id` is only a label for the UI and
+// is never substituted for the address a player chose. `note` says why an entry is
+// listed but not usable, and `pending` is the flag the view renders it from.
+const DEFAULT_SERVER='100.100.1.0:25565';
+const LOCAL_SERVER='127.0.0.1:25565';
+const SERVER_ENTRIES=[
+ {id:'default',label:'Easter Co. SMP',address:DEFAULT_SERVER,note:'Default server.',pending:false},
+ {id:'local',label:'This machine',address:LOCAL_SERVER,note:'The server running on this computer.',pending:false},
+ {id:'hostname',label:'smp.easter.company',address:'smp.easter.company:25565',note:'Pending: this name has no DNS record yet.',pending:true}
+];
+function serverList(){return SERVER_ENTRIES.map(entry=>({...entry}));}
 function cleanLaunchSettings(input={}){
  const location=String(input.location||'').trim();
  if(location&&!path.isAbsolute(location))throw Error('The installation folder must be an absolute path.');
@@ -115,4 +129,4 @@ function resolveLocation(requested,{saved='',defaultLocation}={}){
  if(fallback&&resolved===fallback)return resolved;
  throw Error('Choose the installation folder with the folder picker.');
 }
-module.exports={apiOrigin,DEFAULT_API_ORIGIN,clientOrigin,DEFAULT_CLIENT_ORIGIN,LOOPBACK,CLIENT_FOLDER,MARKER,FOREIGN_ENTRIES,defaultInstallLocation,cleanLaunchSettings,locationProblem,checkLocation,ensureLocation,resolveLocation};
+module.exports={apiOrigin,DEFAULT_API_ORIGIN,clientOrigin,DEFAULT_CLIENT_ORIGIN,LOOPBACK,CLIENT_FOLDER,MARKER,FOREIGN_ENTRIES,defaultInstallLocation,DEFAULT_SERVER,LOCAL_SERVER,SERVER_ENTRIES,serverList,cleanLaunchSettings,locationProblem,checkLocation,ensureLocation,resolveLocation};
