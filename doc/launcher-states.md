@@ -294,11 +294,15 @@ install form.
 **Settings is a settings-only dialog, and only the Play Now stage has it.** It is
 the hero's secondary action, exactly as *Account menu and installation recognition*
 already said; the header has no client settings button and never had one in the
-contract. The dialog contains client settings and nothing else: installation
-folder, client settings (server, memory, Java), and the version footer. It never
-carries a download, install, update or play action, never carries the sticky bar's
-transfer, and never carries a status hint about what the player still has to do.
-When the player is not yet at the Play Now stage, Settings is not offered at all.
+contract. The dialog contains client settings and nothing else: the server choice,
+memory and Java as client settings, the account lines and the version footer. The
+installation folder is not one of them: choosing where the client lives belongs to
+the install card that does the installing, and offering it in a dialog that cannot
+install anything is how the shipped launcher ended up showing a bare "Default:
+<path>" line with no purpose. It never carries a download, install, update or play
+action, never carries the sticky bar's transfer, and never carries a status hint
+about what the player still has to do. When the player is not yet at the Play Now
+stage, Settings is not offered at all.
 
 **First-run download lives in the hero.** The install card (installation folder,
 the graphics note, and **Start download**) is opened by the hero's **Download the
