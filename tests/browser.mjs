@@ -466,10 +466,12 @@ try{
     onState:callback=>{renderer.emit=callback;},
     signIn:async()=>{log('signIn');},
     play:async()=>{log('play');},
-    chooseInstallLocation:async()=>{log('chooseInstallLocation');return renderer.nextLocation||renderer.state.install.defaultLocation;},
+    // The merged preload answers the picker with {location, defaultLocation} and cancels
+    // with null; the falsey-but-typed return is part of what is being tested here.
+    chooseLocation:async()=>{log('chooseLocation');return renderer.nextLocation?{location:renderer.nextLocation,defaultLocation:renderer.state.install.defaultLocation}:null;},
     startInstall:async options=>{log('startInstall',options);if(renderer.refuse){const message=renderer.refuse;renderer.refuse=null;throw Error(message);}},
-    pause:async()=>{log('pause');},
-    resume:async()=>{log('resume');},
+    pauseInstall:async()=>{log('pauseInstall');},
+    resumeInstall:async()=>{log('resumeInstall');},
     cancelSignIn:async()=>{log('cancelSignIn');},
     refreshAccount:async()=>{log('refreshAccount');},
     signOut:async()=>{log('signOut');},
@@ -607,7 +609,7 @@ try{
    await launcherPage.getByRole('button',{name:'Pause',exact:true}).focus();
    assert.equal(await launcherPage.evaluate(()=>document.activeElement.dataset.barPause!==undefined),true,'pause takes keyboard focus');
    await launcherPage.keyboard.press('Enter');
-   assert.equal((await callsNamed('pause')).length,1,'Enter on the focused pause control must reach main');
+   assert.equal((await callsNamed('pauseInstall')).length,1,'Enter on the focused pause control must reach main');
    await launcherPage.locator('[data-bar-toggle]').focus();
    await launcherPage.keyboard.press('Enter');
    assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),true,'the tab toggles with the keyboard');
@@ -618,9 +620,15 @@ try{
    await pushState({phase:'uninstalled',progress:null,actions:['download'],install:launcherState({}).install,profile:null,canPlay:false});
    await launcherPage.evaluate(()=>{window.easterRenderer.nextLocation='/mnt/games/easter-company/minecraft';});
    await heroButton.click();
+   await launcherPage.waitForFunction(()=>document.getElementById('desktop-launcher')&&document.getElementById('desktop-launcher').open);
    assert.equal(await launcherPage.locator('#desktop-launcher').isVisible(),true,'the hero download action opens the launcher dialog');
    const locationInput=launcherPage.locator('#desktop-launcher input[name=installLocation]');
    assert.equal(await locationInput.inputValue(),'/home/player/.easter-company/minecraft','the location field defaults to install.defaultLocation');
+   // A picker the player cancels answers null and must leave the typed location alone.
+   await launcherPage.evaluate(()=>{window.easterRenderer.nextLocation=null;});
+   await launcherPage.getByRole('button',{name:'Choose folder…'}).click();
+   assert.equal(await locationInput.inputValue(),'/home/player/.easter-company/minecraft','a cancelled picker must not change the location');
+   await launcherPage.evaluate(()=>{window.easterRenderer.nextLocation='/mnt/games/easter-company/minecraft';});
    await launcherPage.getByRole('button',{name:'Choose folder…'}).click();
    assert.equal(await locationInput.inputValue(),'/mnt/games/easter-company/minecraft','the folder picker replaces the default');
    const graphicsToggle=launcherPage.locator('#desktop-launcher input[name=includeGraphics]');

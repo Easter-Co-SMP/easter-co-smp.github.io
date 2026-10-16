@@ -20,10 +20,13 @@
  // choose-location or update handler. Looking them up defensively hides those controls
  // instead of throwing at the player.
  const bridge=(...names)=>{for(const name of names)if(typeof desktop[name]==='function')return desktop[name].bind(desktop);};
- const chooseLocation=bridge('chooseInstallLocation','chooseLocation');
+ // The merged preload exposes choose-location, start-install, pause-install, resume-install
+ // and cancel-install; the older aliases are kept so a launcher built before that half
+ // landed still shows the controls it can honour.
+ const chooseLocation=bridge('chooseLocation','chooseInstallLocation');
  const startInstall=bridge('startInstall','startDownload');
- const pauseTransfer=bridge('pause');
- const resumeTransfer=bridge('resume');
+ const pauseTransfer=bridge('pauseInstall','pause');
+ const resumeTransfer=bridge('resumeInstall','resume');
  const playAction=bridge('play','launch');
 
  const phaseOf=state=>state&&typeof state.phase==='string'?state.phase:'';
@@ -266,7 +269,10 @@
   locationField.addEventListener('input',()=>{installTouched=true;locationField.removeAttribute('aria-invalid');installError.hidden=true;});
  $('[data-choose-location]').onclick=()=>{if(typeof chooseLocation!=='function')return;
   void Promise.resolve(chooseLocation()).then(value=>{
-   if(typeof value==='string'&&value){locationField.value=value;installTouched=true;installError.hidden=true;locationField.removeAttribute('aria-invalid');}
+   // The picker answers with {location, defaultLocation}; a cancelled picker answers null.
+   const chosen=typeof value==='string'?value:value&&typeof value.location==='string'?value.location:'';
+   if(!chosen)return;
+   locationField.value=chosen;installTouched=true;installError.hidden=true;locationField.removeAttribute('aria-invalid');
   }).catch(error=>{installError.hidden=false;installError.textContent=error&&error.message?error.message:String(error);});};
  $('.desktop-install-start').onclick=()=>void beginInstall();
  window.addEventListener('resize',()=>{if(current)renderBar(current);},{passive:true});
