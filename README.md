@@ -96,6 +96,20 @@ The inherited public client ID currently displays **Prism Launcher** in Microsof
 just like the existing shortcut. Set EASTER_MICROSOFT_CLIENT_ID to an Easter Company
 registration approved for Minecraft/Xbox access when available; no secret belongs in the app.
 
+Easter Company account enrolment rides on that same Microsoft session: the Mojang access
+token the launcher already holds is posted to `POST /v1/accounts/login`, and the first
+successful call creates the account while every later one signs in. The returned session
+lives in its own safeStorage vault (`company.enc` in app data) under the same rules as the
+Microsoft session, so `basic_text` is refused there too. Signing out revokes it with
+`POST /v1/accounts/logout` and deletes it locally whether or not the revocation is reachable.
+Only the account name, its roles and the session's expiry reach the renderer: no token, UUID
+or response body crosses IPC, and every cloud call happens in the main process behind the
+origin-checked handlers with a bounded timeout. The API origin is the constant in
+`desktop/config.cjs`, currently the deployed API Gateway host of the accounts HTTP API
+(`https://jyjshd22z3.execute-api.us-east-2.amazonaws.com`); set `EASTER_API_BASE_URL` to
+override it (HTTPS required, with a loopback exception used by the tests). That hostname is
+stable while the stack exists and changes if the stack is destroyed and recreated.
+
 The app installs its own Java 25, Minecraft 26.2, Fabric 0.19.5, the custom mod, and the five
 pinned dependencies into its app-data/minecraft directory. It does not touch ~/.minecraft or
 an existing player's credentials. The default server is the same tailnet address as the drun
@@ -119,9 +133,15 @@ Checks: `npm test` (desktop unit and fixture tests), `npm run test:desktop`
 temporary app home), `node tests/drawings.mjs`, and `node tests/browser.mjs`. The browser and
 Electron checks need a local preview of `site/` and use the host's existing Playwright
 installation. Auth tests use fixture identities; no test reads an existing account cache or
-signs in a person. The Electron harness is excluded from packages. The packaged-bundle guard
-has its own fixture tests in `tests/test_app_bundle.py`, which build minimal ASARs in a
-temporary directory rather than reading `release/`, so they hold with or without a build.
+signs in a person. The Electron harness is excluded from packages. `tests/desktop/*.test.cjs`
+includes the account client against a local stub server (unreachable API, `401
+invalid_minecraft_token`, a malformed body and a create-then-login pair) and the vault's
+refusal of `basic_text`. `node tests/desktop/accounts.electron.mjs` additionally drives real
+Electron against a loopback stub through `EASTER_API_BASE_URL`, and needs the host's
+Playwright plus an X display: `xvfb-run -a node tests/desktop/accounts.electron.mjs`. The
+packaged-bundle guard has its own fixture tests in `tests/test_app_bundle.py`, which build
+minimal ASARs in a temporary directory rather than reading `release/`, so they hold with or
+without a build.
 
 Verified on this machine on **2026-10-15**: `python -m unittest discover -s tests -p 'test_*.py'`,
 `python scripts/validate.py site`, `npm test` (10 desktop tests), `node tests/drawings.mjs`,

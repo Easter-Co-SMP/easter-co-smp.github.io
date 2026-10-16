@@ -6,7 +6,7 @@
  document.documentElement.classList.add('desktop-mode');
  let current,settings,totalMemoryMB;
  const panel=document.createElement('dialog');panel.id='desktop-launcher';panel.setAttribute('aria-labelledby','desktop-title');
- panel.innerHTML='<button class="dialog-close" type="button" aria-label="Close launcher">×</button><p class="eyebrow">Easter Company · Desktop</p><h2 id="desktop-title">Your next voyage.</h2><p class="desktop-account"></p><div class="desktop-status" role="status" aria-live="polite"></div><progress class="desktop-progress" max="100" hidden></progress><section class="desktop-device" hidden><p>Sign in securely with Microsoft</p><strong class="desktop-code"></strong><button type="button" class="text-link" data-open-microsoft>Open Microsoft sign-in ↗</button><small class="desktop-provider"></small><button type="button" class="text-link" data-cancel>Cancel sign-in</button></section><button class="desktop-play launcher-button" type="button">Sign in &amp; Play</button><details class="desktop-settings"><summary>Client settings</summary><form><label>Memory <output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"></label><label>Server address<input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><label>Java executable <small>Leave empty to install the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label><button type="submit" class="text-link">Save settings</button><output class="desktop-settings-result" role="status"></output></form></details><div class="desktop-utilities"><button class="text-link" type="button" data-open-folder>Open client folder ↗</button><button class="text-link" type="button" data-sign-out>Sign out</button><small class="desktop-version"></small></div>';
+ panel.innerHTML='<button class="dialog-close" type="button" aria-label="Close launcher">×</button><p class="eyebrow">Easter Company · Desktop</p><h2 id="desktop-title">Your next voyage.</h2><p class="desktop-account"></p><p class="desktop-company" hidden></p><button type="button" class="text-link" data-account-refresh hidden>Refresh account</button><button type="button" class="text-link" data-account-sign-out hidden>Sign out of Easter Company</button><div class="desktop-status" role="status" aria-live="polite"></div><progress class="desktop-progress" max="100" hidden></progress><section class="desktop-device" hidden><p>Sign in securely with Microsoft</p><strong class="desktop-code"></strong><button type="button" class="text-link" data-open-microsoft>Open Microsoft sign-in ↗</button><small class="desktop-provider"></small><button type="button" class="text-link" data-cancel>Cancel sign-in</button></section><button class="desktop-play launcher-button" type="button">Sign in &amp; Play</button><details class="desktop-settings"><summary>Client settings</summary><form><label>Memory <output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"></label><label>Server address<input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><label>Java executable <small>Leave empty to install the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label><button type="submit" class="text-link">Save settings</button><output class="desktop-settings-result" role="status"></output></form></details><div class="desktop-utilities"><button class="text-link" type="button" data-open-folder>Open client folder ↗</button><button class="text-link" type="button" data-sign-out>Sign out</button><small class="desktop-version"></small></div>';
  document.body.append(panel);
  const $=selector=>panel.querySelector(selector);
  const message=$('.desktop-status'),progress=$('.desktop-progress'),playButton=$('.desktop-play');
@@ -35,6 +35,15 @@
   playButton.disabled=busy;playButton.textContent=current.phase==='running'?'Minecraft is running':busy?'Preparing your voyage…':current.profile?'Play Minecraft':'Sign in & Play';
   const account=current.profile?.name;
   $('.desktop-account').textContent=account?'Signed in as '+account+(current.remembered?' · Remembered on this device':' · This session only'):'Connect your Microsoft account to set sail.';
+  // Easter Company account state. Only a name and roles ever arrive from IPC.
+  const company=current.account;
+  $('.desktop-company').hidden=!account;
+  $('.desktop-company').textContent=company?'Easter Company account: '+company.name+(company.roles.length?' · '+company.roles.join(', '):''):'No Easter Company account on this device yet.';
+  $('[data-account-refresh]').hidden=!account;$('[data-account-refresh]').disabled=busy;
+  // The session token never comes near the UI; only whether one is held and when
+  // it lapses, so a player can see that signing in again is enough.
+  const live=Boolean(company)&&current.sessionExpiresAt>Date.now();
+  $('[data-account-sign-out]').hidden=!live||busy;
   settingsButton.textContent=account||'My client';
   $('.desktop-settings form').inert=busy;
   $('[data-sign-out]').hidden=!account;$('[data-sign-out]').disabled=busy&&current.phase!=='running';
@@ -61,6 +70,8 @@
  $('[data-cancel]').onclick=()=>desktop.cancelSignIn().catch(report);
  $('[data-open-folder]').onclick=()=>desktop.openFolder().catch(report);
  $('[data-sign-out]').onclick=()=>desktop.signOut().catch(report);
+ $('[data-account-refresh]').onclick=()=>desktop.refreshAccount().catch(report);
+ $('[data-account-sign-out]').onclick=()=>desktop.signOutAccount().catch(report);
  playButton.onclick=start;
  desktop.status().then(state=>{
   settings=state.settings;totalMemoryMB=state.totalMemoryMB;
