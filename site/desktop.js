@@ -54,7 +54,7 @@
  }
 
  const panel=document.createElement('dialog');panel.id='desktop-launcher';panel.setAttribute('aria-labelledby','desktop-title');
- panel.innerHTML='<button class="dialog-close" type="button" aria-label="Close launcher">×</button><p class="eyebrow">Easter Company · Desktop</p><h2 id="desktop-title">Your next voyage.</h2><p class="desktop-account"></p><p class="desktop-company" hidden></p><button type="button" class="text-link" data-account-refresh hidden>Refresh account</button><button type="button" class="text-link" data-account-sign-out hidden>Sign out of Easter Company</button><section class="desktop-install" hidden><p class="desktop-install-note"></p><label>Installation folder<input name="installLocation" autocomplete="off" spellcheck="false"><small class="desktop-install-default"></small></label><button type="button" class="text-link" data-choose-location hidden>Choose folder…</button><p class="desktop-install-error" role="alert" hidden></p><label class="desktop-toggle"><input type="checkbox" name="includeGraphics" checked> Include enhanced graphics + shaders</label><button type="button" class="launcher-button desktop-install-start">Start download</button></section><div class="desktop-status" role="status" aria-live="polite"></div><progress class="desktop-progress" max="100" hidden></progress><section class="desktop-device" hidden><p class="desktop-device-instruction">Enter this code on the Microsoft sign-in page.</p><strong class="desktop-code"></strong><button type="button" class="launcher-button desktop-device-action" data-open-microsoft>Login with Microsoft</button><p class="desktop-device-foot"><small class="desktop-provider"></small><button type="button" class="text-link" data-cancel>Cancel sign-in</button></p></section><button class="desktop-play launcher-button" type="button">Sign in &amp; Play</button><details class="desktop-settings"><summary>Client settings</summary><form><label>Memory <output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"></label><label>Server address<input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><label>Java executable <small>Leave empty to install the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label><button type="submit" class="text-link">Save settings</button><output class="desktop-settings-result" role="status"></output></form></details><div class="desktop-utilities"><button class="text-link" type="button" data-open-folder>Open client folder ↗</button><button class="text-link" type="button" data-sign-out>Sign out</button><small class="desktop-version"></small></div>';
+ panel.innerHTML='<button class="dialog-close" type="button" aria-label="Close launcher">×</button><p class="eyebrow">Easter Company · Desktop</p><h2 id="desktop-title">Your next voyage.</h2><p class="desktop-account"></p><p class="desktop-company" hidden></p><button type="button" class="text-link" data-account-refresh hidden>Refresh account</button><button type="button" class="text-link" data-account-sign-out hidden>Sign out of Easter Company</button><section class="desktop-install" hidden><p class="desktop-install-note"></p><label>Installation folder<input name="installLocation" autocomplete="off" spellcheck="false"><small class="desktop-install-default"></small></label><button type="button" class="text-link" data-choose-location hidden>Choose folder…</button><p class="desktop-install-error" role="alert" hidden></p><label class="desktop-toggle"><input type="checkbox" name="includeGraphics" checked> Include enhanced graphics + shaders</label><button type="button" class="launcher-button desktop-install-start">Start download</button></section><div class="desktop-status" role="status" aria-live="polite"></div><progress class="desktop-progress" max="100" hidden></progress><section class="desktop-device" hidden><p class="desktop-device-instruction" id="desktop-device-instruction">Enter this code on the Microsoft sign-in page.</p><strong class="desktop-code"></strong><button type="button" class="launcher-button desktop-device-action" data-open-microsoft><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg><span>Login with Microsoft</span></button><p class="desktop-device-foot"><small class="desktop-provider"></small><button type="button" class="text-link" data-cancel>Cancel sign-in</button></p></section><button class="desktop-play launcher-button" type="button">Sign in &amp; Play</button><details class="desktop-settings"><summary>Client settings</summary><form><label>Memory <output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"></label><label>Server address<input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><label>Java executable <small>Leave empty to install the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label><button type="submit" class="text-link">Save settings</button><output class="desktop-settings-result" role="status"></output></form></details><div class="desktop-utilities"><button class="text-link" type="button" data-open-folder>Open client folder ↗</button><button class="text-link" type="button" data-sign-out>Sign out</button><small class="desktop-version"></small></div>';
  document.body.append(panel);
  const $=selector=>panel.querySelector(selector);
  const message=$('.desktop-status'),progress=$('.desktop-progress'),playButton=$('.desktop-play');
@@ -62,9 +62,9 @@
  const installError=$('.desktop-install-error');
  let installTouched=false,graphicsTouched=false,installRequested=false;
  $('.dialog-close').onclick=()=>panel.close();
- panel.addEventListener('click',event=>{const r=panel.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)panel.close();});
- const open=()=>{if(!panel.open)panel.showModal();};
- const report=error=>{message.textContent=error&&error.message?error.message:String(error);};
+ panel.addEventListener('click',event=>{if(event.target!==panel||event.detail===0)return;const r=panel.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)panel.close();});
+ const open=()=>{if(!panel.open)panel.showModal();if(current?.device)$('[data-open-microsoft]').focus();};
+ const report=error=>{message.textContent=error&&error.message?error.message:String(error);message.classList.add('is-error');};
 
  // ---- Sticky bottom bar -----------------------------------------------------
  // The minimised state is a renderer-local preference by contract, so it is kept here
@@ -172,6 +172,7 @@
   if(installRequested&&transferring(current)){installRequested=false;if(panel.open)panel.close();}
   const busy=signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
   const account=current.profile?.name,action=primaryAction(current),install=installOf(current),phase=phaseOf(current);
+  message.classList.remove('is-error');
   message.textContent=current.message||'Your crew is waiting.';
   playButton.disabled=busy||action.kind==='busy';
   // The first-run section carries its own Start download action, so the dialog's primary
@@ -192,13 +193,18 @@
   $('.desktop-settings form').inert=busy;
   $('[data-sign-out]').hidden=!account;$('[data-sign-out]').disabled=busy&&phase!=='running';
   const device=current.device;$('.desktop-device').hidden=!device;
-  // While a device-code sign-in is pending this dialog is the whole task: one instruction,
-  // the code, and one button that opens Microsoft. Everything else the dialog can show is
-  // hidden by the .is-signing-in rule in desktop.css, so the button that matters is the only
-  // button competing for attention. The dialog keeps its accessible name because
-  // aria-labelledby resolves through the hidden heading.
+  // Keep the pending sign-in focused on the instruction, code and browser action.
+  const wasSigningIn=panel.classList.contains('is-signing-in');
   panel.classList.toggle('is-signing-in',Boolean(device));
-  if(device){$('.desktop-code').textContent=device.code;$('.desktop-provider').textContent='Microsoft will identify this sign-in as '+(current.authName||'the launcher')+'.';}
+  if(device){
+   panel.removeAttribute('aria-labelledby');panel.setAttribute('aria-label','Sign in with Microsoft');
+   panel.setAttribute('aria-describedby','desktop-device-instruction');
+   $('.desktop-code').textContent=device.code;
+   $('.desktop-provider').textContent='Microsoft lists this app as '+(current.authName||'the launcher')+'.';
+   if(!wasSigningIn&&panel.open)$('[data-open-microsoft]').focus();
+  }else{
+   panel.removeAttribute('aria-label');panel.removeAttribute('aria-describedby');panel.setAttribute('aria-labelledby','desktop-title');
+  }
   progress.hidden=true; // The themed sticky bar owns progress on every page.
   // A progress object without a numeric percent is indeterminate: no value attribute,
   // because a raw browser progress bar would otherwise sit at an invented position.
@@ -235,7 +241,7 @@
  }
 
  // ---- Wiring ----------------------------------------------------------------
- const signIn=()=>{if(signInPending)return;open();signInPending=true;render(current||{});void Promise.resolve(desktop.signIn()).catch(report).finally(()=>{signInPending=false;render(current||{});});};
+ const signIn=()=>{if(signInPending)return;open();signInPending=true;render(current||{});void Promise.resolve(desktop.signIn()).catch(report).finally(()=>{signInPending=false;render(current||{});if(panel.open&&!playButton.hidden&&!playButton.disabled)playButton.focus();});};
  const start=()=>{open();void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
  const openInstall=()=>{open();installError.hidden=true;if(typeof chooseLocation==='function'){
   // Prefill from the contract default, then let the folder picker replace it.

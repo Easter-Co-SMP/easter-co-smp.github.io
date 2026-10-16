@@ -70,10 +70,28 @@ try{
   await page.locator('#desktop-launcher').waitFor({state:'hidden'});
   await page.locator('[data-desktop-play]').click();
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
+  const signin=page.getByRole('dialog',{name:'Sign in with Microsoft',exact:true});
+  assert.equal(await signin.isVisible(),true);
+  assert.equal(await signin.locator('.desktop-status').isVisible(),false,'transfer status must not duplicate the sign-in instruction');
+  assert.equal(await signin.locator('[data-open-microsoft]').evaluate(el=>el===document.activeElement),true,'focus goes to the Microsoft browser action');
+  await app.evaluate(({shell})=>{global.__openedMicrosoft=[];shell.openExternal=async url=>{global.__openedMicrosoft.push(url);};});
+  await page.keyboard.press('Enter');
+  assert.deepEqual(await app.evaluate(()=>global.__openedMicrosoft),['https://www.microsoft.com/link'],'Enter opens the intended Microsoft page through main');
+  assert.equal(await signin.isVisible(),true,'keyboard activation must not be mistaken for a backdrop click');
+  for(const width of [800,390,320]){
+   await page.setViewportSize({width,height:width===800?600:568});
+   const bounds=await signin.boundingBox();
+   assert(bounds.x>=0&&bounds.x+bounds.width<=width+1,'sign-in fits '+width+'px');
+   assert.equal(await signin.evaluate(el=>el.scrollWidth<=el.clientWidth),true,'sign-in has no horizontal overflow');
+   assert.equal(await signin.getByRole('button',{name:'Login with Microsoft',exact:true}).isVisible(),true);
+   assert.equal(await signin.locator('.desktop-code').isVisible(),true);
+   await signin.screenshot({path:'/tmp/signin-reviewed-'+width+'.png'});
+  }
+  await page.setViewportSize({width:800,height:600});
   assert(!(await page.evaluate(()=>JSON.stringify(document.body.textContent))).includes('fixture-private'));
   await page.getByRole('button',{name:'Cancel sign-in',exact:true}).click();
   await page.locator('.desktop-status').filter({hasText:'cancelled'}).waitFor();
-  await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
+  await page.locator('#desktop-launcher').getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   await app.evaluate(()=>global.easterTestApprove());
   await page.locator('#desktop-launcher').getByRole('button',{name:'PLAY NOW',exact:true}).click();
