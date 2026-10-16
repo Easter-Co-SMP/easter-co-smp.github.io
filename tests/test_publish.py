@@ -545,8 +545,11 @@ class ClientExportTests(unittest.TestCase):
             root = Path(temp)
             client = self.build(root)
             first = (root / 'public/data/client.json').read_bytes()
+            version = client['chunks'][0]['version']
             self.build(root)
-            self.assertEqual(first, (root / 'public/data/client.json').read_bytes())
+            again = (root / 'public/data/client.json').read_bytes()
+            self.assertEqual(first, again)  # unchanged inputs, byte-identical manifest
+            self.assertEqual(version, json.loads(again)['chunks'][0]['version'])
             published = json.loads(first)
             self.assertEqual(set(published) <= set(MANIFEST_KEYS), True)
             self.assertEqual(published['minecraft'], '26.2')
