@@ -340,9 +340,15 @@ try{
  // A reading from hours ago is still drawn, but hollow: the same marker kind observed now
  // is filled with its key colour. The live chart's own age mix is not assumed.
  {
-  const minutes=n=>new Date(Date.now()-n*60000).toISOString();
-  const aged={...structuredClone(clean),center:[250,100],markers:[
-   {id:'1'.repeat(20),kind:'ship',icon:'hull',name:'Fresh hull',x:100,z:100,observed_at:minutes(1)},
+  // The chart calls a reading old when the snapshot is more than five minutes newer than the
+  // observation (site/map/map.js: captured_at - observed_at > 300000). Building these from the
+  // clock made the test a time bomb: it only held while now-90min was still before the
+  // snapshot's own captured_at, and every daily export moves that. Anchoring both readings to
+  // the snapshot makes the case hold at any hour, on any snapshot.
+  const snapshot='2026-01-01T12:00:00.000Z';
+  const minutes=n=>new Date(Date.parse(snapshot)-n*60000).toISOString();
+  const aged={...structuredClone(clean),captured_at:snapshot,center:[250,100],markers:[
+   {id:'1'.repeat(20),kind:'ship',icon:'hull',name:'Fresh hull',x:100,z:100,observed_at:minutes(-1)},
    {id:'2'.repeat(20),kind:'ship',icon:'hull',name:'Older hull',x:400,z:100,observed_at:minutes(90)}]};
   const agedContext=await browser.newContext({viewport:{width:1440,height:900}});
   try{
