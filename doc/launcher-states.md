@@ -7,9 +7,11 @@ requirements; the main process never decides what the hero looks like.
 ## Required flow
 
 1. **Fresh install.** The hero's primary action is **Download the game** (the
-   custom Easter Company client bundle, not the launcher). The user chooses an
-   installation location or accepts the default, and toggles **Include enhanced
-   graphics + shaders**. Starting the download is what creates investment.
+   custom Easter Company client bundle, not the launcher). It opens the first-run
+   install card described under *Home actions, Settings and enhanced graphics*:
+   the user chooses an installation location or accepts the default, is told what
+   the machine's graphics setting will be, and starts the download. Starting the
+   download is what creates investment.
 2. **Once the download starts**, a sticky bottom bar appears (bottom centre,
    contents left aligned, themed progress bar, pause and resume, transfer speed,
    percentage). The hero simultaneously switches to **Sign in with Microsoft**,
@@ -281,6 +283,80 @@ update is not.
    rewritten or removed by a launcher update.
 9. **`version` is the launcher, `install.version` is the game client.** They are
    unrelated and must never be rendered as if they were the same thing.
+
+## Home actions, Settings and enhanced graphics
+
+Owen's review of the shipped launcher on 2026-10-16 fixed where each control
+belongs. The install actions and the settings are no longer the same surface, and
+the graphics choice is a player-facing toggle instead of a checkbox buried in an
+install form.
+
+**Settings is a settings-only dialog, and only the Play Now stage has it.** It is
+the hero's secondary action, exactly as *Account menu and installation recognition*
+already said; the header has no client settings button and never had one in the
+contract. The dialog contains client settings and nothing else: installation
+folder, client settings (server, memory, Java), and the version footer. It never
+carries a download, install, update or play action, never carries the sticky bar's
+transfer, and never carries a status hint about what the player still has to do.
+When the player is not yet at the Play Now stage, Settings is not offered at all.
+
+**First-run download lives in the hero.** The install card (installation folder,
+the graphics note, and **Start download**) is opened by the hero's **Download the
+game** action and shown on Home. It is the only place install actions exist. Its
+only status line is its own: the launcher must not print a second, vaguer hint
+such as "Download the game to get started."
+
+**Enhanced Graphics & Shaders is a themed toggle under the hero action.**
+Visible once `install.installed` is true, placed below the hero's primary action,
+labelled **Enable Enhanced Graphics & Shaders**. It is the only graphics control in
+the launcher; the install card states what the automatic choice will be rather than
+offering a second copy of the control. Flipping it on fetches the optional
+`graphics` chunk through the existing verified pipeline and the sticky bar, and
+writes the client's own quality settings; flipping it off stops nothing that is
+already installed and never invalidates the base chunk.
+
+**The machine decides the default, once, honestly.** "On unless the GPU is clearly
+weak": integrated graphics, a software renderer (llvmpipe, SwiftShader) or an
+unknown adapter with no reported video memory leaves enhanced graphics off, and
+anything else turns it on. The player's explicit choice always wins from then on
+and is never re-decided behind them.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `hardware` | object | Always present in desktop mode |
+| `graphics` | object | Always present in desktop mode |
+
+`hardware` is `{gpu, vendor, vramMB, tier, reason}`: `gpu` is the adapter string as
+the OS reports it, `vramMB` is null when the platform will not say, `tier` is
+`capable`, `weak` or `unknown`, and `reason` is one short sentence safe to display,
+for example "Discrete GPU with 8192 MB of video memory."
+
+`graphics` is `{enabled, recommended, tunable, tuned}`: `enabled` is
+`install.includeGraphics` under its player-facing name, `recommended` is the
+automatic answer for this machine, `tunable` is false when this platform cannot
+report enough about the GPU to promise a quality level, and `tuned` is
+`{renderDistance, shadowDistance, shaders}` actually written into the client.
+
+The server field becomes a choice with a working default, and the entries are
+published by the main process rather than hardcoded in the view:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `servers` | array | `{id, label, address, note, pending}` in display order |
+
+`100.100.1.0:25565` is the default, `127.0.0.1:25565` is the local server, and
+`smp.easter.company:25565` is listed as `pending` because that name has no DNS
+record yet; a pending entry is shown as unavailable rather than silently failing to
+connect. An entry the player types is kept as their own choice and is never
+rewritten to an entry id.
+
+**Two accounts are never rendered as one.** The Microsoft account and the Easter
+Company account are separate systems, and the dialog labels them separately. A
+signed-in Microsoft account must not be followed by "No Easter Company account on
+this device yet." as bare, unlabelled copy: the company line is labelled, and when
+nothing depends on a company account it is omitted rather than advertised. The
+memory control is an explained advanced setting, not a bare slider under a heading
+that says nothing about what it does.
 
 ## Account menu and installation recognition
 
