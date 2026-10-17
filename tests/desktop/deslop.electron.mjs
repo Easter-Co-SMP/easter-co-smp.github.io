@@ -9,8 +9,11 @@ try{
  const page=await app.firstWindow();await page.setViewportSize({width:1360,height:920});page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');await page.keyboard.press('Escape');
  assert.equal(await page.locator('.desktop-account-nav:visible').count(),0);
+ // The header already carries Map, so the hero carries no second route to it, and no
+ // screen offers the same action twice.
  assert.equal(await page.getByRole('link',{name:'View Map',exact:true}).count(),0);
- await page.getByRole('button',{name:'Settings',exact:true}).click();await page.keyboard.press('Escape');
+ assert.equal(await page.getByRole('button',{name:/^(download the game|start download|install the game)\b/i}).count(),1,'one download action per screen');
+ assert.equal(await page.getByRole('button',{name:'Settings',exact:true}).count(),0,'Settings is offered only at the Play Now stage');
  await page.evaluate(()=>window.easterDesktop.startInstall({}));
  await page.locator('[data-desktop-play][data-action=signin]').waitFor();
  const signIn=async()=>{
@@ -19,6 +22,7 @@ try{
   await app.evaluate(()=>global.easterTestApprove());await page.evaluate(()=>window.pending);
  };
  await signIn();await page.locator('[data-desktop-play][data-action=play]').waitFor();
+ await page.getByRole('button',{name:'Settings',exact:true}).click();await page.keyboard.press('Escape');
  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).canPlay,true);
  await page.waitForFunction(()=>document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(16,16,1,1).data[0]===200);
  await page.locator('.desktop-account-nav').click();

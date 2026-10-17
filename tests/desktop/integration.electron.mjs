@@ -72,11 +72,12 @@ try {
   assert.match(await hero(), /Download the game/i, 'the hero asks for the game first: ' + await hero());
   note('fresh: hero promotes the download, no bar, Play absent');
 
-  // 2. Start the client download. The install section collects the location and the toggle.
-  await page.locator('[data-desktop-play]').click();
-  const installSection = page.locator('#desktop-install-card');
+  // 2. Start the client download. The hero action is the only download control; the
+  // details beside it hold the location and the machine's graphics answer.
+  const installSection = page.locator('#desktop-install-details');
   await installSection.waitFor({state: 'visible'});
-  const location = await installSection.locator('input[name="installLocation"]').inputValue();
+  assert.equal(await page.getByRole('button', {name: /^(download the game|start download|install the game)\b/i}).count(), 1, 'one download action per screen');
+  const location = (await installSection.locator('.desktop-install-current').textContent()).trim();
   assert(location.length > 0, 'the install folder defaults to something the player can accept');
   // The graphics choice is no longer a checkbox in the install form: the card states the
   // machine's own answer, and the hero toggle is the player's control once the client is in.
@@ -88,11 +89,11 @@ try {
   await fs.mkdir(picked);
   await app.evaluate(({dialog},picked)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[picked]});},picked);
   await installSection.getByRole('button',{name:'Choose folder…'}).click();
-  await page.waitForFunction(picked=>document.querySelector('input[name="installLocation"]').value===picked,picked);
+  await page.waitForFunction(picked=>document.querySelector('.desktop-install-current').textContent.trim()===picked,picked);
   assert.equal((await state()).install.location,picked,'the real picker object updates both UI and saved location');
   assert.equal((await installSection.locator('.desktop-install-graphics').textContent()).trim(),graphicsNote,'choosing a folder leaves the graphics answer untouched');
 
-  await installSection.locator('.desktop-install-start, button[type="submit"]').first().click();
+  await page.locator('[data-desktop-play][data-action="download"]').click();
   await page.waitForFunction(() => document.getElementById('launcher-bar')?.hidden === false, {timeout: 20000});
   note('download: the sticky bar appears once the download starts');
 

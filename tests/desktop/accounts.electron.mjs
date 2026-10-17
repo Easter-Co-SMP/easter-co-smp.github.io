@@ -40,8 +40,7 @@ try{
 	const errors=[];page.on('pageerror',e=>errors.push(e.message));
 	await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
 	await page.locator('[data-desktop-play]').click();
-	await page.getByRole('button',{name:'Start download',exact:true}).click();
-	await page.locator('#desktop-install-card').waitFor({state:'hidden'});
+	await page.locator('#desktop-install-details').waitFor({state:'hidden'});
 	await page.locator('[data-desktop-play]').click();
 	await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
 	await app.evaluate(()=>global.easterTestApprove());

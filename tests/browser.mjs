@@ -631,61 +631,63 @@ try{
    await launcherPage.keyboard.press('Enter');
    assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),false,'the same key re-opens it');
 
-   // The first-run flow: the install card is its own surface behind the hero's own
-   // Download the game action, and it is the only place a folder is chosen.
-   await pushState({phase:'uninstalled',progress:null,actions:['download'],install:launcherState({}).install,profile:null,canPlay:false});
-   assert.equal(await launcherPage.locator('#desktop-install-card').isVisible(),true,'the first run leads with the install card');
+   // The first-run flow: one download action on the screen, and it is the hero's own.
+   // The details under it say where the client installs and what the machine will do about
+   // graphics; they carry no second button, because that would be the same action twice.
+   await pushState({phase:'uninstalled',progress:null,actions:['download'],install:launcherState({}).install,profile:null,canPlay:false,bar:{visible:false}});
+   const installDetails=launcherPage.locator('#desktop-install-details');
+   await installDetails.waitFor({state:'visible'});
+   const heroActionButton=launcherPage.locator('.hero-actions [data-desktop-play]');
+   assert.equal(await heroActionButton.getAttribute('data-action'),'download','the hero action is the download at first run');
+   assert.equal(await launcherPage.getByRole('button',{name:/^(download the game|start download|install the game)\b/i}).count(),1,'the first run must offer exactly one download action');
+   assert.equal(await launcherPage.getByRole('button',{name:/^start download$/i}).count(),0,'no second download button exists anywhere on Home');
    await launcherPage.evaluate(()=>{window.easterRenderer.nextLocation='/mnt/games/easter-company/minecraft';});
-   const installCard=launcherPage.locator('#desktop-install-card');
-   await installCard.waitFor({state:'visible'});
-   assert.equal(await launcherPage.locator('#desktop-launcher').isVisible(),false,'the install card is not the settings dialog');
-   // The card lives in the hero, right after the actions the player just used.
-   assert.equal(await installCard.evaluate(el=>el.closest('dialog')===null),true,'the install card is never inside the settings dialog');
-   assert.equal(await installCard.evaluate(el=>el.parentElement.classList.contains('hero-copy')),true,'the install card belongs to the hero');
-   assert.equal(await installCard.evaluate(el=>Boolean(el.previousElementSibling)===true),true,'the install card follows the hero actions');
-   assert.equal(await installCard.getByRole('heading',{name:'Install the Easter Company client'}).count(),1,'the card names itself');
-   assert.equal(await installCard.locator('[data-choose-location]').isVisible(),true,'choosing the folder is a real button');
-   assert.equal(await installCard.locator('.desktop-folder-button').count(),1);
-   assert.equal(await installCard.locator('.desktop-folder-button').evaluate(el=>el.tagName),'BUTTON');
-   const folderDefault=await installCard.locator('.desktop-install-default').textContent();
+   assert.equal(await launcherPage.locator('#desktop-launcher').isVisible(),false,'the download details are not the settings dialog');
+   assert.equal(await installDetails.evaluate(el=>el.closest('dialog')===null),true,'the details are never inside the settings dialog');
+   assert.equal(await installDetails.evaluate(el=>el.parentElement.classList.contains('hero-copy')),true,'the details belong to the hero');
+   assert.equal(await installDetails.evaluate(el=>el.previousElementSibling.classList.contains('hero-graphics')),true,'the details follow the hero action');
+   assert.equal(await installDetails.getByRole('button').count(),1,'the folder picker is the only control in the details');
+   assert.equal(await installDetails.locator('[data-choose-location]').isVisible(),true,'choosing the folder is a real button');
+   assert.equal(await installDetails.locator('.desktop-folder-button').evaluate(el=>el.tagName),'BUTTON');
+   const folderDefault=await installDetails.locator('.desktop-install-default').textContent();
    assert(folderDefault.length>0,'the folder row explains itself instead of a bare path: '+folderDefault);
    assert(/app-owned folder|default/i.test(folderDefault),'the default path is supporting text, not the row itself: '+folderDefault);
-   assert((await installCard.locator('.desktop-install-current').textContent()).includes('/home/player/.easter-company/minecraft'),'the card names the folder that will be used');
-   await installCard.locator('[data-choose-location]').click();
-   assert((await installCard.locator('.desktop-install-current').textContent()).includes('/mnt/games/easter-company/minecraft'),'the folder picker replaces the default');
-   assert((await installCard.locator('.desktop-install-default').textContent()).includes('/home/player/.easter-company/minecraft'),'the default stays visible as supporting text after a choice');
-   // The card states what the automatic graphics choice will be. It offers no second
+   assert((await installDetails.locator('.desktop-install-current').textContent()).includes('/home/player/.easter-company/minecraft'),'the details name the folder that will be used');
+   await installDetails.locator('[data-choose-location]').click();
+   assert((await installDetails.locator('.desktop-install-current').textContent()).includes('/mnt/games/easter-company/minecraft'),'the folder picker replaces the default');
+   assert((await installDetails.locator('.desktop-install-default').textContent()).includes('/home/player/.easter-company/minecraft'),'the default stays visible as supporting text after a choice');
+   // The details state what the automatic graphics choice will be. They offer no second
    // copy of the control: the toggle under the hero action is the only one.
-   const graphicsNote=await installCard.locator('.desktop-install-graphics').textContent();
-   assert(graphicsNote.includes('Discrete GPU with 8192 MB of video memory.'),'the card carries the machine note from the contract: '+graphicsNote);
+   const graphicsNote=await installDetails.locator('.desktop-install-graphics').textContent();
+   assert(graphicsNote.includes('Discrete GPU with 8192 MB of video memory.'),'the machine note comes from the contract: '+graphicsNote);
    assert(/enhanced graphics and shaders/i.test(graphicsNote),'the note states the automatic graphics choice: '+graphicsNote);
-   assert.equal(await installCard.locator('input[type=checkbox]').count(),0,'the install card offers no second graphics control');
-   await installCard.getByRole('button',{name:'Start download',exact:true}).click();
+   assert.equal(await installDetails.locator('input[type=checkbox]').count(),0,'the details offer no second graphics control');
+   await heroActionButton.click();
    await launcherPage.waitForFunction(()=>window.easterRenderer.calls.some(call=>call.name==='startInstall'));
    const startCalls=await callsNamed('startInstall');
    assert.deepEqual(startCalls[0].payload,{location:'/mnt/games/easter-company/minecraft',includeGraphics:true},'the chosen folder and the machine\'s graphics answer are passed to main');
-   // A transfer under way is not a reason to keep offering the install card.
+   // A transfer under way is not a reason to keep offering the download.
    await pushState({phase:'downloading',progress:progressFor(),canPlay:false});
-   assert.equal(await installCard.isVisible(),false,'the install card closes once the download starts');
+   assert.equal(await installDetails.isVisible(),false,'the details close once the download starts');
 
-   // A refused folder is shown in the card, and the flow stays usable.
+   // A refused folder is shown beside the hero action, and the flow stays usable.
    await pushState({phase:'uninstalled',progress:null,actions:['download'],canPlay:false});
-   await installCard.waitFor({state:'visible'});
+   await installDetails.waitFor({state:'visible'});
    await launcherPage.evaluate(()=>{window.easterRenderer.refuse='That folder is not writable.';});
-   await installCard.getByRole('button',{name:'Start download',exact:true}).click();
-   const installError=installCard.locator('.desktop-install-error');
+   await heroActionButton.click();
+   const installError=installDetails.locator('.desktop-install-error');
    await installError.waitFor({state:'visible'});
-   assert.equal(await installError.textContent(),'That folder is not writable.','a refused folder must be shown in the card');
-   assert.equal(await installCard.locator('[data-choose-location]').getAttribute('aria-invalid'),null,'the refusal belongs to the card, not to a dialog field');
+   assert.equal(await installError.textContent(),'That folder is not writable.','a refused folder must be shown next to the hero action');
+   assert.equal(await installDetails.locator('[data-choose-location]').getAttribute('aria-invalid'),'true','the refusal points at the folder choice');
    // The refusal clears as soon as another folder is chosen.
    await launcherPage.evaluate(()=>{window.easterRenderer.nextLocation='/home/player/games/easter';});
-   await installCard.locator('[data-choose-location]').click();
+   await installDetails.locator('[data-choose-location]').click();
    assert.equal(await installError.isVisible(),false,'the refusal clears once another folder is chosen');
-   await installCard.getByRole('button',{name:'Start download',exact:true}).click();
+   await heroActionButton.click();
    await launcherPage.waitForFunction(()=>window.easterRenderer.calls.filter(call=>call.name==='startInstall').length>=3);
    const retried=(await callsNamed('startInstall')).at(-1);
    assert.deepEqual(retried.payload,{location:'/home/player/games/easter',includeGraphics:true},'the flow stays usable after a refusal');
-   assert.equal(await launcherPage.locator('#desktop-launcher').isVisible(),false,'the install flow never needs the settings dialog');
+   assert.equal(await launcherPage.locator('#desktop-launcher').isVisible(),false,'the download flow never needs the settings dialog');
 
    // Settings is the hero's secondary action, offered only at the Play Now stage.
    await pushState({phase:'ready',progress:null,actions:['signin'],install:INSTALLED,profile:{name:'Owen'},canPlay:false});
@@ -706,13 +708,13 @@ try{
    const dialogText=await dialog.innerText();
    for(const forbidden of ['Start download','Include enhanced graphics + shaders'])
     assert(!dialogText.includes(forbidden),'the settings dialog must not carry "'+forbidden+'"');
-   assert(!dialogText.includes('Install the Easter Company client'),'the install card never lives in the settings dialog');
-   assert.equal(await dialog.locator('.desktop-install').count(),0,'the settings dialog holds no install section');
+   assert(!dialogText.includes('Install the Easter Company client'),'the download details never live in the settings dialog');
+   assert.equal(await dialog.locator('.desktop-install-details').count(),0,'the settings dialog holds no install section');
    assert.equal(await dialog.locator('[data-choose-location]').count(),0,'choosing the install folder is not a settings action');
    assert.equal(await dialog.getByRole('button',{name:/play/i}).count(),0,'the dialog offers no play action');
    assert.equal(await dialog.locator('.desktop-play,.desktop-progress,.launcher-bar-track').count(),0,'the dialog carries no play button, no progress bar and no transfer');
-   assert.equal(await dialog.locator('.desktop-install-start').count(),0,'no download action lives in the dialog');
-   assert.equal(await installCard.isVisible(),false,'opening Settings does not open the install card');
+   assert.equal(await dialog.getByRole('button',{name:/download/i}).count(),0,'no download action lives in the dialog');
+   assert.equal(await installDetails.isVisible(),false,'opening Settings does not open the download details');
 
    // Server address: published by main, with the pending entry unusable rather than
    // silently failing, and a Custom option that reveals a field of the player's own.
@@ -888,6 +890,6 @@ try{
    assert.deepEqual(await launcherPage.evaluate(()=>window.easterRenderer.errors),[],'the fixture saw no page error on its last load');
    await launcherContext.close();
   }finally{await launcherContext.close().catch(()=>{});}
-  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; the install card behind the hero action with a real folder affordance; a settings-only dialog offered only at the Play Now stage with a published server choice and an explained memory setting; the themed enhanced graphics toggle driving setGraphics; refusals shown; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
+  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage with a published server choice and an explained memory setting; the themed enhanced graphics toggle driving setGraphics; refusals shown; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
  }
 }finally{await browser.close();}

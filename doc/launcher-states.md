@@ -7,11 +7,12 @@ requirements; the main process never decides what the hero looks like.
 ## Required flow
 
 1. **Fresh install.** The hero's primary action is **Download the game** (the
-   custom Easter Company client bundle, not the launcher). It opens the first-run
-   install card described under *Home actions, Settings and enhanced graphics*:
-   the user chooses an installation location or accepts the default, is told what
-   the machine's graphics setting will be, and starts the download. Starting the
-   download is what creates investment.
+   custom Easter Company client bundle, not the launcher). It is the only download
+   control on the screen and it starts the download itself; the details under it
+   describe the first-run install covered by *Home actions, Settings and enhanced
+   graphics*: the installation location it will use, with the folder picker as the
+   only way to change it, and what the machine's graphics setting will be. Starting
+   the download is what creates investment.
 2. **Once the download starts**, a sticky bottom bar appears (bottom centre,
    contents left aligned, themed progress bar, pause and resume, transfer speed,
    percentage). The hero simultaneously switches to **Sign in with Microsoft**,
@@ -301,23 +302,27 @@ already said; the header has no client settings button and never had one in the
 contract. The dialog contains client settings and nothing else: the server choice,
 memory and Java as client settings, the account lines and the version footer. The
 installation folder is not one of them: choosing where the client lives belongs to
-the install card that does the installing, and offering it in a dialog that cannot
+the download details that do the installing, and offering it in a dialog that cannot
 install anything is how the shipped launcher ended up showing a bare "Default:
 <path>" line with no purpose. It never carries a download, install, update or play
 action, never carries the sticky bar's transfer, and never carries a status hint
 about what the player still has to do. When the player is not yet at the Play Now
 stage, Settings is not offered at all.
 
-**First-run download lives in the hero.** The install card (installation folder,
-the graphics note, and **Start download**) is opened by the hero's **Download the
-game** action and shown on Home. It is the only place install actions exist. Its
-only status line is its own: the launcher must not print a second, vaguer hint
-such as "Download the game to get started."
+**One screen carries one action.** A screen never offers the same function twice, and
+Home shows exactly one way to start the download: the hero's **Download the game**
+action, which starts it. The first-run details under that action (installation
+folder with its **Choose folder…** picker, and the machine's automatic graphics
+answer) are supporting text with no action of their own, because a second *Start
+download* button on the same screen is the first one again. The details carry no
+status line either: the launcher must not print a second, vaguer hint such as
+"Download the game to get started.", and a refused folder is reported beside the
+folder choice it belongs to.
 
 **Enhanced Graphics & Shaders is a themed toggle under the hero action.**
 Visible once `install.installed` is true, placed below the hero's primary action,
 labelled **Enable Enhanced Graphics & Shaders**. It is the only graphics control in
-the launcher; the install card states what the automatic choice will be rather than
+the launcher; the first-run details state what the automatic choice will be rather than
 offering a second copy of the control. Flipping it on fetches the optional
 `graphics` chunk through the existing verified pipeline and the sticky bar, and
 writes the client's own quality settings; flipping it off stops nothing that is
@@ -387,11 +392,11 @@ page: the shell is the viewport height, the hero takes whatever the header and
 footer leave over, and neither axis overflows at any size the window allows
 (`minWidth` 800, `minHeight` 600). No state field is added by this; it is a rule
 about the surface. Utility pages that really are documents (the map today, the
-coming wiki) keep their own scrolling. While the first-run install card is open the
-crest and the large title step aside so the card and its **Start download** action
-stay on screen, and the card is the only scroller if its content ever exceeds the
-window. The narrow-width fallback is the website's stacked layout, which only
-desktop mode in a browser can reach.
+coming wiki) keep their own scrolling. First run adds only a line of supporting
+detail under the hero action, so the crest, the name, the single download action and
+that detail all stay on screen at 800x600 without the shell ever scrolling. The
+narrow-width fallback is the website's stacked layout, which only desktop mode in a
+browser can reach.
 
 ## Account menu and installation recognition
 

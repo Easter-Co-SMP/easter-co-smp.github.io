@@ -41,12 +41,15 @@ try{
   assert.equal(await page.locator('.site-header .desktop-settings-button').count(),0,'the header carries no client settings button');
   assert.equal(await page.locator('.site-header').getByRole('button',{name:'Settings',exact:true}).count(),0,'and no settings button is placed in the header nav');
   assert.equal(await page.locator('.site-header .map-link').count(),0,'the header stays account-only');
-  // The first-run install card is its own hero surface behind Download the game.
-  const installCard=page.locator('#desktop-install-card');
-  await installCard.waitFor({state:'visible'});
-  assert.equal(await installCard.locator('[data-choose-location]').isVisible(),true,'choosing the folder is a real button in the card');
-  assert((await installCard.locator('.desktop-install-default').textContent()).length>0,'the folder row is supporting text, never a bare default line');
-  assert.equal(await installCard.getByRole('button',{name:'Start download',exact:true}).isVisible(),true);
+  // One screen carries one action: the hero's own Download the game. The details beside
+  // it say where the client installs and carry no second download button.
+  const installDetails=page.locator('#desktop-install-details');
+  await installDetails.waitFor({state:'visible'});
+  assert.equal(await page.getByRole('button',{name:/^(download the game|start download|install the game)\b/i}).count(),1,'the first run offers exactly one download action');
+  assert.equal(await page.getByRole('button',{name:/^start download$/i}).count(),0,'no second download button exists on Home');
+  assert.equal(await installDetails.locator('[data-choose-location]').isVisible(),true,'choosing the folder is a real button');
+  assert((await installDetails.locator('.desktop-install-default').textContent()).length>0,'the folder row is supporting text, never a bare default line');
+  assert.equal(await installDetails.getByRole('button').count(),1,'the folder picker is the only control in the details');
   assert.equal(await page.evaluate(()=>typeof window.require),'undefined');
   assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences().nodeIntegration),false);
   assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences().contextIsolation),true);
@@ -66,8 +69,7 @@ try{
  });
  await run(path.join(root,'tests/desktop/harness.cjs'),async(app,page)=>{
   await page.locator('[data-desktop-play]').click();
-  await page.locator('#desktop-install-card').getByRole('button',{name:'Start download',exact:true}).click();
-  await page.locator('#desktop-install-card').waitFor({state:'hidden'});
+  await page.locator('#desktop-install-details').waitFor({state:'hidden'});
   await page.locator('[data-desktop-play]').click();
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   const signin=page.getByRole('dialog',{name:'Sign in with Microsoft',exact:true});
@@ -133,8 +135,8 @@ try{
   const settingsText=await dialog.innerText();
   for(const forbidden of ['Start download','Include enhanced graphics + shaders'])
    assert(!settingsText.includes(forbidden),'the settings dialog must not carry "'+forbidden+'"');
-  assert.equal(await dialog.locator('.desktop-install,.desktop-progress,.desktop-play').count(),0,'the dialog carries no install section, progress bar or play button');
-  assert.equal(await dialog.locator('input[name=installLocation]').count(),0,'the installation folder is not a settings row');
+  assert.equal(await dialog.locator('.desktop-install-details,.desktop-progress,.desktop-play').count(),0,'the dialog carries no install section, progress bar or play button');
+  assert.equal(await dialog.locator('[data-choose-location]').count(),0,'the installation folder is not a settings row');
   const serverSelect=dialog.locator('select[name=serverSelect]');
   // The options are filled from the state the main process broadcasts, so wait for them
   // rather than reading a select that may still be empty.
@@ -206,5 +208,5 @@ try{
  // may report an installed client whose marker file is absent, and the toggle then refuses
  // honestly instead of writing a choice it cannot honour).
  assert.equal(typeof savedCustom.includeGraphics,'boolean','the settings file records a graphics choice, never a missing field');
- console.log('DESKTOP PASS: no Skip intro control in the desktop DOM (Escape and the 4.6s bound still end the arrival), real Electron, isolated renderer, shared Home/Map, the hero install card with a real folder affordance, a settings-only dialog at the Play Now stage with a published server choice, the themed enhanced graphics toggle, native settings persistence, sign-in cancellation, device-code UI, authenticated Play, game lifecycle, no tokens in UI');
+ console.log('DESKTOP PASS: no Skip intro control in the desktop DOM (Escape and the 4.6s bound still end the arrival), real Electron, isolated renderer, shared Home/Map, a single download action with the folder choice beside it, a settings-only dialog at the Play Now stage with a published server choice, the themed enhanced graphics toggle, native settings persistence, sign-in cancellation, device-code UI, authenticated Play, game lifecycle, no tokens in UI');
 }finally{await fs.rm(temp,{recursive:true,force:true});}

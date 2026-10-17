@@ -81,27 +81,26 @@
  // progress and no status hint about what the player still has to do.
  panel.innerHTML='<button class="dialog-close" type="button" aria-label="Close launcher">×</button><p class="eyebrow">Easter Company · Desktop</p><h2 id="desktop-title">Settings</h2><p class="desktop-account"></p><p class="desktop-company" hidden></p><button type="button" class="text-link" data-account-refresh hidden>Refresh account</button><button type="button" class="text-link" data-account-sign-out hidden>Sign out of Easter Company</button><section class="desktop-device" hidden><p class="desktop-device-instruction" id="desktop-device-instruction">Enter this code on the Microsoft sign-in page.</p><strong class="desktop-code"></strong><button type="button" class="launcher-button desktop-device-action" data-open-microsoft><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg><span>Login with Microsoft</span></button><p class="desktop-device-foot"><small class="desktop-provider"></small><button type="button" class="text-link" data-cancel>Cancel sign-in</button></p></section><div class="desktop-status" role="status" aria-live="polite"></div><form class="desktop-settings"><p class="desktop-settings-heading">Client settings</p><label>Server address<select name="serverSelect"></select><input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><p class="desktop-settings-note" hidden></p><details class="desktop-advanced"><summary>Advanced settings</summary><p class="desktop-advanced-note">How much memory the game may use. Too little makes the client stutter or run out of memory in busy areas; more than the game needs takes memory from everything else on this machine, so leave it alone unless you are told to change it.</p><label>Memory allocated to the game<output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"><small class="desktop-memory-detail"></small></label><label>Java executable <small>Leave empty to install the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label></details><p class="desktop-settings-heading">Updates and launching</p><label class="desktop-preference"><input type="checkbox" name="autoUpdateLauncher"> Automatically keep launcher up-to-date.</label><label class="desktop-preference"><input type="checkbox" name="autoUpdateGame"> Automatically keep games up-to-date.</label><label class="desktop-preference"><input type="checkbox" name="exitOnLaunch"> Exit launcher when opening a game.</label><p class="desktop-launcher-update" hidden></p><button type="button" class="text-link" data-save-settings>Save settings</button><output class="desktop-settings-result" role="status"></output></form><div class="desktop-utilities"><button class="text-link" type="button" data-open-folder>Open client folder ↗</button><button class="text-link" type="button" data-sign-out>Sign out</button><small class="desktop-version"></small></div>';
  document.body.append(panel);
- // The install card is its own panel in the hero, never part of the settings dialog:
- // first-run download and client settings are different surfaces.
- const installPanel=document.createElement('section');
- installPanel.className='desktop-install-panel';installPanel.id='desktop-install-card';installPanel.hidden=true;
- installPanel.setAttribute('aria-labelledby','desktop-install-title');
- installPanel.innerHTML='<h2 id="desktop-install-title">Install the Easter Company client</h2><section class="desktop-install"><p class="desktop-install-note"></p><div class="desktop-folder"><span>Installation folder</span><strong class="desktop-install-current"></strong><button type="button" class="desktop-folder-button" data-choose-location hidden>Choose folder…</button><small class="desktop-install-default"></small></div><p class="desktop-install-graphics" hidden></p><p class="desktop-install-error" role="alert" hidden></p><button type="button" class="launcher-button desktop-install-start">Start download</button></section>';
+ // One screen carries one action. The hero's own Download the game starts the download,
+ // so this is supporting detail beside it rather than a second panel with a second
+ // button: where the client will live, and what the machine's graphics answer will be.
+ const installDetails=document.createElement('div');
+ installDetails.className='desktop-install-details';installDetails.id='desktop-install-details';installDetails.hidden=true;
+ installDetails.innerHTML='<div class="desktop-folder"><span>Installs to</span><strong class="desktop-install-current"></strong><button type="button" class="desktop-folder-button" data-choose-location hidden>Choose folder…</button><small class="desktop-install-default"></small></div><p class="desktop-install-graphics" hidden></p><p class="desktop-install-error" role="alert" hidden></p>';
  const $=selector=>panel.querySelector(selector);
- const $$=selector=>installPanel.querySelector(selector);
+ const $$=selector=>installDetails.querySelector(selector);
  const message=$('.desktop-status');
- // The chosen folder is held here and handed to main when the download starts.
- const locationField=document.createElement('input');locationField.type='hidden';locationField.name='installLocation';installPanel.append(locationField);
+ // An empty choice means the app-owned default; the folder picker is the only thing that
+ // replaces it, and the hero action hands it to main when it starts the download.
+ let chosenLocation='';
  const installError=$$('.desktop-install-error'),installGraphics=$$('.desktop-install-graphics');
  const settingsForm=$('form.desktop-settings'),serverSelect=settingsForm.elements.serverSelect,serverField=settingsForm.elements.server;
  const settingsNote=$('.desktop-settings-note'),settingsResult=$('.desktop-settings-result');
  const memory=settingsForm.elements.memoryMB;
- let installTouched=false,installRequested=false,settingsDirty=false;
+ let installRequested=false,settingsDirty=false;
  $('.dialog-close').onclick=()=>panel.close();
  panel.addEventListener('click',event=>{if(event.target!==panel||event.detail===0)return;const r=panel.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)panel.close();});
  const open=()=>{if(!panel.open)panel.showModal();if(current?.device)$('[data-open-microsoft]').focus();};
- const installOpen=()=>{const button=$$('[data-choose-location]');
-  if(!button.hidden)button.focus?.();else $$('.desktop-install-start').focus?.();};
  const report=error=>{message.textContent=error&&error.message?error.message:String(error);message.classList.add('is-error');};
 
  // ---- Sticky bottom bar -----------------------------------------------------
@@ -282,25 +281,22 @@
  }
 
  // ---- Hero surfaces ---------------------------------------------------------
- // The install card is the only place install actions exist, and it is opened by
- // the hero's own Download the game action.
- function renderInstallCard(state,open){
+ // The details belong to the hero's Download the game action: they say where it will
+ // install and what the machine will do about graphics, and carry no action of their own.
+ function renderInstallCard(state){
   const install=installOf(state),graphicsState=graphicsOf(state),hardware=hardwareOf(state);
   const fallback=typeof install.defaultLocation==='string'?install.defaultLocation:'';
-  if(!installTouched||!locationField.value)locationField.value=fallback;
-  const location=locationField.value||fallback;
+  const location=chosenLocation||install.location||fallback;
   $$('.desktop-install-current').textContent=location||'Not chosen yet';
   // The default is supporting text, and the choice is a real button.
   $$('.desktop-install-default').textContent=!location?'':location===fallback?'The app-owned folder, used unless you choose another.':'Default: '+fallback;
   $$('[data-choose-location]').hidden=typeof chooseLocation!=='function';
-  // The card states what the automatic choice for this machine will be; the toggle
+  // The details state what the automatic choice for this machine will be; the toggle
   // under the hero action is the only graphics control in the launcher.
   const recommended=graphicsState?Boolean(graphicsState.recommended):Boolean(install.includeGraphics);
   const why=graphicsState?.reason||hardware.reason||'';
   installGraphics.hidden=!graphicsState;
   installGraphics.textContent=graphicsState?joinParts(['Enhanced graphics and shaders will be '+(recommended?'included':'left off')+' automatically on this machine.',why,graphicsState.tunable===false?'This machine cannot report enough about its graphics to promise a quality level.':'']):'';
-  $$('.desktop-install-start').hidden=typeof startInstall!=='function';
-  if(open)installError.hidden=true;
  }
 
  function renderGraphics(state,busy){
@@ -370,10 +366,10 @@
    if(!graphicsSection.hidden)renderGraphics(current,busy);
   }
   const needsDownload=action.kind==='download';
-  installPanel.hidden=!needsDownload;
-  if(needsDownload)renderInstallCard(current,true);else installError.hidden=true;
+  installDetails.hidden=!needsDownload;
+  if(needsDownload)renderInstallCard(current);else installError.hidden=true;
   if(heroButton){
-   heroButton.disabled=busy||action.kind==='busy'||action.kind==='running';
+   heroButton.disabled=busy||action.kind==='busy'||action.kind==='running'||(needsDownload&&typeof startInstall!=='function');
    // The action kind is published on the element so a test can assert the gate without
    // reading the label back out of the copy.
    heroButton.dataset.action=action.kind;
@@ -392,14 +388,6 @@
  const signIn=()=>{if(signInPending)return;open();signInPending=true;render(current||{});void Promise.resolve(desktop.signIn()).catch(report).finally(()=>{signInPending=false;render(current||{});const target=$('[data-open-microsoft]');if(panel.open&&!deviceHidden())target.focus();});};
  const deviceHidden=()=>$('.desktop-device').hidden;
  const start=()=>{open();void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
- // The install card is its own surface: the hero action reveals it and focuses it, and it
- // never opens the settings dialog on top of itself. Opening Settings here covered the card
- // with a modal, so the player saw a download they could not click.
- const openInstall=()=>{installPanel.hidden=false;installError.hidden=true;if(typeof chooseLocation==='function'&&!locationField.value){
-  // Prefill from the contract default; the folder picker is the only thing that replaces it.
-  const fallback=installOf(current||{}).defaultLocation;
-  if(typeof fallback==='string')locationField.value=fallback;}
-  installOpen();};
  const openSettings=()=>{open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
   // Land the keyboard on the first setting that is actually usable.
   const first=current?.device?$('[data-open-microsoft]'):!serverField.hidden?serverField:$('.desktop-advanced summary');
@@ -408,14 +396,14 @@
  const heroAction=()=>{const action=primaryAction(current||{});
   if(action.kind==='play')return start();
   if(action.kind==='signin')return signIn();
-  if(action.kind==='download')return openInstall();
+  if(action.kind==='download')return void beginInstall();
   return undefined;};
  async function beginInstall(){
-  if(typeof startInstall!=='function')return;
-  const location=(locationField.value||'').trim()||installOf(current||{}).defaultLocation||'';
-  installError.hidden=true;
+  if(typeof startInstall!=='function'||installRequested)return;
+  const install=installOf(current||{});
+  const location=(chosenLocation||install.location||install.defaultLocation||'').trim();
+  installError.hidden=true;installError.textContent='';
   installRequested=true;
-  $$('.desktop-install-start').disabled=true;
   try{
    // The graphics choice travels with the install as the machine's own automatic
    // answer. The toggle under the hero action is the player's, and is used once the
@@ -424,8 +412,8 @@
   }catch(error){
    // A refused location is shown, and the flow stays usable.
    installError.hidden=false;installError.textContent=error&&error.message?error.message:String(error);
-   locationField.setAttribute('aria-invalid','true');
-  }finally{installRequested=false;$$('.desktop-install-start').disabled=false;}
+   $$('[data-choose-location]').setAttribute('aria-invalid','true');
+  }finally{installRequested=false;}
  }
 
  const hero=document.querySelector('[data-download-primary]');
@@ -439,6 +427,10 @@
   document.querySelector('.launcher-picker')?.remove();
   document.querySelector('.map-caption')?.remove();
   const actions=replacement.closest('.hero-actions')||replacement.parentElement;
+  // The header carries Map on every page, so the hero's own View Map link would be the
+  // same destination twice on one screen. Desktop mode drops it and gives the slot to
+  // Settings, which appears only once there is a client to configure.
+  actions?.querySelector('a.map-link')?.remove();
   // The settings button is created with the hero, so the header never carries one.
   settingsButton=document.createElement('button');settingsButton.type='button';
   settingsButton.className='map-link desktop-settings-button';settingsButton.textContent='Settings';
@@ -450,9 +442,9 @@
   graphics.innerHTML='<label class="hero-graphics-switch"><input type="checkbox" data-graphics-toggle><span class="hero-graphics-track" aria-hidden="true"><i></i></span><span class="hero-graphics-text"><strong class="desktop-graphics-label"></strong><small class="desktop-graphics-note"></small></span></label><p class="desktop-graphics-error" role="alert" hidden></p>';
   // Below the hero's primary action, in the hero itself rather than in a dialog.
   (actions?.parentElement||actions)?.insertBefore(graphics,actions?.nextSibling||null);
-  // The install card follows the toggle, in the hero, and is opened by the hero's
-  // own Download the game action.
-  graphics.parentElement?.insertBefore(installPanel,graphics.nextSibling);
+  // The download details follow the toggle, in the hero, and belong to the hero's own
+  // Download the game action.
+  graphics.parentElement?.insertBefore(installDetails,graphics.nextSibling);
   graphicsSection=graphics;graphicsSwitch=graphics.querySelector('[data-graphics-toggle]');
   graphicsLabel=graphics.querySelector('.desktop-graphics-label'),graphicsNote=graphics.querySelector('.desktop-graphics-note');graphicsError=graphics.querySelector('.desktop-graphics-error');
   graphicsSwitch.addEventListener('change',async()=>{
@@ -504,13 +496,11 @@
  barToggle.onclick=()=>{minimised=!minimised;writeMinimised(minimised);renderBar(current||{});if(!minimised)barToggle.focus();};
  pauseButton.onclick=()=>{if(typeof pauseTransfer==='function')void Promise.resolve(pauseTransfer()).catch(report);};
  resumeButton.onclick=()=>{if(typeof resumeTransfer==='function')void Promise.resolve(resumeTransfer()).catch(report);};
- locationField.addEventListener('input',()=>{installTouched=true;locationField.removeAttribute('aria-invalid');installError.hidden=true;});
  $$('[data-choose-location]').onclick=()=>{if(typeof chooseLocation!=='function')return;
   void Promise.resolve(chooseLocation()).then(result=>{
    const value=typeof result==='string'?result:result?.location;
-   if(typeof value==='string'&&value){locationField.value=value;installTouched=true;installError.hidden=true;locationField.removeAttribute('aria-invalid');if(current)renderInstallCard(current,false);}
+   if(typeof value==='string'&&value){chosenLocation=value;installError.hidden=true;installError.textContent='';$$('[data-choose-location]').removeAttribute('aria-invalid');if(current)renderInstallCard(current);}
   }).catch(error=>{installError.hidden=false;installError.textContent=error&&error.message?error.message:String(error);});};
- $$('.desktop-install-start').onclick=()=>void beginInstall();
  serverSelect.onchange=()=>{
   settingsDirty=true;settingsResult.textContent='';
   if(serverSelect.value===CUSTOM_SERVER){serverField.hidden=false;serverField.focus?.();showServerNote(null);}
