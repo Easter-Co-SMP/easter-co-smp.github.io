@@ -102,7 +102,7 @@ try{
  assert.equal(await page.locator('.download-link,#open-guide,#guide-dialog').count(),0);
  assert.equal(await page.getByRole('navigation',{name:'Main navigation'}).count(),1);
  assert.equal(await page.locator('nav a[aria-current="page"]').textContent(),'Home');
- assert(await page.getByRole('button',{name:'Wiki',exact:true}).isDisabled());await noOverflow();
+ assert.equal(await page.getByRole('link',{name:'Wiki',exact:true}).getAttribute('href'),'./wiki/');await noOverflow();
  await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
  const skipPage=await context.newPage();await skipPage.goto(origin);
  assert.equal(await skipPage.getByRole('button',{name:'Skip intro'}).count(),1);
@@ -114,7 +114,7 @@ try{
  assert.equal(await reducedPage.locator('body').evaluate(el=>el.classList.contains('is-arriving')),false);
  assert.equal(await reducedPage.locator('.skip-arrival').isVisible(),false);
  assert.equal(await reducedPage.locator('.crest-frame').evaluate(el=>getComputedStyle(el).animationName),'none');
- assert(await reducedPage.locator('.wiki-link').isDisabled());await reduced.close();
+ assert.equal(await reducedPage.locator('.wiki-link').getAttribute('href'),'wiki/');await reduced.close();
  await page.locator('.hero-copy').evaluate(async el=>{await Promise.all(el.getAnimations().map(animation=>animation.finished));});
  await page.screenshot({path:'/tmp/easter-public-home-desktop.png',fullPage:true});
  for(const trigger of [page.getByRole('button',{name:'Choose launcher platform',exact:true}),page.getByRole('navigation').getByRole('button',{name:'Download',exact:true})]){

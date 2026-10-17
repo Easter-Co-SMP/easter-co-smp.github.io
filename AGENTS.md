@@ -1,7 +1,7 @@
 # Easter Co. public site
 
 This is a buildless GitHub Pages site, not an e-server page. Read README.md before changes.
-Keep shared Home, Download, Map, and disabled Wiki navigation. The public map is view-only.
+Keep shared Home, Download, Map, and Wiki navigation. The public map is view-only.
 Secondary branding is "The Ultimate Minecraft Experience". Welcome veterans, pros and absolute
 beginners. Keep the rich casual early game and cooking/baking/brewing contributions
 alongside the harder progression, team encounters, and crime/punishment mechanics.
