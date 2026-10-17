@@ -177,10 +177,18 @@ function chooseDevice(devices){
 // Two adapters, one answer: the launcher tells the player that the machine has more
 // than one, so a description of the wrong card is never silently presented as the
 // machine's only graphics hardware.
+// Only display adapters count as adapters. The system probe lists every PCI device it can
+// see, so counting all of them said this machine had 31 graphics adapters when it has two.
+function isGraphicsAdapter(item){
+ if(!item)return false;
+ if(Number.isFinite(item.vramMB)&&item.vramMB>0)return true;
+ const name=String(item.name||'').toLowerCase();
+ return /(geforce|radeon|\barc\b|quadro|tesla|\bgpu\b|graphics|\bvga\b|display controller|iris|uhd graphics|apple m[0-9]|video controller)/.test(name);
+}
 function distinctAdapters(adapters){
  const seen=new Set();
  for(const item of Array.isArray(adapters)?adapters:[]){
-  if(!item)continue;
+  if(!isGraphicsAdapter(item))continue;
   const key=[hex16(item.vendorId),hex16(item.deviceId),String(item.name||'').toLowerCase()].join('|');
   seen.add(key);
  }
@@ -266,7 +274,7 @@ function hardwareProfile({adapter=null,devices=[],featureStatus=null,adapters=[]
   reason=(name?name+': ':'')+'the platform does not report video memory, so enhanced graphics are left on.';
  }else{
   tier='capable';
-  reason=(vendor?vendor+' ':'')+'GPU '+name+' with '+vramMB+' MB of video memory.';
+  reason=(vendor&&!new RegExp(vendor,'i').test(name)?vendor+' ':'')+name+' with '+vramMB+' MB of video memory.';
  }
  if(installed>1&&name)reason=reason.replace(/\.$/,'')+' (this machine has '+installed+' graphics adapters).';
  return {gpu:name,vendor,vramMB,tier,reason,source:matched?.source||(name?'reported':'none'),software:softwareName||(fallbackToSoftware&&!name),adapters:installed};

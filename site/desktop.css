@@ -36,6 +36,8 @@
 .desktop-settings-note{margin:0 0 18px;padding:10px 12px;border:1px solid #cfb88b40;border-radius:8px;background:#122b3566;color:#dfcfad;font-size:10px;line-height:1.7}
 .desktop-advanced{border-top:1px solid #cfb88b30;margin-top:22px;padding-top:16px}
 .desktop-advanced summary{cursor:pointer;color:#c9b58c;font-size:11px}
+/* The collapsed Advanced row and the next section heading sit flush without this. */
+.desktop-advanced + .desktop-settings-heading{margin-top:26px}
 .desktop-advanced-note{font-size:11px;line-height:1.8;color:#9fb3aa;margin:16px 0 0}
 .desktop-advanced label{margin:20px 0 0}
 .java-field{display:flex;gap:8px}.java-field button{border:1px solid #cfb88b35;border-radius:7px;padding:0 12px;font-size:11px}

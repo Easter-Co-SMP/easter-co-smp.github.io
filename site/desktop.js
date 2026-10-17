@@ -387,11 +387,14 @@
  const signIn=()=>{if(signInPending)return;open();signInPending=true;render(current||{});void Promise.resolve(desktop.signIn()).catch(report).finally(()=>{signInPending=false;render(current||{});const target=$('[data-open-microsoft]');if(panel.open&&!deviceHidden())target.focus();});};
  const deviceHidden=()=>$('.desktop-device').hidden;
  const start=()=>{open();void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
- const openInstall=()=>{open();installError.hidden=true;if(typeof chooseLocation==='function'&&!locationField.value){
+ // The install card is its own surface: the hero action reveals it and focuses it, and it
+ // never opens the settings dialog on top of itself. Opening Settings here covered the card
+ // with a modal, so the player saw a download they could not click.
+ const openInstall=()=>{installPanel.hidden=false;installError.hidden=true;if(typeof chooseLocation==='function'&&!locationField.value){
   // Prefill from the contract default; the folder picker is the only thing that replaces it.
   const fallback=installOf(current||{}).defaultLocation;
   if(typeof fallback==='string')locationField.value=fallback;}
-  if(typeof chooseLocation!=='function')installOpen();};
+  installOpen();};
  const openSettings=()=>{open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
   // Land the keyboard on the first setting that is actually usable.
   const first=current?.device?$('[data-open-microsoft]'):!serverField.hidden?serverField:$('.desktop-advanced summary');
