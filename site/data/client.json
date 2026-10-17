@@ -4,11 +4,11 @@
       "fabric": "0.19.5",
       "files": [
         {
-          "hash": "sha256:3cb0b28b1f7de7c818cb35072846ce922975be9f23f1fab988bda3c329f8936f",
+          "hash": "sha256:d6561a1378d1445df2410eeb52ca65d4bb12a7618b1e0821a2ebc7357328b523",
           "id": "easter-navy",
           "name": "Easter Co. Mod Pack: Guards & Villagers",
           "path": "downloads/easter-navy.jar",
-          "size": 656819,
+          "size": 662914,
           "url": "downloads/easter-navy.jar",
           "version": "2.0.0"
         },
@@ -63,7 +63,7 @@
       "java": 25,
       "name": "Minecraft 26.2 game, libraries and required mods",
       "optional": false,
-      "version": "sha256:768b1233241a38c1775ecb77580f853514d1d1bc1aa6b23a7d7761a19510c3ff"
+      "version": "sha256:877befb1e1a668f72881497c49dba08ee1aea52d425e4f6679e74ad777692583"
     },
     {
       "fabric": null,
@@ -121,9 +121,9 @@
   "fabric": "0.19.5",
   "minecraft": "26.2",
   "mod": {
-    "bytes": 656819,
+    "bytes": 662914,
     "name": "Easter Co. Mod Pack: Guards & Villagers",
-    "sha256": "3cb0b28b1f7de7c818cb35072846ce922975be9f23f1fab988bda3c329f8936f",
+    "sha256": "d6561a1378d1445df2410eeb52ca65d4bb12a7618b1e0821a2ebc7357328b523",
     "url": "downloads/easter-navy.jar",
     "version": "2.0.0"
   }
