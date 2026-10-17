@@ -66,7 +66,12 @@ function cleanSettings(input,totalMB=16384){
  const server=checkServer(input.server);
  const javaPath=String(input.javaPath||'').trim();
  if(javaPath&&(!path.isAbsolute(javaPath)||!/^java(?:\.exe)?$/i.test(path.basename(javaPath))))throw Error('Select a Java executable named java or java.exe.');
- return {memoryMB,server,javaPath};
+ return {memoryMB,server,javaPath,autoUpdateLauncher:preference(input.autoUpdateLauncher),autoUpdateGame:preference(input.autoUpdateGame),exitOnLaunch:preference(input.exitOnLaunch)};
+}
+// A preference is a boolean or it keeps its default; anything else is ignored rather
+// than coerced, so a stray value can never silently flip a player's automation off.
+function preference(value,fallback=true){
+ return typeof value==='boolean'?value:fallback;
 }
 // A saved settings payload may or may not carry the enhanced-graphics toggle. It is
 // a boolean or it is absent; anything else is ignored rather than coerced, so a

@@ -22,7 +22,16 @@ test('only safe app paths and HTTPS external links are accepted',()=>{
  const main={url:'easter://easter/'};assert(trustedFrame({senderFrame:main,sender:{mainFrame:main}}));assert(!trustedFrame({senderFrame:{url:'easter://easter/'},sender:{mainFrame:main}}));
 });
 test('settings reject command strings; public account view omits all tokens',()=>{
- assert.deepEqual(cleanSettings({memoryMB:4096,server:'play.example.com:25565',javaPath:''}),{memoryMB:4096,server:'play.example.com:25565',javaPath:''});
+ assert.deepEqual(cleanSettings({memoryMB:4096,server:'play.example.com:25565',javaPath:''}),{memoryMB:4096,server:'play.example.com:25565',javaPath:'',autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:true});
+ // A player's automation choices survive validation, and a stray value cannot turn one off.
+ assert.deepEqual(
+  (({autoUpdateLauncher,autoUpdateGame,exitOnLaunch})=>({autoUpdateLauncher,autoUpdateGame,exitOnLaunch}))(
+   cleanSettings({memoryMB:4096,server:'',autoUpdateLauncher:false,autoUpdateGame:false,exitOnLaunch:false})),
+  {autoUpdateLauncher:false,autoUpdateGame:false,exitOnLaunch:false});
+ assert.deepEqual(
+  (({autoUpdateLauncher,autoUpdateGame,exitOnLaunch})=>({autoUpdateLauncher,autoUpdateGame,exitOnLaunch}))(
+   cleanSettings({memoryMB:4096,server:'',autoUpdateLauncher:'yes',autoUpdateGame:0,exitOnLaunch:null})),
+  {autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:true});
  for(const server of ['host;rm -rf /','$(command)','server:65536','--argument'])assert.throws(()=>cleanSettings({memoryMB:4096,server}));
  assert.throws(()=>cleanSettings({memoryMB:90000,server:''}));assert.throws(()=>cleanSettings({memoryMB:4096,server:'',javaPath:'/bin/bash'}));
  const profile=publicProfile({profile:{id:'test',name:'Captain',accessToken:'private'},accessToken:'secret'});assert.deepEqual(profile,{id:'test',name:'Captain',skin:null});

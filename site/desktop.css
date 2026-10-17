@@ -148,3 +148,13 @@
 }
 
 .desktop-account-nav{display:inline-flex;align-items:center;justify-content:center;gap:10px}.desktop-account-nav[hidden]{display:none!important}.desktop-account-nav canvas{width:32px;height:32px;image-rendering:pixelated;border-radius:4px;flex:none}.desktop-settings-button{background:none;border:0;cursor:pointer;font:inherit}.desktop-profile-menu{position:fixed;inset:auto;margin:0;min-width:190px;padding:8px;border:1px solid #cfb88b50;border-radius:10px;background:#142e38;color:#e9e0cd;box-shadow:0 14px 40px #0008}.desktop-profile-menu button{display:block;width:100%;text-align:left;padding:12px;border:0;border-radius:5px;background:none;color:inherit;cursor:pointer}.desktop-profile-menu button:hover,.desktop-profile-menu button:focus-visible{background:#cfb88b20}.desktop-profile-menu button:disabled{opacity:.5;cursor:default}.desktop-account-list{border-top:1px solid #cfb88b40;margin-top:6px;padding-top:6px}
+
+/* Preferences in the settings dialog: a labelled row each, never a bare checkbox. */
+.desktop-preference{display:flex;align-items:center;gap:.6rem;margin:.45rem 0;font-size:.95rem;line-height:1.35;cursor:pointer}
+.desktop-preference input[type=checkbox]{appearance:none;-webkit-appearance:none;flex:0 0 auto;width:2.4rem;height:1.3rem;margin:0;border-radius:999px;border:1px solid var(--line,#2c4a4a);background:rgba(0,0,0,.35);position:relative;transition:background .18s ease,border-color .18s ease;cursor:pointer}
+.desktop-preference input[type=checkbox]::after{content:'';position:absolute;top:50%;left:.18rem;width:.9rem;height:.9rem;border-radius:50%;background:var(--muted,#8fa8a0);transform:translateY(-50%);transition:left .18s ease,background .18s ease}
+.desktop-preference input[type=checkbox]:checked{background:rgba(212,175,96,.28);border-color:var(--gold,#d4af60)}
+.desktop-preference input[type=checkbox]:checked::after{left:calc(100% - 1.08rem);background:var(--gold,#d4af60)}
+.desktop-preference input[type=checkbox]:focus-visible{outline:2px solid var(--gold,#d4af60);outline-offset:2px}
+.desktop-launcher-update{margin:.6rem 0 0;font-size:.9rem;color:var(--muted,#8fa8a0)}
+.desktop-launcher-update a{color:var(--gold,#d4af60)}

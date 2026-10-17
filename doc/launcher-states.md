@@ -368,6 +368,16 @@ nothing depends on a company account it is omitted rather than advertised. The
 memory control is an explained advanced setting, not a bare slider under a heading
 that says nothing about what it does.
 
+**Automation is the player's choice, and it is stated in the settings.** Three
+preferences are persisted with the rest of the settings, default on, and are never
+re-decided behind the player:
+
+| Setting | Meaning |
+|---|---|
+| `autoUpdateLauncher` | Keep the launcher itself current. Applying an update in place is not built yet, so this governs the version check and the notice in the settings dialog; nothing is installed by it. |
+| `autoUpdateGame` | Keep the installed game client current. When off, no update starts on its own and a launch never begins a transfer the player did not ask for. |
+| `exitOnLaunch` | Close the launcher after it starts the game, so the launcher is a doorway rather than a second window to manage. |
+
 ## Account menu and installation recognition
 
 Desktop Home uses Settings as its secondary hero action. The header has no client
