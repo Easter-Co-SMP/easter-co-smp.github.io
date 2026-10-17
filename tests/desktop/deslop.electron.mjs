@@ -23,6 +23,23 @@ try{
  };
  await signIn();await page.locator('[data-desktop-play][data-action=play]').waitFor();
  await page.getByRole('button',{name:'Settings',exact:true}).click();await page.keyboard.press('Escape');
+ // A launcher update check withholds Settings, and a check that starts while the dialog
+ // is open closes it (Owen's decision of 2026-10-17). Nothing else is gated: the real
+ // main process is told to broadcast `checking` on the state channel it already uses.
+ const sendState=payload=>app.evaluate(({BrowserWindow},next)=>BrowserWindow.getAllWindows()[0].webContents.send('launcher:state',next),payload);
+ await page.getByRole('button',{name:'Settings',exact:true}).click();
+ await page.locator('#desktop-launcher').waitFor({state:'visible'});
+ await sendState({launcherUpdate:{phase:'checking',version:null,url:null,message:null}});
+ await page.waitForFunction(()=>document.querySelector('.desktop-settings-button')?.hidden===true,null,{timeout:15000});
+ assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.open),false,'a check closes the settings dialog');
+ assert.equal(await page.locator('.hero-copy h1').count(),0,'the launcher carries no marketing headline');
+ // The map is still reachable and the game controls still work: only Settings waits.
+ assert.equal(await page.getByRole('link',{name:'Map',exact:true}).isVisible(),true,'the check gates Settings only');
+ await sendState({launcherUpdate:{phase:'current',version:'1.0.7',url:null,message:null}});
+ await page.waitForFunction(()=>document.querySelector('.desktop-settings-button')?.hidden===false,null,{timeout:15000});
+ await page.getByRole('button',{name:'Settings',exact:true}).click();
+ assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.open),true,'the dialog is offered again once the check settles');
+ await page.keyboard.press('Escape');
  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).canPlay,true);
  await page.waitForFunction(()=>document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(16,16,1,1).data[0]===200);
  await page.locator('.desktop-account-nav').click();

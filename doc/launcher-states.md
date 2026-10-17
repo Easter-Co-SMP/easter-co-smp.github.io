@@ -258,10 +258,16 @@ update is not.
 
 ### Rules
 
-1. **The launcher is always usable.** No phase of `launcherUpdate` hides the
-   launcher's own UI. There is no blocking startup gate. `checking`,
-   `downloading` and `verifying` all leave the player free to look at the map,
-   read their settings or queue the game download.
+1. **The launcher stays usable, but a check is not a settings moment.** There is
+   no blocking startup gate: `downloading` and `verifying` leave the player free to
+   use the launcher. While `phase` is `checking`, however, **Settings is not
+   offered** — Owen's decision of 2026-10-17. The client settings are what the
+   launcher writes and the check is what it is doing at that moment, so the dialog
+   is unreachable until the check settles into `available`, `current`, `idle` or
+   `error`. Nothing else is gated: the map, the game download and Play behave
+   exactly as they do in every other phase. `checking` is therefore a real
+   published phase, not an internal step: the main process sets it before the
+   request leaves and clears it when the answer arrives.
 2. **The launcher's requirement comes first.** While the launcher has an update
    to apply, `actions[0]` is `launcher`, so the hero offers it before the game's
    `download`. The hero renders it from `actions` exactly as it renders every
@@ -346,6 +352,31 @@ the OS reports it, `vramMB` is null when the platform will not say, `tier` is
 `capable`, `weak` or `unknown`, and `reason` is one short sentence safe to display,
 for example "Discrete GPU with 8192 MB of video memory."
 
+**One GPU: the primary display GPU.** Owen's decision of 2026-10-17: the launcher
+targets exactly one adapter, and it must be whichever adapter drives the display,
+never a second card that happens to be present. The answer is resolved in this
+order and stops at the first one that resolves:
+
+1. the card with a connected display output (`/sys/class/drm/card*-<connector>/status`
+   reading `connected` on Linux);
+2. the firmware's primary VGA device (`boot_vga`, Linux) when no output reads
+   connected, which is the case on a headless seat whose display is synthesised;
+3. the adapter the platform itself reports as active (Chromium's `active` device),
+   which is all Windows and macOS offer;
+4. otherwise unknown, which is not the same as weak.
+
+Order matters because `boot_vga` is not the display GPU on every machine: on this
+household server it names the headless RTX 3060 while the monitor is wired to the
+RTX 4060, so preferring it would describe and target the card the player is not
+looking at. `reason` describes that one adapter and never mentions how many other
+adapters exist: the launcher has one answer, so it gives one. The launched client
+is pinned to the same adapter where the platform has a way to say so (the NVIDIA
+and Mesa render-offload variables on Linux); where it does not, the operating
+system's choice is the only one, and the launcher does not pretend to override it.
+The quality ladder follows that adapter's own video memory, and it is allowed to be
+more aggressive than the household's hand-tuned profile: the launcher's job is the
+best settings the player's display GPU can carry.
+
 `graphics` is `{enabled, recommended, tunable, tuned}`: `enabled` is
 `install.includeGraphics` under its player-facing name, `recommended` is the
 automatic answer for this machine, `tunable` is false when this platform cannot
@@ -382,6 +413,11 @@ re-decided behind the player:
 | `autoUpdateLauncher` | Keep the launcher itself current. Applying an update in place is not built yet, so this governs the version check and the notice in the settings dialog; nothing is installed by it. |
 | `autoUpdateGame` | Keep the installed game client current. When off, no update starts on its own and a launch never begins a transfer the player did not ask for. |
 | `exitOnLaunch` | Close the launcher after it starts the game, so the launcher is a doorway rather than a second window to manage. |
+
+**The launcher Home carries no marketing title.** Owen's decision of 2026-10-17: the
+crest and the small "Easter Co. SMP" eyebrow stay, and the large "The Ultimate
+Minecraft Experience" headline is a website line that never appears in the launcher.
+The site keeps it; the app shows the client controls instead.
 
 **The launcher is an application window, not the website.** The promo blocks that
 belong to visitors — the welcome blurb, the endgame note, the wiki and roles story

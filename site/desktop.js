@@ -17,6 +17,10 @@
  // The skip control is a website affordance. Desktop mode removes it from the DOM entirely,
  // so it never reaches assistive technology; Escape and the bounded timer still end the arrival.
  document.querySelector('.skip-arrival')?.remove();
+ // The big "The Ultimate Minecraft Experience" headline is the website's line. Owen's
+ // decision of 2026-10-17: the launcher keeps the crest and the small Easter Co. SMP
+ // eyebrow and shows the client controls instead, so the headline leaves the app DOM.
+ document.querySelector('.hero-copy h1')?.remove();
  // The promo page is the website's job. The launcher keeps the crest, the name and the client
  // controls; the welcome blurb, the endgame note, the wiki/roles story and the notes strip are
  // marketing for visitors and never enter the app DOM. Home then fits the window instead of
@@ -56,7 +60,11 @@
  // The Play Now stage: the client is on this device. Settings and the graphics
  // toggle belong to it and to nothing earlier.
  const atPlayNow=state=>installOf(state).installed===true;
- const settingsOffered=state=>atPlayNow(state)&&!transferring(state);
+ // Settings is client settings, and a launcher update check is the launcher working on
+ // the same machine: Owen's decision of 2026-10-17 is that the dialog is not offered
+ // while `launcherUpdate.phase` is `checking`. Everything else stays usable.
+ const checkingForUpdate=state=>state?.launcherUpdate?.phase==='checking';
+ const settingsOffered=state=>atPlayNow(state)&&!transferring(state)&&!checkingForUpdate(state);
  const graphicsOffered=state=>Boolean(graphicsOf(state))&&typeof setGraphicsAction==='function'&&atPlayNow(state)&&!transferring(state);
 
  // The hero's primary action and the sticky bar both read this one function,
@@ -100,6 +108,10 @@
  let installRequested=false,settingsDirty=false;
  $('.dialog-close').onclick=()=>panel.close();
  panel.addEventListener('click',event=>{if(event.target!==panel||event.detail===0)return;const r=panel.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)panel.close();});
+ // The dialog serves sign-in and settings. Which one is open is tracked here, so a
+ // launcher update check can close the settings view without ever closing a sign-in
+ // that is waiting for its device code.
+ let dialogPurpose='settings';
  const open=()=>{if(!panel.open)panel.showModal();if(current?.device)$('[data-open-microsoft]').focus();};
  const report=error=>{message.textContent=error&&error.message?error.message:String(error);message.classList.add('is-error');};
 
@@ -360,6 +372,10 @@
   if(settingsButton){
    settingsButton.hidden=!settingsOffered(current);
    settingsButton.disabled=busy;
+   // A check that begins while Settings is open closes it: the rule is that client
+   // settings are unreachable during a check, not merely that the button is gone. The
+   // dialog is shared with sign-in, so only the settings view is closed here.
+   if(settingsButton.hidden&&panel.open&&dialogPurpose==='settings')panel.close();
   }
   if(graphicsSection){
    graphicsSection.hidden=!graphicsOffered(current);
@@ -385,10 +401,10 @@
  }
 
  // ---- Wiring ----------------------------------------------------------------
- const signIn=()=>{if(signInPending)return;open();signInPending=true;render(current||{});void Promise.resolve(desktop.signIn()).catch(report).finally(()=>{signInPending=false;render(current||{});const target=$('[data-open-microsoft]');if(panel.open&&!deviceHidden())target.focus();});};
+ const signIn=()=>{if(signInPending)return;dialogPurpose='signin';open();signInPending=true;render(current||{});void Promise.resolve(desktop.signIn()).catch(report).finally(()=>{signInPending=false;render(current||{});const target=$('[data-open-microsoft]');if(panel.open&&!deviceHidden())target.focus();});};
  const deviceHidden=()=>$('.desktop-device').hidden;
- const start=()=>{open();void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
- const openSettings=()=>{open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
+ const start=()=>{dialogPurpose='signin';open();void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
+ const openSettings=()=>{dialogPurpose='settings';open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
   // Land the keyboard on the first setting that is actually usable.
   const first=current?.device?$('[data-open-microsoft]'):!serverField.hidden?serverField:$('.desktop-advanced summary');
   first?.focus?.();};

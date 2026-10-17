@@ -426,18 +426,18 @@ test('turning enhanced graphics on fetches only the graphics chunk and writes th
   assert.equal(reported.some(patch=>patch.progress.bytesTotal===graphics.length),true,'the transfer knows its size');
   assert.equal(reported.some(patch=>patch.progress.bytesDone===graphics.length),true,'and reports the bytes it moved');
   // The quality settings are inside the client tree, derived from the reported memory.
-  assert.deepEqual({renderDistance:result.quality.renderDistance,shadowDistance:result.quality.shadowDistance,shaders:result.quality.shaders},{renderDistance:14,shadowDistance:10,shaders:true});
-  assert.match(await fs.readFile(path.join(tree.root,'options.txt'),'utf8'),/^renderDistance:14$/m);
+  assert.deepEqual({renderDistance:result.quality.renderDistance,shadowDistance:result.quality.shadowDistance,shaders:result.quality.shaders},{renderDistance:16,shadowDistance:12,shaders:true});
+  assert.match(await fs.readFile(path.join(tree.root,'options.txt'),'utf8'),/^renderDistance:16$/m);
   const iris=await fs.readFile(path.join(tree.root,'config','iris.properties'),'utf8');
   assert.match(iris,/^enableShaders:true$/m);
   assert.match(iris,/^shaderPack:ComplementaryUnbound_r5\.9\.3\.zip$/m);
-  assert.match(iris,/^shadowDistance:10$/m);
+  assert.match(iris,/^shadowDistance:12$/m);
   // A second toggle-on with nothing changed fetches nothing and reports nothing new.
   const before=server.requests.length;
   const again=await applyGraphics({root:tree.root,published,origin:server.origin,includeGraphics:true,hardware:{vramMB:8188,tier:'capable'}});
   assert.equal(server.requests.length,before,'a repeat toggle-on fetches nothing');
   assert.equal(again.unchanged,true);
-  assert.deepEqual({...again.quality},{renderDistance:14,shadowDistance:10,shaders:true},'the tuned record is reported again without a further download');
+  assert.deepEqual({...again.quality},{renderDistance:16,shadowDistance:12,shaders:true},'the tuned record is reported again without a further download');
  }finally{await server.close();await tree.cleanup();}
 });
 
@@ -493,7 +493,7 @@ test('with no graphics chunk published the toggle says so instead of claiming sh
   assert.doesNotMatch(result.message,/\binstalled\./);
   assert.equal(tree.record().chunks.graphics,undefined,'no graphics record was invented');
   assert.equal(await fs.stat(path.join(tree.root,'shaderpacks')).then(()=>'present',()=>'absent'),'absent');
-  assert.deepEqual({...result.quality},{renderDistance:14,shadowDistance:10,shaders:false},'the render settings are still tuned, without promising shaders');
+  assert.deepEqual({...result.quality},{renderDistance:16,shadowDistance:12,shaders:false},'the render settings are still tuned, without promising shaders');
   const iris=await fs.readFile(path.join(tree.root,'config','iris.properties'),'utf8');
   assert.match(iris,/^enableShaders:false$/m);
   assert.equal(/shaderPack/.test(iris),false,'no shader pack is named when none was fetched');

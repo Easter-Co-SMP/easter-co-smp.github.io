@@ -391,10 +391,19 @@ async function installAssets(root,assetIndex,notify,{control=null,mode='install'
  // Nothing had to be fetched: this was verification, not a download.
  if(!moved)notify({phase:mode==='update'?'updating':'verifying',message:label,progress:countProgress(label,100)});
 }
-function launchOptions({root,version,javaPath,session,settings}){
+function launchOptions({root,version,javaPath,session,settings,launchEnv=null}){
  const extraMCArgs=[];
  if(settings.server)extraMCArgs.push('--quickPlayMultiplayer',settings.server);
- return {gamePath:root,resourcePath:root,version,javaPath,gameProfile:session.profile,accessToken:session.accessToken,userType:'msa',launcherName:'Easter Company',launcherBrand:'1.0.0',maxMemory:settings.memoryMB,minMemory:1024,extraMCArgs,features:{easter_identity:{clientid:session.clientId||require('./auth.cjs').DEFAULT_CLIENT_ID,auth_xuid:session.xuid||'0'}},extraExecOption:{shell:false,windowsHide:true}};
+ return {gamePath:root,resourcePath:root,version,javaPath,gameProfile:session.profile,accessToken:session.accessToken,userType:'msa',launcherName:'Easter Company',launcherBrand:'1.0.0',maxMemory:settings.memoryMB,minMemory:1024,extraMCArgs,features:{easter_identity:{clientid:session.clientId||require('./auth.cjs').DEFAULT_CLIENT_ID,auth_xuid:session.xuid||'0'}},extraExecOption:execOptions(launchEnv)};
+}
+// spawn replaces the whole environment when one is given, so the launched client gets
+// the launcher's environment with the display-GPU pin on top of it. With nothing to
+// pin, the options are exactly what they were before.
+function execOptions(launchEnv){
+ const base={shell:false,windowsHide:true};
+ if(!launchEnv||typeof launchEnv!=='object')return base;
+ const extra=Object.fromEntries(Object.entries(launchEnv).filter(([,value])=>typeof value==='string'&&value));
+ return Object.keys(extra).length?{...base,env:{...process.env,...extra}}:base;
 }
 async function writeMarker(root){
  const marker=path.join(root,MARKER);
@@ -759,4 +768,4 @@ async function checkForUpdates({root,settings={},notify=()=>{},control=null,incl
 }
 // The Play gate, computed here in the main process and nowhere else.
 function canPlay(install,profile){return Boolean(install?.installed)&&profile!==null&&profile!==undefined;}
-module.exports={ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};
+module.exports={execOptions,ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};

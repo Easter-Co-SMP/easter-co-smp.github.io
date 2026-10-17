@@ -690,6 +690,12 @@ try{
    assert.equal(await launcherPage.locator('#desktop-launcher').isVisible(),false,'the download flow never needs the settings dialog');
 
    // Settings is the hero's secondary action, offered only at the Play Now stage.
+   // The launcher keeps the crest and the eyebrow and does not carry the website's
+   // headline (Owen's decision of 2026-10-17); the site assertion above still proves the
+   // website keeps it.
+   assert.equal(await launcherPage.locator('.hero-copy h1').count(),0,'the launcher carries no marketing headline');
+   assert.equal(await launcherPage.getByRole('heading',{name:/The Ultimate/i}).count(),0,'and nothing repeats it as a heading');
+   assert.equal(await launcherPage.locator('.hero-copy .eyebrow').count(),1,'the small Easter Co. SMP eyebrow stays');
    await pushState({phase:'ready',progress:null,actions:['signin'],install:INSTALLED,profile:{name:'Owen'},canPlay:false});
    const settingsButton=launcherPage.locator('.desktop-settings-button');
    await settingsButton.waitFor({state:'visible'});
@@ -697,6 +703,11 @@ try{
    assert.equal(await launcherPage.locator('.site-header .desktop-settings-button').count(),0,'the header carries no client settings button');
    await pushState({phase:'ready',actions:['download'],profile:null,canPlay:false,install:launcherState({}).install});
    assert.equal(await settingsButton.isVisible(),false,'Settings is not offered before the Play Now stage');
+   // A launcher update check withholds Settings while it runs, and hands it back after.
+   await pushState({phase:'ready',actions:[],profile:{name:'Owen'},canPlay:true,install:INSTALLED,launcherUpdate:{phase:'checking',version:null,url:null,message:null}});
+   assert.equal(await settingsButton.isVisible(),false,'Settings is unreachable while the launcher checks for an update');
+   await pushState({launcherUpdate:{phase:'current',version:'1.0.7',url:null,message:null}});
+   assert.equal(await settingsButton.isVisible(),true,'the dialog comes back when the check settles');
    await pushState({phase:'ready',actions:[],profile:{name:'Owen'},canPlay:true,install:INSTALLED});
 
    // The Settings dialog is client settings only: no install, update or play action,

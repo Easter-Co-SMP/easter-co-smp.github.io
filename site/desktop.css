@@ -169,7 +169,6 @@
 .desktop-mode body.home>.home-content{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:center;width:min(1120px,calc(100% - 72px));padding:clamp(10px,3vh,42px) 0 clamp(4px,1.4vh,18px)}
 .desktop-mode .home .home-hero{min-height:0;grid-template-columns:clamp(92px,20vh,250px) minmax(0,1fr);gap:clamp(16px,4vh,80px)}
 .desktop-mode .hero-copy{min-width:0}
-.desktop-mode .hero-copy h1{font-size:clamp(22px,min(5.2vw,6.4vh),82px)}
 .desktop-mode .hero-actions{gap:clamp(8px,1.4vh,14px)}
 .desktop-mode .home-footer{flex:none;padding:0 0 clamp(5px,1.4vh,22px);width:min(1120px,calc(100% - 72px))}
 @media(max-width:600px){.desktop-mode body.home>.home-content,.desktop-mode .home-footer{width:calc(100% - 40px)}}
@@ -188,6 +187,5 @@
  .desktop-mode .crest-frame{width:96px;justify-self:center}
  .desktop-mode .hero-actions{justify-content:center}
  .desktop-mode .hero-actions .launcher-button{min-width:0;max-width:100%}
- .desktop-mode .hero-copy h1{font-size:clamp(22px,6.4vw,34px);text-align:center}
  .desktop-mode .hero-copy .eyebrow{justify-content:center}
 }

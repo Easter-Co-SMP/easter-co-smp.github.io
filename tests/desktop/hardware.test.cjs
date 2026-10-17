@@ -4,7 +4,7 @@
 // network, and nothing writes outside a temporary directory.
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
-const {hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,gpuAdapters,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,matchAdapter,chooseDevice,reportedDevices,reportedAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hex16,videoMemoryMB,busId,qualitySettings,parseProperties,mergeProperties,applyQualitySettings,recordQuality,installedQuality,SHADER_PACK_NAME}=require('../../desktop/hardware.cjs');
+const {hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,gpuAdapters,drmCards,sessionDisplay,targetAdapter,renderOffload,pciForDriPrime,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,matchAdapter,chooseDevice,reportedDevices,reportedAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hex16,videoMemoryMB,busId,qualitySettings,parseProperties,mergeProperties,applyQualitySettings,recordQuality,installedQuality,SHADER_PACK_NAME}=require('../../desktop/hardware.cjs');
 const {deriveQuality}=require('../../desktop/install.cjs');
 async function tempDir(prefix){return fs.mkdtemp(path.join(os.tmpdir(),prefix));}
 
@@ -134,23 +134,68 @@ test('the tier is "capable" only for a discrete adapter with reported video memo
  assert.deepEqual(reportedDevices(null),[]);
 });
 
-test('a machine with two adapters says so instead of passing one off as the only card',()=>{
- const adapters=parseLspci(EASTER_SERVER_LSPCI).map((adapter,index)=>({...adapter,vramMB:parseNvidiaSmi(EASTER_SERVER_NVIDIA_SMI)[index].vramMB}));
- const forActive=deviceId=>hardwareProfile({devices:[{active:true,deviceId,vendorId:4318},{active:false,deviceId:deviceId===10370?9351:10370,vendorId:4318}],adapters,featureStatus:HARDWARE_STATUS});
- const six=forActive(10370),five=forActive(9351);
- assert.match(six.gpu,/RTX 4060/,'the active 0x2882 is described as the 4060');
- assert.equal(six.vramMB,8188);
- assert.match(five.gpu,/RTX 3060/,'and when the other one is marked active, that one is described');
- assert.equal(six.tier,'capable');
- assert.equal(five.tier,'capable');
- assert.equal(six.adapters,2);
- assert.match(six.reason,/2 graphics adapters/,'the player is told there is more than one adapter');
- assert.equal(six.reason.split('. ').length,1,'still one sentence');
- // A machine with one adapter says nothing about others.
- const single=hardwareProfile({devices:[],adapters:[{name:'NVIDIA GeForce RTX 4060',vramMB:8188}]});
- assert.equal(single.adapters,1);
- assert.doesNotMatch(single.reason,/adapters/);
- assert.equal(hardwareProfile({devices:[],adapters:[{name:'NVIDIA GeForce RTX 4060',vramMB:8188},{name:'NVIDIA GeForce RTX 4060',vramMB:8188}]}).adapters,1,'the same adapter listed twice is one adapter');
+// Owen's rule of 2026-10-17: the launcher targets exactly one GPU and it must be the GPU
+// the display runs on. These are this machine's own two cards, as /sys/class/drm reports
+// them: a monitor on card0 (RTX 4060, PCI 03:00.0) and a headless card1 (RTX 3060) that
+// the firmware happens to make the boot VGA device.
+const EASTER_SERVER_ADAPTERS=()=>parseLspci(EASTER_SERVER_LSPCI).map((adapter,index)=>({...adapter,vramMB:parseNvidiaSmi(EASTER_SERVER_NVIDIA_SMI)[index].vramMB}));
+const EASTER_SERVER_CARDS=[
+ {index:'0',bus:'0000:03:00.0',vendorId:'10de',deviceId:'2882',bootVga:false,connected:1},
+ {index:'1',bus:'0000:07:00.0',vendorId:'10de',deviceId:'2487',bootVga:true,connected:0}
+];
+test('the display GPU is the card a monitor is wired to, not the boot VGA device',()=>{
+ const adapters=EASTER_SERVER_ADAPTERS();
+ // Chromium marks the 3060 active here, exactly as it does on a headless seat; the
+ // connected output is what settles it.
+ const devices=[{active:true,deviceId:0x2487,vendorId:0x10de},{active:false,deviceId:0x2882,vendorId:0x10de}];
+ const display=sessionDisplay({devices,adapters,cards:EASTER_SERVER_CARDS});
+ assert.equal(display.via,'connected');
+ assert.match(display.adapter.name,/RTX 4060/,'the display card is described, not the active one');
+ const target=targetAdapter({display,adapters});
+ assert.equal(target.via,'connected');
+ assert.equal(target.offload,false,'the display card needs no offload: the driver already renders there');
+ const hardware=hardwareProfile({chosen:target.adapter,adapters,via:target.via});
+ assert.match(hardware.gpu,/RTX 4060/);
+ assert.equal(hardware.vramMB,8188,'one card, its own memory');
+ assert.equal(hardware.tier,'capable');
+ assert.equal(hardware.adapters,2,'the machine is still known to have two');
+ assert.doesNotMatch(hardware.reason,/adapters/,'the launcher has one answer, so it gives one');
+ assert.equal(hardware.reason.split('. ').length,1,'one sentence');
+});
+test('a seat with no connected output falls back to the session renderer, then to boot_vga',()=>{
+ const adapters=EASTER_SERVER_ADAPTERS();
+ // A streamed seat: the display is synthesised, so nothing reads connected.
+ const headless=EASTER_SERVER_CARDS.map(card=>({...card,connected:0}));
+ const bySession=sessionDisplay({devices:[{active:true,deviceId:0x2487,vendorId:0x10de}],adapters,cards:headless});
+ assert.equal(bySession.via,'reported',"the seat's own renderer answers when no monitor is attached");
+ assert.match(bySession.adapter.name,/RTX 3060/);
+ const byBoot=sessionDisplay({devices:[],adapters,cards:headless});
+ assert.equal(byBoot.via,'boot-vga');
+ assert.match(byBoot.adapter.name,/RTX 3060/,"and the firmware's device is the last resort");
+ const nothing=sessionDisplay({devices:[],adapters,cards:[]});
+ assert.equal(nothing.via,'unknown');
+ assert.equal(nothing.adapter,null,'nothing is invented when nothing resolves');
+});
+test('a display wired to an integrated part still targets the discrete card, and says so',()=>{
+ const intel={name:'Intel(R) UHD Graphics 630',vendor:'Intel',vendorId:'8086',deviceId:'3e9b',vramMB:null};
+ const nvidia={name:'NVIDIA GeForce RTX 3050 Laptop GPU',vendor:'NVIDIA',vendorId:'10de',deviceId:'25e5',vramMB:4096,busId:'0000:01:00.0'};
+ const adapters=[intel,nvidia];
+ const display=sessionDisplay({devices:[{active:true,deviceId:0x3e9b,vendorId:0x8086}],adapters,cards:[]});
+ const target=targetAdapter({display,adapters});
+ assert.equal(target.via,'offload','the integrated display part is not the target when one discrete card can render');
+ assert.match(target.adapter.name,/RTX 3050/);
+ assert.equal(target.offload,true);
+ assert.deepEqual(renderOffload({platform:'linux',target:target.adapter,via:target.via}),
+  {'__NV_PRIME_RENDER_OFFLOAD':'1','__GLX_VENDOR_LIBRARY_NAME':'nvidia','__VK_LAYER_NV_optimus':'NVIDIA_only'});
+ // Mesa spells the same intent with the card's PCI address.
+ const amd={name:'AMD Radeon RX 6600',vendor:'AMD',vendorId:'1002',deviceId:'73ff',vramMB:8192,busId:'0000:05:00.0'};
+ const amdTarget=targetAdapter({display,adapters:[intel,amd]});
+ assert.deepEqual(renderOffload({platform:'linux',target:amdTarget.adapter,via:amdTarget.via}),
+  {'DRI_PRIME':'pci-0000_05_00_0','MESA_VK_DEVICE_SELECT':'pci-0000_05_00_0'});
+ // And the launcher does not claim an override it cannot make.
+ assert.deepEqual(renderOffload({platform:'win32',target:nvidia,via:'offload'}),{},'Windows chooses per application itself');
+ assert.deepEqual(renderOffload({platform:'darwin',target:{...nvidia,name:'Apple M2 Pro',vendor:'Apple'},via:'offload'}),{});
+ assert.deepEqual(renderOffload({platform:'linux',target:nvidia,via:'connected'}),{},'no pin when the target already drives the display');
 });
 
 test('detection on this machine describes the card that is actually driving the display',async()=>{
@@ -198,10 +243,11 @@ test('quality settings are the highest the reported video memory supports',()=>{
  assert.deepEqual(at(3072),{renderDistance:10,shadowDistance:6,graphicsMode:'fancy',shaders:false,shaderPack:null});
  assert.deepEqual(at(4096),{renderDistance:12,shadowDistance:8,graphicsMode:'fancy',shaders:true,shaderPack:SHADER_PACK_NAME});
  assert.deepEqual(at(6144).renderDistance,14);
+ assert.deepEqual(at(8000).renderDistance,16,'the top rung starts at 8000 so a nominal 8 GB card can reach it');
  assert.deepEqual(at(8192),{renderDistance:16,shadowDistance:12,graphicsMode:'fancy',shaders:true,shaderPack:'ComplementaryUnbound_r5.9.3.zip'});
  assert.deepEqual(at(24576),at(8192),'beyond the top rung the settings do not keep growing');
- // This machine's own figure.
- assert.deepEqual(at(8188).renderDistance,14);
+ // The display GPU on this machine reports 8188 MiB and gets the top rung.
+ assert.deepEqual(at(8188).renderDistance,16);
  // The ladder is monotonic: more memory never buys less quality.
  let previous=at(0);
  for(const vram of [1024,2048,3072,4096,6144,8192,12288,32768]){
@@ -245,19 +291,19 @@ test('the quality files are written inside the launcher’s own client tree only
   await fs.writeFile(path.join(root,'config','iris.properties'),'enableShaders:false\nshadowDistance:4\n');
   const quality=qualitySettings({vramMB:8188,tier:'capable'});
   const written=await applyQualitySettings(root,quality);
-  assert.deepEqual(written.tuned,{renderDistance:14,shadowDistance:10,shaders:true});
+  assert.deepEqual(written.tuned,{renderDistance:16,shadowDistance:12,shaders:true});
   const options=await fs.readFile(path.join(root,'options.txt'),'utf8');
   assert.match(options,/^graphicsMode:fancy$/m);
-  assert.match(options,/^renderDistance:14$/m);
+  assert.match(options,/^renderDistance:16$/m);
   assert.match(options,/^fov:0\.5$/m,'an unrelated setting is left alone');
   const iris=await fs.readFile(path.join(root,'config','iris.properties'),'utf8');
   assert.match(iris,/^enableShaders:true$/m);
   assert.match(iris,/^shaderPack:ComplementaryUnbound_r5\.9\.3\.zip$/m);
-  assert.match(iris,/^shadowDistance:10$/m);
+  assert.match(iris,/^shadowDistance:12$/m);
   // The marker records what was written, and reading it back reports the same.
   await fs.writeFile(path.join(root,'installed.json'),JSON.stringify({version:'fabric-1',files:[]}));
   assert.equal(await recordQuality(root,quality),true);
-  assert.deepEqual(await installedQuality(root),{renderDistance:14,shadowDistance:10,shaders:true});
+  assert.deepEqual(await installedQuality(root),{renderDistance:16,shadowDistance:12,shaders:true});
   assert.equal(JSON.parse(await fs.readFile(path.join(root,'installed.json'),'utf8')).version,'fabric-1','the marker keeps everything else it carried');
   // A tree without the launcher's marker is refused: that is the rule that keeps an
   // existing .minecraft, another launcher and the server untouched.

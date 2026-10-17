@@ -145,6 +145,105 @@ async function gpuAdapters({platform=process.platform,env=process.env}={}){
  }
  return [];
 }
+// ---- which adapter the display is on ----------------------------------------
+// Owen's rule of 2026-10-17: the launcher targets exactly one GPU, and it must be the
+// GPU the display runs on. The session's own answer comes first, because Chromium
+// reports the device this process actually renders on and that is the seat-correct
+// one; a connected DRM output and then the firmware's boot VGA device are the
+// fallbacks for a seat with no real display. boot_vga is deliberately last: on this
+// household server it names the headless RTX 3060 (PCI 07:00.0) while the monitor is
+// wired to the RTX 4060 (PCI 03:00.0), so trusting it would describe, tune for and
+// target the card nobody is looking at.
+async function drmCards({platform=process.platform,root='/sys/class/drm',listing=null,read=null}={}){
+ if(platform!=='linux')return [];
+ const list=listing||(dir=>fs.readdir(dir));
+ const text=read||(file=>fs.readFile(file,'utf8'));
+ const names=await list(root).catch(()=>[]);
+ const cards=new Map();
+ const entry=index=>{if(!cards.has(index))cards.set(index,{index,bus:null,vendorId:null,deviceId:null,bootVga:false,connected:0});return cards.get(index);};
+ for(const name of names){
+  const card=/^card(\d+)$/.exec(name);
+  if(card){
+   const info=entry(card[1]);
+   const device=path.join(root,name,'device');
+   info.vendorId=hex16(String(await text(path.join(device,'vendor')).catch(()=>'')).trim());
+   info.deviceId=hex16(String(await text(path.join(device,'device')).catch(()=>'')).trim());
+   info.bootVga=String(await text(path.join(device,'boot_vga')).catch(()=>'')).trim()==='1';
+   info.bus=String(await fs.realpath(device).catch(()=>'')).split('/').pop()||null;
+   continue;
+  }
+  const connector=/^card(\d+)-[\w-]+$/.exec(name);
+  if(connector){
+   const status=String(await text(path.join(root,name,'status')).catch(()=>'')).trim();
+   if(status==='connected')entry(connector[1]).connected+=1;
+  }
+ }
+ return [...cards.values()];
+}
+// The display adapter for this session, with the evidence that settled it. Returning
+// `via` keeps the answer auditable instead of asserting one card by assertion.
+function sessionDisplay({devices=[],adapters=[],cards=[]}={}){
+ const list=(adapters||[]).filter(Boolean);
+ const byIds=(vendorId,deviceId)=>list.find(item=>idMatch(vendorId,item.vendorId)&&idMatch(deviceId,item.deviceId))||null;
+ // A monitor wired to a card is the least ambiguous statement of "the display GPU", so
+ // it is asked first; the session's own renderer answers next, which is also the answer
+ // on a seat whose display is synthesised (a streamed seat has no connected output).
+ for(const card of (cards||[]).filter(candidate=>candidate.connected>0)){
+  const hit=byIds(card.vendorId,card.deviceId);
+  if(hit)return {adapter:{...hit,bus:card.bus||hit.bus||null},via:'connected',card};
+ }
+ const active=chooseDevice(devices||[]);
+ if(active){
+  const hit=byIds(active.vendorId,active.deviceId);
+  if(hit)return {adapter:hit,via:'reported'};
+ }
+ const primary=(cards||[]).find(card=>card.bootVga);
+ if(primary){
+  const hit=byIds(primary.vendorId,primary.deviceId);
+  if(hit)return {adapter:{...hit,bus:primary.bus||hit.bus||null},via:'boot-vga',card:primary};
+ }
+ return {adapter:null,via:'unknown'};
+}
+// One answer. A display adapter that can render is the target. When the display is a
+// weak integrated part and the machine has exactly one discrete adapter, that adapter
+// is the target instead: a laptop's screen hangs off the integrated part while the
+// discrete card does the work, and pretending otherwise would turn shaders off on a
+// machine that runs them well. `via:'offload'` is what tells the launch path to pin
+// the renderer with the platform's own offload variables.
+function targetAdapter({display=null,adapters=[]}={}){
+ const list=(adapters||[]).filter(Boolean);
+ const current=display?.adapter||null;
+ const renders=current&&!isIntegrated(current.name)&&!isSoftwareRenderer(current.name);
+ if(renders)return {adapter:current,via:display.via,offload:false};
+ const discrete=list.filter(isDiscreteAdapter);
+ if(discrete.length===1)return {adapter:discrete[0],via:'offload',offload:Boolean(current)};
+ if(current)return {adapter:current,via:display.via,offload:false};
+ return {adapter:null,via:'unknown',offload:false};
+}
+// The variables that make the launched client render on the target instead of on
+// whatever the driver would have chosen. Only the offload case needs them: when the
+// target already drives the display, the driver's default is the target and adding
+// variables would be noise. Windows and macOS choose per-application themselves, so
+// the launcher does not claim an override it cannot make.
+function pciForDriPrime(bus){
+ const text=String(bus||'').toLowerCase().replace(/^0x/,'');
+ return /^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$/.test(text)?'pci-'+text.replace(/[:.]/g,'_'):null;
+}
+function renderOffload({platform=process.platform,target=null,via=''}={}){
+ if(platform!=='linux'||!target||via!=='offload')return {};
+ const name=String(target.name||''),vendor=String(target.vendor||'');
+ if(/nvidia/i.test(vendor)||/nvidia|geforce|quadro|tesla/i.test(name))return {'__NV_PRIME_RENDER_OFFLOAD':'1','__GLX_VENDOR_LIBRARY_NAME':'nvidia','__VK_LAYER_NV_optimus':'NVIDIA_only'};
+ if(/amd|advanced micro|radeon/i.test(vendor+' '+name)){
+  const prime=pciForDriPrime(target.bus||target.busId);
+  return prime?{'DRI_PRIME':prime,'MESA_VK_DEVICE_SELECT':prime}:{};
+ }
+ if(/intel/i.test(vendor+' '+name)){
+  const prime=pciForDriPrime(target.bus||target.busId);
+  return prime?{'DRI_PRIME':prime}:{};
+ }
+ return {};
+}
+
 // ---- what Electron reported -------------------------------------------------
 function reportedDevices(gpuInfo){
  if(!gpuInfo||typeof gpuInfo!=='object')return [];
@@ -247,9 +346,19 @@ function softwareFallback(featureStatus){
 }
 // ---- the published answer ---------------------------------------------------
 // `tier` follows one rule only: on unless the GPU is clearly weak.
-function hardwareProfile({adapter=null,devices=[],featureStatus=null,adapters=[]}={}){
- const matched=matchAdapter({adapter,devices,adapters});
- const name=adapter||matched?.name||null;
+function isDiscreteAdapter(item){
+ if(!item||!isGraphicsAdapter(item))return false;
+ const name=String(item.name||'');
+ if(isSoftwareRenderer(name))return false;
+ if(/(\brx\b|\brtx\b|\bgtx\b|arc a\d|radeon pro|quadro|tesla|geforce)/i.test(name))return true;
+ if(Number.isFinite(item.vramMB)&&item.vramMB>=3072)return true;
+ return !isIntegrated(name);
+}
+function hardwareProfile({adapter=null,devices=[],featureStatus=null,adapters=[],chosen=null,via=null}={}){
+ const matched=chosen||matchAdapter({adapter,devices,adapters});
+ // The one card the launcher targets names itself; the platform's renderer string is
+ // only a fallback for a machine where no adapter could be identified at all.
+ const name=matched?.name||adapter||null;
  const vramMB=videoMemoryMB(matched?.vramMB)||null;
  const vendor=matched?.vendor||vendorOf(name)||null;
  const softwareName=isSoftwareRenderer(name);
@@ -276,21 +385,25 @@ function hardwareProfile({adapter=null,devices=[],featureStatus=null,adapters=[]
   tier='capable';
   reason=(vendor&&!new RegExp(vendor,'i').test(name)?vendor+' ':'')+name+' with '+vramMB+' MB of video memory.';
  }
- if(installed>1&&name)reason=reason.replace(/\.$/,'')+' (this machine has '+installed+' graphics adapters).';
- return {gpu:name,vendor,vramMB,tier,reason,source:matched?.source||(name?'reported':'none'),software:softwareName||(fallbackToSoftware&&!name),adapters:installed};
+ // No adapter count here: the launcher has one answer, so it gives one. `adapters` stays
+ // in the object for callers that need to know the machine is multi-GPU.
+ return {gpu:name,vendor,vramMB,tier,reason,source:matched?.source||(name?'reported':'none'),software:softwareName||(fallbackToSoftware&&!name),adapters:installed,via:via||null};
 }
 // The recommendation is the tier, and nothing else. It is honest about the
 // platform: where the machine will not report video memory, no quality level is
 // promised, so the toggle is less useful and that is said rather than hidden.
 function graphicsRecommended(hardware){return hardware?.tier!=='weak';}
 function graphicsTunable(hardware){return hardware?.tier!=='unknown'&&Number.isFinite(hardware?.vramMB)&&hardware.vramMB>0;}
-async function detectHardware({gpuInfo=null,featureStatus=null,platform=process.platform,env=process.env,adapters=null}={}){
+async function detectHardware({gpuInfo=null,featureStatus=null,platform=process.platform,env=process.env,adapters=null,cards=null}={}){
  let list=adapters;
  if(list===null)try{list=await gpuAdapters({platform,env});}catch{list=[];}
+ const drm=cards!==null?cards:await drmCards({platform}).catch(()=>[]);
  const devices=reportedDevices(gpuInfo);
  const adapter=reportedAdapter(gpuInfo);
- const hardware=hardwareProfile({adapter,devices,featureStatus,adapters:list});
- return {...hardware,recommended:graphicsRecommended(hardware),tunable:graphicsTunable(hardware)};
+ const display=sessionDisplay({devices,adapters:list,cards:drm});
+ const target=targetAdapter({display,adapters:list});
+ const hardware=hardwareProfile({adapter,featureStatus,adapters:list,chosen:target.adapter,via:target.via});
+ return {...hardware,recommended:graphicsRecommended(hardware),tunable:graphicsTunable(hardware),offload:target.offload};
 }
 // ---- the client's own quality settings --------------------------------------
 // Owen's goal: the client works out the highest quality settings it can push for
@@ -305,7 +418,9 @@ const QUALITY_LADDER=[
  {minVRAM:3072,renderDistance:10,shadowDistance:6,graphicsMode:'fancy',shaders:false},
  {minVRAM:4096,renderDistance:12,shadowDistance:8,graphicsMode:'fancy',shaders:true},
  {minVRAM:6144,renderDistance:14,shadowDistance:10,graphicsMode:'fancy',shaders:true},
- {minVRAM:8192,renderDistance:16,shadowDistance:12,graphicsMode:'fancy',shaders:true}
+ // 8 GB cards report 8188 MiB, so the top rung starts at 8000: at 8192 the rung a
+ // nominal 8 GB card can never reach would be a rung nobody has.
+ {minVRAM:8000,renderDistance:16,shadowDistance:12,graphicsMode:'fancy',shaders:true}
 ];
 // The highest rung the reported memory reaches. A weak adapter keeps the shaders
 // off however much memory it borrows, because the tier is a statement about the
@@ -403,4 +518,4 @@ async function installedQuality(root){
  const shadowDistance=Number(iris.get('shadowDistance'));
  return {renderDistance:Number.isFinite(renderDistance)?renderDistance:null,shadowDistance:Number.isFinite(shadowDistance)?shadowDistance:null,shaders:iris.get('enableShaders')==='true'};
 }
-module.exports={hex16,videoMemoryMB,busId,distinctAdapters,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,gpuAdapters,reportedDevices,reportedAdapter,chooseDevice,matchAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,SHADER_PACK_NAME,QUALITY_LADDER,qualitySettings,parseProperties,readProperty,mergeProperties,applyQualitySettings,recordQuality,installedQuality,tunedDigest};
+module.exports={hex16,videoMemoryMB,busId,distinctAdapters,isDiscreteAdapter,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,gpuAdapters,drmCards,sessionDisplay,targetAdapter,pciForDriPrime,renderOffload,reportedDevices,reportedAdapter,chooseDevice,matchAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,SHADER_PACK_NAME,QUALITY_LADDER,qualitySettings,parseProperties,readProperty,mergeProperties,applyQualitySettings,recordQuality,installedQuality,tunedDigest};

@@ -41,6 +41,12 @@ try{
   assert.equal(await page.locator('.site-header .desktop-settings-button').count(),0,'the header carries no client settings button');
   assert.equal(await page.locator('.site-header').getByRole('button',{name:'Settings',exact:true}).count(),0,'and no settings button is placed in the header nav');
   assert.equal(await page.locator('.site-header .map-link').count(),0,'the header stays account-only');
+  // Owen's decision of 2026-10-17: the launcher keeps the crest and the small eyebrow and
+  // does not carry the website's headline.
+  assert.equal(await page.locator('.hero-copy h1').count(),0,'the launcher carries no marketing headline');
+  assert.equal(await page.getByRole('heading',{name:/The Ultimate/i}).count(),0,'and no heading that repeats it elsewhere on Home');
+  assert.equal(await page.locator('.hero-copy .eyebrow').count(),1,'the small Easter Co. SMP eyebrow stays');
+  assert.equal(await page.locator('.crest-frame img').isVisible(),true,'and so does the crest');
   // One screen carries one action: the hero's own Download the game. The details beside
   // it say where the client installs and carry no second download button.
   const installDetails=page.locator('#desktop-install-details');

@@ -7,6 +7,7 @@ const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocat
 const vault=require('./vault.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,includeGraphicsValue}=require('./security.cjs');
 const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
+const {renderOffload}=require('./hardware.cjs');
 const {detectHardware,installedQuality}=require('./hardware.cjs');
 const APP_VERSION=require('../package.json').version;
 // The installed application is "Easter Co. Launcher". The per-user directory stays
@@ -52,8 +53,18 @@ function chooseGraphicsDefault(stored,recommended){
  if(typeof state.includeGraphics==='boolean')return {includeGraphics:state.includeGraphics,chosen:true};
  return {includeGraphics:Boolean(recommended),chosen:false};
 }
+// The variables that make the client render on the display GPU. Empty on a machine
+// where the driver's own default already is that GPU, and on platforms that choose
+// per application themselves; the contract says the launcher never pretends to
+// override a choice it cannot make.
+function launchEnvironment(){return renderOffload({platform:process.platform,target:hardware?.target||null,via:hardware?.via||null});}
 function hardwareState(){
- if(hardware)return hardware;
+ if(hardware){
+  // Only the contract's fields plus the descriptive extras the UI reads: the launch
+  // target (a PCI bus id) stays in the main process where it is used.
+  const {gpu,vendor,vramMB,tier,reason,software,adapters,via,offload}=hardware;
+  return {gpu,vendor,vramMB,tier,reason,source:hardware.source||'none',recommended:hardware.recommended!==false,tunable:Boolean(hardware.tunable),software:Boolean(software),adapters,via:via||null,offload:Boolean(offload)};
+ }
  if(graphics)return graphics;
  // Detection runs before the first broadcast; this is only reached if it failed.
  return {gpu:null,vendor:null,vramMB:null,tier:'unknown',reason:'The graphics adapter could not be identified, so enhanced graphics are left on.',source:'none',recommended:true,tunable:false};
@@ -269,7 +280,7 @@ async function play(){
  const javaPath=settings.javaPath||prepared?.javaPath||record?.java;
  if(!version||!javaPath)throw Error('The game client is not installed yet.');
  notify({phase:'launching',message:'Starting Minecraft…',progress:null});
- const child=await launch(launchOptions({root:gameRoot(),version,javaPath,session,settings}));
+ const child=await launch(launchOptions({root:gameRoot(),version,javaPath,session,settings,launchEnv:launchEnvironment()}));
  game=child;
  // Do not store launch arguments or raw stdout; Minecraft writes its own latest.log.
  child.stdout?.on('data',()=>{});child.stderr?.on('data',()=>{});
@@ -426,6 +437,11 @@ function newerLauncher(candidate,current){
 }
 async function checkLauncherUpdate(){
  if(!app.isPackaged||settings.autoUpdateLauncher===false)return launcherUpdate;
+ // `checking` is broadcast before the request leaves, not inferred afterwards: while it
+ // is up the launcher does not offer Settings (Owen's decision of 2026-10-17), so the
+ // renderer has to know the check started rather than discover it when it ends.
+ launcherUpdate={phase:'checking',version:null,url:null,message:null};
+ notify({});
  try{
   const response=await net.fetch(LAUNCHER_RELEASES,{signal:AbortSignal.timeout(8000),headers:{Accept:'application/vnd.github+json'}});
   if(!response.ok)throw Error('HTTP '+response.status);
