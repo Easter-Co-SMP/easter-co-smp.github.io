@@ -44,7 +44,7 @@
   "private": true,
   "build": {
     "appId": "ltd.easter.company.launcher",
-    "productName": "Easter Company",
+    "productName": "Easter Co. Launcher",
     "copyright": "Copyright © Easter LTD. All rights reserved.",
     "directories": {
       "output": "release"
@@ -75,7 +75,12 @@
       "icon": "desktop/icon.png",
       "executableName": "easter-company",
       "artifactName": "Easter-Company-Linux-${arch}.${ext}",
-      "maintainer": "Easter LTD"
+      "maintainer": "Easter LTD",
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "electron"
+        }
+      }
     },
     "pacman": {
       "depends": [
@@ -123,7 +128,7 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Easter Company"
+      "shortcutName": "Easter Co. Launcher"
     }
   }
 }

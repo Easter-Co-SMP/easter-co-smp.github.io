@@ -9,7 +9,11 @@ const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,includeGra
 const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
 const {detectHardware,installedQuality}=require('./hardware.cjs');
 const APP_VERSION=require('../package.json').version;
-app.setName('Easter Company');
+// The installed application is "Easter Co. Launcher". The per-user directory stays
+// "Easter Company": renaming it would orphan the saved account and settings of anyone
+// already signed in, so the name and the path are deliberately decoupled here.
+app.setName('Easter Co. Launcher');
+app.setPath('userData',path.join(app.getPath('appData'),'Easter Company'));
 protocol.registerSchemesAsPrivileged([{scheme:'easter',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
 if(!app.isPackaged&&process.env.EASTER_TEST_HOME)app.setPath('userData',process.env.EASTER_TEST_HOME);
 const instance=app.requestSingleInstanceLock();
@@ -27,7 +31,7 @@ const companyFile=()=>path.join(configRoot(),companyVaultName());
 const clientId=process.env.EASTER_MICROSOFT_CLIENT_ID||DEFAULT_CLIENT_ID;
 const auth=new MicrosoftAuth({clientId});
 const accounts=new AccountClient({baseUrl:apiOrigin(),client:'launcher/'+APP_VERSION});
-const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false};
+const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:true};
 // The launcher state contract in doc/launcher-states.md. `phase` and `progress`
 // are the live pipeline's; everything else is derived from the installed client,
 // the account session and the saved settings on every broadcast, so no view has to
@@ -72,7 +76,7 @@ function notify(patch={}){
  if(!install.installed)actions.push('download');
  if(!profile)actions.push('signin');
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,canPlay:canPlay(install,profile),bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState()}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,canPlay:canPlay(install,profile),bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
@@ -272,13 +276,15 @@ async function play(){
  child.once('error',()=>{game=null;settle('Minecraft could not start. Check Java and try again.');});
  child.once('exit',code=>{game=null;settle(code===0?'Minecraft closed. Ready to play.':'Minecraft closed with code '+code+'. Its log is in the client folder.');});
  notify({phase:'running',message:'Minecraft is running. Your map stays right here.',progress:null});
+ // Owen's setting: the launcher is a doorway, so it closes behind the game it started.
+ if(settings.exitOnLaunch!==false)setTimeout(()=>{ if(game){ app.quit(); } },800);
 }
 function registerIPC(){
  const handle=(name,fn)=>ipcMain.handle('launcher:'+name,async(event,...args)=>{
   if(!trustedFrame(event))throw Error('Untrusted launcher request.');
   try{return {ok:true,value:await fn(...args)};}catch(error){return {ok:false,error:safeError(error)};}
  });
- handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(publicProfile),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
+ handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(publicProfile),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
  handle('sign-in',async()=>{
   if(controller)throw Error('Microsoft sign-in is already running.');
   // Authentication can overlap the install pipeline, but never starts a second
@@ -400,7 +406,41 @@ function createWindow(){
 // same pipeline. A check that finds nothing changes no state at all.
 function updateOnLaunch(){
  if(!client.installed)return;
+ // Owen's setting: a player who keeps their client current by hand is not updated behind
+ // their back, and a launch never starts a transfer they did not ask for.
+ if(settings.autoUpdateGame===false)return;
  backgroundUpdate=exclusively(runUpdate).catch(()=>{}).finally(()=>{backgroundUpdate=null;});
+}
+// The launcher's own version, checked against the published release. Applying an update
+// in place (swapping the app bundle) is not built yet, so this never installs anything: it
+// reports that a newer launcher exists and where to get it, and only when the player has
+// left "keep launcher up to date" on. Packaged runs only, so tests and development builds
+// never touch the network for this.
+let launcherUpdate={phase:'idle',version:null,url:null,message:null};
+const LAUNCHER_RELEASES='https://api.github.com/repos/Easter-Co-SMP/easter-co-smp.github.io/releases/latest';
+function versionParts(value){return String(value||'').replace(/^v/,'').split('.').map(part=>Number.parseInt(part,10)).map(n=>Number.isFinite(n)?n:0);}
+function newerLauncher(candidate,current){
+ const a=versionParts(candidate),b=versionParts(current);
+ for(let i=0;i<Math.max(a.length,b.length);i++){const left=a[i]||0,right=b[i]||0;if(left!==right)return left>right;}
+ return false;
+}
+async function checkLauncherUpdate(){
+ if(!app.isPackaged||settings.autoUpdateLauncher===false)return launcherUpdate;
+ try{
+  const response=await net.fetch(LAUNCHER_RELEASES,{signal:AbortSignal.timeout(8000),headers:{Accept:'application/vnd.github+json'}});
+  if(!response.ok)throw Error('HTTP '+response.status);
+  const info=await response.json();
+  const tag=String(info.tag_name||'').replace(/^launcher-v/,'');
+  if(!tag)throw Error('no tag');
+  launcherUpdate=newerLauncher(tag,APP_VERSION)
+   ? {phase:'available',version:tag,url:String(info.html_url||''),message:'Easter Co. Launcher '+tag+' is available.'}
+   : {phase:'current',version:tag,url:null,message:null};
+ }catch{
+  // An unreachable feed is not the player's problem: stay quiet and try next launch.
+  launcherUpdate={phase:'idle',version:null,url:null,message:null};
+ }
+ notify({});
+ return launcherUpdate;
 }
 // What this machine says about its own graphics, asked once at startup. Electron
 // answers only after the app is ready, and it never reports video memory, so the
@@ -470,6 +510,7 @@ if(instance){
   protocol.handle('easter',resource);registerIPC();createWindow();
   notify({message:client.installed?'Client ready.':'Download the game to get started.'});
   updateOnLaunch();
+  void checkLauncherUpdate();
   if(session&&!session.profile.skin){const target=session;void loadSkin(target).then(async()=>{if(session===target)await saveSession();});}
  });
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
