@@ -147,7 +147,10 @@ base chunk carries the frozen game and the required mods; enhanced graphics and 
 optional `graphics` chunk, installed only when the toggle is on and the manifest declares it. As
 of 2026-10-16 that chunk carries the one shader pack the server's look is built on — Complementary
 Unbound r5.9.3, from its publisher's own Modrinth artifact, with the pack version pinned in the
-exporter rather than resolved to "latest". A manifest that declares no graphics chunk still
+exporter rather than resolved to "latest" — together with the loader that makes it work, Iris
+Shaders and Sodium, pinned and verified the same way. A pack without its loader is a file the game
+never reads, which is what 1.0.8 shipped to a player who had shaders switched on. A manifest that
+declares no graphics chunk still
 installs normally and reports that nothing extra was published. A manifest with no chunk list stays
 valid and keeps working exactly as before.
 

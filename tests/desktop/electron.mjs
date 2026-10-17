@@ -107,16 +107,17 @@ try{
   await page.locator('[data-desktop-play]').click();
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   await app.evaluate(()=>global.easterTestApprove());
-  // Approving sign-in re-opens the modal, so close it again before using the hero.
-  await page.waitForFunction(()=>document.querySelector('.desktop-code')?.textContent===''||!document.querySelector('.desktop-code')?.offsetParent,{timeout:20000}).catch(()=>{});
-  await page.keyboard.press('Escape');
-  await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open);
+  // A completed sign-in closes the dialog it used for the device code. The player must not
+  // land in client settings just because the login finished.
+  await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open,null,{timeout:25000});
+  assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.open),false,'signing in leaves no dialog open');
   // The client is installed now, so Play belongs to the hero and only to the hero.
   const hero=page.locator('[data-desktop-play][data-action=play]');
   await hero.waitFor();
   assert.equal(await page.locator('#desktop-launcher').getByRole('button',{name:'PLAY NOW',exact:true}).count(),0,'the settings dialog carries no play action');
   await hero.click();
-  await page.locator('.desktop-status').filter({hasText:'Minecraft is running'}).waitFor();
+  await page.locator('.desktop-status').filter({hasText:'Minecraft is running'}).waitFor({state:'attached'});
+  assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.open),false,'Play launches the game without opening a dialog');
   assert(await page.locator('[data-desktop-play]').isDisabled());
   const status=await page.evaluate(()=>window.easterDesktop.status());assert.equal(status.profile.name,'TestCaptain');assert(!JSON.stringify(status).includes('fixture-private'));
   // While the game is running the launcher asks for nothing: no download, no update,
@@ -125,14 +126,15 @@ try{
   // player who is running the game may still open settings, and nothing here may hide them.
   assert.equal(await page.locator('.desktop-settings-button:visible').count(),1,'Settings stays available while the game runs');
   await app.evaluate(()=>global.easterTestGame.emit('exit',0));
-  await page.locator('.desktop-status').filter({hasText:'Minecraft closed.'}).waitFor();
+  // The status line lives in the dialog, which Play never opens now, so it is read
+  // attached rather than visible.
+  await page.locator('.desktop-status').filter({hasText:'Minecraft closed.'}).waitFor({state:'attached'});
   await page.locator('[data-desktop-play][data-action=play]').waitFor();
   assert.equal(await page.locator('[data-desktop-play]').isDisabled(),false,'game exit restores the Play action');
   assert.equal((await page.evaluate(()=>window.easterDesktop.status())).phase,'ready');
   // Settings at the Play Now stage is the hero's secondary action, and its dialog is
-  // client settings only. Starting the game opens that dialog, so close it first.
-  await page.keyboard.press('Escape');
-  await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open);
+  // client settings only. Starting the game opened nothing, so it is closed already.
+  assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.open),false,'no dialog is left open after launching');
   const settingsButton=page.locator('.desktop-settings-button');
   await settingsButton.waitFor({state:'visible',timeout:30000});
   await settingsButton.click();

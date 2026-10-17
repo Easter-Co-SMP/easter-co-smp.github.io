@@ -12,8 +12,9 @@ from unittest import mock
 from urllib.parse import urlsplit
 import zipfile
 
-from scripts.export_world import (FABRIC_FALLBACK, GRAPHICS_PACK_NAME, GRAPHICS_PACK_VERSION,
-                                  GRAPHICS_PATH_PREFIX, GRAPHICS_PROJECT_ID, MANIFEST_KEYS,
+from scripts.export_world import (FABRIC_FALLBACK, GRAPHICS_COMPANIONS, GRAPHICS_PACK_NAME,
+                                  GRAPHICS_PACK_VERSION, GRAPHICS_PATH_PREFIX, GRAPHICS_PROJECT_ID,
+                                  COMPANION_PATH_PREFIX, MANIFEST_KEYS,
                                   MODRINTH_CDN_HOST, PUBLIC_MARKER_KINDS, chunk_version,
                                   declared_fabric, export_client, fetch_modrinth_versions,
                                   manifest_text, modrinth_resolver, packages, parse_graphics_release,
@@ -76,11 +77,23 @@ def graphics_release(loaders=('iris', 'optifine'), minecraft='26.2', version=GRA
 
 
 def graphics_fixture_resolver(loaders=('iris', 'optifine'), minecraft='26.2', version=GRAPHICS_PACK_VERSION,
-                              filename=GRAPHICS_PACK_NAME, size=553400, host=MODRINTH_CDN_HOST, hashes=None):
-    """A graphics fetch that answers from a fixture, so tests never touch the publisher."""
-    def fetch(project, wanted_version, game_version):
-        assert project == GRAPHICS_PROJECT_ID and wanted_version == GRAPHICS_PACK_VERSION, 'the pinned pack is fetched'
-        return graphics_release(loaders, minecraft, version, filename, size, host, hashes)
+                              filename=GRAPHICS_PACK_NAME, size=553400, host=MODRINTH_CDN_HOST, hashes=None,
+                              companion_loaders=('fabric',), companion_size=2821616):
+    """A graphics fetch that answers from a fixture, so tests never touch the publisher.
+
+    The chunk asks for the pack (published for iris) and for its loader companions
+    (published for fabric), so the fixture answers both shapes.
+    """
+    def fetch(project, wanted_version, game_version, loader=None):
+        if project == GRAPHICS_PROJECT_ID:
+            assert wanted_version == GRAPHICS_PACK_VERSION, 'the pinned pack is fetched'
+            return graphics_release(loaders, minecraft, version, filename, size, host, hashes)
+        companion = next(item for item in GRAPHICS_COMPANIONS if item['id'] == project)
+        assert wanted_version == companion['version'], 'the pinned loader is fetched by version'
+        assert loader == 'fabric', 'a loader is a fabric mod'
+        return graphics_release(companion_loaders, minecraft, wanted_version,
+                                f"{project}-fabric-{wanted_version}+mc{minecraft}.jar",
+                                companion_size, host, hashes)
 
     return fetch
 
@@ -561,9 +574,12 @@ class ClientExportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             calls = []
-            def fetch(project, version, minecraft):
+            def fetch(project, version, minecraft, loader=None):
                 calls.append((project, version, minecraft))
-                return graphics_release()
+                if project == GRAPHICS_PROJECT_ID:
+                    return graphics_release()
+                return graphics_release(('fabric',), minecraft, version,
+                                        f'{project}-fabric-{version}+mc{minecraft}.jar', 1234)
             client = self.build(root, graphics_resolver=fetch)
             chunks = {chunk['id']: chunk for chunk in client['chunks']}
             self.assertEqual(sorted(chunks), ['base', 'graphics'])
@@ -572,16 +588,26 @@ class ClientExportTests(unittest.TestCase):
             self.assertFalse(graphics['immutable'], 'an optional chunk is re-verified, not trusted once')
             self.assertEqual(graphics['version'], chunk_version(graphics))
             self.assertIn('26.2', graphics['name'])
-            entry, = graphics['files']
-            self.assertEqual(set(entry), {'id', 'name', 'version', 'path', 'url', 'hash', 'size'})
-            self.assertEqual(entry['id'], GRAPHICS_PROJECT_ID)
-            self.assertEqual(entry['version'], GRAPHICS_PACK_VERSION)
-            self.assertEqual(entry['path'], GRAPHICS_PATH_PREFIX + GRAPHICS_PACK_NAME)
-            self.assertEqual(urlsplit(entry['url']).hostname, 'cdn.modrinth.com')
-            self.assertEqual(entry['hash'], 'sha512:' + SHA512)
-            self.assertEqual(entry['size'], 553400)
+            pack, *loaders = graphics['files']
+            for entry in graphics['files']:
+                self.assertEqual(set(entry), {'id', 'name', 'version', 'path', 'url', 'hash', 'size'})
+                self.assertEqual(urlsplit(entry['url']).hostname, 'cdn.modrinth.com')
+                self.assertEqual(entry['hash'], 'sha512:' + SHA512)
+            self.assertEqual(pack['id'], GRAPHICS_PROJECT_ID)
+            self.assertEqual(pack['version'], GRAPHICS_PACK_VERSION)
+            self.assertEqual(pack['path'], GRAPHICS_PATH_PREFIX + GRAPHICS_PACK_NAME)
+            self.assertEqual(pack['size'], 553400)
+            # The loader travels with the pack: without Iris the config file the launcher
+            # writes is inert and the player sees no shaders at all.
+            self.assertEqual([entry['id'] for entry in loaders], [item['id'] for item in GRAPHICS_COMPANIONS])
+            for entry, pinned in zip(loaders, GRAPHICS_COMPANIONS):
+                self.assertEqual(entry['version'], pinned['version'])
+                self.assertTrue(entry['path'].startswith(COMPANION_PATH_PREFIX), 'a loader installs under mods/')
+                self.assertTrue(entry['path'].endswith('.jar'))
             # The resolver is asked for the pinned project and version, like every other pin.
-            self.assertEqual(calls, [(GRAPHICS_PROJECT_ID, GRAPHICS_PACK_VERSION, '26.2')])
+            self.assertEqual(calls, [(GRAPHICS_PROJECT_ID, GRAPHICS_PACK_VERSION, '26.2'),
+                                     ('iris', '1.11.4+26.2-fabric', '26.2'),
+                                     ('sodium', 'mc26.2-0.9.2-fabric', '26.2')])
             # The pack filename becomes a path in the manifest, so it is validated, not
             # sanitised: a publisher filename that would escape the chunk is refused.
             for filename in ('../../etc/passwd', 'pack.zip/../../x', '', 'pack.tar.gz'):
@@ -593,7 +619,7 @@ class ClientExportTests(unittest.TestCase):
             other = packages(chunks['base']['files'][0], {'mods': chunks['base']['files'][1:]},
                              {'minecraft': '26.2', 'fabric': '0.19.5', 'java': 25},
                              {'name': 'Complementary Shaders - Unbound', 'version': GRAPHICS_PACK_VERSION,
-                              'path': GRAPHICS_PACK_NAME, 'url': entry['url'],
+                              'path': GRAPHICS_PATH_PREFIX + GRAPHICS_PACK_NAME, 'url': pack['url'],
                               'hash': 'sha512:' + 'cd' * 64, 'size': 553400})[1]
             self.assertNotEqual(other['version'], graphics['version'])
             # And the exported manifest is the shape the site validator accepts, staged as
@@ -604,12 +630,15 @@ class ClientExportTests(unittest.TestCase):
             validate_data(root)
             self.assertEqual(json.loads((root / 'data/client.json').read_text())['chunks'][1], graphics)
             # The resolver is asked for the pinned project and version, like every other pin.
-            self.assertEqual(calls, [(GRAPHICS_PROJECT_ID, GRAPHICS_PACK_VERSION, '26.2')])
+            self.assertEqual(calls, [(GRAPHICS_PROJECT_ID, GRAPHICS_PACK_VERSION, '26.2'),
+                                     ('iris', '1.11.4+26.2-fabric', '26.2'),
+                                     ('sodium', 'mc26.2-0.9.2-fabric', '26.2')])
             # The cached confirmation is reused, so a second export into another tree makes
             # no second call: the pin is confirmed once, not once per export.
+            before = list(calls)
             self.build(root / 'again', state_path=root / 'state/modrinth.json',
-                       graphics_resolver=lambda *args: (_ for _ in ()).throw(AssertionError('the confirmed artifact was not reused')))
-            self.assertEqual(calls, [(GRAPHICS_PROJECT_ID, GRAPHICS_PACK_VERSION, '26.2')])
+                       graphics_resolver=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('the confirmed artifact was not reused')))
+            self.assertEqual(calls, before, 'the confirmed pack and loader are reused')
 
     def test_an_unusable_graphics_release_is_refused_rather_than_published(self):
         """A pack that does not fit, or an unreachable publisher, fails the export.
@@ -632,13 +661,31 @@ class ClientExportTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as temp:
                     root = Path(temp)
                     if versions is None:
-                        def resolver(project, wanted, game):
+                        def resolver(project, wanted, game, loader=None):
                             raise OSError('the publisher is unreachable')
                     else:
-                        def resolver(project, wanted, game, published=versions):
+                        def resolver(project, wanted, game, loader=None, published=versions):
                             return published
                     with self.assertRaises(RuntimeError) as caught:
                         self.build(root, graphics_resolver=resolver)
+                    self.assertIn(expected, str(caught.exception))
+        # A loader that cannot be confirmed refuses the export too: shipping the pack
+        # without Iris is exactly the fault this release fixes.
+        def pack_ok():
+            return graphics_release()
+        loader_faults = [
+            (lambda project, wanted, game, loader=None: pack_ok() if project == GRAPHICS_PROJECT_ID
+             else graphics_release(('neoforge',), game, wanted, 'x.jar', 1234), 'fabric'),
+            (lambda project, wanted, game, loader=None: pack_ok() if project == GRAPHICS_PROJECT_ID
+             else graphics_release(('fabric',), game, wanted, 'iris.jar/../../x.zip', 1234), 'unusable filename'),
+            (lambda project, wanted, game, loader=None: pack_ok() if project == GRAPHICS_PROJECT_ID
+             else graphics_release(('fabric',), '1.21.1', wanted, 'iris.jar', 1234), 'Minecraft 26.2'),
+        ]
+        for resolver, expected in loader_faults:
+            with self.subTest(expected=expected):
+                with tempfile.TemporaryDirectory() as temp:
+                    with self.assertRaises(RuntimeError) as caught:
+                        self.build(Path(temp), graphics_resolver=resolver)
                     self.assertIn(expected, str(caught.exception))
 
     def test_the_base_chunk_version_changes_when_only_our_mod_changes(self):

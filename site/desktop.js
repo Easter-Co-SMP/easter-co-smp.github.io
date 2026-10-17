@@ -401,9 +401,16 @@
  }
 
  // ---- Wiring ----------------------------------------------------------------
- const signIn=()=>{if(signInPending)return;dialogPurpose='signin';open();signInPending=true;render(current||{});void Promise.resolve(desktop.signIn()).catch(report).finally(()=>{signInPending=false;render(current||{});const target=$('[data-open-microsoft]');if(panel.open&&!deviceHidden())target.focus();});};
+ // Sign-in opens the dialog for its device code and closes it again when the flow is
+ // over: a finished login must not leave the settings dialog sitting on screen.
+ const closeSignIn=()=>{if(panel.open&&dialogPurpose==='signin')panel.close();};
+ const signIn=()=>{if(signInPending)return;dialogPurpose='signin';open();signInPending=true;render(current||{});void Promise.resolve(desktop.signIn()).then(closeSignIn).catch(report).finally(()=>{signInPending=false;render(current||{});const target=$('[data-open-microsoft]');if(panel.open&&!deviceHidden())target.focus();});};
  const deviceHidden=()=>$('.desktop-device').hidden;
- const start=()=>{dialogPurpose='signin';open();void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
+ // Play Now starts the game. It opens nothing: the dialog is for sign-in and client
+ // settings, and a player who presses Play should never be shown either of them. A
+ // failure is the one case worth a dialog, because the player needs to read why, so the
+ // error is reported there rather than swallowing the launch.
+ const start=()=>{void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(error=>{dialogPurpose='settings';open();report(error);});};
  const openSettings=()=>{dialogPurpose='settings';open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
   // Land the keyboard on the first setting that is actually usable.
   const first=current?.device?$('[data-open-microsoft]'):!serverField.hidden?serverField:$('.desktop-advanced summary');

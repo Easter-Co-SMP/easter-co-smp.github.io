@@ -184,6 +184,14 @@ Rules the exporter and validator hold to:
   exporter rather than resolved to "latest". An optional chunk that is switched off is
   simply not fetched, and its absence invalidates nothing else, which is still what a
   player sees before they turn the toggle on.
+- **The chunk carries the loader, not just the pack.** Since 2026-10-17 the `graphics`
+  chunk also carries Iris Shaders and Sodium (fabric, `mods/`), pinned the same way and
+  verified against the same publisher. The reason is a defect Owen hit in 1.0.8: the
+  pack was installed and `config/iris.properties` written, but the client had no shader
+  loader, so nothing read either and the game showed no shaders while the launcher said
+  they were on. A shader pack without its loader is not a feature, so the two ship
+  together and a loader that cannot be confirmed refuses the export rather than
+  publishing half a payload.
 
 ## Rules that still hold
 

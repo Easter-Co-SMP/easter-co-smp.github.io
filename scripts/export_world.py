@@ -82,11 +82,27 @@ GRAPHICS_PACK_NAME = 'ComplementaryUnbound_r5.9.3.zip'
 #: Iris is the loader the household clients run; OptiFine is not installed. A release that
 #: does not list it is refused rather than published as the graphics payload.
 GRAPHICS_LOADER = 'iris'
+GRAPHICS_LOADER_NAME = 'Iris Shaders'
 #: The directory Iris reads packs from, inside the launcher's own Minecraft directory.
 GRAPHICS_PATH_PREFIX = 'shaderpacks/'
 #: A pack filename becomes a path in the manifest, so it is held to the same shape as any
 #: other publisher filename rather than copied in and checked afterwards.
 _PACK_FILENAME_PATTERN = re.compile('[A-Za-z0-9][A-Za-z0-9._+-]{0,120}?[.]zip')
+#: The mod filename shape, held to the same standard as the pack's.
+_MOD_FILENAME_PATTERN = re.compile('[A-Za-z0-9][A-Za-z0-9._+-]{0,120}?[.]jar')
+
+#: The chunk's other half: the loader that makes the pack do anything. Owen reported on
+#: 2026-10-17 that the game had no shaders with the pack installed, because 1.0.8 shipped
+#: the pack into a client with no Iris: config/iris.properties was written and nothing read
+#: it. These are the exact artifacts both household clients already run, verified against
+#: Modrinth by sha512 (iris dee95558..., sodium 9b7a7aad..., byte-identical to the jars in
+#: /opt/minecraft/client-mods). Iris needs Sodium; Fabric API is already in the base chunk.
+GRAPHICS_COMPANIONS = (
+    {'id': 'iris', 'name': 'Iris Shaders', 'version': '1.11.4+26.2-fabric'},
+    {'id': 'sodium', 'name': 'Sodium', 'version': 'mc26.2-0.9.2-fabric'},
+)
+#: JARs install under mods/ whatever their published path, and the manifest says so.
+COMPANION_PATH_PREFIX = 'mods/'
 
 
 def write_json(path, value):
@@ -146,7 +162,7 @@ def resolved_pins(root, dependencies):
             'fabric': declared_fabric(Path(root) / INSTALL_RELEASE), 'java': JAVA_MAJOR}
 
 
-def packages(mod, dependencies, pins, graphics=None):
+def packages(mod, dependencies, pins, graphics=None, companions=()):
     """The published chunk list: the frozen base chunk, plus the graphics chunk when pinned.
 
     The base chunk describes the frozen game and is always required. The graphics chunk is
@@ -176,13 +192,20 @@ def packages(mod, dependencies, pins, graphics=None):
         # the publisher's own packed filename as its path: the same file Iris reads once the
         # chunk has installed it into the launcher's own shaderpacks directory.
         entry = {'id': GRAPHICS_PROJECT_ID, 'name': graphics['name'], 'version': graphics['version'],
-                 'path': GRAPHICS_PATH_PREFIX + graphics['path'], 'url': graphics['url'],
+                 'path': graphics['path'], 'url': graphics['url'],
                  'hash': graphics['hash'], 'size': graphics['size']}
+        # The loader travels with the pack: a shader pack without Iris is a file the game
+        # never reads, which is how 1.0.8 shipped no visible shaders to a player who had
+        # them switched on.
+        entries = [entry] + [{'id': item['id'], 'name': item['name'], 'version': item['version'],
+                              'path': item['path'], 'url': item['url'], 'hash': item['hash'],
+                              'size': item['size']} for item in companions]
         # Every chunk carries the same field set, so a chunk's shape never depends on which
         # kind it is. The game pins are meaningful on the frozen base chunk only, and are
         # null here rather than absent.
-        chunk = {'id': 'graphics', 'name': graphics['name'] + ' for Minecraft ' + pins['minecraft'],
-                 'optional': True, 'immutable': False, 'fabric': None, 'java': None, 'files': [entry]}
+        chunk = {'id': 'graphics', 'name': graphics['name'] + ' and ' + GRAPHICS_LOADER_NAME +
+                 ' for Minecraft ' + pins['minecraft'],
+                 'optional': True, 'immutable': False, 'fabric': None, 'java': None, 'files': entries}
         chunks.append(dict(chunk, version=chunk_version(chunk)))
     return chunks
 
@@ -295,7 +318,7 @@ def fetch_modrinth_versions(ident, minecraft, timeout=45):
         return json.loads(response.read().decode('utf-8'))
 
 
-def fetch_modrinth_version(ident, version, minecraft, timeout=45):
+def fetch_modrinth_version(ident, version, minecraft, timeout=45, loader=None):
     """The pinned graphics release, asked for by version rather than filtered for loaders.
 
     A shader pack is published with the iris/optifine loaders, so the fabric query the mods
@@ -308,7 +331,7 @@ def fetch_modrinth_version(ident, version, minecraft, timeout=45):
     """
     if not re.fullmatch('[A-Za-z0-9]{1,80}', ident):
         raise ValueError('Invalid Modrinth project id')
-    query = urllib.parse.urlencode({'loaders': json.dumps([GRAPHICS_LOADER]),
+    query = urllib.parse.urlencode({'loaders': json.dumps([loader or GRAPHICS_LOADER]),
                                     'game_versions': json.dumps([minecraft])})
     request = urllib.request.Request(MODRINTH_API + urllib.parse.quote(ident) + '/version?' + query,
                                      headers={'Accept': 'application/json', 'User-Agent': MODRINTH_AGENT})
@@ -316,15 +339,20 @@ def fetch_modrinth_version(ident, version, minecraft, timeout=45):
         return json.loads(response.read().decode('utf-8'))
 
 
-def parse_graphics_release(versions, version, minecraft):
+def parse_graphics_release(versions, version, minecraft, project_id=None, project_name=None,
+                           filename_pattern=None, path_prefix=None, loader=None):
     """The one published file for the pinned graphics pack, in the launcher's own terms.
 
     The same standard as a mod dependency: the artifact must be served by the publisher's
     own CDN and carry the publisher's own sha512, or it is refused. The filename becomes a
     path in the manifest, so it is validated here rather than sanitised afterwards.
     """
+    ident = project_id or GRAPHICS_PROJECT_ID
+    label = project_name or GRAPHICS_PROJECT_NAME
+    shape = filename_pattern or _PACK_FILENAME_PATTERN
+    prefix = GRAPHICS_PATH_PREFIX if path_prefix is None else path_prefix
     if not isinstance(versions, list):
-        raise ValueError(f'Modrinth returned no version list for {GRAPHICS_PROJECT_ID}')
+        raise ValueError(f'Modrinth returned no version list for {ident}')
     for release in versions:
         files = release.get('files') or []
         matches = (release.get('version_number') == version
@@ -333,8 +361,9 @@ def parse_graphics_release(versions, version, minecraft):
             continue
         if minecraft not in (release.get('game_versions') or []):
             raise ValueError(f'The pinned graphics pack {version} does not list Minecraft {minecraft}')
-        if GRAPHICS_LOADER not in (release.get('loaders') or []):
-            raise ValueError(f'The pinned graphics pack {version} is not published for {GRAPHICS_LOADER}')
+        wanted_loader = loader or GRAPHICS_LOADER
+        if wanted_loader not in (release.get('loaders') or []):
+            raise ValueError(f'The pinned graphics pack {version} is not published for {wanted_loader}')
         file = next((f for f in files if f.get('primary')), files[0] if files else None)
         digest = (file or {}).get('hashes', {}).get('sha512')
         if not file or not re.fullmatch('[a-f0-9]{128}', str(digest)):
@@ -344,9 +373,9 @@ def parse_graphics_release(versions, version, minecraft):
         if type(file.get('size')) is not int or file['size'] <= 0:
             raise ValueError(f'The pinned graphics pack {version} publishes no file size')
         filename = str(file.get('filename') or '')
-        if not _PACK_FILENAME_PATTERN.fullmatch(filename.rsplit('/', 1)[-1]):
+        if not shape.fullmatch(filename.rsplit('/', 1)[-1]):
             raise ValueError(f'The pinned graphics pack {version} publishes an unusable filename')
-        return {'name': GRAPHICS_PROJECT_NAME, 'version': version, 'path': filename.rsplit('/', 1)[-1],
+        return {'id': ident, 'name': label, 'version': version, 'path': prefix + filename.rsplit('/', 1)[-1],
                 'url': file['url'], 'hash': 'sha512:' + digest, 'size': file['size']}
     raise ValueError(f'The pinned graphics pack {version} is unavailable for Minecraft {minecraft}')
 
@@ -394,7 +423,8 @@ def resolved_graphics(resolver, minecraft, state_path):
     as a stale version. The export fails loudly and the next run retries.
     """
     cached = read_graphics_state(state_path)
-    if cached and cached.get('version') == GRAPHICS_PACK_VERSION:
+    if cached and cached.get('version') == GRAPHICS_PACK_VERSION \
+            and str(cached.get('path', '')).startswith(GRAPHICS_PATH_PREFIX):
         return cached
     if resolver is None:
         resolver = graphics_resolver()
@@ -408,6 +438,53 @@ def resolved_graphics(resolver, minecraft, state_path):
                            f'confirmed: {error}') from error
     write_graphics_state(state_path, {'fetched_at': datetime.now(timezone.utc).isoformat(), **confirmed})
     return confirmed
+
+
+def read_companions_state(path):
+    """The cached confirmed loader files, or None when there is none to reuse."""
+    try:
+        value = json.loads(Path(path).read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get('versions'), list) \
+            or not isinstance(value.get('files'), list):
+        return None
+    required = ('id', 'name', 'version', 'path', 'url', 'hash', 'size')
+    if not all(isinstance(entry, dict) and all(entry.get(key) for key in required)
+               for entry in value['files']):
+        return None
+    return value
+
+
+def resolved_graphics_companions(resolver, minecraft, state_path):
+    """The shader loader's own files, confirmed by their publisher, from cache when cached.
+
+    Same rules as the pack and the same refusal: an unconfirmed loader means an export that
+    stops rather than a published chunk whose shader pack nothing can open. The cache is
+    keyed by the pinned versions, so changing a pin always re-fetches.
+    """
+    cached = read_companions_state(state_path)
+    wanted = tuple(item['version'] for item in GRAPHICS_COMPANIONS)
+    if cached and cached.get('versions') == list(wanted):
+        return [{key: entry[key] for key in ('id', 'name', 'version', 'path', 'url', 'hash', 'size')}
+                for entry in cached['files']]
+    if resolver is None:
+        resolver = graphics_resolver()
+    files = []
+    for item in GRAPHICS_COMPANIONS:
+        try:
+            parsed = parse_graphics_release(resolver(item['id'], item['version'], minecraft, loader='fabric'),
+                                            item['version'], minecraft, project_id=item['id'],
+                                            project_name=item['name'],
+                                            filename_pattern=_MOD_FILENAME_PATTERN,
+                                            path_prefix=COMPANION_PATH_PREFIX, loader='fabric')
+        except Exception as error:
+            raise RuntimeError(f'The pinned shader loader {item["id"]} {item["version"]} could not '
+                               f'be confirmed: {error}') from error
+        files.append(parsed)
+    write_graphics_state(state_path, {'fetched_at': datetime.now(timezone.utc).isoformat(),
+                                      'versions': list(wanted), 'files': files})
+    return files
 
 
 def read_resolution_state(path):
@@ -525,6 +602,9 @@ def export_client(destination, download_module, resolver=None, now=None, state_p
     # published: an unconfirmed shader stack is omitted only by refusing the export, never
     # by publishing a chunk that claims a payload nobody verified.
     graphics = resolved_graphics(graphics_resolver, minecraft, state_path.parent / 'graphics.json')
+    # The loader is part of the same payload: without it the pack is inert.
+    companions = resolved_graphics_companions(graphics_resolver, minecraft,
+                                              state_path.parent / 'graphics-companions.json')
     client = {
         'minecraft': minecraft,
         'fabric': pins['fabric'],
@@ -532,7 +612,7 @@ def export_client(destination, download_module, resolver=None, now=None, state_p
                 'bytes': size, 'url': 'downloads/easter-navy.jar'},
         'dependencies': [{'id': ident, 'name': entry['name'], 'version': entry['version'],
                           'url': DEPENDENCIES[ident]} for ident, entry in mod_entries.items()],
-        'chunks': packages(custom_file, {'mods': files}, pins, graphics),
+        'chunks': packages(custom_file, {'mods': files}, pins, graphics, companions),
     }
     # Nothing local, private or absolute may reach the public manifest.
     for chunk in client['chunks']:

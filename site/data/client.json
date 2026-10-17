@@ -76,14 +76,32 @@
           "size": 553400,
           "url": "https://cdn.modrinth.com/data/R6NEzAwj/versions/B1kyfoUZ/ComplementaryUnbound_r5.9.3.zip",
           "version": "r5.9.3"
+        },
+        {
+          "hash": "sha512:dee955580976aebc92373f5c2d88398ad1019b043c6254a41fe7ab8a6ca3a5ff29d58df2b22ec43a31198beb769e814658eef06fbf980066a2e2c216eeafd32a",
+          "id": "iris",
+          "name": "Iris Shaders",
+          "path": "mods/iris-fabric-1.11.4+mc26.2.jar",
+          "size": 2821616,
+          "url": "https://cdn.modrinth.com/data/YL57xq9U/versions/gxZWWnKH/iris-fabric-1.11.4%2Bmc26.2.jar",
+          "version": "1.11.4+26.2-fabric"
+        },
+        {
+          "hash": "sha512:9b7a7aade8824543ce2a804fddfd04e37f57d1f91c00574e7dc87e554eb1835d888313ee6f715a7599bd729840cf01fd74e02aeae87b4e5a3c10c34a016e407c",
+          "id": "sodium",
+          "name": "Sodium",
+          "path": "mods/sodium-fabric-0.9.2+mc26.2.jar",
+          "size": 1885572,
+          "url": "https://cdn.modrinth.com/data/AANobbMI/versions/xJZxADzI/sodium-fabric-0.9.2%2Bmc26.2.jar",
+          "version": "mc26.2-0.9.2-fabric"
         }
       ],
       "id": "graphics",
       "immutable": false,
       "java": null,
-      "name": "Complementary Shaders - Unbound for Minecraft 26.2",
+      "name": "Complementary Shaders - Unbound and Iris Shaders for Minecraft 26.2",
       "optional": true,
-      "version": "sha256:35b665395826d2c708cfdf504c9f305e4a953aed74b89e724253c5029bc5c0c7"
+      "version": "sha256:1ac3053ce1bf9fc1b757c5a6a2c889af944a5edfeceed0ab7457c8e420f50641"
     }
   ],
   "dependencies": [
