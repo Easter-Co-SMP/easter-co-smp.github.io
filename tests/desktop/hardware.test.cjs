@@ -162,6 +162,16 @@ test('the display GPU is the card a monitor is wired to, not the boot VGA device
  assert.doesNotMatch(hardware.reason,/adapters/,'the launcher has one answer, so it gives one');
  assert.equal(hardware.reason.split('. ').length,1,'one sentence');
 });
+test('with monitors on two cards the session renderer breaks the tie',()=>{
+ const adapters=EASTER_SERVER_ADAPTERS();
+ const both=EASTER_SERVER_CARDS.map(card=>({...card,connected:1}));
+ const onTheSix=sessionDisplay({devices:[{active:true,deviceId:0x2882,vendorId:0x10de}],adapters,cards:both});
+ assert.equal(onTheSix.via,'connected');
+ assert.match(onTheSix.adapter.name,/RTX 4060/,'the card this window is drawn on wins the tie');
+ const onTheFive=sessionDisplay({devices:[{active:true,deviceId:0x2487,vendorId:0x10de}],adapters,cards:both});
+ assert.match(onTheFive.adapter.name,/RTX 3060/,'and the other way round when that is the session card');
+ assert.equal(onTheFive.via,'connected');
+});
 test('a seat with no connected output falls back to the session renderer, then to boot_vga',()=>{
  const adapters=EASTER_SERVER_ADAPTERS();
  // A streamed seat: the display is synthesised, so nothing reads connected.

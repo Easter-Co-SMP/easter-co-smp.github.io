@@ -188,15 +188,17 @@ function sessionDisplay({devices=[],adapters=[],cards=[]}={}){
  // A monitor wired to a card is the least ambiguous statement of "the display GPU", so
  // it is asked first; the session's own renderer answers next, which is also the answer
  // on a seat whose display is synthesised (a streamed seat has no connected output).
- for(const card of (cards||[]).filter(candidate=>candidate.connected>0)){
-  const hit=byIds(card.vendorId,card.deviceId);
-  if(hit)return {adapter:{...hit,bus:card.bus||hit.bus||null},via:'connected',card};
- }
+ // With monitors on more than one card, the session's renderer breaks the tie, because
+ // that is the card this window is actually drawn on.
  const active=chooseDevice(devices||[]);
- if(active){
-  const hit=byIds(active.vendorId,active.deviceId);
-  if(hit)return {adapter:hit,via:'reported'};
+ const activeHit=active?byIds(active.vendorId,active.deviceId):null;
+ const connected=(cards||[]).filter(candidate=>candidate.connected>0);
+ const preferred=connected.find(card=>activeHit&&idMatch(card.vendorId,activeHit.vendorId)&&idMatch(card.deviceId,activeHit.deviceId))||connected[0];
+ if(preferred){
+  const hit=byIds(preferred.vendorId,preferred.deviceId);
+  if(hit)return {adapter:{...hit,bus:preferred.bus||hit.bus||null},via:'connected',card:preferred};
  }
+ if(activeHit)return {adapter:activeHit,via:'reported'};
  const primary=(cards||[]).find(card=>card.bootVga);
  if(primary){
   const hit=byIds(primary.vendorId,primary.deviceId);
