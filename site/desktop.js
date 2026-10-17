@@ -17,6 +17,11 @@
  // The skip control is a website affordance. Desktop mode removes it from the DOM entirely,
  // so it never reaches assistive technology; Escape and the bounded timer still end the arrival.
  document.querySelector('.skip-arrival')?.remove();
+ // The promo page is the website's job. The launcher keeps the crest, the name and the client
+ // controls; the welcome blurb, the endgame note, the wiki/roles story and the notes strip are
+ // marketing for visitors and never enter the app DOM. Home then fits the window instead of
+ // scrolling like a page (see the app shell rules at the end of desktop.css).
+ for(const selector of ['.hero-welcome','.home-below','.home-story','.home-notes'])document.querySelectorAll(selector).forEach(node=>node.remove());
 
  const TRANSFER=['downloading','paused','verifying','installing','updating'];
  const LOGIN_ACTION='Sign in with Microsoft';

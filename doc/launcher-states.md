@@ -378,6 +378,21 @@ re-decided behind the player:
 | `autoUpdateGame` | Keep the installed game client current. When off, no update starts on its own and a launch never begins a transfer the player did not ask for. |
 | `exitOnLaunch` | Close the launcher after it starts the game, so the launcher is a doorway rather than a second window to manage. |
 
+**The launcher is an application window, not the website.** The promo blocks that
+belong to visitors — the welcome blurb, the endgame note, the wiki and roles story
+and the notes strip with the snapshot date — stay on the published site and never
+enter the desktop DOM; Home keeps the crest, the name and the client controls.
+Because nothing is left to scroll, Home fits the window instead of behaving like a
+page: the shell is the viewport height, the hero takes whatever the header and
+footer leave over, and neither axis overflows at any size the window allows
+(`minWidth` 800, `minHeight` 600). No state field is added by this; it is a rule
+about the surface. Utility pages that really are documents (the map today, the
+coming wiki) keep their own scrolling. While the first-run install card is open the
+crest and the large title step aside so the card and its **Start download** action
+stay on screen, and the card is the only scroller if its content ever exceeds the
+window. The narrow-width fallback is the website's stacked layout, which only
+desktop mode in a browser can reach.
+
 ## Account menu and installation recognition
 
 Desktop Home uses Settings as its secondary hero action. The header has no client

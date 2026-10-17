@@ -28,5 +28,6 @@ if(!motionPreference.matches){
  window.addEventListener('scroll',scheduleScene,{passive:true});
 }
 fetch('data/world.json',{cache:'no-cache'}).then(r=>{if(!r.ok)throw Error();return r.json();}).then(world=>{
- document.getElementById('home-world-date').textContent='World charted '+new Date(world.captured_at).toLocaleDateString(undefined,{day:'numeric',month:'short'});
+ // The launcher drops the notes strip, so this write is optional rather than assumed.
+ const worldDate=document.getElementById('home-world-date');if(worldDate)worldDate.textContent='World charted '+new Date(world.captured_at).toLocaleDateString(undefined,{day:'numeric',month:'short'});
 }).catch(()=>{});

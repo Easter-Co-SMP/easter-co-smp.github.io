@@ -160,3 +160,50 @@
 .desktop-preference input[type=checkbox]:focus-visible{outline:2px solid var(--gold,#d4af60);outline-offset:2px}
 .desktop-launcher-update{margin:.6rem 0 0;font-size:.9rem;color:var(--muted,#8fa8a0)}
 .desktop-launcher-update a{color:var(--gold,#d4af60)}
+
+/* ---- The launcher is an application window, not a scrolling page --------------------
+   Home fits the window exactly: the shell is the viewport height, the hero takes what the
+   header and footer leave over, and nothing overflows in either direction. Pages that
+   really are documents (the map today, the coming wiki) keep their own scrolling, so every
+   rule here is scoped to body.home. */
+.desktop-mode body.home{height:100dvh;min-height:0;overflow:hidden}
+.desktop-mode body.home>.home-content{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:center;width:min(1120px,calc(100% - 72px));padding:clamp(10px,3vh,42px) 0 clamp(4px,1.4vh,18px)}
+.desktop-mode .home .home-hero{min-height:0;grid-template-columns:clamp(92px,20vh,250px) minmax(0,1fr);gap:clamp(16px,4vh,80px)}
+.desktop-mode .hero-copy{min-width:0}
+.desktop-mode .hero-copy h1{font-size:clamp(22px,min(5.2vw,6.4vh),82px)}
+.desktop-mode .hero-actions{gap:clamp(8px,1.4vh,14px)}
+.desktop-mode .home-footer{flex:none;padding:0 0 clamp(5px,1.4vh,22px);width:min(1120px,calc(100% - 72px))}
+@media(max-width:600px){.desktop-mode body.home>.home-content,.desktop-mode .home-footer{width:calc(100% - 40px)}}
+/* First run promotes the download, so the install card shares the hero with the page name.
+   While the card is open the crest and the big title step aside: the app shows one job at a
+   time, which is also what keeps a 600px-tall window from scrolling. */
+.desktop-mode .home-hero:has(#desktop-install-card:not([hidden])){grid-template-columns:minmax(0,1fr)}
+.desktop-mode .home-hero:has(#desktop-install-card:not([hidden])) .crest-frame{display:none}
+.desktop-mode .home-hero:has(#desktop-install-card:not([hidden])) .hero-copy h1{font-size:clamp(20px,min(3.2vw,3.8vh),38px)}
+/* The card takes exactly the space the hero has left rather than a guessed number of pixels,
+   so the page itself never scrolls: the card is the only scroller. */
+.desktop-mode .home-hero:has(#desktop-install-card:not([hidden])){flex:1 1 auto;min-height:0;max-height:100%;grid-template-rows:minmax(0,1fr);align-content:stretch;align-items:stretch}
+.desktop-mode .home-hero:has(#desktop-install-card:not([hidden])) .hero-copy{display:flex;flex-direction:column;justify-content:center;min-height:0;overflow:hidden}
+.desktop-mode #desktop-install-card{flex:0 1 auto;min-height:0;overflow:auto}
+@media(max-height:700px){
+ /* A short window is still the whole app: the first-run card keeps its action on screen
+    instead of turning the page into a scroller. */
+ .desktop-mode .home-hero:has(#desktop-install-card:not([hidden])) .hero-copy h1{font-size:clamp(15px,3vh,22px)}
+ .desktop-mode .hero-actions .launcher-button{min-height:56px;padding:12px 20px}
+ .desktop-mode #desktop-install-card{margin-top:14px;padding:14px 16px}
+ .desktop-mode #desktop-install-card h2{margin-bottom:10px}
+ .desktop-mode #desktop-install-card .desktop-install-note{font-size:11px;line-height:1.55;margin-bottom:12px}
+ .desktop-mode #desktop-install-card .desktop-install-graphics{font-size:10px;line-height:1.55;margin-bottom:12px;padding-left:12px}
+}
+/* The launcher window cannot be narrower than 800px, but desktop mode is also exercised in a
+   browser, so narrow widths keep the website's stacked fallback instead of forcing two columns
+   into 320px. Below that width the shell may scroll again rather than clip the hero. */
+@media(max-width:720px){
+ .desktop-mode body.home{overflow-y:auto}
+ .desktop-mode .home .home-hero{grid-template-columns:minmax(0,1fr);gap:14px}
+ .desktop-mode .crest-frame{width:96px;justify-self:center}
+ .desktop-mode .hero-actions{justify-content:center}
+ .desktop-mode .hero-actions .launcher-button{min-width:0;max-width:100%}
+ .desktop-mode .home-hero:has(#desktop-install-card:not([hidden])) .hero-copy h1,.desktop-mode .hero-copy h1{font-size:clamp(22px,6.4vw,34px);text-align:center}
+ .desktop-mode .hero-copy .eyebrow{justify-content:center}
+}
