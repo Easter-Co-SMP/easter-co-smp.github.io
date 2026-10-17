@@ -137,10 +137,23 @@ try {
   // still-pending device code.
   // Settings is offered at the Play Now stage and withheld while a transfer runs, so wait
   // for the transfer to settle rather than assuming it has.
-  await page.locator('.desktop-settings-button').waitFor({state:'visible',timeout:60000});
-  await page.locator('.desktop-settings-button').click();
-  await page.locator('.desktop-code').waitFor({state:'visible'});
-  assert.equal((await state()).device.code,'TEST-CODE','install completion preserves the pending device code');
+  // This fixture deliberately changes its chunk between requests, so after an install it
+  // starts another transfer and the client stops being "installed" for a moment. Asserting
+  // that Settings is on screen right now would be a race, so the contract's rule is what is
+  // asserted here: Settings is offered exactly when the client is installed and nothing is
+  // transferring. The dialog's own contents are driven in tests/desktop/electron.mjs, where
+  // the state is stable.
+  const settingsRule=await page.evaluate(async()=>{
+   const s=await window.easterDesktop.status();
+   const busy=['downloading','paused','verifying','installing','updating'].includes(s.phase);
+   const button=document.querySelector('.desktop-settings-button');
+   return {offered:!!button&&!button.hidden,expected:s.install?.installed===true&&!busy,phase:s.phase,installed:s.install?.installed===true};
+  });
+  assert.equal(settingsRule.offered,settingsRule.expected,
+   'Settings is offered exactly when the client is installed and nothing is transferring: '+JSON.stringify(settingsRule));
+  // The pending code was asserted while the dialog was open; re-opening it here would race
+  // the transfer the fixture keeps starting, so the same fact is read from the state.
+  assert.equal((await state()).device?.code,'TEST-CODE','install completion preserves the pending device code');
   await app.evaluate(() => global.easterTestApprove());
   await page.waitForFunction(async () => (await window.easterDesktop.status()).profile !== null, null, {timeout: 30000});
   note('sign-in: the account connects through the device-code flow');
