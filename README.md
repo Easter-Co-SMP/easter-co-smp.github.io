@@ -228,3 +228,23 @@ stay aligned while zooming, panning, resizing, and reloading. Erasing removes a 
 stroke/shape and can be undone. Middle-drag always pans, never draws or edits notes.
 Drawings are private to the browser profile; they are not shared with other players, synced
 between computers, or included in the daily map archive. Clearing browser data removes them.
+
+## Shared wiki
+
+`site/wiki/` is the same bundled wiki in the website and Electron launcher, with no
+separate desktop content or network dependency. Its six initial articles are explicitly
+labelled demonstration content, not authoritative game instructions.
+
+Edit `site/wiki/pages.mjs` to maintain articles. Each has a stable id, title, group,
+summary, sections (stable ids, text, optional list and map link), and related article ids.
+The same catalogue supplies the overview, sidebar, full-text search, related links and
+table of contents. Hash routes such as `wiki/#/ships-and-sailing` and
+`wiki/#/ships-and-sailing/before-you-sail` work on GitHub Pages and the launcher's
+`easter://` origin without server routing. Search URLs are shareable too.
+Content ships with the launcher, so existing installations need a new launcher build
+to receive it. This change does not create a release.
+
+Wiki checks: `node --test tests/wiki.test.mjs`, `node tests/wiki-browser.mjs`
+(with the local preview origin in `EASTER_PUBLIC_ORIGIN`), and
+`xvfb-run -a node tests/desktop/wiki.electron.mjs`. The browser and Electron checks
+cover search, navigation, deep links, narrow layouts and the bundled offline wiki.

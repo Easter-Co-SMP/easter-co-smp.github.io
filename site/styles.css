@@ -105,3 +105,6 @@ dialog{width:min(580px,calc(100% - 32px));max-height:calc(100dvh - 40px);overflo
 .download-icon-credit{display:block;font-size:10px;opacity:.6;margin:12px 6px 2px;text-align:right}
 
 .platform-icon{filter:invert(89%) sepia(20%) saturate(550%) hue-rotate(345deg)}
+
+/* The wiki entry is a real destination in the shared navigation. */
+a.wiki-link{text-decoration:none}a.wiki-link:hover{border-color:#d7ba7d65;color:var(--gold);background:#ffffff05}

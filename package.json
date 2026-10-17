@@ -5,7 +5,7 @@
   "main": "desktop/main.cjs",
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/desktop/*.test.cjs",
+    "test": "node --test tests/desktop/*.test.cjs tests/wiki.test.mjs",
     "test:desktop": "xvfb-run -a node tests/desktop/electron.mjs",
     "test:site": "node tests/browser.mjs",
     "pack": "electron-builder --dir",
