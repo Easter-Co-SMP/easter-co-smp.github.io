@@ -74,27 +74,29 @@ try {
 
   // 2. Start the client download. The install section collects the location and the toggle.
   await page.locator('[data-desktop-play]').click();
-  const installSection = page.locator('.desktop-install');
+  const installSection = page.locator('#desktop-install-card');
   await installSection.waitFor({state: 'visible'});
   const location = await installSection.locator('input[name="installLocation"]').inputValue();
   assert(location.length > 0, 'the install folder defaults to something the player can accept');
-  assert.equal(await installSection.locator('input[name="includeGraphics"]').isChecked(),s.install.includeGraphics,
-    'enhanced graphics reflects the main-process default');
-  note('download: location defaults and the graphics toggle is present', location);
-  await installSection.locator('input[name="includeGraphics"]').check();
+  // The graphics choice is no longer a checkbox in the install form: the card states the
+  // machine's own answer, and the hero toggle is the player's control once the client is in.
+  const graphicsNote=(await installSection.locator('.desktop-install-graphics').textContent()).trim();
+  assert(graphicsNote.length>0,'the card states what the graphics setting will be: '+JSON.stringify(graphicsNote));
+  assert(/graphics|shader/i.test(graphicsNote),'and says it in terms of graphics: '+graphicsNote);
+  note('download: location defaults and the machine\'s graphics answer is stated', location);
   const picked=path.join(dir,'chosen-client');
   await fs.mkdir(picked);
   await app.evaluate(({dialog},picked)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[picked]});},picked);
   await installSection.getByRole('button',{name:'Choose folder…'}).click();
   await page.waitForFunction(picked=>document.querySelector('input[name="installLocation"]').value===picked,picked);
   assert.equal((await state()).install.location,picked,'the real picker object updates both UI and saved location');
-  assert.equal(await installSection.locator('input[name="includeGraphics"]').isChecked(),true,'choosing a folder preserves the graphics choice');
+  assert.equal((await installSection.locator('.desktop-install-graphics').textContent()).trim(),graphicsNote,'choosing a folder leaves the graphics answer untouched');
 
   await installSection.locator('.desktop-install-start, button[type="submit"]').first().click();
   await page.waitForFunction(() => document.getElementById('launcher-bar')?.hidden === false, {timeout: 20000});
   note('download: the sticky bar appears once the download starts');
 
-  await page.locator('#desktop-launcher').waitFor({state:'hidden'});
+  await installSection.waitFor({state:'hidden'});
   await page.getByRole('button',{name:'Pause',exact:true}).click();
   await page.waitForFunction(async()=>(await window.easterDesktop.status()).paused);
   // An already in-flight fixture step may report once after pause. Wait for it to park.
@@ -120,7 +122,10 @@ try {
   await page.waitForFunction(async()=>(await window.easterDesktop.status()).device===null);
   assert.equal((await state()).paused,true,'cancelling sign-in leaves download paused');
   assert.deepEqual((await state()).progress,pausedProgress,'cancel preserves transfer progress');
-  await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
+  // Signing in is the hero's action; the dialog is modal, so close it first.
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open);
+  await page.locator('[data-desktop-play]').click();
   await page.locator('.desktop-code').waitFor({state:'visible'});
   // Let the client finish while Microsoft approval is still pending. The code must
   // survive installation completing, and Play must stay gated on the account.
@@ -128,7 +133,12 @@ try {
   await page.getByRole('button',{name:'Resume',exact:true}).click();
   await page.waitForFunction(async()=>(await window.easterDesktop.status()).install.installed);
   assert.equal((await state()).canPlay,false,'a completed client still needs Microsoft approval');
-  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  // Settings is the hero's secondary action; it opens the dialog that carries the
+  // still-pending device code.
+  // Settings is offered at the Play Now stage and withheld while a transfer runs, so wait
+  // for the transfer to settle rather than assuming it has.
+  await page.locator('.desktop-settings-button').waitFor({state:'visible',timeout:60000});
+  await page.locator('.desktop-settings-button').click();
   await page.locator('.desktop-code').waitFor({state:'visible'});
   assert.equal((await state()).device.code,'TEST-CODE','install completion preserves the pending device code');
   await app.evaluate(() => global.easterTestApprove());

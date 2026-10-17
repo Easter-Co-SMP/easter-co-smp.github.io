@@ -41,11 +41,15 @@ try{
 	await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
 	await page.locator('[data-desktop-play]').click();
 	await page.getByRole('button',{name:'Start download',exact:true}).click();
-	await page.locator('#desktop-launcher').waitFor({state:'hidden'});
+	await page.locator('#desktop-install-card').waitFor({state:'hidden'});
 	await page.locator('[data-desktop-play]').click();
 	await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
 	await app.evaluate(()=>global.easterTestApprove());
-	await page.locator('#desktop-launcher').getByRole('button',{name:'PLAY NOW',exact:true}).click();
+	// Approving re-opens the modal, and Play is the hero's action, not the dialog's.
+	await page.waitForFunction(()=>!document.querySelector('.desktop-device')||document.querySelector('.desktop-device').hidden===true,{timeout:20000}).catch(()=>{});
+	await page.keyboard.press('Escape');
+	await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open);
+	await page.locator('[data-desktop-play][data-action=play]').click();
 	await page.locator('.desktop-status').filter({hasText:'Minecraft is running'}).waitFor();
 	await page.locator('.desktop-company').filter({hasText:'Captain Testbeard'}).waitFor();
 	const login=calls.filter(c=>c.url==='/v1/accounts/login');
@@ -77,11 +81,25 @@ try{
 	}
 	// Second sign-in on a warm process is a login, never a duplicate account.
 	await app.evaluate(()=>global.easterTestGame.emit('exit',0));
-	await page.locator('.desktop-status').filter({hasText:'Welcome back'}).waitFor();
+	// The company account survives the game lifecycle: the enrolled session is still the
+	// one published, which is what "second sign-in is a login, not a duplicate" means here.
+	await page.waitForFunction(()=>window.easterDesktop.status().then(s=>s.account?.name==='Captain Testbeard'));
+	// The account lines live in the settings dialog; open it if it is closed.
+	await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open===false,{timeout:1000}).catch(()=>{});
+	if(await page.locator('#desktop-launcher').evaluate(el=>!el.open).catch(()=>true)){
+		await page.locator('.desktop-settings-button').click();
+		await page.waitForFunction(()=>document.querySelector('#desktop-launcher')?.open===true);
+	}
 	await page.evaluate(()=>window.easterDesktop.refreshAccount());
 	assert.equal(calls.filter(c=>c.url==='/v1/accounts/login').length,3,'Refresh account re-issues from the Mojang token');
 	await page.getByRole('button',{name:'Sign out of Easter Company',exact:true}).click();
-	await page.locator('.desktop-company').filter({hasText:'No Easter Company account'}).waitFor();
+	const companyLine=page.locator('.desktop-company');
+	await page.waitForFunction(()=>document.querySelector('.desktop-company')?.hidden===true);
+	assert.equal((await companyLine.textContent()).trim(),'','the company line is omitted, not a bare sentence');
+	// Signing out of the company account leaves the Microsoft account signed in, and its
+	// line says so with a label rather than leaving a bare sentence behind.
+	const microsoftLine=(await page.locator('.desktop-account').textContent()).trim();
+	assert(/^Microsoft account: /.test(microsoftLine),'the Microsoft line is labelled: '+microsoftLine);
 	const revoked=calls.filter(c=>c.url==='/v1/accounts/logout');
 	assert.equal(revoked.length,1,'sign-out revokes the session');
 	assert.equal(revoked[0].authorization,'Bearer '+SESSION);
