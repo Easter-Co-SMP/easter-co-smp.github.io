@@ -49,8 +49,13 @@ try{
 	await page.keyboard.press('Escape');
 	await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open);
 	await page.locator('[data-desktop-play][data-action=play]').click();
-	await page.locator('.desktop-status').filter({hasText:'Minecraft is running'}).waitFor();
-	await page.locator('.desktop-company').filter({hasText:'Captain Testbeard'}).waitFor();
+	// Play opens no dialog now, so the running status is read where it lives: attached,
+	// not visible.
+	await page.locator('.desktop-status').filter({hasText:'Minecraft is running'}).waitFor({state:'attached'});
+	assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.open),false,'Play launches without opening a dialog');
+	// The account lines are settings content: they render into the dialog, which is closed
+	// while the game runs, so they are read attached rather than visible.
+	await page.locator('.desktop-company').filter({hasText:'Captain Testbeard'}).waitFor({state:'attached'});
 	const login=calls.filter(c=>c.url==='/v1/accounts/login');
 	// Sign-in enrols, then play re-posts the same Mojang token to issue a session.
 	assert.equal(login.length,2,'sign-in and play each post the enrolment credential');
