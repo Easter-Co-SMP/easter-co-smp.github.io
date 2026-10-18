@@ -21,7 +21,7 @@ const temp=await fs.mkdtemp(path.join(os.tmpdir(),'easter-loopback-test-'));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const sha256=buffer=>crypto.createHash('sha256').update(buffer).digest('hex');
 let failures=0;
-let tunedDistance=null,optionsAtRest=null,expectedScale=null;
+let tunedDistance=null,optionsAtRest=null,expectedScale=null,migratedSettings=null;
 function check(condition,message){if(condition)console.log('  ok   '+message);else{failures++;console.log('  FAIL '+message);}}
 // The household's approved controls, and vanilla's, as read off the real clients.
 const DEFERRED_KEY='key_key.shippy-ships.isPressingCtrl';
@@ -212,6 +212,7 @@ try{
  check(started.settings.exitOnLaunch===false,'an old settings file carrying exitOnLaunch:true loads with the launcher staying open: '+JSON.stringify(started.settings.exitOnLaunch));
  check(started.settings.trayOnLaunch===false,'and with the tray preference off: '+JSON.stringify(started.settings.trayOnLaunch));
  const migratedFile=JSON.parse(await fs.readFile(settingsPath,'utf8'));
+ migratedSettings=migratedFile;
  check(migratedFile.exitOnLaunch===false&&migratedFile.trayOnLaunch===false,'the file was written back once with both off: '+JSON.stringify({exitOnLaunch:migratedFile.exitOnLaunch,trayOnLaunch:migratedFile.trayOnLaunch}));
  check(typeof migratedFile.trayOnLaunch==='boolean','with the new field present, which is what stops the migration running again');
  check(migratedFile.graphicsChosen===true,'and the saved graphics answer is kept by that write rather than dropped');
@@ -462,10 +463,28 @@ try{
   check((await fs.stat(optionsPath)).mtimeMs===upgradeOptionsStat.mtimeMs,'and does not touch it');
   check((await fs.stat(displayRecordPath)).mtimeMs===upgradeRecordStat.mtimeMs,'nor the record it raised');
  }finally{await settle.close();}
+
+ // The file the migration itself wrote in section 1b, put back exactly as it came out and
+ // started again: a second start must leave it alone rather than migrate it a second time.
+ console.log('\n9. a second start over the migrated file leaves it alone');
+ await fs.writeFile(settingsPath,JSON.stringify(migratedSettings));
+ const again=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'desktop/main.cjs')],env:launchEnv});
+ try{
+  const againPage=await again.firstWindow();
+  againPage.setDefaultTimeout(20000);
+  await againPage.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
+  await sleep(2000);
+  const againStatus=await againPage.evaluate(()=>window.easterDesktop.status());
+  check(againStatus.settings.exitOnLaunch===false&&againStatus.settings.trayOnLaunch===false,'a second start over the migrated file keeps the launcher open: '+JSON.stringify({exitOnLaunch:againStatus.settings.exitOnLaunch,trayOnLaunch:againStatus.settings.trayOnLaunch}));
+  const againFile=JSON.parse(await fs.readFile(settingsPath,'utf8'));
+  check(againFile.exitOnLaunch===false&&againFile.trayOnLaunch===false,'and the file still holds the pair the migration wrote: '+JSON.stringify({exitOnLaunch:againFile.exitOnLaunch,trayOnLaunch:againFile.trayOnLaunch}));
+  check(typeof againFile.trayOnLaunch==='boolean','still carrying the field, so nothing had to be migrated a second time');
+  check(againFile.graphicsChosen===true&&againFile.memoryMB===4096,'with the rest of the file as the migration left it: '+JSON.stringify({graphicsChosen:againFile.graphicsChosen,memoryMB:againFile.memoryMB}));
+ }finally{await again.close();}
 }finally{
  server.close();
  await fs.rm(temp,{recursive:true,force:true});
 }
 
-console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the whole approved control set: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key, third person on R, chat on enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift, the 22 vanilla debug keys unbound and the mod-provided Shippy hotkey left for the client to register, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-2 tree with exactly the keys its record did not cover — the Shippy hotkey moved off Left Ctrl in the same pass, inventory and the player list together so no two actions share tab — and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, applied the enhanced graphics toggle in both directions by writing the client\'s own quality files, and migrated the old default this box actually carries — exitOnLaunch:true with no trayOnLaunch — to both off once while keeping the saved graphics answer, leaving a player\'s own later choice unchanged on the next load':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
+console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the whole approved control set: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key, third person on R, chat on enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift, the 22 vanilla debug keys unbound and the mod-provided Shippy hotkey left for the client to register, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-2 tree with exactly the keys its record did not cover — the Shippy hotkey moved off Left Ctrl in the same pass, inventory and the player list together so no two actions share tab — and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, applied the enhanced graphics toggle in both directions by writing the client\'s own quality files, and migrated the old default this box actually carries — exitOnLaunch:true with no trayOnLaunch — to both off once while keeping the saved graphics answer, leaving a player\'s own later choice unchanged on the next load and a second start over the migrated file itself leaving it alone':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
 process.exitCode=failures===0?0:1;
