@@ -9,7 +9,7 @@ const identity=require('./identity.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,includeGraphicsValue}=require('./security.cjs');
 const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
 const {renderOffload}=require('./hardware.cjs');
-const {detectHardware,installedQuality}=require('./hardware.cjs');
+const {detectHardware,installedQuality,applyDisplayDefaults}=require('./hardware.cjs');
 const APP_VERSION=require('../package.json').version;
 // The installed application is "Easter Co. Launcher". The per-user directory stays
 // "Easter Company": renaming it would orphan the saved account and settings of anyone
@@ -104,6 +104,21 @@ function notify(patch={}){
 // sign-in action through `actions`, and the phase returns to the resting value.
 function settle(message,extra={}){phase=null;progress=null;control=null;notify({message,device:controller?state.device:null,...extra});}
 async function refreshClient(){client=await clientStatus(gameRoot());await readQuality();}
+// Owen asked for a first launch that is already fullscreen at GUI scale 2, and a
+// returning player never reaches the install pipeline: for a tree that is already
+// installed and current, checkForUpdates reports "nothing changed" and never calls
+// installClient, so the display defaults are seeded from the startup path too. It is
+// once per client tree - a tree that carries the seed record is two file reads and
+// nothing else - and it writes only inside the launcher's own marked tree. It never
+// runs while a client process is up, because a running client rewrites options.txt on
+// exit and would silently undo it; at startup there is no client process. It cannot
+// throw and it never touches startupReady or the broadcast state, so no view waits on
+// it and no status field describes it.
+async function seedClientDisplay(){
+ if(!client?.installed||game)return null;
+ try{return await applyDisplayDefaults(gameRoot());}
+ catch{return null;}
+}
 function secureStorageAvailable(){return safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');}
 const vaultOptions=()=>({safeStorage,platform:process.platform});
 function saveSession(){
@@ -600,6 +615,10 @@ if(instance){
   company=storedSession(await vault.readEncrypted(companyFile(),vaultOptions()));
   if(company&&company.expiresAt<=Date.now())company=null;
   await refreshClient();
+  // Before the window exists, so the first launch a player sees is already configured
+  // and no view can observe a half-seeded tree. A no-op for a tree that has already
+  // been seeded, and awaited only for the two reads it costs.
+  await seedClientDisplay();
   protocol.handle('easter',resource);registerIPC();createWindow();
   notify({message:client.installed?'Client ready.':'Download the game to get started.'});
   if(app.isPackaged)void startupUpdates();

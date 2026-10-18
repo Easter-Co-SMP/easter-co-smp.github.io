@@ -6,7 +6,7 @@ const {Version,generateArguments,launch}=require('@xmcl/core');
 const installer=require('@xmcl/installer');
 const {Agent,interceptors}=require('undici');
 const {locationProblem,MARKER,clientOrigin}=require('./config.cjs');
-const {qualitySettings,applyQualitySettings,recordQuality,SHADER_PACK_NAME}=require('./hardware.cjs');
+const {qualitySettings,applyQualitySettings,recordQuality,applyDisplayDefaults,SHADER_PACK_NAME}=require('./hardware.cjs');
 const dispatcher=new Agent({connections:8,connect:{family:4,timeout:30000},headersTimeout:45000,bodyTimeout:90000}).compose(interceptors.retry({maxRetries:3}));
 const ORIGIN='https://easter-co-smp.github.io/';
 const FABRIC='0.19.5';
@@ -557,6 +557,18 @@ async function applyQuality(root,hardware,notify,{shaders}={}){
  }
  return {quality,tuned:quality?{renderDistance:quality.renderDistance,shadowDistance:quality.shadowDistance,shaders:Boolean(quality.shaders)}:null,message:null};
 }
+// The display defaults are not a graphics choice: a player's first launch is already
+// fullscreen at GUI scale 2 whether enhanced graphics are on or off, so every install
+// path seeds them and the optional graphics chunk is never required for them. A write
+// that fails never fails an install that has already succeeded, exactly like the
+// quality step; nothing is added to the status contract for it.
+async function seedDisplayDefaults(root,notify){
+ try{return await applyDisplayDefaults(root);}
+ catch(error){
+  if(notify)notify({message:'The client’s display settings could not be written into the client folder.'});
+  return null;
+ }
+}
 // The graphics chunk is the optional half of the same pipeline: it is fetched only
 // while the toggle is on, its files are checksum verified like every other file,
 // and switching the toggle off fetches nothing and invalidates nothing.
@@ -617,6 +629,7 @@ async function installChunked({root,client,chunks,record,settings,notify,control
  // when the manifest has no graphics chunk and the toggle is on.
  if(!pending.length&&gameCurrent){
   const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
+  await seedDisplayDefaults(root,notify);
   const installedGraphics=record.chunks?.graphics||null;
   return {version:record.version,javaPath:record.java,updatedAt:record.updatedAt,includeGraphics,graphics:installedGraphics?.version||null,message:updating?'Client is up to date.':'Client ready.',unchanged:true,graphicsMessage,graphicsApplied:Boolean(installedGraphics),quality:quality.tuned,qualityMessage:quality.message,qualitySettings:quality.quality};
  }
@@ -642,6 +655,7 @@ async function installChunked({root,client,chunks,record,settings,notify,control
  const files=[...new Set(Object.values(records).flatMap(chunk=>chunk.files||[]))];
  const updatedAt=new Date().toISOString();
  const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
+ await seedDisplayDefaults(root,notify);
  await atomicJSON(path.join(root,'installed.json'),{
   version,minecraft:client.minecraft,fabric,mod:client.mod?.version,modSha256:client.mod?.sha256,
   dependencies:(client.dependencies||[]).map(entry=>({id:entry.id,version:entry.version})),
@@ -694,6 +708,7 @@ async function installFlat({root,client,settings,notify,control,includeGraphics,
  // are written when the toggle is on, and the payload's own absence is reported
  // rather than papered over by turning shaders on with no shader pack to load.
  const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
+ await seedDisplayDefaults(root,notify);
  await atomicJSON(path.join(root,'installed.json'),{version:game.version,minecraft:client.minecraft,fabric:game.fabric,mod:client.mod.version,modSha256:client.mod.sha256,dependencies:client.dependencies.map(d=>({id:d.id,version:d.version})),files:[...mods.map(m=>'mods/'+m.filename),...(graphicsFile?[graphicsFile]:[])],game:{minecraft:client.minecraft,fabric:game.fabric,verified:true},graphics:graphics==='not-published'?null:graphics,includeGraphics,java:game.javaPath,updatedAt,...(quality.quality?{quality:{...quality.tuned,graphicsMode:quality.quality.graphicsMode,shaderPack:quality.quality.shaders?quality.quality.shaderPack:null,updatedAt}}:{})});
  const message=[(updating?'Client updated.':'Client ready.'),graphicsMessage,quality.message].filter(Boolean).join(' ');
  notify({phase:'ready',message,progress:countProgress('Client ready',100)});
@@ -768,4 +783,4 @@ async function checkForUpdates({root,settings={},notify=()=>{},control=null,incl
 }
 // The Play gate, computed here in the main process and nowhere else.
 function canPlay(install,profile){return Boolean(install?.installed)&&profile!==null&&profile!==undefined;}
-module.exports={execOptions,ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};
+module.exports={execOptions,ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,seedDisplayDefaults,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};

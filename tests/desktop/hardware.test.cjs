@@ -4,7 +4,7 @@
 // network, and nothing writes outside a temporary directory.
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
-const {hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,gpuAdapters,drmCards,sessionDisplay,targetAdapter,renderOffload,pciForDriPrime,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,matchAdapter,chooseDevice,reportedDevices,reportedAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hex16,videoMemoryMB,busId,qualitySettings,parseProperties,mergeProperties,applyQualitySettings,recordQuality,installedQuality,SHADER_PACK_NAME}=require('../../desktop/hardware.cjs');
+const {hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,gpuAdapters,drmCards,sessionDisplay,targetAdapter,renderOffload,pciForDriPrime,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,matchAdapter,chooseDevice,reportedDevices,reportedAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hex16,videoMemoryMB,busId,qualitySettings,parseProperties,mergeProperties,applyQualitySettings,recordQuality,installedQuality,applyDisplayDefaults,DISPLAY_DEFAULTS,DISPLAY_RECORD,SHADER_PACK_NAME}=require('../../desktop/hardware.cjs');
 const {deriveQuality}=require('../../desktop/install.cjs');
 async function tempDir(prefix){return fs.mkdtemp(path.join(os.tmpdir(),prefix));}
 
@@ -339,5 +339,119 @@ test('a quality setting write does not create the installed marker it may not ow
   await fs.writeFile(path.join(root,'.easter-client'),'');
   await fs.writeFile(path.join(root,'installed.json'),'not json');
   assert.equal(await recordQuality(root,qualitySettings({vramMB:8192,tier:'capable'})),false,'a damaged marker is left for the pipeline to repair');
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+// ---- the client's display defaults -------------------------------------------
+// Owen asked for a first launch that is already fullscreen at GUI scale 2. The two
+// keys live in options.txt, are seeded once per client tree, and are then never
+// rewritten unless a recorded key has gone missing.
+test('the display defaults are seeded once into the launcher’s client tree',async()=>{
+ const dir=await tempDir('easter-display-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  assert.deepEqual(DISPLAY_DEFAULTS,{guiScale:'2',fullscreen:'true'},'the values are Owen’s, exactly');
+  assert.equal(DISPLAY_RECORD,'.easter-client-display');
+  const seeded=await applyDisplayDefaults(root);
+  assert.equal(seeded.written,true);
+  assert.equal(seeded.firstSeed,true,'the first seed records itself');
+  assert.deepEqual(seeded.keys.sort(),['fullscreen','guiScale']);
+  // Read the file itself, not the intent.
+  const options=await fs.readFile(path.join(root,'options.txt'),'utf8');
+  assert.deepEqual(options.split('\n').filter(Boolean),['guiScale:2','fullscreen:true']);
+  assert.equal(options.includes('\r'),false,'LF line endings');
+  assert.equal((await fs.stat(path.join(root,'options.txt'))).mode&0o777,0o600,'the same mode the quality writer uses');
+  const record=JSON.parse(await fs.readFile(path.join(root,DISPLAY_RECORD),'utf8'));
+  assert.equal(record.schema,1);
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true'});
+  assert.equal(typeof record.appliedAt,'string');
+  assert.match(record.appliedAt,/^\d{4}-\d\d-\d\dT/);
+  assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mode&0o777,0o600);
+  // The install pipeline owns installed.json; a settings write never creates it.
+  assert.equal(await fs.stat(path.join(root,'installed.json')).then(()=>'present',()=>'absent'),'absent');
+  assert.equal(await fs.stat(path.join(root,'config','iris.properties')).then(()=>'present',()=>'absent'),'absent','display defaults are not the graphics step');
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('a tree that has already been played is seeded once, and a key the player changed later is never rewritten',async()=>{
+ const dir=await tempDir('easter-display-played-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  // What the game itself writes on its first exit: every key, its own values.
+  await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\nguiScale:4\nfov:0.5\nrenderDistance:12\n');
+  const first=await applyDisplayDefaults(root);
+  assert.equal(first.firstSeed,true,'an already-played tree still takes the defaults once');
+  const seeded=await fs.readFile(path.join(root,'options.txt'),'utf8');
+  assert.deepEqual(seeded.split('\n').filter(Boolean),['fullscreen:true','guiScale:2','fov:0.5','renderDistance:12'],'the two defaults win on the first seed and every other line is kept');
+  const optionsBefore=await fs.readFile(path.join(root,'options.txt'));
+  const recordBefore=await fs.readFile(path.join(root,DISPLAY_RECORD));
+  const optionsStat=await fs.stat(path.join(root,'options.txt'));
+  const recordStat=await fs.stat(path.join(root,DISPLAY_RECORD));
+  // A second run has nothing to do and must touch neither file.
+  const second=await applyDisplayDefaults(root);
+  assert.equal(second.written,false);
+  assert.equal(second.firstSeed,false);
+  assert.deepEqual(second.keys,[]);
+  assert.deepEqual(await fs.readFile(path.join(root,'options.txt')),optionsBefore,'the file is byte-identical');
+  assert.equal((await fs.stat(path.join(root,'options.txt'))).mtimeMs,optionsStat.mtimeMs,'and its mtime is unchanged');
+  assert.deepEqual(await fs.readFile(path.join(root,DISPLAY_RECORD)),recordBefore);
+  assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mtimeMs,recordStat.mtimeMs,'the record is written once and never again');
+  // The player plays again and turns fullscreen off in the game's own settings.
+  await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\nguiScale:2\nfov:0.75\n');
+  const playerStat=await fs.stat(path.join(root,'options.txt'));
+  const third=await applyDisplayDefaults(root);
+  assert.equal(third.written,false,'a present key is the player’s own from now on');
+  assert.equal(await fs.readFile(path.join(root,'options.txt'),'utf8'),'fullscreen:false\nguiScale:2\nfov:0.75\n','the launcher never re-decides a player’s choice');
+  assert.equal((await fs.stat(path.join(root,'options.txt'))).mtimeMs,playerStat.mtimeMs);
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('the only later seed is repair: a recorded key that went missing is written again',async()=>{
+ const dir=await tempDir('easter-display-repair-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  await applyDisplayDefaults(root);
+  const recordBefore=await fs.readFile(path.join(root,DISPLAY_RECORD));
+  const recordStat=await fs.stat(path.join(root,DISPLAY_RECORD));
+  // A truncated options.txt: the record still says this tree was seeded.
+  await fs.writeFile(path.join(root,'options.txt'),'renderDistance:12\n');
+  const repaired=await applyDisplayDefaults(root);
+  assert.equal(repaired.written,true);
+  assert.equal(repaired.firstSeed,false,'a repair is not a fresh seed');
+  assert.deepEqual(repaired.keys.sort(),['fullscreen','guiScale']);
+  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['renderDistance:12','guiScale:2','fullscreen:true'],'the missing keys are re-added and the rest is kept');
+  assert.deepEqual(await fs.readFile(path.join(root,DISPLAY_RECORD)),recordBefore,'the record describes the seed, so a repair leaves it alone');
+  assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mtimeMs,recordStat.mtimeMs);
+  // One key missing, one present and player-chosen: only the missing one comes back.
+  await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\n');
+  const single=await applyDisplayDefaults(root);
+  assert.deepEqual(single.keys,['guiScale']);
+  assert.equal(await fs.readFile(path.join(root,'options.txt'),'utf8'),'fullscreen:false\nguiScale:2\n','the present key is untouched');
+  // options.txt deleted entirely, as a fresh profile or a botched reset would: both
+  // recorded keys come back, from the record.
+  await fs.rm(path.join(root,'options.txt'));
+  const recreated=await applyDisplayDefaults(root);
+  assert.deepEqual(recreated.keys.sort(),['fullscreen','guiScale']);
+  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['guiScale:2','fullscreen:true']);
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('a tree without the launcher’s marker is refused and nothing is created',async()=>{
+ const dir=await tempDir('easter-display-foreign-');
+ try{
+  // An existing ~/.minecraft, another launcher's tree: no marker, so no write.
+  const foreign=path.join(dir,'.minecraft');
+  await fs.mkdir(foreign,{recursive:true});
+  await fs.writeFile(path.join(foreign,'options.txt'),'fullscreen:false\nguiScale:4\n');
+  await assert.rejects(applyDisplayDefaults(foreign),/not the launcher/);
+  assert.equal(await fs.readFile(path.join(foreign,'options.txt'),'utf8'),'fullscreen:false\nguiScale:4\n','the file is untouched');
+  assert.deepEqual(await fs.readdir(foreign),['options.txt'],'not even the record is created');
+  await assert.rejects(applyDisplayDefaults(''),/no client folder/);
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
