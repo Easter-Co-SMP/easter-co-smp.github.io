@@ -24,9 +24,11 @@ function scanFile(file,secrets=SECRETS){
 // it, and the point of naming the step is that the player does see it.
 // A provider code is not for the player either. The HTTP status, the AAD error string, the
 // XErr number and the internal step name belong in userData/signin.log, where the owner
-// diagnoses from; in the sentence they are jargon the player cannot act on. Every sentence
-// this file asserts goes through here, so no test can quietly reintroduce one.
-const JARGON=/HTTP \d|invalid_[a-z]|unauthorized_[a-z]|XErr|\b[45]\d\d\b/;
+// diagnoses from; in the sentence they are jargon the player cannot act on. The last
+// alternative is a bare four-digit-or-longer number, so an XErr number cannot reach a
+// sentence even without its "XErr" prefix. Every sentence this file asserts goes through
+// here, so no test can quietly reintroduce one.
+const JARGON=/HTTP \d|invalid_[a-z]|unauthorized_[a-z]|XErr|\b[45]\d\d\b|\b\d{4,}\b/;
 const INTERNALS=/(device code|code completion|XSTS|entitlement|provider|scope)/i;
 function scanMessage(message,secrets=SECRETS){
  const text=String(message);
@@ -130,18 +132,52 @@ test('the Xbox Live step names itself, including the empty 401 body a refused ti
 
 test('the XSTS step names itself and carries XErr in the log, not in the sentence',async()=>{
  const {auth,file}=fixture([xboxToken(),{status:401,data:{XErr:2148916238,Token:'xsts-secret'}}]);
- await refused(auth.exchange({access_token:forXbox}),/Xbox Live authorisation did not accept the sign-in: this account needs Microsoft Family approval before Minecraft can connect\. Try again\./);
+ await refused(auth.exchange({access_token:forXbox}),/Xbox Live authorisation did not accept the sign-in: this account is waiting for Microsoft Family approval\. Ask your Microsoft Family organiser to approve Minecraft for this account, then sign in again\./);
  assert.deepEqual(steps(file),['xbox-live','xsts']);
  assert.equal(failed(file).length,1);
  assert.match(lines(file)[1],/outcome=failed http=401 code=XErr2148916238$/);
  scanFile(file);
 });
 
+test('every Xbox Live cause with a fix carries its own instruction, and the number stays in the log',async()=>{
+ // "Try again." is advice for a refusal with no known cause. For these it is wrong: the
+ // same retry fails the same way until the player does the one thing that fixes it, so
+ // each cause says that thing instead of sharing the step's retry.
+ const causes=[
+  [2148916233,/^Xbox Live authorisation did not accept the sign-in: this Microsoft account does not have an Xbox profile yet\. Create an Xbox profile for this account at xbox\.com, then sign in again\.$/],
+  [2148916235,/^Xbox Live authorisation did not accept the sign-in: Xbox Live is not available in this account’s country\. Sign in with a Microsoft account from a country where Xbox Live is available\.$/],
+  [2148916236,/^Xbox Live authorisation did not accept the sign-in: this Microsoft account has not completed its age verification\. Finish the age verification at xbox\.com, then sign in again\.$/],
+  [2148916237,/^Xbox Live authorisation did not accept the sign-in: this Microsoft account has not completed its age verification\. Finish the age verification at xbox\.com, then sign in again\.$/],
+  [2148916238,/^Xbox Live authorisation did not accept the sign-in: this account is waiting for Microsoft Family approval\. Ask your Microsoft Family organiser to approve Minecraft for this account, then sign in again\.$/]
+ ];
+ const sentences=new Map();
+ for(const [xerr,expected] of causes){
+  const {auth,file}=fixture([xboxToken(),{status:401,data:{XErr:xerr}}]);
+  const error=await refused(auth.exchange({access_token:forXbox}),expected);
+  assert.doesNotMatch(error.message,/Try again\.$/,xerr+' says what to do instead of retrying: '+error.message);
+  // The number the player no longer sees is still on the line for whoever diagnoses it.
+  assert.deepEqual(steps(file),['xbox-live','xsts']);
+  assert.match(lines(file)[1],new RegExp('outcome=failed http=401 code=XErr'+xerr+'$'));
+  assert(!error.message.includes(String(xerr)),xerr+' is not in the sentence, even bare: '+error.message);
+  scanFile(file);
+  sentences.set(xerr,error.message);
+ }
+ // Four causes, four sentences; the two age-verification numbers word the one thing to
+ // finish, so they share theirs rather than splitting it in two.
+ assert.equal(new Set(sentences.values()).size,4,'each cause that has a fix reads differently');
+ assert.equal(sentences.get(2148916236),sentences.get(2148916237),'age verification is one instruction');
+ // A number the launcher does not know stays a plain refusal with the step's own advice.
+ const unknown=fixture([xboxToken(),{status:401,data:{XErr:2148916299}}]);
+ await refused(unknown.auth.exchange({access_token:forXbox}),/^Xbox Live authorisation did not accept the sign-in: Xbox Live refused this sign-in\. Try again\.$/);
+ assert.match(lines(unknown.file)[1],/outcome=failed http=401 code=XErr2148916299$/);
+ scanFile(unknown.file);
+});
+
 test('Minecraft refusals are one sentence each and keep 401, 403, 429 and 5xx apart',async()=>{
  const sentences={};
  for(const [status,data,expected] of [
   [401,{error:'UNAUTHORIZED'},/^Minecraft sign-in failed: the Xbox Live session was not accepted\. Sign in again\.$/],
-  [403,{error:'FORBIDDEN'},/^Minecraft sign-in failed: this account may not play Minecraft: Java Edition\. Check that it owns the game\.$/],
+  [403,{error:'FORBIDDEN'},/^Minecraft sign-in failed: this Microsoft account may not play Minecraft: Java Edition\. If you do own the game, sign in with the Microsoft account you play it with\.$/],
   [429,{error:'TOO_MANY_REQUESTS'},/^Minecraft sign-in failed: there have been too many sign-in attempts in a short time\. Wait a few minutes and try again\.$/],
   [503,{error:'UNAVAILABLE'},/^Minecraft sign-in is temporarily unavailable: the service is not answering right now\. Try again in a few minutes\.$/]
  ]){
@@ -241,7 +277,7 @@ test('a refused exchange for the Xbox Live scope is one step failure, not a sile
 
 test('without a refresh token the token in hand is used and the step still names itself',async()=>{
  const {auth,calls,file}=fixture([xboxToken(),xstsToken(),{status:403,data:{error:'FORBIDDEN'}}]);
- await refused(auth.exchange({access_token:'private'}),/Minecraft sign-in failed: this account may not play/);
+ await refused(auth.exchange({access_token:'private'}),/Minecraft sign-in failed: this Microsoft account may not play/);
  assert.equal(calls[0].url,'https://user.auth.xboxlive.com/user/authenticate');
  assert.equal(failed(file).length,1);
 });
@@ -338,13 +374,41 @@ test('the generic sentence is kept for a step the launcher does not know, and on
  assert.equal(sentences.size,6,'each step has its own sentence');
 });
 
-test('a network failure names the step it happened at',async()=>{
+test('a network failure names the step it happened at, and every step reads the same way',async()=>{
+ // The step the player was on when the connection failed. It leads like every other
+ // sentence and says what could not be reached, rather than opening its own way and
+ // saying the verb twice ("Sign-in stopped while signing in to Xbox Live").
  const {auth,file}=fixture([]);
  auth.request=async()=>{throw new TypeError('fetch failed');};
- await refused(auth.exchange({access_token:forXbox}),/^Sign-in stopped while signing in to Xbox Live: the connection failed\. Check your network and try again\.$/);
+ await refused(auth.exchange({access_token:forXbox}),/^Minecraft sign-in failed: the launcher could not reach Xbox Live\. Check your connection and try again\.$/);
  assert.deepEqual(steps(file),['xbox-live']);
  assert.match(lines(file)[0],/outcome=failed http=- code=network$/);
  scanFile(file);
+ // All six steps share that shape, name their own step, and stay distinct from each other.
+ const sentences=new Map();
+ for(const [step,reached] of [
+  ['device-code',/could not reach Microsoft to ask for a sign-in code\./],
+  ['code-completion',/could not reach Microsoft to finish the sign-in\./],
+  ['xbox-live',/could not reach Xbox Live\./],
+  ['xsts',/could not reach Xbox Live to authorise the sign-in\./],
+  ['minecraft',/could not reach the Minecraft service\./],
+  ['java-profile',/could not reach the Java profile service\./]
+ ]){
+  const offline=fixture([]);
+  offline.auth.request=async()=>{throw new TypeError('fetch failed');};
+  let caught;
+  await assert.rejects(offline.auth.json('https://example.test/'+step,{},undefined,step),error=>{caught=error;return true;});
+  scanMessage(caught.message);
+  assert.match(caught.message,/^Minecraft sign-in failed: the launcher could not reach /,step+': '+caught.message);
+  assert.match(caught.message,reached,step+' names its own step: '+caught.message);
+  assert.match(caught.message,/\. Check your connection and try again\.$/,step+' gives the same instruction: '+caught.message);
+  assert.doesNotMatch(caught.message,/Sign-in stopped while|while signing in/i,step+' does not repeat the verb: '+caught.message);
+  assert.match(lines(offline.file)[0],/outcome=failed http=- code=network$/,step+' still writes its one line');
+  assert.equal(read(offline.file).includes('fetch failed'),false,'the failure itself is not written out');
+  sentences.set(step,caught.message);
+ }
+ assert.equal(new Set(sentences.values()).size,6,'six steps, six sentences');
+ assert.notEqual(sentences.get('xbox-live'),'Sign-in could not finish. Please try again.','and none is the unknown-step fallback');
 });
 
 // ---- What the player reads carries no code, and the log still carries it ----------
@@ -366,6 +430,11 @@ test('no sentence carries a status or a provider code, and the log for that fail
   ['a refused Xbox Live ticket',[{status:401,unreadable:true}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=401$/],
   ['a refusal with a provider code',[{status:401,data:{error:'UNAUTHORIZED'}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=UNAUTHORIZED$/],
   ['a Microsoft Family refusal',[xboxToken(),{status:401,data:{XErr:2148916238}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=XErr2148916238$/],
+  // Every other Xbox Live cause a player can act on, each with its own advice and its own
+  // number on the line. Age verification has two numbers for one cause, so it appears once.
+  ['an account with no Xbox profile',[xboxToken(),{status:401,data:{XErr:2148916233}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=XErr2148916233$/],
+  ['a country Xbox Live does not serve',[xboxToken(),{status:401,data:{XErr:2148916235}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=XErr2148916235$/],
+  ['an unverified age',[xboxToken(),{status:401,data:{XErr:2148916236}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=XErr2148916236$/],
   ['a refused Minecraft session',[xboxToken(),xstsToken(),{status:401,data:{error:'UNAUTHORIZED'}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=UNAUTHORIZED$/],
   ['an account that may not play',[xboxToken(),xstsToken(),{status:403,data:{error:'FORBIDDEN'}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=403 code=FORBIDDEN$/],
   ['rate limiting',[xboxToken(),xstsToken(),{status:429,data:{error:'TOO_MANY_REQUESTS'}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=429 code=TOO_MANY_REQUESTS$/],
@@ -405,10 +474,10 @@ test('the five causes a player can tell apart still read differently, and each s
  assert.equal(new Set(Object.values(causes).map(cause=>cause.message)).size,5,'five causes, five sentences');
  // And every one of them tells the player something they can act on.
  assert.match(refusedSession.message,/Sign in again\.$/);
- assert.match(mayNotPlay.message,/Check that it owns the game\.$/);
+ assert.match(mayNotPlay.message,/If you do own the game, sign in with the Microsoft account you play it with\.$/);
  assert.match(unavailable.message,/Try again in a few minutes\.$/);
  assert.match(limited.message,/Wait a few minutes and try again\.$/);
- assert.match(offline.message,/Check your network and try again\.$/);
+ assert.match(offline.message,/Check your connection and try again\.$/);
  // The log is where the four answers are still told apart, for whoever diagnoses later.
  assert.match(refusedSession.line,/http=401 code=UNAUTHORIZED$/);
  assert.match(mayNotPlay.line,/http=403 code=FORBIDDEN$/);
