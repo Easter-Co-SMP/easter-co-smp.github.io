@@ -995,8 +995,11 @@ finish. Please try again."
 | `minecraft` | `Minecraft sign-in failed: …` |
 | `java-profile` | `The Java profile could not be read: …` |
 
-A network failure has its own shape, so it never claims a refusal that did not happen:
-`Sign-in stopped while <step>: the connection failed. Check your network and try again.`
+A network failure leads like every other sentence and never claims a refusal that did not
+happen: `Minecraft sign-in failed: the launcher could not reach <step>. Check your
+connection and try again.`, where `<step>` is `Microsoft to ask for a sign-in code`,
+`Microsoft to finish the sign-in`, `Xbox Live`, `Xbox Live to authorise the sign-in`,
+`the Minecraft service`, or `the Java profile service`.
 `code-completion` is the token exchange on both routes: the device-code poll and the
 refresh of a saved session. The generic sentence is kept for a genuinely unknown step and
 is not used by any of the six.
@@ -1010,16 +1013,27 @@ human cause and an instruction, and the five causes a person can act on read dif
 | Cause | What the player reads |
 |---|---|
 | A refused Xbox Live session | `Minecraft sign-in failed: the Xbox Live session was not accepted. Sign in again.` |
-| An account that may not play | `Minecraft sign-in failed: this account may not play Minecraft: Java Edition. Check that it owns the game.` |
+| An account that may not play | `Minecraft sign-in failed: this Microsoft account may not play Minecraft: Java Edition. If you do own the game, sign in with the Microsoft account you play it with.` |
 | An outage | `Minecraft sign-in is temporarily unavailable: the service is not answering right now. Try again in a few minutes.` |
 | Rate limiting | `Minecraft sign-in failed: there have been too many sign-in attempts in a short time. Wait a few minutes and try again.` |
-| No connection | `Sign-in stopped while <step>: the connection failed. Check your network and try again.` |
+| No connection | `Minecraft sign-in failed: the launcher could not reach <step>. Check your connection and try again.` |
 
-The Xbox `XErr` causes that the player can act on are kept verbatim (create an Xbox
-profile, country, age verification, Microsoft Family approval) without the number. Nothing
-from a response body, and no token, refresh token, device code, user code or email address,
-is ever part of a sentence; a provider code that would itself contain the word "token" is
-scrubbed by `main.cjs`'s safeError() rather than shown.
+**Each Xbox `XErr` cause carries its own instruction**, because retrying is not what fixes
+any of them. The number is dropped and the sentence says what to do:
+
+| `XErr` | What the player reads |
+|---|---|
+| 2148916233 | `… this Microsoft account does not have an Xbox profile yet. Create an Xbox profile for this account at xbox.com, then sign in again.` |
+| 2148916235 | `… Xbox Live is not available in this account's country. Sign in with a Microsoft account from a country where Xbox Live is available.` |
+| 2148916236, 2148916237 | `… this Microsoft account has not completed its age verification. Finish the age verification at xbox.com, then sign in again.` (one cause, one sentence) |
+| 2148916238 | `… this account is waiting for Microsoft Family approval. Ask your Microsoft Family organiser to approve Minecraft for this account, then sign in again.` |
+| any other | the step's own `Try again.`, which is right for a cause the launcher cannot name |
+
+Nothing from a response body, and no token, refresh token, device code, user code or email
+address, is ever part of a sentence; a provider code that would itself contain the word
+"token" is scrubbed by `main.cjs`'s safeError() rather than shown. Because a bare `XErr`
+number is four digits or more, the jargon guard in the suite also refuses any sentence
+containing one, so a number cannot reach a player even without its prefix.
 
 **The log is `userData/signin.log`.** One line per step, appended, LF endings:
 
