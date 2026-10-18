@@ -39,6 +39,8 @@ const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalm
 // guess. canPlay is computed here and nowhere else.
 let state={message:'Download the game to get started.',error:null,device:null,progress:null,profile:null,remembered:false,account:null};
 let phase=null,progress=null,control=null,installStarted=false,backgroundUpdate=null;
+let startupReady=!app.isPackaged,startupPromise=null;
+const updater=require('./updater.cjs');
 let client={installed:false,version:null,updatedAt:null,record:null};
 // doc/launcher-states.md, "Home actions, Settings and enhanced graphics": the
 // machine decides the default once, and the player's own choice wins from then on.
@@ -88,7 +90,7 @@ function notify(patch={}){
  if(!install.installed)actions.push('download');
  if(!profile)actions.push('signin');
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,canPlay:canPlay(install,profile),bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,canPlay:startupReady&&!backgroundUpdate&&!['downloading','paused','verifying','installing','updating','checking-client'].includes(phase)&&canPlay(install,profile),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
@@ -294,7 +296,10 @@ async function play(){
 function registerIPC(){
  const handle=(name,fn)=>ipcMain.handle('launcher:'+name,async(event,...args)=>{
   if(!trustedFrame(event))throw Error('Untrusted launcher request.');
-  try{return {ok:true,value:await fn(...args)};}catch(error){return {ok:false,error:safeError(error)};}
+  try{
+   if(!startupReady&&!['status','retry-updates','pause-install','resume-install','cancel-install'].includes(name))throw Error('Updates must finish before this launcher can be used.');
+   return {ok:true,value:await fn(...args)};
+  }catch(error){return {ok:false,error:safeError(error)};}
  });
  handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(publicProfile),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
  handle('sign-in',async()=>{
@@ -324,7 +329,8 @@ function registerIPC(){
  handle('account-refresh',()=>exclusively(async()=>{if(!session)throw Error('Sign in first.');await enrolAccount({throwOnError:true});return publicAccount(company);}));
  // Company account only: the Microsoft session on this device is kept.
  handle('account-sign-out',async()=>{if(working||controller)throw Error('Wait for the current operation to finish.');await forgetCompany();notify({message:'Signed out of your Easter Company account.'});});
- handle('play',async()=>{if(backgroundUpdate)await backgroundUpdate;return exclusively(play);});
+ handle('retry-updates',()=>{if(game)throw Error('Close Minecraft before updating the launcher.');return startupUpdates();});
+ handle('play',async()=>{if(backgroundUpdate)await backgroundUpdate;if(game||working||controller)throw Error('Wait for the current operation to finish.');if(app.isPackaged)await checkLauncherUpdate();if(!startupReady)throw Error('Update the launcher before playing.');return exclusively(play);});
  handle('settings',async input=>{
   if(working||controller)throw Error('Wait for the current operation before changing settings.');
   // A running game already owns its launch configuration. Saved preferences apply
@@ -420,46 +426,45 @@ function createWindow(){
 // same pipeline. A check that finds nothing changes no state at all.
 function updateOnLaunch(){
  if(!client.installed)return;
- // Owen's setting: a player who keeps their client current by hand is not updated behind
- // their back, and a launch never starts a transfer they did not ask for.
- if(settings.autoUpdateGame===false)return;
- backgroundUpdate=exclusively(runUpdate).catch(()=>{}).finally(()=>{backgroundUpdate=null;});
+ backgroundUpdate=exclusively(runUpdate).finally(()=>{backgroundUpdate=null;notify({});});
+ return backgroundUpdate;
 }
-// The launcher's own version, checked against the published release. Applying an update
-// in place (swapping the app bundle) is not built yet, so this never installs anything: it
-// reports that a newer launcher exists and where to get it, and only when the player has
-// left "keep launcher up to date" on. Packaged runs only, so tests and development builds
-// never touch the network for this.
-let launcherUpdate={phase:'idle',version:null,url:null,message:null};
-const LAUNCHER_RELEASES='https://api.github.com/repos/Easter-Co-SMP/easter-co-smp.github.io/releases/latest';
-function versionParts(value){return String(value||'').replace(/^v/,'').split('.').map(part=>Number.parseInt(part,10)).map(n=>Number.isFinite(n)?n:0);}
-function newerLauncher(candidate,current){
- const a=versionParts(candidate),b=versionParts(current);
- for(let i=0;i<Math.max(a.length,b.length);i++){const left=a[i]||0,right=b[i]||0;if(left!==right)return left>right;}
- return false;
-}
-async function checkLauncherUpdate(){
- if(!app.isPackaged||settings.autoUpdateLauncher===false)return launcherUpdate;
- // `checking` is broadcast before the request leaves, not inferred afterwards: while it
- // is up the launcher does not offer Settings (Owen's decision of 2026-10-17), so the
- // renderer has to know the check started rather than discover it when it ends.
- launcherUpdate={phase:'checking',version:null,url:null,message:null};
- notify({});
+// Launcher updates precede every game update and gate all privileged operations.
+let launcherUpdate={phase:app.isPackaged?'checking':'current',version:null,percent:null,message:null};
+async function checkLauncherUpdate(openGate=true){
+ if(!app.isPackaged)return;
+ startupReady=false;
  try{
-  const response=await net.fetch(LAUNCHER_RELEASES,{signal:AbortSignal.timeout(8000),headers:{Accept:'application/vnd.github+json'}});
-  if(!response.ok)throw Error('HTTP '+response.status);
-  const info=await response.json();
-  const tag=String(info.tag_name||'').replace(/^launcher-v/,'');
-  if(!tag)throw Error('no tag');
-  launcherUpdate=newerLauncher(tag,APP_VERSION)
-   ? {phase:'available',version:tag,url:String(info.html_url||''),message:'Easter Co. Launcher '+tag+' is available.'}
-   : {phase:'current',version:tag,url:null,message:null};
- }catch{
-  // An unreachable feed is not the player's problem: stay quiet and try next launch.
-  launcherUpdate={phase:'idle',version:null,url:null,message:null};
+  const target=await updater.update({current:APP_VERSION,runtime:process.versions.electron,
+   root:path.join(configRoot(),'launcher-updates'),fetch:net.fetch.bind(net),
+   notify:value=>{launcherUpdate=value;notify({});},
+   inspect:(file,manifest)=>{const pkg=require(file+'/package.json');if(pkg.name!=='easter-company-launcher'||pkg.version!==manifest.version)throw Error('The downloaded launcher identity is invalid.');}});
+  if(target){app.relaunch(updater.relaunchOptions());app.quit();return;}
+  startupReady=openGate;notify({});
+ }catch(error){
+  launcherUpdate={phase:'blocked',percent:null,message:'Launcher update required. '+safeError(error)};
+  notify({});throw error;
  }
- notify({});
- return launcherUpdate;
+}
+function startupUpdates(){
+ if(startupPromise)return startupPromise;
+ startupReady=false;
+ startupPromise=(async()=>{
+  try{
+   await checkLauncherUpdate(false);
+   if(launcherUpdate.phase!=='current')return;
+   startupReady=false;notify({});
+   if(client.installed){
+    notify({phase:'checking-client',message:'Checking game updates…'});
+    const result=await updateOnLaunch();
+    if(result===null)throw Error('The game update was cancelled. Retry to finish updating.');
+   }
+   startupReady=true;settle(client.installed?'Client ready.':'Download the game to get started.');
+  }catch(error){
+   startupReady=false;launcherUpdate={phase:'blocked',percent:null,message:'Updates must finish before playing. '+safeError(error)};notify({});
+  }finally{startupPromise=null;}
+ })();
+ return startupPromise;
 }
 // What this machine says about its own graphics, asked once at startup. Electron
 // answers only after the app is ready, and it never reports video memory, so the
@@ -528,8 +533,8 @@ if(instance){
   await refreshClient();
   protocol.handle('easter',resource);registerIPC();createWindow();
   notify({message:client.installed?'Client ready.':'Download the game to get started.'});
-  updateOnLaunch();
-  void checkLauncherUpdate();
+  if(app.isPackaged)void startupUpdates();
+  else void updateOnLaunch()?.catch(()=>{});
   if(session&&!session.profile.skin){const target=session;void loadSkin(target).then(async()=>{if(session===target)await saveSession();});}
  });
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});

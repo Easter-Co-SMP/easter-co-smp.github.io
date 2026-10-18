@@ -129,3 +129,18 @@
  #desktop-launcher,#desktop-signin{padding:24px}
  .desktop-utilities{align-items:flex-start;flex-direction:column;gap:12px}
 }
+
+/* Required updates precede Home; this modal has no dismiss or skip action. */
+#desktop-update{outline:0;width:100vw;max-width:none;height:100dvh;max-height:none;margin:0;padding:32px;border:0;border-radius:0;background:#0e222b;color:#e5e9df;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:20px}
+#desktop-update:not([open]){display:none}
+#desktop-update::backdrop{background:#0e222b}
+#desktop-update h2{font:600 22px/1.4 system-ui;margin:0}
+#desktop-update p{max-width:520px;margin:0;font-size:13px;color:#b8c8c1}
+.desktop-update-spinner{width:30px;height:30px;border:2px solid #ffffff20;border-top-color:#e4c486;border-radius:50%;animation:update-spin 1s linear infinite}
+#desktop-update.is-blocked .desktop-update-spinner{display:none}
+.desktop-update-progress{width:min(360px,100%);height:6px;border-radius:4px;background:#ffffff20;overflow:hidden}
+.desktop-update-progress i{display:block;height:100%;background:#e4c486}
+.desktop-update-actions{display:flex;gap:12px}
+.desktop-update-actions button{padding:11px 18px;background:#e4c486;color:#14262e;border:0;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
+@keyframes update-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.desktop-update-spinner{animation:none;border-color:#e4c486}}

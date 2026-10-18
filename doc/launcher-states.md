@@ -483,3 +483,23 @@ Errors appear in the active dialog or a visible page notice; a failed launch doe
 not open Settings. Save can be submitted by keyboard and cannot submit twice while
 pending. Client settings may be opened during gameplay; changes apply on a later
 launch. Graphics changes remain disabled while the game is running.
+
+## Mandatory update gate (2026-10-17)
+
+This supersedes the optional update preferences and notification-only launcher check above.
+`autoUpdateLauncher` and `autoUpdateGame` are always true, including when loading old
+settings or accepting IPC input. Their switches and release-link notice are removed.
+`exitOnLaunch` remains a preference.
+
+State adds `startupReady`. Packaged startup begins false. `launcherUpdate.phase` is
+`checking`, `downloading`, `verifying`, `restarting`, `current` or `blocked`,
+with optional `percent`, `version` and safe `message`. Launcher update work precedes
+the game check. `canPlay` remains false during startup, transfers and checks.
+The startup modal has no bypass; errors offer Retry through `retryUpdates()`.
+Settings, install, sign-in and Play IPC are refused until the gate opens. Pause,
+resume and cancel remain available for game transfers; cancelling a mandatory
+startup transfer leaves the gate blocked. Home's bounded arrival starts after
+startup succeeds. Before every Play, the launcher feed and game manifest are
+checked again; a failure never launches the old client.
+
+See [mandatory-updates.md](mandatory-updates.md) for the payload/bootstrap protocol.

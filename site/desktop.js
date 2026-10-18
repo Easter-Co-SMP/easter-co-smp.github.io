@@ -71,6 +71,7 @@
  // so no second view can invent its own version of the gate.
  function primaryAction(state){
   const phase=phaseOf(state),account=state?.profile?.name,install=installOf(state),actions=actionsOf(state);
+  if(state?.startupReady===false)return {kind:'busy',label:'Updating…',note:'Updates are required to continue'};
   if(signInPending)return {kind:'busy',label:'Connecting your account…',note:'Complete Microsoft sign-in'};
   if(state&&state.canPlay&&phase!=='launching'&&phase!=='running')return {kind:'play',label:'PLAY NOW',note:'Minecraft Java Edition'};
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Please wait'};
@@ -90,11 +91,8 @@
  <h2 id="desktop-title">Settings</h2><div class="desktop-status" role="alert" hidden></div>
  <form class="desktop-settings">
  <label>Server address<select name="serverSelect"></select><input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><p class="desktop-settings-note" hidden></p>
- <fieldset><legend>Updates and launching</legend>
- <label class="desktop-preference"><span>Check for launcher updates</span><input type="checkbox" name="autoUpdateLauncher"></label>
- <label class="desktop-preference"><span>Keep game up to date</span><input type="checkbox" name="autoUpdateGame"></label>
+ <fieldset><legend>Launching</legend>
  <label class="desktop-preference"><span>Close launcher when the game starts</span><input type="checkbox" name="exitOnLaunch"></label></fieldset>
- <p class="desktop-launcher-update" hidden></p>
  <details class="desktop-advanced"><summary>Advanced settings</summary><p class="desktop-advanced-note">Memory is shared with other apps. Increase it only if Minecraft needs more. Changes apply the next time you launch.</p>
  <label>Memory allocated to the game<output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"><small class="desktop-memory-detail"></small></label>
  <label>Java executable<small>Leave empty to use the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label></details>
@@ -107,6 +105,35 @@
  <button type="button" class="launcher-button desktop-device-action" data-open-microsoft>Login with Microsoft</button><p class="desktop-provider"></p></section>
  <p class="desktop-auth-error" role="alert" hidden></p><button type="button" class="text-link" data-cancel>Cancel sign-in</button>`;
  document.body.append(signin);
+ const startup=document.createElement('dialog');startup.id='desktop-update';startup.setAttribute('aria-labelledby','desktop-update-title');
+ startup.innerHTML='<div class="desktop-update-spinner" aria-hidden="true"></div><h2 id="desktop-update-title">Checking updates…</h2><p data-update-detail role="status"></p><div class="desktop-update-progress" role="progressbar" aria-label="Update progress" hidden><i></i></div><div class="desktop-update-actions"><button type="button" data-update-retry hidden>Retry update</button><button type="button" data-update-pause hidden>Pause</button><button type="button" data-update-resume hidden>Resume</button></div>';
+ startup.addEventListener('cancel',event=>event.preventDefault());document.body.append(startup);
+ startup.querySelector('[data-update-retry]').onclick=()=>{void desktop.retryUpdates().catch(report);};
+ startup.querySelector('[data-update-pause]').onclick=()=>{void pauseTransfer?.().catch(report);};
+ startup.querySelector('[data-update-resume]').onclick=()=>{void resumeTransfer?.().catch(report);};
+ let arrivalStarted=false;
+ function renderStartup(state){
+  const update=state.launcherUpdate||{},blocked=update.phase==='blocked';
+  const active=state.startupReady===false||['checking','downloading','verifying','restarting','blocked'].includes(update.phase);
+  if(!active){
+   if(startup.open)startup.close();
+   if(!arrivalStarted){arrivalStarted=true;window.dispatchEvent(new Event('desktop:startup-ready'));}
+   return;
+  }
+  if(panel.open)panel.close();if(signin.open)signin.close();
+  if(!startup.open)startup.showModal();
+  const client=update.phase==='current',value=client?state.progress?.percent:update.percent;
+  const label=blocked?'Update required':client?(phaseOf(state)==='checking-client'?'Checking game updates…':'Updating Minecraft…'):(update.message||'Checking launcher updates…');
+  startup.querySelector('h2').textContent=label;
+  startup.querySelector('[data-update-detail]').textContent=blocked?update.message:Number.isFinite(value)?Math.floor(value)+'%':'Please wait. Updates are required to continue.';
+  startup.classList.toggle('is-blocked',blocked);
+  const track=startup.querySelector('[role=progressbar]');track.hidden=!Number.isFinite(value);
+  if(!track.hidden){track.setAttribute('aria-valuenow',String(Math.max(0,Math.min(100,value))));track.setAttribute('aria-valuemin','0');track.setAttribute('aria-valuemax','100');track.firstElementChild.style.width=Math.max(0,Math.min(100,value))+'%';}
+  else track.removeAttribute('aria-valuenow');
+  startup.querySelector('[data-update-retry]').hidden=!blocked;
+  startup.querySelector('[data-update-pause]').hidden=!client||phaseOf(state)!=='downloading';
+  startup.querySelector('[data-update-resume]').hidden=!client||phaseOf(state)!=='paused';
+ }
  const auth=selector=>signin.querySelector(selector);
  const notice=document.createElement('div');notice.className='desktop-page-notice';notice.setAttribute('role','alert');notice.hidden=true;document.body.append(notice);
  document.body.append(panel);
@@ -364,15 +391,9 @@
    $('.desktop-memory-detail').textContent=memoryLabel(memory.value)+' of '+memoryLabel(memory.max)+' this machine can give the game.';
   }
   if(!settingsDirty&&typeof settings?.javaPath==='string')settingsForm.elements.javaPath.value=settings.javaPath;
-  if(!settingsDirty)for(const name of ['autoUpdateLauncher','autoUpdateGame','exitOnLaunch'])
+  if(!settingsDirty)for(const name of ['exitOnLaunch'])
    settingsForm.elements[name].checked=settings?.[name]!==false;
-  const launcherNotice=$('.desktop-launcher-update'),update=current?.launcherUpdate;
-  if(update&&update.phase==='available'&&update.url){
-   launcherNotice.hidden=false;
-   launcherNotice.replaceChildren(document.createTextNode((update.message||'A newer launcher is available.')+' '));
-   const link=document.createElement('a');link.href=update.url;link.target='_blank';link.rel='noopener';link.textContent='Get it here.';
-   launcherNotice.append(link);
-  }else launcherNotice.hidden=true;
+  renderStartup(current);
   renderProfile(current);
   const device=current.device,wasWaiting=auth('.desktop-device').hidden;
   auth('.desktop-device').hidden=!device;auth('.desktop-auth-wait').hidden=Boolean(device);
@@ -585,7 +606,6 @@
   savingSettings=true;$('[data-save-settings]').disabled=true;
   try{
    settings=await desktop.saveSettings({memoryMB:Number(memory.value),server,javaPath:settingsForm.elements.javaPath.value,
-    autoUpdateLauncher:settingsForm.elements.autoUpdateLauncher.checked,autoUpdateGame:settingsForm.elements.autoUpdateGame.checked,
     exitOnLaunch:settingsForm.elements.exitOnLaunch.checked});
    settingsDirty=false;settingsResult.textContent='Saved.';
   }catch(error){settingsResult.textContent=error&&error.message?error.message:String(error);}

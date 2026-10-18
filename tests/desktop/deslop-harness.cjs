@@ -19,7 +19,7 @@ accounts.AccountClient=class{async login(){throw Error('Fixture: company service
 const install=require('../../desktop/install.cjs');
 let installed=false;
 install.clientStatus=async()=>({installed,version:'fixture',record:installed?{version:'fixture',java:'/fixture/java'}:null});
-install.checkForUpdates=async()=>({applied:false});
+install.checkForUpdates=async()=>{if(global.easterClientUpdateFail)throw Error('Game manifest unavailable.');return {applied:false};};
 install.installClient=async({notify})=>{notify({phase:'downloading',progress:{percent:50}});installed=true;return {message:'Client ready.'};};
 install.launch=async()=>{if(global.easterTestFailPlay)throw Error('Unable to start Minecraft. Try again.');const {EventEmitter}=require('node:events');global.easterTestGame=new EventEmitter();return global.easterTestGame;};
 require('../../desktop/main.cjs');

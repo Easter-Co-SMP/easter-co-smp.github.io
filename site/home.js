@@ -8,15 +8,18 @@ const finishArrival=()=>{
  if(skipArrival)skipArrival.hidden=true;
  clearTimeout(arrivalTimer);
 };
-if(!motionPreference.matches){
+const beginArrival=()=>{
+ if(motionPreference.matches)return;
  document.body.classList.add('is-arriving');
- skipArrival.hidden=false;
+ if(skipArrival&&!window.easterDesktop)skipArrival.hidden=false;
  // Bounded reveal: never wait on a slow image or network request.
  arrivalTimer=setTimeout(finishArrival,4600);
- skipArrival.addEventListener('click',()=>{finishArrival();document.querySelector('.map-link').focus({preventScroll:true});});
+ skipArrival?.addEventListener('click',()=>{finishArrival();document.querySelector('.map-link')?.focus({preventScroll:true});});
  window.addEventListener('keydown',event=>{if(event.key==='Escape'||event.key==='Tab')finishArrival();});
  window.addEventListener('pagehide',finishArrival,{once:true});
-}
+};
+if(window.easterDesktop?.mode==='desktop')window.addEventListener('desktop:startup-ready',beginArrival,{once:true});
+else beginArrival();
 motionPreference.addEventListener('change',event=>{if(event.matches)finishArrival();});
 document.getElementById('copyright-year').textContent=new Date().getFullYear();
 // Small camera drift gives the opening scene depth; static for reduced-motion users.

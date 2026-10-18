@@ -23,11 +23,11 @@ test('only safe app paths and HTTPS external links are accepted',()=>{
 });
 test('settings reject command strings; public account view omits all tokens',()=>{
  assert.deepEqual(cleanSettings({memoryMB:4096,server:'play.example.com:25565',javaPath:''}),{memoryMB:4096,server:'play.example.com:25565',javaPath:'',autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:true});
- // A player's automation choices survive validation, and a stray value cannot turn one off.
+ // Update opt-outs, including legacy false values, cannot disable mandatory updates.
  assert.deepEqual(
   (({autoUpdateLauncher,autoUpdateGame,exitOnLaunch})=>({autoUpdateLauncher,autoUpdateGame,exitOnLaunch}))(
    cleanSettings({memoryMB:4096,server:'',autoUpdateLauncher:false,autoUpdateGame:false,exitOnLaunch:false})),
-  {autoUpdateLauncher:false,autoUpdateGame:false,exitOnLaunch:false});
+  {autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false});
  assert.deepEqual(
   (({autoUpdateLauncher,autoUpdateGame,exitOnLaunch})=>({autoUpdateLauncher,autoUpdateGame,exitOnLaunch}))(
    cleanSettings({memoryMB:4096,server:'',autoUpdateLauncher:'yes',autoUpdateGame:0,exitOnLaunch:null})),

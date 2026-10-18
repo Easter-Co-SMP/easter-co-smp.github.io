@@ -37,6 +37,10 @@ jobs:
         run: npm run dist:linux
       - if: runner.os == 'Windows'
         run: npm run dist:windows
+      - if: runner.os == 'Linux'
+        run: python3 scripts/build_launcher_update.py linux
+      - if: runner.os == 'Windows'
+        run: python scripts/build_launcher_update.py win32
       - uses: actions/upload-artifact@v4
         with:
           name: launcher-${{ runner.os }}
@@ -45,6 +49,8 @@ jobs:
             release/*.deb
             release/*.pacman
             release/*.exe
+            release/Easter-Company-Update-*.asar
+            release/Easter-Company-Update-*.json
           if-no-files-found: error
       # The unpacked build is what carries site/ inside app.asar, so it is uploaded even
       # though it is not published. The release job checks it against the repository site/.
@@ -95,7 +101,11 @@ jobs:
             grep -q -- "$name" ../site/downloads.js || { echo "::error::$name is not requested by site/downloads.js"; exit 1; }
             [ -s "$name" ] || { echo "::error::missing or empty installer $name"; exit 1; }
           done
-          sha256sum $assets > SHA256SUMS
+          updates="Easter-Company-Update-linux-x64.asar Easter-Company-Update-linux-x64.json Easter-Company-Update-win32-x64.asar Easter-Company-Update-win32-x64.json"
+          for name in $updates; do
+            [ -s "$name" ] || { echo "::error::missing update asset $name"; exit 1; }
+          done
+          sha256sum $assets $updates > SHA256SUMS
           cp ../doc/launcher-release-notes.md notes.md
       - name: Publish versioned installers
         env:
