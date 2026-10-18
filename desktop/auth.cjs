@@ -98,10 +98,10 @@ function reachedSentence(step){
 // an account that may not play, an outage and rate limiting are four different answers
 // with four different things to do about them.
 function minecraftSentence({status}={}){
- if(status===401)return 'Minecraft sign-in failed: Minecraft would not accept the Xbox Live session. Sign in again.';
- if(status===403)return 'Minecraft sign-in failed: this account is not allowed to play Minecraft: Java Edition. Check that this account owns the game.';
- if(status===429)return 'Minecraft sign-in failed: Minecraft is receiving too many sign-in attempts right now. Wait a few minutes and try again.';
- if(Number.isInteger(status)&&status>=500)return 'Minecraft sign-in is temporarily unavailable: Minecraft is not answering right now. Try again in a few minutes.';
+ if(status===401)return 'Minecraft sign-in failed: the Xbox Live session was not accepted. Sign in again.';
+ if(status===403)return 'Minecraft sign-in failed: this account may not play Minecraft: Java Edition. Check that it owns the game.';
+ if(status===429)return 'Minecraft sign-in failed: there have been too many sign-in attempts in a short time. Wait a few minutes and try again.';
+ if(Number.isInteger(status)&&status>=500)return 'Minecraft sign-in is temporarily unavailable: the service is not answering right now. Try again in a few minutes.';
  return sentence('minecraft',reason({status}));
 }
 

@@ -140,10 +140,10 @@ test('the XSTS step names itself and carries XErr in the log, not in the sentenc
 test('Minecraft refusals are one sentence each and keep 401, 403, 429 and 5xx apart',async()=>{
  const sentences={};
  for(const [status,data,expected] of [
-  [401,{error:'UNAUTHORIZED'},/^Minecraft sign-in failed: Minecraft would not accept the Xbox Live session\. Sign in again\.$/],
-  [403,{error:'FORBIDDEN'},/^Minecraft sign-in failed: this account is not allowed to play Minecraft: Java Edition\. Check that this account owns the game\.$/],
-  [429,{error:'TOO_MANY_REQUESTS'},/^Minecraft sign-in failed: Minecraft is receiving too many sign-in attempts right now\. Wait a few minutes and try again\.$/],
-  [503,{error:'UNAVAILABLE'},/^Minecraft sign-in is temporarily unavailable: Minecraft is not answering right now\. Try again in a few minutes\.$/]
+  [401,{error:'UNAUTHORIZED'},/^Minecraft sign-in failed: the Xbox Live session was not accepted\. Sign in again\.$/],
+  [403,{error:'FORBIDDEN'},/^Minecraft sign-in failed: this account may not play Minecraft: Java Edition\. Check that it owns the game\.$/],
+  [429,{error:'TOO_MANY_REQUESTS'},/^Minecraft sign-in failed: there have been too many sign-in attempts in a short time\. Wait a few minutes and try again\.$/],
+  [503,{error:'UNAVAILABLE'},/^Minecraft sign-in is temporarily unavailable: the service is not answering right now\. Try again in a few minutes\.$/]
  ]){
   const {auth,file}=fixture([xboxToken(),xstsToken(),{status,data}]);
   await refused(auth.exchange({access_token:forXbox}),expected);
@@ -190,7 +190,7 @@ test('the saved-session refresh route is instrumented and never quotes the store
   xboxToken(),xstsToken(),
   {status:401,data:{path:'/authentication/login_with_xbox',error:'UNAUTHORIZED'}}
  ]);
- await refused(auth.refresh(stored,undefined,false,true),/Minecraft sign-in failed: Minecraft would not accept the Xbox Live session\. Sign in again\./);
+ await refused(auth.refresh(stored,undefined,false,true),/Minecraft sign-in failed: the Xbox Live session was not accepted\. Sign in again\./);
  assert.deepEqual(steps(file),['code-completion','xbox-live','xsts','minecraft']);
  assert.equal(failed(file).length,1,'the failing step writes exactly one line');
  assert.match(lines(file)[1],/step=xbox-live outcome=ok http=200 code=ok note=reissued$/);
@@ -241,7 +241,7 @@ test('a refused exchange for the Xbox Live scope is one step failure, not a sile
 
 test('without a refresh token the token in hand is used and the step still names itself',async()=>{
  const {auth,calls,file}=fixture([xboxToken(),xstsToken(),{status:403,data:{error:'FORBIDDEN'}}]);
- await refused(auth.exchange({access_token:'private'}),/Minecraft sign-in failed: this account is not allowed/);
+ await refused(auth.exchange({access_token:'private'}),/Minecraft sign-in failed: this account may not play/);
  assert.equal(calls[0].url,'https://user.auth.xboxlive.com/user/authenticate');
  assert.equal(failed(file).length,1);
 });
@@ -405,7 +405,7 @@ test('the five causes a player can tell apart still read differently, and each s
  assert.equal(new Set(Object.values(causes).map(cause=>cause.message)).size,5,'five causes, five sentences');
  // And every one of them tells the player something they can act on.
  assert.match(refusedSession.message,/Sign in again\.$/);
- assert.match(mayNotPlay.message,/Check that this account owns the game\.$/);
+ assert.match(mayNotPlay.message,/Check that it owns the game\.$/);
  assert.match(unavailable.message,/Try again in a few minutes\.$/);
  assert.match(limited.message,/Wait a few minutes and try again\.$/);
  assert.match(offline.message,/Check your network and try again\.$/);
