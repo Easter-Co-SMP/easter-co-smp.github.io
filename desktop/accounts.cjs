@@ -27,7 +27,7 @@ const MESSAGES={
  username_taken:'That username is already taken. Try another.',
  username_policy:'Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.',
  invalid_microsoft_token:'Your Microsoft sign-in needs to be renewed. Sign in again.',
- identity_conflict:'That Microsoft account belongs to a different Easter Company account. Use the linked account or switch Company accounts.',
+ identity_conflict:'Sign in with the Microsoft account linked to this Easter Company account, or switch Easter Company accounts.',
  password_policy:'Use a password or passphrase of 15 to 128 characters. Avoid common passwords.',
  reauthentication_required:'Sign in with your linked Microsoft account to set or reset your password.',
  invalid_minecraft_token:'Microsoft signed you in, but Minecraft did not accept that session. Sign in again.',

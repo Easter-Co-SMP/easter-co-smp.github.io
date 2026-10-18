@@ -21,7 +21,7 @@ const home=await fs.mkdtemp('/tmp/company-vault-e2e-');
 const app=await electron.launch({executablePath:path.resolve('node_modules/electron/dist/electron'),args:['--no-sandbox',path.resolve('tests/desktop/harness.cjs')],env:{...process.env,EASTER_TEST_HOME:home,EASTER_API_BASE_URL:'http://127.0.0.1:'+stub.address().port}});
 try{
  const page=await app.firstWindow();page.setDefaultTimeout(20000);await page.keyboard.press('Escape');
- await page.locator('[data-desktop-play][data-action=download]').click();await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await page.locator('[data-desktop-play][data-action=download]').click();await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();await app.evaluate(()=>global.easterTestApprove());await page.locator('[data-desktop-play][data-action=play]').waitFor();
  const state=await page.evaluate(()=>window.easterDesktop.status());
  assert.deepEqual(state.account,{id:'EC-7',username:'captaintestbeard',name:'Captain Testbeard',roles:['crew'],passwordRequired:false,microsoftLinked:true});

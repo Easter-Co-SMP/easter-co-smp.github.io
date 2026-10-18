@@ -12,7 +12,7 @@ try{
  const status=()=>page.evaluate(()=>window.easterDesktop.status());
  const mode=value=>app.evaluate((_electron,value)=>global.ownershipMode=value,value);
  const hero=kind=>page.locator('[data-desktop-play][data-action="'+kind+'"]');
- await hero('signin').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();await page.locator('.desktop-code').filter({hasText:'TEST-JAVA'}).waitFor();await app.evaluate(()=>global.ownershipApprove());
+ await hero('signin').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();await page.locator('.desktop-code').filter({hasText:'TEST-JAVA'}).waitFor();await app.evaluate(()=>global.ownershipApprove());
  await hero('buy').waitFor();assert.equal((await status()).minecraftAccess,'missing');assert.equal((await status()).canPlay,false);
  assert.equal(await page.locator('#desktop-signin').isVisible(),false);assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'no generic sign-in error for non-owner');
  assert.equal((await status()).accounts.length,1);assert.match((await status()).microsoftAccount.id,/^msa:[a-f0-9]{64}$/);assert.equal((await status()).profile,null);
@@ -20,7 +20,7 @@ try{
  await page.setViewportSize({width:800,height:600});await page.screenshot({path:'/tmp/java-buy-now.png',animations:'disabled'});
  await hero('buy').click();assert.equal((await app.evaluate(()=>global.ownershipOpened)).at(-1),'https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc');
  await page.evaluate(()=>window.easterDesktop.play());assert.equal(await app.evaluate(()=>global.ownershipLaunches),0,'direct Play IPC cannot bypass ownership');
- await page.locator('[data-use-account]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();await page.locator('.desktop-code').filter({hasText:'TEST-JAVA'}).waitFor();await page.keyboard.press('Escape');
+ await page.locator('[data-use-account]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();await page.locator('.desktop-code').filter({hasText:'TEST-JAVA'}).waitFor();await page.keyboard.press('Escape');
  await hero('buy').waitFor();assert.equal((await status()).accounts.length,1,'cancelled add retains the account');
  await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Switch Account',exact:true}).click();
  assert.equal(await page.locator('.desktop-account-list button').count(),1);assert.equal(await page.locator('.desktop-account-list button').isDisabled(),true);await page.keyboard.press('Escape');
@@ -31,7 +31,7 @@ try{
  assert.equal(await hero('buy').count(),0,'service failures do not advertise another purchase');await page.screenshot({path:'/tmp/java-access-retry.png',animations:'disabled'});
  await mode('owned');await hero('check-access').click();await hero('play').waitFor();
  assert.equal((await status()).minecraftAccess,'owned');assert.equal((await status()).canPlay,true);assert.equal((await status()).accounts.length,1,'purchase/profile transition does not duplicate the account');
- await mode('auth-failure');await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Add account',exact:true}).click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await mode('auth-failure');await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Add account',exact:true}).click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST-JAVA'}).waitFor();await app.evaluate(()=>global.ownershipApprove());await page.locator('.desktop-page-notice').waitFor();
  assert.equal((await status()).profile.name,'JavaCaptain','failed add preserves active owning account');
  await mode('missing');await page.evaluate(()=>window.easterDesktop.play());await hero('buy').waitFor();

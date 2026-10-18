@@ -109,7 +109,20 @@ that returns.
 - **The notice never sits on the copy.** The notice is a floating band above the sheet.
   Where the window is too narrow for the empty band above the hero card, the page
   reserves the height the notice needs, so at every width it reads above the hero card
-  instead of covering the crest or the heading.
+  instead of covering the crest or the heading. A guide page has no hero card, and until
+  2026-10-18 reserved nothing at all: the band landed on the guide's eyebrow line at 1440
+  and on the sidebar's brand and search box at 800 and 390. The room is now reserved on
+  the layout that holds the sidebar and the article (`site/wiki/wiki.css` reads the same
+  `--launcher-notice-space`), measured from the first block of each column the band
+  actually reaches, so no column starts under the band at any width.
+  The map is neither case: it is a full-bleed chart with its controls docked on top of it,
+  so the same variable moves that strip instead (`site/desktop.css`), measured from the
+  topmost dock the band reaches — the map key, the drawing palette, the compass and the
+  zoom controls. The band is narrower than the window, so a dock it does not reach at the
+  current width moves with the others and the strip stays one row. The open key's legend is
+  capped by the room left above the chart's own footer, so it scrolls inside the key rather
+  than sliding under that footer, and a dock the chart itself inserts after the notice is
+  painted (the drawing palette, once its saved notes have loaded) re-measures it.
 - **Nothing is hard-coded.** The UI renders whatever sentence the state or the
   rejected call supplies; it does not compose or re-word failures.
 
@@ -119,14 +132,23 @@ that returns.
 crossing the isolated preload arrives as its name and message only and a refusal decided
 on its code must not be thrown. The refusal that stops the flow is `identity_conflict`:
 the Microsoft account the service answered with belongs to a different Easter Company
-account, so the sign-in dialog comes back carrying the account service's own sentence
-plus a line saying nothing on the player's account changed and where Company accounts are
-switched (the profile popover's Switch Account, or Add account). No device code opens, no
-second sign-in starts, the signed-in account id is unchanged, and the failure is not
-announced on the state channel at all — `state.error` stays null on that path, so the page
-notice never paints the sentence, not even for one frame. Every other failure of the saved
-session still falls through to the interactive sign-in with its device code. The account
-id comparison stays server-driven, and no account identifier, token or address appears in
+account, so the chooser comes back carrying the refusal in three lines rather than one
+paragraph. The account service's own sentence comes first — `Sign in with the Microsoft
+account linked to this Easter Company account, or switch Easter Company accounts.`
+(`desktop/accounts.cjs` MESSAGES.identity_conflict, which is also what the service's own
+409 is mapped to, so the wording names both routes rather than the launcher-side one).
+Then what did not happen, on its own line: `Nothing on your Easter Company account has
+changed.` Then the action, which has to start by closing the dialog it is spoken from,
+because the profile control it names is inert behind a modal: `Close this window first.
+Then open your profile at the top of the page and choose Switch Account, or Add
+account.` The sentence no longer uses "the linked account", which was an undefined noun
+for someone who does not already understand a Company-account conflict, and it no longer
+points at a control the player cannot reach. No device code opens, no second sign-in
+starts, the signed-in account id is unchanged, and the failure is not announced on the
+state channel at all — `state.error` stays null on that path, so the page notice never
+paints the sentence, not even for one frame. Every other failure of the saved session
+still falls through to the interactive sign-in with its device code. The account id
+comparison stays server-driven, and no account identifier, token or address appears in
 the sentence, the state or a log.
 
 **Microsoft's email answer is a notice, not a failure.** The sign-in answer may carry
@@ -947,6 +969,56 @@ notice at all; the last one to close gives the same sentence back once, with its
 dismiss control and keyboard reachable, and it stays until dismissed or a new action
 starts. See *One failure, one visible home* for the full rule.
 
+## One verb, and sentences that carry no status (2026-10-18)
+
+Three smaller findings from the second review, and the rule behind all three: the player
+reads what happened and what to do about it, never a provider's label and never a status
+code.
+
+**One verb for the Microsoft action.** One action was called *Link Microsoft Account* on
+the hero, *Login with Microsoft Account* in the chooser and *Login with Microsoft* in the
+sign-in dialog, all on one screen. It is **Sign in with Microsoft** now, everywhere the
+account is what the action is about — which is what *Required flow* has said since its
+first draft: the hero's own action while a download runs, the chooser's Microsoft button,
+and the sign-in dialog's title. The one button that is not that action is **Open the
+Microsoft page**, because that is all it does: it opens Microsoft's page in the browser
+and signs nobody in by itself. The sentences around the action already used the same verb
+and are unchanged (`Sign in again.`, `Sign in with Microsoft or with your username.`,
+`Sign in with Microsoft to continue.`), and so is the setup copy that names the account
+service. These are strings, so the suites assert the labels themselves.
+
+**A download or update failure carries no HTTP status.** The status is not something a
+player can act on, so it has left the sentence and moved onto the error object
+(`httpStatus`, alongside the `host` and `step` that produced it):
+
+| Where it fails | What the player reads |
+|---|---|
+| Launcher update check | `The launcher update could not be checked. Check your connection and try again.` |
+| Launcher update download | `The launcher update could not be downloaded. Try again.` |
+| Client data request | `Could not download <host> data. Try again.` |
+| A download the source would not resume | `The download could not be resumed. Your installed files are unchanged.` |
+| A download that stopped, empty response included | `The download stopped before it finished. Your installed files are unchanged.` |
+
+**The status is recorded in `userData/install.log`.** Install and update failures had no
+record at all before this; the launcher's only such record was the sign-in's. One line per
+failure is now appended to `userData/install.log` by the same class that writes
+`userData/signin.log` (`SignInLog` in `desktop/auth.cjs`): the same bounded 64 KiB file and
+the same single rotation to `install.log.1`, the same whitelisted fields, the same LF
+endings, and the same rule that a log that cannot be written never affects the operation.
+So `install.log` carries nothing but a timestamp, the launcher version, a step id, `failed`,
+an HTTP status or `-`, a provider code or `-` (unused here), and the host or `-`:
+
+```
+2026-10-18T03:11:02.604Z v1.0.21 step=download outcome=failed http=503 code=- note=easter-co-smp.github.io
+```
+
+Step ids are `data` (a client-data request), `download`, `resume`, `launcher-update` and
+`launcher-asset`. Nothing else in the launcher writes to `install.log`, it is never read
+back, never broadcast and not part of this contract. `desktop/main.cjs` owns the path and
+hands the log to `install.setFailureLog()` and `updater.setFailureLog()`; a build whose
+main does not hand one in writes nothing and shows exactly the same sentences, because the
+status travels on the error in either case.
+
 ## Mandatory update gate (2026-10-17)
 
 This supersedes the optional update preferences and notification-only launcher check above.
@@ -1095,7 +1167,7 @@ and company-password actions carry the identifier and the username, and the avai
 answer is one boolean with a reason code and no account data.
 
 **Setup runs the username step before the password step.** The sign-in chooser offers
-**Login with Microsoft Account** — the account is created from that Microsoft sign-in — and
+**Sign in with Microsoft** — the account is created from that Microsoft sign-in — and
 a direct **Username or Email** field with a password. The chooser states: “Please sign up
 using an existing online account provider, and then create an Easter Company account
 username & password.” An account without a username is first asked for one (step 1 of 2);

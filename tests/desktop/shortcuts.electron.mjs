@@ -150,7 +150,7 @@ try{
  // The account the fixture harness signs in with, reached through the UI it always uses.
  await page.keyboard.press('Escape');
  await page.locator('[data-desktop-play][data-action=signin]').click();
- await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
  await app.evaluate(()=>global.easterTestApprove());
  await page.locator('[data-desktop-play][data-action=play]').waitFor({timeout:30000});

@@ -19,12 +19,31 @@ function validate(manifest,{release,platform,arch,runtime}){
  if(manifest.asset!==asset||!/^[a-f0-9]{64}$/.test(manifest.sha256)||!Number.isSafeInteger(manifest.size)||manifest.size<1||manifest.size>MAX_BYTES)throw Error('The launcher update manifest is invalid.');
  return {...manifest,url:REPO+'launcher-v'+release+'/'+asset};
 }
+// A launcher-update failure is worded for the player: what stopped and what to do about it. The
+// HTTP status stays off the sentence and on the error (`httpStatus`, with the `host` and `step`
+// that produced it), and one line per failure goes to the launcher's failure record — the same
+// bounded, redacted line log the sign-in uses (desktop/auth.cjs SignInLog). main.cjs owns the
+// paths and hands the log in through setFailureLog(); until it does, a failure carries its status
+// and writes nothing. This file keeps its own copy of these ten lines deliberately: it runs before
+// the gate, and requiring desktop/install.cjs here would pull the whole Minecraft installer in
+// front of it.
+let failureLog=null;
+function setFailureLog(log){failureLog=log&&typeof log.append==='function'?log:null;}
+function fault(message,{step='launcher-update',status,host}={}){
+ const failed=Error(message);
+ if(Number.isInteger(status))failed.httpStatus=status;
+ if(typeof host==='string'&&host)failed.host=host;
+ failed.step=step;
+ try{failureLog?.append({step,outcome:'failed',status:Number.isInteger(status)?status:undefined,note:host});}catch{}
+ return failed;
+}
 async function json(fetch,url){
  const response=await fetch(url,{signal:AbortSignal.timeout(20000),cache:'no-store',headers:{Accept:'application/json'}});
- if(!response.ok)throw Error('The update service returned HTTP '+response.status+'.');
+ if(!response.ok)throw fault('The launcher update could not be checked. Check your connection and try again.',{status:response.status,host:hostOf(url)});
  const text=await response.text();if(text.length>65536)throw Error('The update response is too large.');
  return JSON.parse(text);
 }
+function hostOf(url){try{return new URL(url).hostname;}catch{return '';}}
 async function atomic(file,value){
  const temp=file+'.'+crypto.randomUUID()+'.tmp';
  try{await fs.writeFile(temp,JSON.stringify(value),{mode:0o600});await fs.rename(temp,file);}
@@ -36,7 +55,7 @@ async function stage(manifest,{root,fetch,notify=()=>{}}){
  let handle;
  try{
   const response=await fetch(manifest.url,{signal:AbortSignal.timeout(300000)});
-  if(!response.ok||!response.body)throw Error('The launcher update could not be downloaded.');
+  if(!response.ok||!response.body)throw fault('The launcher update could not be downloaded. Try again.',{step:'launcher-asset',status:response.status,host:hostOf(manifest.url)});
   const length=response.headers.get('content-length');
   if(length!==null&&Number(length)!==manifest.size)throw Error('The launcher update size does not match the release.');
   handle=await fs.open(temp,'wx',0o600);
@@ -82,4 +101,4 @@ function selected(root,{bundled,runtime,platform=process.platform,arch=process.a
 function relaunchOptions({platform=process.platform,env=process.env,execPath=process.execPath}={}){
  return {execPath:platform==='linux'&&env.APPIMAGE?env.APPIMAGE:execPath,args:process.argv.includes('--no-sandbox')?['--no-sandbox']:[]};
 }
-module.exports={update,stage,selected,validate,compare,version,relaunchOptions,BOOTSTRAP};
+module.exports={setFailureLog,fault,update,stage,selected,validate,compare,version,relaunchOptions,BOOTSTRAP};

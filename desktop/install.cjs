@@ -125,11 +125,33 @@ class TransferControl{
  }
 }
 function createControl(options){return new TransferControl(options);}
+// ---- download failures, worded for the player and recorded for the owner -----
+// A download failure is one sentence about what stopped and what to do about it. The HTTP
+// status is not part of that sentence: the player cannot act on a number, and the same rule
+// already applies to every sign-in sentence (desktop/auth.cjs). The status rides on the error
+// instead (`httpStatus`, plus the `host` and `step` that produced it), and one line per failure
+// goes to the launcher's failure record, which is where an owner diagnoses from.
+//
+// This file owns no log file and no paths: main.cjs owns those, and hands in the launcher's
+// existing bounded, redacted line log (`SignInLog` in desktop/auth.cjs, `append({step,outcome,
+// status,code,note})`) through setFailureLog(). Until it does, a failure still carries its status
+// and simply writes nothing, so a build wired to an older main is never worse than before.
+let failureLog=null;
+function setFailureLog(log){failureLog=log&&typeof log.append==='function'?log:null;}
+function downloadFault(message,{step='download',status,host}={}){
+ const fault=Error(message);
+ // Never an HTTP status, a URL or a response body in the sentence; those stay on the error.
+ if(Number.isInteger(status))fault.httpStatus=status;
+ if(typeof host==='string'&&host)fault.host=host;
+ fault.step=step;
+ try{failureLog?.append({step,outcome:'failed',status:Number.isInteger(status)?status:undefined,note:host});}catch{}
+ return fault;
+}
 // ---- downloads --------------------------------------------------------------
 function originBase(value){return String(value||'').replace(/\/+$/,'')+'/';}
 async function json(url,origin){
  const response=await fetch(url,{signal:AbortSignal.timeout(45000),headers:{'User-Agent':'EasterCompanyLauncher/1.0 (easter-co-smp.github.io)'}});
- if(!response.ok)throw Error('Could not download '+new URL(url).hostname+' data (HTTP '+response.status+'). Try again.');
+ if(!response.ok)throw downloadFault('Could not download '+new URL(url).hostname+' data. Try again.',{step:'data',status:response.status,host:new URL(url).hostname});
  return response.json();
 }
 async function atomicJSON(file,value){
@@ -195,13 +217,13 @@ async function downloadVerified(url,file,hash,algorithm='sha256',options={}){
    digest=crypto.createHash(algorithm);
   }else if(prefix&&response.status!==206&&response.status!==416){
    await response.body?.cancel?.().catch(()=>{});
-   throw Error('Download failed (HTTP '+response.status+'). Your installed files are unchanged.');
+   throw downloadFault('The download could not be resumed. Your installed files are unchanged.',{step:'resume',status:response.status,host:target.hostname});
   }
   // 416 means the partial file is already at least as long as the source, so there
   // is nothing left to append and the whole file is judged by its checksum below.
   if(response.status!==416){
-   if(!response.ok)throw Error('Download failed (HTTP '+response.status+'). Your installed files are unchanged.');
-   if(!response.body)throw Error('Download failed (empty response). Your installed files are unchanged.');
+   if(!response.ok)throw downloadFault('The download stopped before it finished. Your installed files are unchanged.',{step:'download',status:response.status,host:target.hostname});
+   if(!response.body)throw downloadFault('The download stopped before it finished. Your installed files are unchanged.',{step:'download',host:target.hostname});
    const declared=Number(response.headers.get('content-length'));
    if(!prefix&&meter)meter.begin(meter.label,Number.isFinite(declared)&&declared>0?declared+prefix:null);
    report();arm();
@@ -785,4 +807,4 @@ async function checkForUpdates({root,settings={},notify=()=>{},control=null,incl
 }
 // The Play gate, computed here in the main process and nowhere else.
 function canPlay(install,profile){return Boolean(install?.installed)&&profile!==null&&profile!==undefined;}
-module.exports={execOptions,ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,seedDisplayDefaults,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};
+module.exports={setFailureLog,downloadFault,execOptions,ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,seedDisplayDefaults,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};

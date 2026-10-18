@@ -111,11 +111,11 @@ try {
   s = await state();
   assert.equal(s.canPlay, false, 'a download alone must not unlock Play');
   const heroWhileDownloading = await hero();
-  assert.match(heroWhileDownloading, /Link Microsoft Account/i, 'the hero switches to Microsoft linking while downloading: ' + heroWhileDownloading);
+  assert.match(heroWhileDownloading, /Sign in with Microsoft/i, 'the hero switches to Microsoft linking while downloading: ' + heroWhileDownloading);
   note('during download: hero asks for Microsoft sign-in, Play still absent');
 
   // 4. Sign in through the stubbed Microsoft flow the harness provides.
-  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
   await page.locator('.desktop-code').waitFor({state: 'visible'});
   assert.equal((await state()).paused,true,'sign-in does not resume the paused transfer');
   assert.deepEqual((await state()).progress,pausedProgress,'sign-in preserves transfer progress');
@@ -126,7 +126,7 @@ try {
   // Signing in is the hero's action; the dialog is modal, so close it first.
   await page.keyboard.press('Escape');
   await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open);
-  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
   await page.locator('.desktop-code').waitFor({state:'visible'});
   // Let the client finish while Microsoft approval is still pending. The code must
   // survive installation completing, and Play must stay gated on the account.

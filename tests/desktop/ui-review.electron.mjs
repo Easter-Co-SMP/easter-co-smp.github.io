@@ -31,13 +31,27 @@ try{
  await page.locator('[data-desktop-play][data-action=download]').click();
  await page.locator('[data-desktop-play][data-action=signin]').waitFor();
  await app.evaluate(()=>global.easterTestDelayDevice=true);
- await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await page.locator('[data-desktop-play][data-action=signin]').click();
+ // One action, one verb: the chooser offers the same "Sign in with Microsoft" the hero does, at
+ // every width the review uses, in a dialog that fits each of them.
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  await page.locator('#desktop-company-signin').waitFor({state:'visible'});
+  const chooserBox=await page.locator('#desktop-company-signin').boundingBox();
+  assert(chooserBox.x>=0&&chooserBox.x+chooserBox.width<=width+1,'the chooser fits '+width+'px');
+  assert(chooserBox.y>=0&&chooserBox.y+chooserBox.height<=height+1,'the chooser fits the window at '+width+'px');
+  assert.equal(await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Microsoft',exact:true}).count(),1,'the chooser names the action "Sign in with Microsoft" at '+width+'px');
+  assert.equal(await page.locator('#desktop-company-signin').getByRole('button',{name:/Link Microsoft|Login with Microsoft/}).count(),0,'and no other verb is left at '+width+'px');
+  await shot('chooser-'+width);
+ }
+ await page.setViewportSize({width:1360,height:920});
+ await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-auth-wait').waitFor();await shot('sign-in-pending');
  assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'pending authentication never flashes settings');
  await page.keyboard.press('Escape');
  await page.waitForFunction(()=>document.querySelector('[data-desktop-play]').disabled===false);
  assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'pending authentication cancels cleanly');
- await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await page.locator('[data-desktop-play][data-action=signin]').click();await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-auth-wait').waitFor();
  await app.evaluate(()=>{global.easterTestDeviceReady();global.easterTestDelayDevice=false;});
  await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();await shot('sign-in');
@@ -47,7 +61,7 @@ try{
  await page.waitForFunction(()=>document.querySelector('[data-desktop-play]').disabled===false);
  assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'cancellation is not an error');
  assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'cancellation does not reveal settings');
- await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await page.locator('[data-desktop-play][data-action=signin]').click();await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();
  await app.evaluate(()=>global.easterTestApprove());
  await page.locator('[data-desktop-play][data-action=play]').waitFor();
@@ -153,7 +167,7 @@ try{
  await send({...await status(),device:{code:'TEST-LIVE',url:'https://microsoft.com/link',expiresAt:Date.now()+300000},error:'Minecraft sign-in failed: the Xbox Live session was not accepted. Sign in again.'});
  await page.locator('.desktop-code').filter({hasText:'TEST-LIVE'}).waitFor();
  assert.equal(await page.locator('.desktop-code').filter({hasText:'TEST-LIVE'}).isVisible(),true,'the device code stays readable');
- assert.equal(await page.getByRole('button',{name:'Login with Microsoft',exact:true}).isVisible(),true,'the sign-in link stays readable');
+ assert.equal(await page.getByRole('button',{name:'Open the Microsoft page',exact:true}).isVisible(),true,'the sign-in page action stays readable');
  assert.deepEqual(await visibleErrorNodes(),[],'a live sign-in is never painted as failed');
  await shot('sign-in-live-no-stale-failure');
  await send({...await status(),device:null,error:null});
@@ -244,6 +258,153 @@ try{
  await send({...ready,error:'Unable to start Minecraft. Try again.'});
  assert.equal(await page.locator('.desktop-page-notice').isVisible(),true,'utility pages show failures');
  assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'utility failures do not open settings');
+ // A guide page has no hero card for Home's reservation to sit on, so until this pass the fixed
+ // notice band covered the guide's eyebrow line at 1440 and the sidebar's brand and search box at
+ // 800 and 390 — interactive controls, under a band whose Dismiss control was the only thing
+ // reachable there. What must hold at every width is that the band reaches nothing: the guide's
+ // first line reads below it, and no control — the brand, the search input, the topic links, the
+ // header's own nav — is under it, asked both by box intersection and by elementFromPoint at the
+ // point the band would have covered.
+ const guideNotice=()=>page.evaluate(()=>{
+  const box=node=>{const r=node.getBoundingClientRect();return {left:Math.round(r.left),top:Math.round(r.top),right:Math.round(r.right),bottom:Math.round(r.bottom)};};
+  const notice=document.querySelector('.desktop-page-notice'),band=box(notice),controls=[];
+  const add=(name,node)=>{if(node&&node.getClientRects().length)controls.push({name,box:box(node)});};
+  add('brand',document.querySelector('.wiki-brand'));
+  add('search',document.querySelector('.wiki-search input'));
+  add('topics toggle',document.querySelector('.wiki-topics-toggle'));
+  for(const link of document.querySelectorAll('#wiki-topics a'))add('topic link',link);
+  for(const link of document.querySelectorAll('.site-header nav a, .site-header nav button'))add('nav',link);
+  const under=controls.filter(control=>control.box.right>band.left&&control.box.left<band.right&&control.box.bottom>band.top&&control.box.top<band.bottom).map(control=>control.name);
+  const reached=[];
+  for(const control of controls){
+   const x=Math.round((Math.max(control.box.left,band.left)+Math.min(control.box.right,band.right))/2);
+   const y=Math.round((Math.max(control.box.top,band.top)+Math.min(control.box.bottom,band.bottom))/2);
+   if(x<0||y<0||x>=innerWidth||y>=innerHeight)continue;
+   const hit=document.elementFromPoint(x,y);
+   if(hit&&hit.closest('.desktop-page-notice'))reached.push(control.name);
+  }
+  const first=document.querySelector('.wiki-page-header');
+  return {band,under,reached,first:first?box(first):null,content:box(document.querySelector('.wiki-content')),reserved:getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-space').trim(),overflow:document.documentElement.scrollWidth<=innerWidth+1};
+ });
+ const checkGuideNotice=async(where)=>{
+  for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+   await page.setViewportSize({width,height});
+   // The reserved room is layout, so it is re-measured on the frame after the window changes, and
+   // the band itself re-wraps when the window narrows: wait for the reservation to settle before
+   // reading it, exactly as the Home notice helper above does.
+   await page.waitForFunction(()=>{
+    const notice=document.querySelector('.desktop-page-notice'),brand=document.querySelector('.wiki-brand');
+    return !notice||!brand||notice.getBoundingClientRect().bottom<=brand.getBoundingClientRect().top+1;
+   },{timeout:4000}).catch(()=>{});
+   const geometry=await guideNotice();
+   assert.deepEqual(geometry.under,[],'the notice reaches no control on '+where+' at '+width+'px: '+JSON.stringify(geometry));
+   assert.deepEqual(geometry.reached,[],'and elementFromPoint agrees on '+where+' at '+width+'px: '+JSON.stringify(geometry));
+   assert(geometry.first&&geometry.first.top>=geometry.band.bottom+1,'the first line of '+where+' reads below the notice at '+width+'px: '+JSON.stringify(geometry));
+   assert(geometry.overflow,'and the reserved room adds no horizontal overflow at '+width+'px');
+   await shot('notice-wiki-'+where+'-'+width);
+  }
+  await page.setViewportSize({width:1360,height:920});
+ };
+ await checkGuideNotice('overview');
+ // The same checks on an actual guide, which is the page the reviewer measured: the eyebrow
+ // line the band used to sit on is the article's own header here.
+ await page.locator('.wiki-card').first().click();
+ await page.locator('.wiki-article-section').first().waitFor();
+ await checkGuideNotice('guide');
+ assert((await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-space').trim()))!=='0px','the guide page reserves the room the notice asks for');
+ // An install/update failure, in the sentences that no longer print a status. The update gate's
+ // own sentence, and a download failure on Home, at the same three widths: each says what stopped
+ // and what to do, and neither carries an HTTP status or a provider code.
+ const installFailure='The download stopped before it finished. Your installed files are unchanged.';
+ const updateFailure='Launcher update required. The launcher update could not be checked. Check your connection and try again.';
+ const noStatus=text=>assert(!/HTTP\s*\d|\b[45]\d\d\b|XErr/.test(text),'the sentence the player reads carries no status: '+text);
+ await send({...ready,launcherUpdate:{phase:'blocked',percent:null,message:updateFailure}});
+ await page.locator('#desktop-update').waitFor({state:'visible'});
+ noStatus(await page.locator('#desktop-update [data-update-detail]').innerText());
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  const gate=await page.locator('#desktop-update').boundingBox();
+  assert(gate.x>=0&&gate.x+gate.width<=width+1&&gate.y>=0&&gate.y+gate.height<=height+1,'the update failure fits '+width+'px');
+  await shot('update-failure-'+width);
+ }
+ await page.setViewportSize({width:1360,height:920});
+ await send({...ready,launcherUpdate:{phase:'current'},error:installFailure});
+ await page.locator('.desktop-page-notice').filter({hasText:installFailure}).waitFor();
+ noStatus(await page.locator('.desktop-page-notice').evaluate(el=>el.firstChild.textContent));
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  const notice=await page.locator('.desktop-page-notice').boundingBox();
+  assert(notice.x>=0&&notice.x+notice.width<=width+1,'the install failure notice fits '+width+'px');
+  assert.equal(await page.locator('.desktop-page-notice').isVisible(),true,'the install failure is visible at '+width+'px');
+  await shot('install-failure-'+width);
+ }
+ await page.setViewportSize({width:1360,height:920});
+ await page.getByRole('button',{name:'Dismiss message'}).click();
+ // The map is the other page the band crosses, and the same defect followed it: the key, the
+ // drawing palette and the zoom controls are docked on top of a full-bleed chart, so the notice sat
+ // on the key at 800 and on the key, the palette and both zoom buttons at 390 — and at 390 the key
+ // could not even be clicked open, because the band took the pointer. The room is now measured from
+ // the topmost dock the band reaches and published to site/desktop.css, which moves that strip, so
+ // what is proven here is the same property as the guide: no control under the band, by box and by
+ // elementFromPoint, and the key still opens with a real click.
+ const mapFailure='The chart data could not be cached. Try again.';
+ const mapNotice=()=>page.evaluate(()=>{
+  const box=node=>{const r=node.getBoundingClientRect();return {left:Math.round(r.left),top:Math.round(r.top),right:Math.round(r.right),bottom:Math.round(r.bottom)};};
+  const notice=document.querySelector('.desktop-page-notice'),band=box(notice),controls=[];
+  const add=(name,node)=>{if(node&&node.getClientRects().length)controls.push({name,box:box(node)});};
+  add('map key',document.querySelector('.map-key summary'));
+  for(const label of document.querySelectorAll('.map-key .legend label'))add('legend',label);
+  add('draw palette',document.querySelector('.map-drawing summary'));
+  for(const id of ['zoom-in','zoom-out','home','fullscreen'])add(id,document.getElementById(id));
+  add('compass',document.querySelector('.compass'));
+  const under=controls.filter(control=>control.box.right>band.left&&control.box.left<band.right&&control.box.bottom>band.top&&control.box.top<band.bottom).map(control=>control.name);
+  const reached=[];
+  for(const control of controls){
+   const x=Math.round((Math.max(control.box.left,band.left)+Math.min(control.box.right,band.right))/2);
+   const y=Math.round((Math.max(control.box.top,band.top)+Math.min(control.box.bottom,band.bottom))/2);
+   if(x<0||y<0||x>=innerWidth||y>=innerHeight)continue;
+   const hit=document.elementFromPoint(x,y);
+   if(hit&&hit.closest('.desktop-page-notice'))reached.push(control.name);
+  }
+  const key=document.querySelector('.map-key'),footer=document.querySelector('.map-bottom'),keyBox=box(key);
+  return {band,under,reached,open:key.open,keyBox,
+   // The key grows downward once opened: with the strip moved down it must not slide under the
+   // chart's own footer, so its content is capped by the room that is left.
+   keyClearOfFooter:!footer||keyBox.bottom<=box(footer).top+1,
+   legendInsideKey:[...document.querySelectorAll('.map-key .legend label')].every(label=>box(label).bottom<=keyBox.bottom+1),
+   reserved:getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-space').trim(),
+   overflow:document.documentElement.scrollWidth<=innerWidth+1};
+ });
+ await page.getByRole('link',{name:'Map',exact:true}).click();
+ await page.waitForFunction(()=>!!document.getElementById('terrain'),{timeout:20000});
+ await send({...ready,launcherUpdate:{phase:'current'},error:mapFailure});
+ await page.locator('.desktop-page-notice').filter({hasText:mapFailure}).waitFor();
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  // The reservation is layout, so the strip is re-measured on the frame after the window changes.
+  await page.waitForFunction(()=>{
+   const notice=document.querySelector('.desktop-page-notice'),key=document.querySelector('.map-key');
+   return !notice||!key||notice.getBoundingClientRect().bottom<=key.getBoundingClientRect().top+1;
+  },{timeout:4000}).catch(()=>{});
+  // A real click, with the pointer: this is the interaction the band used to swallow. The point is
+  // on the summary's left edge because the chart's own drawing palette sits over its right half at
+  // every width (map.js slides that palette aside only once the key is open) — a chart-internal
+  // overlap, not this one.
+  await page.locator('.map-key summary').click({position:{x:16,y:18}});
+  await page.waitForFunction(()=>document.querySelector('.map-key').open);
+  const geometry=await mapNotice();
+  assert.equal(geometry.open,true,'the map key opens by click at '+width+'px');
+  assert.deepEqual(geometry.under,[],'the notice reaches no map control at '+width+'px: '+JSON.stringify(geometry));
+  assert.deepEqual(geometry.reached,[],'and elementFromPoint agrees on the map at '+width+'px: '+JSON.stringify(geometry));
+  assert.equal(geometry.keyClearOfFooter,true,'the open key stays clear of the chart footer at '+width+'px: '+JSON.stringify(geometry.keyBox));
+  assert.equal(geometry.legendInsideKey,true,'every legend row is inside the key at '+width+'px');
+  assert(geometry.overflow,'the moved strip adds no horizontal overflow at '+width+'px');
+  await shot('notice-map-'+width);
+  await page.locator('.map-key summary').click({position:{x:16,y:18}});
+  await page.waitForFunction(()=>!document.querySelector('.map-key').open);
+ }
+ await page.setViewportSize({width:1360,height:920});
+ await page.getByRole('button',{name:'Dismiss message'}).click();
  // The launch-time pair, honestly. Main is told by EASTER_TEST_TRAY=0 that this desktop
  // has no status-notifier host, which is the state of the test seat, of a bare X session
  // and of Owen's own i3/polybar seat: polybar's tray is XEmbed, so no watcher owns the

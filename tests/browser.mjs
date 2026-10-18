@@ -481,7 +481,7 @@ try{
      if(renderer.signInError)throw Error(renderer.signInError);
      return renderer.signInAnswer;
     },
-    // The saved-session shortcut the plain "Login with Microsoft Account" button takes. Its
+    // The saved-session shortcut the chooser's "Sign in with Microsoft" button takes. Its
     // failure carries a code, exactly as the preload hands one over.
     continueMicrosoft:async()=>{
      log('continueMicrosoft');
@@ -929,6 +929,12 @@ try{
    // The state channel announces a failure and the rejected call announces it again; both are
    // driven here, in that order, exactly as main and the bridge do.
    const FAILURE='Sign-in could not finish. Please try again.';
+   // The identity conflict, in the account service's own sentence (desktop/accounts.cjs
+   // MESSAGES.identity_conflict) plus the two lines the renderer adds. Three lines, in order:
+   // the sentence, what did not change, and the action — which starts by closing the dialog it
+   // is spoken from, because the profile control it names is inert behind a modal.
+   const CONFLICT_SENTENCE='Sign in with the Microsoft account linked to this Easter Company account, or switch Easter Company accounts.';
+   const CONFLICT_LINES=[CONFLICT_SENTENCE,'Nothing on your Easter Company account has changed.','Close this window first. Then open your profile at the top of the page and choose Switch Account, or Add account.'];
    await pushState({phase:'ready',actions:['signin'],canPlay:false,install:INSTALLED,profile:{name:'Owen'},account:{id:'EC-7',username:'captain_owen',name:'Captain Owen',roles:['crew'],passwordRequired:false,microsoftLinked:true},companyReady:true,microsoftConnected:true,error:null});
    assert.deepEqual(await visibleErrors(),[],'a settled launcher has no failure on screen');
    // A failure with no dialog open has exactly one home: the page notice.
@@ -1063,7 +1069,7 @@ try{
    const companyChooser=launcherPage.locator('#desktop-company-signin');
    await companyChooser.waitFor({state:'visible'});
    await launcherPage.evaluate(()=>{window.easterRenderer.signInHold=true;});
-   await companyChooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+   await companyChooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
    const signInDialog=launcherPage.locator('#desktop-signin');
    await signInDialog.waitFor({state:'visible'});
    await pushState({device:{code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000}});
@@ -1073,7 +1079,7 @@ try{
    await pushState({error:FAILURE});
    assert.deepEqual(await visibleErrors(),[],'a live sign-in is not presented as failed');
    assert.equal(await launcherPage.locator('.desktop-code').filter({hasText:'TEST-CODE'}).isVisible(),true,'the device code stays readable');
-   assert.equal(await launcherPage.getByRole('button',{name:'Login with Microsoft',exact:true}).isVisible(),true,'the sign-in link stays readable');
+   assert.equal(await launcherPage.getByRole('button',{name:'Open the Microsoft page',exact:true}).isVisible(),true,'the sign-in link stays readable');
    await launcherPage.screenshot({path:'/tmp/easter-launcher-signin-live.png'});
    // The flow then really fails, in main's own order: the settled state clears the device and
    // carries the sentence, and the account call rejects with it. One sentence, one place.
@@ -1086,11 +1092,11 @@ try{
    await launcherPage.evaluate(message=>{window.easterRenderer.signInHold=true;window.easterRenderer.openMicrosoftError=message;},FAILURE);
    await launcherPage.locator('[data-desktop-play][data-action=signin]').click();
    await companyChooser.waitFor({state:'visible'});
-   await companyChooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+   await companyChooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
    await signInDialog.waitFor({state:'visible'});
    await pushState({device:{code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000}});
    await launcherPage.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
-   await launcherPage.getByRole('button',{name:'Login with Microsoft',exact:true}).click();
+   await launcherPage.getByRole('button',{name:'Open the Microsoft page',exact:true}).click();
    await launcherPage.locator('.desktop-auth-error').filter({hasText:FAILURE}).waitFor();
    assert.deepEqual(await visibleErrors(),['desktop-auth-error'],'a failure raised while the sign-in dialog is open is shown only there');
    // Closed by the player, that sentence moves to the page notice once and is not carried into
@@ -1122,7 +1128,7 @@ try{
     await launcherPage.locator('[data-desktop-play][data-action=signin]').click();
     await companyChooser.waitFor({state:'visible'});
     await launcherPage.evaluate(value=>{window.easterRenderer.signInAnswer={emailStatus:value};},status);
-    await companyChooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+    await companyChooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
     const noticeNode=launcherPage.locator('.desktop-auth-notice');
     if(expected){
      await noticeNode.filter({hasText:'We could not read your Microsoft email address. You can sign in, and choose a login email later from your profile.'}).waitFor();
@@ -1166,7 +1172,7 @@ try{
    await launcherPage.locator('[data-desktop-play][data-action=signin]').click();
    await companyChooser.waitFor({state:'visible'});
    await launcherPage.evaluate(()=>{window.easterRenderer.signInAnswer={emailStatus:'unavailable'};});
-   await companyChooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+   await companyChooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
    await emailNotice.waitFor({state:'visible'});
    const emailSentence=(await emailNotice.textContent()).trim();
    assert(emailSentence.length>0,'the sign-in dialog holds the step\'s own sentence about the email address');
@@ -1195,14 +1201,29 @@ try{
    for(const [code,refused] of [['network_error',false],['invalid_grant',false],['identity_conflict',true]]){
     await pushState({phase:'ready',actions:['signin'],canPlay:false,install:INSTALLED,profile:null,account:null,companyReady:false,microsoftConnected:false,microsoftAccount:{name:'Owen'},device:null,error:null});
     const before=(await callsNamed('signIn')).length;
-    await launcherPage.evaluate(value=>{window.easterRenderer.continueRefusal={code:value,message:'Use the Microsoft account linked to your Easter Company account.'};window.easterRenderer.signInHold=true;},code);
+    await launcherPage.evaluate(values=>{window.easterRenderer.continueRefusal={code:values.code,message:values.sentence};window.easterRenderer.signInHold=true;},{code,sentence:CONFLICT_SENTENCE});
     await launcherPage.locator('[data-desktop-play][data-action=signin]').click();
     await companyChooser.waitFor({state:'visible'});
-    await companyChooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+    await companyChooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
     if(refused){
-     await companyChooser.locator('.company-error').filter({hasText:'Use the Microsoft account linked'}).waitFor();
+     await companyChooser.locator('.company-error').filter({hasText:CONFLICT_SENTENCE}).waitFor();
      assert.equal((await callsNamed('signIn')).length,before,'a conflict stops the flow so the player chooses the linked account');
      assert.deepEqual(await visibleErrors(),[],'the conflict is said in the dialog it belongs to, not on the page as well');
+     // Three lines, not one 55-word paragraph: the sentence, then what did not change, then the
+     // way out — which starts by closing this window, because the profile it names is behind the
+     // modal it is spoken from. The undefined noun "the linked account" is gone.
+     const conflictLines=await companyChooser.locator('.company-error p').allInnerTexts();
+     assert.deepEqual(conflictLines,CONFLICT_LINES,'the conflict is three separate lines: '+JSON.stringify(conflictLines));
+     assert(!/the linked account/i.test(conflictLines.join(' ')),'the sentence uses no undefined noun');
+     assert.match(conflictLines[2],/^Close this window first\./,'the action says to close the window first');
+     for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+      await launcherPage.setViewportSize({width,height});
+      const box=await companyChooser.boundingBox();
+      assert(box.x>=0&&box.x+box.width<=width+1&&box.y>=0&&box.y+box.height<=height+1,'the conflict chooser fits '+width+'px: '+JSON.stringify(box));
+      assert.equal(await companyChooser.evaluate(el=>el.scrollWidth<=el.clientWidth),true,'the conflict chooser has no horizontal overflow at '+width+'px');
+      await companyChooser.screenshot({path:'/tmp/easter-launcher-conflict-'+width+'.png'});
+     }
+     await launcherPage.setViewportSize({width:1440,height:900});
     }else{
      // Not a dead end: the saved session failing is followed by the interactive flow, and the
      // stale sentence the failure broadcast left behind is gone by the time it opens.

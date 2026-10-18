@@ -100,12 +100,14 @@ try{
  const hero=page.locator('[data-desktop-play][data-action=signin]');
  await hero.waitFor();
  const heroText=await hero.textContent();
- assert.match(heroText,/Link Microsoft Account/,'the signed-out Home action links the Microsoft account: '+heroText);
- assert(!/Sign in/.test(heroText),'the signed-out Home action no longer reads Sign in');
+ assert.match(heroText,/Sign in with Microsoft/,'the signed-out Home action starts the Microsoft sign-in: '+heroText);
+ // One verb for the Microsoft action, and it is never the chooser form's own bare "Sign in":
+ // the hero names where the account comes from rather than offering a second way in.
+ assert(!/^Sign in\b(?! with Microsoft)/.test(heroText.trim()),'the signed-out Home action is not the bare Sign in action: '+heroText);
  assert(!/Easter Company account/.test(heroText),'and carries no Easter Company account note');
  await hero.click();
  const chooser=page.locator('#desktop-company-signin');await chooser.waitFor();
- assert.equal(await chooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).count(),1);
+ assert.equal(await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).count(),1);
  assert.equal(await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).count(),0,'the old Microsoft button wording is gone');
  assert.equal((await chooser.locator('.company-provider-note').textContent()).trim(),'Please sign up using an existing online account provider, and then create an Easter Company account username & password.');
  assert.equal(await chooser.getByLabel('Username or Email',{exact:true}).count(),1,'the direct sign-in field is Username or Email');
@@ -129,7 +131,7 @@ try{
  };
  await fits(chooser,'signin');
  // 2. Microsoft sign-in creates an account with no username, so setup starts at step 1.
- await chooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();await app.evaluate(()=>global.easterTestApprove());
  const usernameStep=page.locator('#desktop-company-username'),passwordStep=page.locator('#desktop-company-password');
  await usernameStep.waitFor();
@@ -420,5 +422,5 @@ try{
  await page2.screenshot({path:'/tmp/company-emails-restarted.png',animations:'disabled'});
  await page2.keyboard.press('Escape');
  assert.deepEqual(errors2,[]);
- console.log('Company username flow PASS: Link Microsoft Account on signed-out Home, Login with Microsoft Account copy, Username or Email identifier login, username chosen before the password with the probe\'s taken and policy refusals each keeping the player on step 1 and writing nothing, verified emails listed and chosen through the real main process with the save, the re-read, the clear, the no-email sentence and the refused address, the choice surviving a restart, exact request bodies, username displayed with no Company ID and no address in the state.');
+ console.log('Company username flow PASS: Sign in with Microsoft on signed-out Home and in the chooser, Username or Email identifier login, username chosen before the password with the probe\'s taken and policy refusals each keeping the player on step 1 and writing nothing, verified emails listed and chosen through the real main process with the save, the re-read, the clear, the no-email sentence and the refused address, the choice surviving a restart, exact request bodies, username displayed with no Company ID and no address in the state.');
 }finally{await app.close();await new Promise(resolve=>stub.close(resolve));await fs.rm(home,{recursive:true,force:true});}

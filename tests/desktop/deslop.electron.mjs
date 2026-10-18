@@ -43,7 +43,7 @@ try{
  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).canPlay,true);
  await page.waitForFunction(()=>document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(16,16,1,1).data[0]===200);
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Add account',exact:true}).click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await page.getByRole('button',{name:'Add account',exact:true}).click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.waitForFunction(async()=>Boolean((await window.easterDesktop.status()).device));
  await page.evaluate(()=>window.easterDesktop.cancelSignIn());
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).device===null);

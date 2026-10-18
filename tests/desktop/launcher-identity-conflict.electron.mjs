@@ -39,9 +39,11 @@ const SECRET='conflict fixture passphrase';
 // service's own wording (desktop/accounts.cjs MESSAGES.identity_conflict); the second is what
 // that sentence leaves unsaid: nothing on the account changed, and switching accounts is
 // something the profile can do. Neither names an account, a Company ID or an address.
-const SERVICE_SENTENCE='That Microsoft account belongs to a different Easter Company account. Use the linked account or switch Company accounts.';
-const NOTHING_CHANGED='Nothing on your Easter Company account has changed. To use a different Easter Company account, open your profile at the top of the page and choose Switch Account, or Add account.';
-const DIALOG_SENTENCE=SERVICE_SENTENCE+' '+NOTHING_CHANGED;
+const SERVICE_SENTENCE='Sign in with the Microsoft account linked to this Easter Company account, or switch Easter Company accounts.';
+const NOTHING_CHANGED='Nothing on your Easter Company account has changed.';
+const CLOSE_FIRST='Close this window first. Then open your profile at the top of the page and choose Switch Account, or Add account.';
+// Three lines, not one paragraph: the sentence, what did not change, and the way out.
+const DIALOG_SENTENCE=[SERVICE_SENTENCE,NOTHING_CHANGED,CLOSE_FIRST];
 const calls=[];
 // The account service, as this journey needs it. One Easter Company account exists; the
 // Microsoft identity it is linked to is this launcher's saved session. `mode` is what the
@@ -135,7 +137,7 @@ try{
  await hero('signin').waitFor();
  await hero('signin').click();
  await chooser.waitFor();
- await chooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
  await app.evaluate(()=>global.easterTestApprove());
  const usernameStep=page.locator('#desktop-company-username'),passwordStep=page.locator('#desktop-company-password');
@@ -179,12 +181,12 @@ try{
  const microsoftBefore=microsoftCalls().length,signInsBefore=await signIns();
  await hero('signin').click();
  await chooser.waitFor();
- await chooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await chooser.locator('.company-error').filter({hasText:SERVICE_SENTENCE}).waitFor();
- const conflictText=(await chooser.locator('.company-error').textContent()).trim();
- assert.equal(conflictText,DIALOG_SENTENCE,'the chooser carries the account service\'s sentence and what the player needs next: '+conflictText);
- assert.match(conflictText,/Nothing on your Easter Company account has changed\./,'the dialog says the account is untouched');
- assert.match(conflictText,/Switch Account/,'and points at the profile\'s account switcher, which is where switching happens');
+ const conflictLines=await chooser.locator('.company-error p').allInnerTexts();
+ assert.deepEqual(conflictLines,DIALOG_SENTENCE,'the chooser carries the account service\'s sentence, then what did not change, then the way out: '+JSON.stringify(conflictLines));
+ assert.match(conflictLines.join(' '),/Nothing on your Easter Company account has changed\./,'the dialog says the account is untouched');
+ assert.match(conflictLines.join(' '),/Close this window first\.[\s\S]*Switch Account/,'and points at the profile\'s account switcher, which is where switching happens, once this dialog is closed');
  assert.equal(await chooser.isVisible(),true,'the chooser is back on screen');
  assert.equal(await signInDialog.isVisible(),false,'no device-code dialog opens for a conflict');
  const deviceCodeShown=await page.evaluate(()=>{const node=document.querySelector('.desktop-code');return Boolean(node&&node.getClientRects().length&&node.textContent.trim());});
@@ -213,7 +215,7 @@ try{
  await offerSignIn();
  await hero('signin').click();
  await chooser.waitFor();
- await chooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await chooser.locator('.company-error').filter({hasText:SERVICE_SENTENCE}).waitFor();
  for(const [width,height] of [[1360,920],[800,600],[390,568],[320,568]]){
   await page.setViewportSize({width,height});
@@ -248,9 +250,9 @@ try{
  const signInsBefore409=await signIns();
  await hero('signin').click();
  await chooser.waitFor();
- await chooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await chooser.locator('.company-error').filter({hasText:SERVICE_SENTENCE}).waitFor();
- assert.equal((await chooser.locator('.company-error').textContent()).trim(),DIALOG_SENTENCE,'the service\'s own 409 reads the same as the launcher\'s own comparison');
+ assert.deepEqual(await chooser.locator('.company-error p').allInnerTexts(),DIALOG_SENTENCE,'the service\'s own 409 reads the same as the launcher\'s own comparison');
  assert.equal(await signInDialog.isVisible(),false,'the service\'s refusal opens no device-code dialog either');
  assert.equal(await signIns(),signInsBefore409,'and asks for no second sign-in');
  assert.deepEqual(await paints(),[],'and paints nothing on the page notice');
@@ -267,7 +269,7 @@ try{
  const signInsBeforeFallThrough=await signIns();
  await hero('signin').click();
  await chooser.waitFor();
- await chooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
  assert.equal(await signIns(),signInsBeforeFallThrough+1,'a saved session that fails for another reason still opens the interactive sign-in');
  await app.evaluate(()=>global.easterTestApprove());
@@ -284,7 +286,7 @@ try{
  assert.equal(await page.locator('.desktop-auth-error').isVisible(),false,'and the sign-in dialog carries none');
 
  assert.deepEqual(errors,[],'the renderer raised no error');
- console.log('Identity conflict PASS: the real preload carries the identity_conflict code in the continue-microsoft result envelope, the chooser comes back with the account service\'s own sentence ("'+SERVICE_SENTENCE+'") plus the account-is-unchanged and account-switcher sentences, no device-code dialog opens, no second sign-in is asked for, the signed-in account stays '+startingAccountId+' (the silent switch the reviewer measured is impossible), the page notice is never painted on that path, and every other saved-session failure still falls through to the interactive sign-in.');
+ console.log('Identity conflict PASS: the real preload carries the identity_conflict code in the continue-microsoft result envelope, the chooser comes back with the account service\'s own sentence ("'+SERVICE_SENTENCE+'") then the account-is-unchanged line and the close-this-window-first way out, no device-code dialog opens, no second sign-in is asked for, the signed-in account stays '+startingAccountId+' (the silent switch the reviewer measured is impossible), the page notice is never painted on that path, and every other saved-session failure still falls through to the interactive sign-in.');
 }finally{
  await app.close();
  await new Promise(resolve=>stub.close(resolve));

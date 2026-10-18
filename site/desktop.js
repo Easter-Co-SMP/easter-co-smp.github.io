@@ -30,8 +30,11 @@
  for(const selector of ['.hero-welcome','.home-below','.home-story','.home-notes'])document.querySelectorAll(selector).forEach(node=>node.remove());
 
  const TRANSFER=['downloading','paused','verifying','installing','updating'];
- // The signed-out action starts Microsoft linking, which is where an account comes from.
- const LOGIN_ACTION='Link Microsoft Account';
+ // The signed-out action starts the Microsoft sign-in, which is where an account comes from.
+ // It is called the same thing in the hero, in the sticky bar and in the chooser, and it is the
+ // same verb the sentences about this action already use ("Sign in again.", "Sign in with
+ // Microsoft or with your username."): one action, one name.
+ const LOGIN_ACTION='Sign in with Microsoft';
  let companyAuth=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const CUSTOM_SERVER='__custom__';
@@ -122,7 +125,7 @@
  signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close sign-in">×</button><h2 id="desktop-signin-title">Sign in with Microsoft</h2>
  <p class="desktop-auth-wait" role="status">Connecting to Microsoft…</p><section class="desktop-device" hidden>
  <p class="desktop-device-instruction" id="desktop-device-instruction">Enter this code on the Microsoft sign-in page.</p><strong class="desktop-code"></strong>
- <button type="button" class="launcher-button desktop-device-action" data-open-microsoft>Login with Microsoft</button><p class="desktop-provider"></p></section>
+ <button type="button" class="launcher-button desktop-device-action" data-open-microsoft>Open the Microsoft page</button><p class="desktop-provider"></p></section>
  <p class="desktop-auth-error" role="alert" hidden></p><p class="desktop-auth-notice" role="status" hidden></p><button type="button" class="text-link" data-cancel>Cancel sign-in</button>`;
  document.body.append(signin);
  const startup=document.createElement('dialog');startup.id='desktop-update';startup.setAttribute('aria-labelledby','desktop-update-title');
@@ -213,21 +216,82 @@
  // The notice carries a dismiss control as its last child; replacing the text drops it.
  function clearFailureNodes(){for(const node of failureNodes()){node.hidden=true;node.textContent='';node.classList.remove('is-error','is-notice');}reserveNoticeSpace();}
  function clearEmailNotice(){const node=emailNoticeNode();node.hidden=true;node.textContent='';node.classList.remove('is-notice');}
- // The notice is a fixed band above the sheet, and the hero card keeps its place below it. Where
- // the band would reach into the card the page reserves the room the notice needs, so it never
- // sits on the crest or the heading. How far the card moves for one pixel of reserved space
- // depends on how the window centres it, so the reservation is measured instead of assumed: one
+ // The notice is a fixed band above the sheet, and the page keeps its place below it. Where the
+ // band would reach into the content the page reserves the room the notice needs, so it never
+ // sits on the crest, the heading, or a guide's first line.
+ //
+ // Home reserves on the hero card, and how far that card moves for one pixel of reserved space
+ // depends on how the window centres it, so that reservation is measured instead of assumed: one
  // pass finds the card's response, the second gives exactly the room the notice asks for.
+ //
+ // A guide page has no hero card, so its room is reserved on the layout that holds the sidebar and
+ // the article (site/wiki/wiki.css reads --launcher-notice-space for it). Those columns are in
+ // normal flow, so the reserved padding and the movement are the same number and one pass is
+ // exact. The measurement is taken from the first block of each column the band actually reaches,
+ // because which column it covers depends on the window width: at 1440 the sidebar sits clear of
+ // the centred band and the guide's eyebrow line is what it lands on, and below that the sidebar's
+ // own brand and search are. A band that reaches nothing reserves nothing.
+ //
+ // A chart page is neither: the map is a full-bleed canvas with its controls docked on top of it,
+ // so there is no flow to push down. The room is taken by moving the docks themselves
+ // (site/desktop.css offsets the same strip by this variable), measured from the topmost docked
+ // control the band actually reaches. The band is narrower than the window, so at 1440 the key on
+ // the left and the zoom controls on the right sit either side of it and nothing moves; at 800 the
+ // key is what it lands on, and at 390 it reaches both docks. The location pill is deliberately not
+ // a measurement: it is an output with no pointer events that only appears while a region is under
+ // the pointer, and counting it would shift the whole strip at 1440 for nothing.
  function reserveNoticeSpace(){
   const root=document.documentElement;
   const set=value=>root.style.setProperty('--launcher-notice-space',Math.max(0,Math.round(value))+'px');
   const shown=!notice.hidden&&Boolean(notice.textContent.trim());
-  const card=document.querySelector('.hero-copy');
-  if(!shown||!card){if(root.style.getPropertyValue('--launcher-notice-space')!=='0px')set(0);return;}
+  const card=shown?document.querySelector('.hero-copy'):null;
+  const layout=shown&&!card?document.querySelector('.wiki-layout'):null;
+  const stage=shown&&!card&&!layout?document.querySelector('.atlas-stage'):null;
+  if(!shown||(!card&&!layout&&!stage)){if(root.style.getPropertyValue('--launcher-notice-space')!=='0px')set(0);root.style.removeProperty('--launcher-notice-key-space');return;}
   set(0);
-  const bottom=notice.getBoundingClientRect().bottom,gap=16;
+  const band=notice.getBoundingClientRect(),gap=16;
+  if(layout){
+   let reserve=0;
+   for(const column of layout.children){
+    const first=column.firstElementChild||column,box=first.getBoundingClientRect();
+    // An unrendered column has nothing to clear, and only a column the band horizontally reaches
+    // can be covered by it.
+    if(box.height<=0||box.width<=0||box.right<=band.left||box.left>=band.right||box.top>=band.bottom)continue;
+    reserve=Math.max(reserve,band.bottom+gap-box.top);
+   }
+   set(reserve);root.style.removeProperty('--launcher-notice-key-space');
+   return;
+  }
+  if(stage){
+   let reserve=0;
+   // One grouped selector: the docks are siblings in the stage, and a selector list passed as
+   // several arguments is not a list at all — querySelectorAll takes one string.
+   for(const dock of stage.querySelectorAll('.map-navigation, .map-key, .compass, .map-drawing')){
+    const box=dock.getBoundingClientRect();
+    if(box.height<=0||box.width<=0||box.right<=band.left||box.left>=band.right||box.top>=band.bottom)continue;
+    reserve=Math.max(reserve,band.bottom+gap-box.top);
+   }
+   set(reserve);
+   // Moving the strip down brings the map key nearer the chart's own footer, which is docked at the
+   // bottom of the same stage: an open key would slide under it. The room between them is published
+   // as the key content's cap (site/desktop.css), so a long legend scrolls inside the key instead of
+   // disappearing behind the footer. Nothing is capped unless the notice is up, and a cap larger
+   // than the content changes nothing.
+   const key=stage.querySelector('.map-key'),footer=stage.querySelector('.map-bottom');
+   let cap=null;
+   if(key&&footer){
+    const keyBox=key.getBoundingClientRect(),footerBox=footer.getBoundingClientRect();
+    const summary=key.querySelector('summary')?.getBoundingClientRect().height||0;
+    if(footerBox.top>keyBox.top)cap=Math.max(80,Math.floor(footerBox.top-keyBox.top-summary-12));
+   }
+   if(cap===null)root.style.removeProperty('--launcher-notice-key-space');
+   else root.style.setProperty('--launcher-notice-key-space',cap+'px');
+   return;
+  }
+  if(!card)return;
+  root.style.removeProperty('--launcher-notice-key-space');
   const start=card.getBoundingClientRect().top;
-  const deficit=Math.ceil(bottom+gap-start);
+  const deficit=Math.ceil(band.bottom+gap-start);
   // The band above the card is already clear: nothing to reserve.
   if(deficit<=0)return;
   const probe=Math.max(deficit,80);
@@ -298,6 +362,19 @@
   noticeSpacePending=requestAnimationFrame(()=>{noticeSpacePending=0;reserveNoticeSpace();});
  }
  if(typeof ResizeObserver==='function')new ResizeObserver(()=>scheduleNoticeSpace()).observe(notice);
+ // A dock can arrive after the notice is painted: the map's drawing palette is inserted by the
+ // chart itself once its saved notes have loaded, and a reservation measured before it existed
+ // left it under the band. The chart's own stage is watched for that, so the reservation follows
+ // the page rather than the page having to exist first.
+ if(typeof MutationObserver==='function'){
+  const chart=document.querySelector('.atlas-stage');
+  if(chart){
+   // Only while a sentence is on screen: the chart writes to its own DOM constantly (the tooltip
+   // follows the pointer), so the watch must not cost a measurement when there is nothing to clear.
+   const remeasure=()=>{if(!notice.hidden)scheduleNoticeSpace();};
+   new MutationObserver(remeasure).observe(chart,{childList:true,subtree:true,attributes:true,attributeFilter:['style','open','hidden','class']});
+  }
+ }
 
  // ---- Sticky bottom bar -----------------------------------------------------
  // The minimised state is a renderer-local preference by contract, so it is kept here

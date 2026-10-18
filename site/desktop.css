@@ -177,6 +177,12 @@
 .desktop-company-dialog .company-microsoft,.desktop-company-dialog .company-submit{width:100%;padding:12px;border:1px solid var(--app-gold);border-radius:6px;background:var(--app-gold);color:#11252d;font:600 13px/1.4 system-ui;cursor:pointer}.desktop-company-dialog .company-microsoft{margin-top:10px}
 .desktop-company-dialog .company-provider-note{font-size:11px}.desktop-company-dialog .company-step{margin:0 0 6px;font:600 10px/1.4 system-ui;letter-spacing:.08em;text-transform:uppercase;color:var(--app-gold)}
 .desktop-company-dialog .company-recover{display:block;margin:16px auto 0;font-size:11px}.desktop-company-dialog .company-error{color:#f4b6a6}.desktop-company-dialog .company-username{color:var(--app-gold);font-size:15px}.desktop-company-dialog .company-show{display:flex;align-items:center;gap:8px}.company-show input{accent-color:var(--app-gold)}
+/* The identity conflict is three lines rather than one paragraph: the sentence, what did not
+   change, and the way out. They share the refusal colour and the slot's own spacing, so the
+   dialog reads as one answer and each part is separately scannable. */
+.desktop-company-dialog .company-error p{margin:0;color:inherit}
+.desktop-company-dialog .company-error p+p{margin-top:9px}
+
 
 /* Verified emails. One address per row, the selected one marked, and the copy that says
    only that address is a login key. The rows wrap rather than scroll sideways, so a long
@@ -195,3 +201,20 @@
 .desktop-company-dialog .company-clear{display:block;margin:10px auto 0;font-size:11px}
 .desktop-profile-heading.desktop-email{color:#e4d7b8;overflow-wrap:anywhere}
 .desktop-profile-heading.desktop-email.is-unavailable{color:#f4b6a6}
+
+/* The map is a full-bleed chart, so there is no page flow for the failure notice's room to be
+   reserved on: the docked controls move instead. site/desktop.js measures how far the strip the
+   band actually reaches has to drop and publishes it as --launcher-notice-space (0 otherwise, and
+   never measured from the location pill, which is a pointer-events:none output). margin-top is
+   used rather than top so each dock keeps the offset its own stylesheet gave it at every width,
+   and rather than a transform so the location pill keeps its centring. */
+.desktop-mode .atlas-stage>.compass,
+.desktop-mode .atlas-stage>.map-key,
+.desktop-mode .atlas-stage>.map-navigation,
+.desktop-mode .atlas-stage>.map-drawing,
+.desktop-mode .atlas-stage>.map-location{margin-top:var(--launcher-notice-space,0px)}
+/* With the strip moved down, an open key would otherwise grow under the chart's own footer. The
+   room left between them is measured and published as --launcher-notice-key-space, so the legend
+   scrolls inside the key rather than sliding behind the footer's panel. Unset (or generous) means
+   the key is laid out exactly as it always was. */
+.desktop-mode .atlas .key-content{max-height:var(--launcher-notice-key-space,none);overflow:auto;overscroll-behavior:contain}

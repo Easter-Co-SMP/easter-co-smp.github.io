@@ -77,7 +77,7 @@ try{
  await run(path.join(root,'tests/desktop/harness.cjs'),async(app,page)=>{
   await page.locator('[data-desktop-play]').click();
   await page.locator('#desktop-install-details').waitFor({state:'hidden'});
-  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   const signin=page.getByRole('dialog',{name:'Sign in with Microsoft',exact:true});
   assert.equal(await signin.isVisible(),true);
@@ -92,7 +92,7 @@ try{
    const bounds=await signin.boundingBox();
    assert(bounds.x>=0&&bounds.x+bounds.width<=width+1,'sign-in fits '+width+'px');
    assert.equal(await signin.evaluate(el=>el.scrollWidth<=el.clientWidth),true,'sign-in has no horizontal overflow');
-   assert.equal(await signin.getByRole('button',{name:'Login with Microsoft',exact:true}).isVisible(),true);
+   assert.equal(await signin.getByRole('button',{name:'Open the Microsoft page',exact:true}).isVisible(),true);
    assert.equal(await signin.locator('.desktop-code').isVisible(),true);
    await signin.screenshot({path:'/tmp/signin-reviewed-'+width+'.png'});
   }
@@ -106,7 +106,7 @@ try{
   // The dialog is modal: it has to be closed before the hero behind it can be used.
   await page.keyboard.press('Escape');
   await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open);
-  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   await app.evaluate(()=>global.easterTestApprove());
   // A completed sign-in closes the dialog it used for the device code. The player must not
