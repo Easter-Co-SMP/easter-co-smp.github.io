@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
-const ACCOUNT={id:7,minecraftUuid:'12345678-90ab-cdef-1234-567890abcdef',minecraftName:'TestCaptain',displayName:'Captain Testbeard',roles:['crew'],createdAt:'2026-01-01T00:00:00Z',passwordRequired:false,microsoftLinked:true,microsoftSubject:'cc75443d8979fe5cdbdf2de55b822ec8b63bc55348c2e451b46b19f4746885ca'};
+const ACCOUNT={id:7,username:'captaintestbeard',minecraftUuid:'12345678-90ab-cdef-1234-567890abcdef',minecraftName:'TestCaptain',displayName:'Captain Testbeard',roles:['crew'],createdAt:'2026-01-01T00:00:00Z',passwordRequired:false,microsoftLinked:true,microsoftSubject:'cc75443d8979fe5cdbdf2de55b822ec8b63bc55348c2e451b46b19f4746885ca'};
 const SESSION='fixture-company-private-session',calls=[];
 const stub=http.createServer((request,response)=>{
  const chunks=[];request.on('data',c=>chunks.push(c));request.on('end',()=>{
@@ -21,10 +21,10 @@ const home=await fs.mkdtemp('/tmp/company-vault-e2e-');
 const app=await electron.launch({executablePath:path.resolve('node_modules/electron/dist/electron'),args:['--no-sandbox',path.resolve('tests/desktop/harness.cjs')],env:{...process.env,EASTER_TEST_HOME:home,EASTER_API_BASE_URL:'http://127.0.0.1:'+stub.address().port}});
 try{
  const page=await app.firstWindow();page.setDefaultTimeout(20000);await page.keyboard.press('Escape');
- await page.locator('[data-desktop-play][data-action=download]').click();await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();
+ await page.locator('[data-desktop-play][data-action=download]').click();await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();await app.evaluate(()=>global.easterTestApprove());await page.locator('[data-desktop-play][data-action=play]').waitFor();
  const state=await page.evaluate(()=>window.easterDesktop.status());
- assert.deepEqual(state.account,{id:'EC-7',name:'Captain Testbeard',roles:['crew'],passwordRequired:false,microsoftLinked:true});
+ assert.deepEqual(state.account,{id:'EC-7',username:'captaintestbeard',name:'Captain Testbeard',roles:['crew'],passwordRequired:false,microsoftLinked:true});
  assert(state.canPlay&&state.microsoftConnected);
  const request=calls.find(call=>call.path==='/v2/accounts/microsoft');
  assert.equal(request.body.xboxUserToken,'fixture-xbox:1234567890abcdef1234567890abcdef');assert.equal(request.authorization,undefined);assert(!('minecraftAccessToken' in request.body));

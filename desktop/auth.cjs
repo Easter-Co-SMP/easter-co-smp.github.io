@@ -2,7 +2,14 @@
 const {setTimeout:delay}=require('node:timers/promises');
 const {randomUUID,createHash}=require('node:crypto');
 const AUTHORITY='https://login.microsoftonline.com/consumers/oauth2/v2.0';
-const SCOPE='XboxLive.signin offline_access';
+// The Xbox Live scope first: Microsoft issues the device-code response for the first
+// resource it is asked about, and that response is what signs in to Xbox Live.
+// User.Read is asked for in the same consent so the account service can read the
+// Microsoft account's own email. It is requested separately, below, and its token is
+// transient: it is never stored, never logged and never leaves this process except on
+// the one account request that carries it.
+const SCOPE='XboxLive.signin offline_access https://graph.microsoft.com/User.Read';
+const GRAPH_SCOPE='https://graph.microsoft.com/User.Read';
 // Same public client configuration as /opt/minecraft/launch/mc-auth.py.
 // Microsoft displays Prism Launcher for this inherited registration.
 // Set EASTER_MICROSOFT_CLIENT_ID when Easter Company has its own approved registration.
@@ -45,6 +52,33 @@ class MicrosoftAuth{
   }
   throw new AuthError('The sign-in code expired. Start sign-in again.','expired_token');
  }
+ // Signing in to Xbox Live needs a token for its own audience. Now that the same consent
+ // also covers Graph, the audience of the device-code response is Microsoft's choice, so a
+ // token Xbox Live refuses is re-issued for the Xbox Live scope from the same refresh token
+ // and tried once more rather than failing the player out of a sign-in that did work.
+ async xboxSignIn(accessToken,refresh,signal){
+  try{return await this.post('https://user.auth.xboxlive.com/user/authenticate',{Properties:{AuthMethod:'RPS',SiteName:'user.auth.xboxlive.com',RpsTicket:'d='+accessToken},RelyingParty:'http://auth.xboxlive.com',TokenType:'JWT'},signal);}
+  catch(error){
+   if(error.name==='AbortError'||signal?.aborted||!refresh)throw error;
+   let scoped;
+   try{scoped=await this.form('/token',{grant_type:'refresh_token',client_id:this.clientId,refresh_token:refresh,scope:'XboxLive.signin'},signal);}catch{throw error;}
+   if(!scoped||typeof scoped.access_token!=='string'||!scoped.access_token)throw error;
+   return this.post('https://user.auth.xboxlive.com/user/authenticate',{Properties:{AuthMethod:'RPS',SiteName:'user.auth.xboxlive.com',RpsTicket:'d='+scoped.access_token},RelyingParty:'http://auth.xboxlive.com',TokenType:'JWT'},signal);
+  }
+ }
+ // A transient Microsoft Graph token for the account service. The server treats it as
+ // optional, so every failure here answers null and the player still signs in.
+ async graphAccessToken(refreshToken,signal){
+  if(typeof refreshToken!=='string'||!refreshToken)return null;
+  try{
+   const data=await this.form('/token',{grant_type:'refresh_token',client_id:this.clientId,refresh_token:refreshToken,scope:GRAPH_SCOPE},signal);
+   const token=typeof data?.access_token==='string'&&data.access_token.length<=8192?data.access_token:'';
+   return token||null;
+  }catch(error){
+   if(error.name==='AbortError')return null;
+   return null;
+  }
+ }
  async refresh(session,signal,recheck=false,force=false){
   if(!force&&session.expiresAt>Date.now()+300000)return recheck?this.checkAccess(session,signal):session;
   const msa=await this.form('/token',{grant_type:'refresh_token',client_id:this.clientId,refresh_token:session.refreshToken,scope:SCOPE},signal);
@@ -52,7 +86,7 @@ class MicrosoftAuth{
  }
  async exchange(msa,oldRefresh,signal){
   if(!msa.access_token)throw new AuthError('Microsoft did not return a session.','response');
-  const xbox=await this.post('https://user.auth.xboxlive.com/user/authenticate',{Properties:{AuthMethod:'RPS',SiteName:'user.auth.xboxlive.com',RpsTicket:'d='+msa.access_token},RelyingParty:'http://auth.xboxlive.com',TokenType:'JWT'},signal);
+  const xbox=await this.xboxSignIn(msa.access_token,msa.refresh_token||oldRefresh,signal);
   const xsts=await this.post('https://xsts.auth.xboxlive.com/xsts/authorize',{Properties:{SandboxId:'RETAIL',UserTokens:[xbox.Token]},RelyingParty:'rp://api.minecraftservices.com/',TokenType:'JWT'},signal);
   const uhs=xsts.DisplayClaims?.xui?.[0]?.uhs;
   if(!xsts.Token||!uhs)throw new AuthError('Xbox did not return a Minecraft session.','response');

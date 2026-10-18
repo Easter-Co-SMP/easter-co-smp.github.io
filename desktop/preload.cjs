@@ -1,10 +1,19 @@
 'use strict';
 const {contextBridge,ipcRenderer}=require('electron');
 const invoke=channel=>(...args)=>ipcRenderer.invoke('launcher:'+channel,...args).then(result=>{if(!result.ok){const error=Error(result.error);error.code=result.code;throw error;}return result.value;});
+// An Error crosses the isolated-world boundary as its message and stack only, so a typed
+// refusal code is lost on the way. The account actions therefore answer with their whole
+// result instead of throwing: the dialog needs the code to know whether a taken username
+// sends the player back to step 1 or an expired session needs Microsoft again.
+const invokeResult=channel=>(...args)=>ipcRenderer.invoke('launcher:'+channel,...args);
 contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  mode:'desktop',
  status:invoke('status'),signIn:invoke('sign-in'),cancelSignIn:invoke('cancel-sign-in'),
- continueMicrosoft:invoke('continue-microsoft'),loginCompany:invoke('company-login'),setCompanyPassword:invoke('company-password'),
+ // The account actions. Neither an email nor a Company ID is ever returned by them:
+ // company-login carries the identifier the player typed and the username travels only
+ // on the call that claims it.
+ continueMicrosoft:invoke('continue-microsoft'),loginCompany:invokeResult('company-login'),
+ checkCompanyUsername:invokeResult('company-username-check'),setCompanyPassword:invokeResult('company-password'),
  signOut:invoke('sign-out'),switchAccount:invoke('switch-account'),play:invoke('play'),saveSettings:invoke('settings'),
  openMinecraftStore:invoke('open-minecraft-store'),openMinecraftProfile:invoke('open-minecraft-profile'),recheckAccess:invoke('recheck-access'),
  refreshAccount:invoke('account-refresh'),signOutAccount:invoke('account-sign-out'),

@@ -30,7 +30,8 @@
  for(const selector of ['.hero-welcome','.home-below','.home-story','.home-notes'])document.querySelectorAll(selector).forEach(node=>node.remove());
 
  const TRANSFER=['downloading','paused','verifying','installing','updating'];
- const LOGIN_ACTION='Sign in';
+ // The signed-out action starts Microsoft linking, which is where an account comes from.
+ const LOGIN_ACTION='Link Microsoft Account';
  let companyAuth=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft});if(current)companyAuth.render(current);return companyAuth;});
  const CUSTOM_SERVER='__custom__';
@@ -85,7 +86,7 @@
   if(state?.accessChecking)return {kind:'busy',label:'Checking Java access…',note:'Please wait'};
   if(state?.account?.passwordRequired)return {kind:'setup-password',label:'Create your password',note:'Finish your Easter Company account'};
   if(state?.account&&state.microsoftConnected===false)return {kind:'connect-microsoft',label:'Sign in to Minecraft',note:'Use your linked Microsoft account'};
-  if(state?.companyReady===false&&!state.account&&(install.installed||state.microsoftAccount))return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account'};
+  if(state?.companyReady===false&&!state.account&&(install.installed||state.microsoftAccount))return {kind:'signin',label:LOGIN_ACTION,note:'Microsoft account required'};
   if(state?.minecraftAccess==='missing')return {kind:'buy',label:'Buy Now',note:'Minecraft Java Edition required'};
   if(state?.minecraftAccess==='profile-required')return {kind:'setup-profile',label:'Set up Java profile',note:'Choose your Java player name'};
   if(state?.minecraftAccess==='unknown')return {kind:'check-access',label:'Retry account check',note:'Java access could not be confirmed'};
@@ -638,9 +639,11 @@
  let skinSource=null;
  function renderProfile(state){
   const account=state.account;
-  profileButton.hidden=false;profileName.textContent=account?.name||'Sign in';face.hidden=!account;
+  profileButton.hidden=false;profileName.textContent=account?account.username||account.name:'Sign in';face.hidden=!account;
   profileButton.setAttribute('aria-haspopup',account?'true':'dialog');
-  accountHeading.textContent=account?account.name+' · '+account.id:'';
+  // The account view names the username the player signs in with. The Company ID stays an
+  // internal handle for switching accounts and is never a label here.
+  accountHeading.textContent=account?account.username?(account.name&&account.name!==account.username?account.username+' · '+account.name:account.username):account.name:'';
   companyHeading.hidden=!account;companyHeading.textContent=state.microsoftConnected?'Microsoft / Xbox linked'+(state.profile?' · '+state.profile.name:''):account?.microsoftLinked?'Microsoft / Xbox linked · sign in to play':'Microsoft / Xbox not connected';
   const locked=signInPending||Boolean(state.accessChecking||state.accountWorking)||['signing-in','refreshing','launching','running'].includes(phaseOf(state));
   for(const button of profileMenu.querySelectorAll('[data-profile-action]')){
@@ -652,7 +655,7 @@
   const ctx=face.getContext('2d');
   const source=state.microsoftConnected?state.profile?.skin||'':'';
   const key=account.id+source;if(key===skinSource)return;skinSource=key;
-  ctx.fillStyle='#536b66';ctx.fillRect(0,0,32,32);ctx.fillStyle='#eedbb2';ctx.font='bold 20px sans-serif';ctx.textAlign='center';ctx.fillText(account.name[0],16,24);
+  ctx.fillStyle='#536b66';ctx.fillRect(0,0,32,32);ctx.fillStyle='#eedbb2';ctx.font='bold 20px sans-serif';ctx.textAlign='center';ctx.fillText((account.username||account.name)[0],16,24);
   if(source.startsWith('data:image/png;base64,')){
    const image=new Image();image.onload=()=>{if(skinSource!==key)return;ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;ctx.drawImage(image,8,8,8,8,0,0,32,32);ctx.drawImage(image,40,8,8,8,0,0,32,32);};image.src=source;
   }
@@ -661,7 +664,7 @@
   accountList.replaceChildren();accountList.hidden=false;
   const accounts=current?.accounts||[];
   for(const account of accounts){
-   const button=document.createElement('button');button.type='button';button.textContent=account.name+' · '+account.id+(account.id===(current.account?.id)?' (current)':'');button.disabled=account.id===(current.account?.id)||signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
+   const button=document.createElement('button');button.type='button';button.textContent=(account.username||account.name)+(account.id===(current.account?.id)?' (current)':'');button.disabled=account.id===(current.account?.id)||signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
    button.onclick=async()=>{button.disabled=true;try{await desktop.switchAccount(account.id);profileMenu.hidePopover();}catch(error){profileMenu.hidePopover();report(error);}finally{renderAccountList();}};accountList.append(button);
   }
   if(!accounts.length)accountList.textContent='No saved accounts. Use Add account.';

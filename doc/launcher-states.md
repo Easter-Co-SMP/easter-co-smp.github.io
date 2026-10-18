@@ -559,10 +559,12 @@ connect. An entry the player types is kept as their own choice and is never
 rewritten to an entry id.
 
 **Easter Company is the primary identity.** The profile popover leads with the
-Company name and ID, then names Microsoft/Xbox as its linked provider. Signed-out
-users get a sign-in chooser with Microsoft signup/sign-in and Company ID/password
-login. New and migrated accounts without a password must complete setup before
-Play. The memory control remains an explained advanced setting.
+Easter Company username, then names Microsoft/Xbox as its linked provider.
+Signed-out users get a sign-in chooser offering Microsoft sign-in and a direct
+username-or-email/password login. New accounts choose their username before their
+first password, and accounts without a password must complete setup before Play.
+No Company ID is shown or asked for anywhere in the sign-in flow. The memory
+control remains an explained advanced setting.
 
 **The launch-time preferences are the player's choice, and the two of them are linked.**
 Both are persisted with the rest of the settings, both default off, and neither is ever
@@ -797,8 +799,8 @@ previous session until sign-in succeeds. Switch Account lists app-owned accounts
 and refreshes the selected session before activation. Logout removes the active
 account, including its saved session, without deleting other accounts. Account
 sessions persist only in an OS-backed encrypted vault, otherwise for this process.
-The state includes `accounts` (public Company IDs/names only) and an optional skin PNG data
-URL in each public profile. Tokens remain in the main process. Switching is refused
+The state includes `accounts` (public usernames and display names only) and an optional skin
+PNG data URL in each public profile. Tokens remain in the main process. Switching is refused
 while Minecraft or authentication is running.
 
 Manifest paths identify published files; JARs install under mods/ regardless of
@@ -861,8 +863,51 @@ reuses the Microsoft session and can return directly to Download or Play.
 
 ## Company identity and password login
 
-This replaces the earlier separate-account presentation: Easter Company is the primary identity. State.account exposes Company ID/name, passwordRequired and microsoftLinked; companyReady and microsoftConnected are separate gates. Provider proofs, link subjects, passwords and session tokens never appear in state. Microsoft signup validates an Xbox user token on the server and copies only available public Minecraft profile data. Accounts without Java profiles can register. Existing account IDs are retained when verified Minecraft ownership migrates their Xbox link.
+This replaces the earlier separate-account presentation: Easter Company is the primary identity. State.account exposes the Easter Company `username`, a display `name`, `roles`, `passwordRequired` and `microsoftLinked`; companyReady and microsoftConnected are separate gates. Provider proofs, link subjects, passwords, session tokens and the Microsoft account's email address never appear in state. Microsoft signup validates an Xbox user token on the server and copies only available public Minecraft profile data. Accounts without Java profiles can register. Existing account identities are retained when verified Minecraft ownership migrates their Xbox link.
 
-The sign-in chooser offers Continue with Microsoft (automatic signup/sign-in) and Company ID/password login. Signup and existing accounts without a password must complete password setup. Company ID is displayed for subsequent direct login. Password setup/reset uses a recent Microsoft-authenticated Company session; reset revokes other sessions. Closing setup leaves Play blocked and a Create password action available. Passwords are never persisted on the client.
+**The username is the account identifier the player deals with.** A Company ID in the
+`EC-123` form is never displayed, asked for, or accepted anywhere in the launcher; the
+`id`/`companyId` pair stays in the payload as the immutable handle that switch-account and
+the skin cache are keyed on, and it simply never reaches a label. The server owns the
+account payload, which carries `username` for an account that has one; the main process
+passes the handle, the username, the display name, the roles and the two flags to the UI,
+and it never passes or stores an email address. A username is 3–20 characters of `[a-z0-9_-]`
+and is immutable once claimed. `passwordRequired` false guarantees a username exists; a
+payload that claims no password is required and carries no username is a server bug the main
+process refuses as `invalid_response` rather than showing a blank identity. Reaching the
+account API needs no privileged surface beyond the account actions: the same company-login
+and company-password actions carry the identifier and the username, and the availability
+answer is one boolean with a reason code and no account data.
+
+**Setup runs the username step before the password step.** The sign-in chooser offers
+**Login with Microsoft Account** — the account is created from that Microsoft sign-in — and
+a direct **Username or Email** field with a password. The chooser states: “Please sign up
+using an existing online account provider, and then create an Easter Company account
+username & password.” An account without a username is first asked for one (step 1 of 2);
+the username step asks the server whether the name is available before the player types a
+password, and says plainly when it is taken or does not meet the rules. The password step
+(step 2 of 2) names the username the password is saved against. The username is claimed
+together with the first password, so a `username_taken` or `username_policy` refusal from
+that call reopens step 1 with the plain message and keeps what the player typed. An account
+that already has a username goes straight to the password step, and a password change never
+asks for a username again. Password setup and reset use a recent Microsoft-authenticated
+Company session; reset revokes other sessions and never asks for the username. Closing setup
+leaves Play blocked and a Create password action available. Passwords are never persisted on
+the client, and the direct login field takes a username or the email the account was created
+with, never a Company ID.
+
+The account actions are `company-login(identifier, password)`,
+`company-password(password, replace, username)`, `company-username-check(username)` and
+`switch-account(id)`. `identifier` is posted as-is; `username` travels only on the call that
+claims it; `company-username-check` posts the name and returns `{available, reason}`.
+
+**The Microsoft account's email is read on the server, never carried by the launcher.** The
+same interactive Microsoft sign-in also asks for `https://graph.microsoft.com/User.Read`, so
+the account service can read the email the account was created with. The Graph token is
+transient: it is obtained from the same refresh token, put in the single
+`POST /v2/accounts/microsoft` body as `microsoftAccessToken`, and never written to the
+vault or the session, never logged, never put in renderer state and never sent anywhere
+else. It is optional in the contract, so a build that cannot obtain one signs in without it
+rather than blocking the player.
 
 Company login restores only a matching cached Microsoft session. Otherwise Sign in to Minecraft asks for the linked Microsoft identity. Wrong-provider login cannot replace the active Company identity. Play requires a complete Company account, a matching Microsoft link, current launcher/client and confirmed Java access. Revoked Java access retains the Company identity and shows Buy Now. Add/switch/cancel/failure retain the current account until a new login succeeds. Logout signs out the primary identity. Provider storage supports future Steam linking; no Steam button or unverified linking is shipped.

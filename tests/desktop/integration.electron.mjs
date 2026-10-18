@@ -23,7 +23,7 @@ const root = process.argv.includes('--root')
   : process.cwd();
 const keep = process.argv.includes('--keep');
 
-const ACCOUNT = {passwordRequired:false,microsoftLinked:true,microsoftSubject:'cc75443d8979fe5cdbdf2de55b822ec8b63bc55348c2e451b46b19f4746885ca',id: 7, minecraftUuid: '12345678-90ab-cdef-1234-567890abcdef', minecraftName: 'TestCaptain',
+const ACCOUNT = {passwordRequired:false,microsoftLinked:true,microsoftSubject:'cc75443d8979fe5cdbdf2de55b822ec8b63bc55348c2e451b46b19f4746885ca',id: 7, username: 'testcaptain', minecraftUuid: '12345678-90ab-cdef-1234-567890abcdef', minecraftName: 'TestCaptain',
   displayName: 'Captain Testbeard', roles: ['crew'], createdAt: '2026-01-01T00:00:00Z'};
 const SESSION = 'stub-session-token-private';
 
@@ -111,11 +111,11 @@ try {
   s = await state();
   assert.equal(s.canPlay, false, 'a download alone must not unlock Play');
   const heroWhileDownloading = await hero();
-  assert.match(heroWhileDownloading, /Sign in/i, 'the hero switches to sign-in while downloading: ' + heroWhileDownloading);
+  assert.match(heroWhileDownloading, /Link Microsoft Account/i, 'the hero switches to Microsoft linking while downloading: ' + heroWhileDownloading);
   note('during download: hero asks for Microsoft sign-in, Play still absent');
 
   // 4. Sign in through the stubbed Microsoft flow the harness provides.
-  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();
+  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
   await page.locator('.desktop-code').waitFor({state: 'visible'});
   assert.equal((await state()).paused,true,'sign-in does not resume the paused transfer');
   assert.deepEqual((await state()).progress,pausedProgress,'sign-in preserves transfer progress');
@@ -126,7 +126,7 @@ try {
   // Signing in is the hero's action; the dialog is modal, so close it first.
   await page.keyboard.press('Escape');
   await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open);
-  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();
+  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
   await page.locator('.desktop-code').waitFor({state:'visible'});
   // Let the client finish while Microsoft approval is still pending. The code must
   // survive installation completing, and Play must stay gated on the account.

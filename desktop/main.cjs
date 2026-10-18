@@ -2,7 +2,7 @@
 const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog,screen,Tray,Menu}=require('electron');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{pathToFileURL}=require('node:url'),{execFile}=require('node:child_process');
 const {MicrosoftAuth,DEFAULT_CLIENT_ID}=require('./auth.cjs');
-const {AccountClient,AccountError,publicAccount,companySession,storedSession,companyVaultName}=require('./accounts.cjs');
+const {AccountClient,AccountError,publicAccount,companySession,storedSession,companyVaultName,MESSAGES:ACCOUNT_MESSAGES,USERNAME_PATTERN}=require('./accounts.cjs');
 const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation,serverList}=require('./config.cjs');
 const vault=require('./vault.cjs');
 const identity=require('./identity.cjs');
@@ -206,7 +206,7 @@ function companyReady(){return Boolean(company&&company.expiresAt>Date.now()&&co
 function microsoftConnected(){return Boolean(company&&session&&company.account.microsoftSubject&&session.companySubject===company.account.microsoftSubject);}
 function savedCompanyAccounts(){
  const seen=new Set();
- return savedAccounts.filter(entry=>Number.isSafeInteger(entry.companyId)&&!seen.has(entry.companyId)&&seen.add(entry.companyId)).map(entry=>({id:'EC-'+entry.companyId,name:entry.companyName||entry.profile?.name||'Company member'}));
+ return savedAccounts.filter(entry=>Number.isSafeInteger(entry.companyId)&&!seen.has(entry.companyId)&&seen.add(entry.companyId)).map(entry=>({id:'EC-'+entry.companyId,username:entry.companyUsername||null,name:entry.companyName||entry.profile?.name||'Company member'}));
 }
 // Only a successful server-verified login replaces the current Company identity.
 async function enrolAccount({announce=true,throwOnError=false,candidate=session,lockCompany=true}={}){
@@ -214,12 +214,16 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
  try{
   if(!candidate.xboxUserToken||candidate.xboxExpiresAt<Date.now()+300000)candidate=await auth.refresh(candidate,controller?.signal,false,true);
   const expected=lockCompany?company?.account.id:null;
+  // The Microsoft Graph token is what lets the account service read the Microsoft
+  // account's own email. It is optional: when it cannot be obtained the sign-in carries
+  // on without it, and it is put in the first account request only.
+  const microsoftAccessToken=typeof auth.graphAccessToken==='function'?await auth.graphAccessToken(candidate.refreshToken,controller?.signal):null;
   let signed;
-  try{signed=await accounts.login(candidate.xboxUserToken,controller?.signal,lockCompany&&company?.expiresAt>Date.now()?company.token:undefined);}
+  try{signed=await accounts.login(candidate.xboxUserToken,controller?.signal,lockCompany&&company?.expiresAt>Date.now()?company.token:undefined,microsoftAccessToken);}
   catch(error){if(error.code!=='invalid_session'||!lockCompany||!company)throw error;signed=await accounts.login(candidate.xboxUserToken,controller?.signal);}
   if(expected&&signed.account.id!==expected)throw new AccountError('identity_conflict','Use the Microsoft account linked to your Easter Company account.');
   const next=companySession(signed),previous=company;
-  session={...candidate,companyId:next.account.id,companyName:next.account.displayName||next.account.minecraftName||'Company member'};
+  session={...candidate,companyId:next.account.id,companyName:next.account.displayName||next.account.minecraftName||'Company member',companyUsername:next.account.username||null};
   company=next;
   await loadSkin(session);await saveSession();await saveCompany();
   if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
@@ -250,7 +254,9 @@ async function exclusively(action){
  try{return await action();}catch(error){
   const message=safeError(error);
   if(error.name!=='CancelledError')settle(message,{device:null,error:error.name==='AbortError'?null:message});
-  throw Error(message);
+  // The typed code decides what the dialog does next (a taken username sends the player
+  // back to step 1), so it survives the rethrow as a safe error message does.
+  throw Object.assign(Error(message),{code:error.code});
  }finally{working=false;}
 }
 // One control per pipeline run: it is what pause, resume and cancel act on, and
@@ -418,7 +424,7 @@ function returnToLauncher(){
 }
 async function play(){
  if(!companyReady()){settle(company?'Create your Easter Company password to finish setup.':'Sign in to your Easter Company account first.');return {requiresAccount:true};}
- if(!microsoftConnected()){settle('Sign in with the Microsoft account linked to '+company.account.companyId+'.');return {requiresMicrosoft:true};}
+ if(!microsoftConnected()){settle('Sign in with the Microsoft account linked to '+(company.account.username||'your Easter Company account')+'.');return {requiresMicrosoft:true};}
  notify({phase:'launching',message:'Checking your Minecraft session…',device:null,progress:null});
  try{session=await auth.refresh(session,undefined,true);}catch(error){
   if(!['invalid_grant','invalid_request','unauthorized_client'].includes(error.code))throw error;
@@ -543,7 +549,7 @@ function registerIPC(){
   try{
    if(!startupReady&&!['status','retry-updates','pause-install','resume-install','cancel-install'].includes(name))throw Error('Updates must finish before this launcher can be used.');
    return {ok:true,value:await fn(...args)};
-  }catch(error){return {ok:false,error:safeError(error),code:['invalid_grant','invalid_session','invalid_microsoft_token','identity_conflict','reauthentication_required','password_policy','rate_limited'].includes(error.code)?error.code:undefined};}
+  }catch(error){return {ok:false,error:safeError(error),code:['invalid_grant','invalid_session','invalid_microsoft_token','identity_conflict','reauthentication_required','password_policy','username_taken','username_policy','rate_limited'].includes(error.code)?error.code:undefined};}
  });
  handle('status',async()=>{
   // Settings asks this whenever it opens, and the answer carries the two shortcut
@@ -562,7 +568,7 @@ function registerIPC(){
   return exclusively(()=>login({link:options?.link===true}));
  });
  handle('switch-account',id=>exclusively(async()=>{
-  if(typeof id!=='string'||!/^EC-[1-9][0-9]{0,17}$/.test(id))throw Error('Choose a saved Company account.');
+  if(typeof id!=='string'||!/^EC-[1-9][0-9]{0,17}$/.test(id))throw Error('Choose a saved Easter Company account.');
   const selected=savedAccounts.find(entry=>'EC-'+entry.companyId===id);
   if(!selected)throw Error('That account is no longer saved. Use Add account.');
   let refreshed;
@@ -575,22 +581,40 @@ function registerIPC(){
   await enrolAccount({throwOnError:true});
   notify({message:'Signed in to your Easter Company account.'});
  }));
- handle('company-login',(companyId,password)=>accountOperation(async()=>{
-  if(typeof companyId!=='string'||companyId.length>64||typeof password!=='string'||password.length>128)throw Error('Enter your Company ID and password.');
-  const signed=await accounts.loginPassword(companyId,password);
+ // Direct Company login. The identifier is the Easter Company username or the email the
+ // account was created with; neither a Company ID nor anything else is accepted here.
+ handle('company-login',(identifier,password)=>accountOperation(async()=>{
+  const login=typeof identifier==='string'?identifier.trim():'';
+  if(!login||login.length>254||typeof password!=='string'||password.length>128)throw Error('Enter your username or email and your password.');
+  const signed=await accounts.loginPassword(login,password);
   const next=companySession(signed),previous=company;
   company=next;
   session=savedAccounts.find(entry=>entry.companyId===next.account.id&&entry.companySubject===next.account.microsoftSubject)||null;
   await saveSession();await saveCompany();
   if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
-  notify({message:'Signed in to '+next.account.companyId+'.'});
+  notify({message:'Signed in to '+(next.account.username||'your Easter Company account')+'.'});
   return publicAccount(company);
  }));
- handle('company-password',(password,replace=false)=>accountOperation(async()=>{
+ // One boolean and one reason code, asked before the password step so the player learns a
+ // username is taken before typing a password. No account data and no email come back.
+ handle('company-username-check',async username=>{
+  if(typeof username!=='string'||!USERNAME_PATTERN.test(username))return {available:false,reason:'username_policy',message:ACCOUNT_MESSAGES.username_policy};
+  const found=await accounts.usernameAvailable(username);
+  return found.available?{available:true,reason:null,message:null}:{available:false,reason:found.reason||'username_taken',message:ACCOUNT_MESSAGES[found.reason]||ACCOUNT_MESSAGES.username_taken};
+ });
+ // The username is claimed with the first password and never travels again.
+ handle('company-password',(password,replace=false,username)=>accountOperation(async()=>{
   if(!company)throw Error('Sign in with Microsoft first.');
   if(typeof password!=='string'||[...password].length<15||[...password].length>128)throw Error('Use a password or passphrase of 15 to 128 characters.');
-  const signed=await accounts.setPassword(company.token,password,replace===true);
-  company=companySession(signed);await saveCompany();notify({message:'Your Easter Company password is saved.'});
+  let claim=null;
+  if(username!==undefined&&username!==null&&username!==''){
+   if(company.account.username)throw Error('Your Easter Company username cannot be changed.');
+   if(typeof username!=='string'||!USERNAME_PATTERN.test(username))throw Error(ACCOUNT_MESSAGES.username_policy);
+   claim=username;
+  }
+  if(!company.account.username&&!claim)throw Error('Choose your Easter Company username first.');
+  const signed=await accounts.setPassword(company.token,password,replace===true,claim);
+  company=companySession(signed);await saveCompany();notify({message:signed.created?'Your Easter Company username and password are saved.':'Your Easter Company password is saved.'});
   return publicAccount(company);
  }));
  handle('open-minecraft-store',()=>shell.openExternal('https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc'));

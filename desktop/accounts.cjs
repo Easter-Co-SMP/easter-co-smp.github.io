@@ -9,9 +9,15 @@ const DEFAULT_TIMEOUT=30000;
 class AccountError extends Error{
  constructor(code,message){super(message);this.name='AccountError';this.code=code;}
 }
+// An Easter Company username is the player's public handle: 3-20 characters of
+// [a-z0-9_-], chosen once and immutable afterwards. The server owns the rule; this
+// copy of it refuses a payload the UI could not render and saves a round trip.
+const USERNAME_PATTERN=/^[a-z0-9_-]{3,20}$/;
 // Error messages and codes from the frozen contract, mapped to one actionable line.
 const MESSAGES={
- invalid_credentials:'The Company ID or password is incorrect.',
+ invalid_credentials:'The username or email, or the password, is incorrect.',
+ username_taken:'That username is already taken. Try another.',
+ username_policy:'Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.',
  invalid_microsoft_token:'Your Microsoft sign-in needs to be renewed. Sign in again.',
  identity_conflict:'That Microsoft account belongs to a different Easter Company account. Use the linked account or switch Company accounts.',
  password_policy:'Use a password or passphrase of 15 to 128 characters. Avoid common passwords.',
@@ -40,10 +46,21 @@ function sanitizeAccount(account){
  const createdAt=typeof account.createdAt==='string'?account.createdAt:null;
  const microsoftSubject=/^[a-f0-9]{64}$/.test(account.microsoftSubject||'')?account.microsoftSubject:null;
  if(account.microsoftLinked===true&&!microsoftSubject)throw new AccountError('invalid_response',FALLBACK);
- return {id,companyId:'EC-'+id,minecraftUuid:uuid?uuid.toLowerCase():null,minecraftName:minecraftName||null,displayName,roles,createdAt,passwordRequired:account.passwordRequired!==false,microsoftLinked:account.microsoftLinked===true,microsoftSubject};
+ // The username is null until the player claims one, which happens together with the
+ // first password. Anything else the payload carries (an email address above all) is
+ // dropped here: only the fields named below ever leave this module.
+ const username=typeof account.username==='string'&&account.username?account.username:null;
+ if(username&&!USERNAME_PATTERN.test(username))throw new AccountError('invalid_response',FALLBACK);
+ const passwordRequired=account.passwordRequired!==false;
+ // No password needed means a username was claimed, so the two cannot disagree. A
+ // payload that says so is a server bug and is refused rather than shown blank.
+ if(!passwordRequired&&!username)throw new AccountError('invalid_response',FALLBACK);
+ return {id,companyId:'EC-'+id,username,passwordRequired,minecraftUuid:uuid?uuid.toLowerCase():null,minecraftName:minecraftName||null,displayName,roles,createdAt,microsoftLinked:account.microsoftLinked===true,microsoftSubject};
 }
-// The renderer needs a name to show, nothing more. No UUID, no id, no token.
-function publicAccount(session){return session?.account?{id:session.account.companyId,name:session.account.displayName||session.account.minecraftName||'Company member',roles:session.account.roles||[],passwordRequired:session.account.passwordRequired,microsoftLinked:session.account.microsoftLinked}:null;}
+// The renderer needs a name to show, nothing more. No UUID, no token, and the Company
+// ID travels only as the opaque account handle the account menu switches on: it is
+// never a label the player reads.
+function publicAccount(session){return session?.account?{id:session.account.companyId,username:session.account.username,name:session.account.displayName||session.account.minecraftName||session.account.username||'Company member',roles:session.account.roles||[],passwordRequired:session.account.passwordRequired,microsoftLinked:session.account.microsoftLinked}:null;}
 class AccountClient{
  constructor({baseUrl=apiOrigin(),client='launcher/0.0.0',request=apiFetch,timeout=DEFAULT_TIMEOUT}={}){
   this.baseUrl=String(baseUrl).replace(/\/+$/,'');this.client=client;this.request=request;this.timeout=timeout;
@@ -70,17 +87,36 @@ class AccountClient{
   if(!response.ok)throw serverMessage(response.status,data);
   return data;
  }
- async login(xboxUserToken,signal,token){
+ // The Microsoft Graph token is optional in the contract and transient here: it is put in
+ // this one request body, never stored, never returned and never logged. An empty or
+ // missing token means the request is sent without it and the server still answers.
+ async login(xboxUserToken,signal,token,microsoftAccessToken){
   if(typeof xboxUserToken!=='string'||!xboxUserToken)throw new AccountError('invalid_request',MESSAGES.invalid_request);
-  const created=await this.call('/v2/accounts/microsoft',{method:'POST',body:{xboxUserToken,client:this.client},signal,token});
+  const graph=typeof microsoftAccessToken==='string'&&microsoftAccessToken?microsoftAccessToken:null;
+  const created=await this.call('/v2/accounts/microsoft',{method:'POST',body:{xboxUserToken,...(graph?{microsoftAccessToken:graph}:{}),client:this.client},signal,token});
   return this.signed(created);
  }
- async loginPassword(companyId,password,signal){
-  const created=await this.call('/v2/accounts/password/login',{method:'POST',body:{companyId,password,client:this.client},signal});
+ // Direct sign-in. The identifier is the Easter Company username or the email the
+ // account was created with; the server decides which, and this module never sees an
+ // email come back. A Company ID is not accepted here by contract.
+ async loginPassword(identifier,password,signal){
+  if(typeof identifier!=='string'||!identifier||typeof password!=='string')throw new AccountError('invalid_credentials',MESSAGES.invalid_credentials);
+  const created=await this.call('/v2/accounts/password/login',{method:'POST',body:{identifier,password,client:this.client},signal});
   return this.signed(created);
  }
- async setPassword(token,password,replace=false){
-  const created=await this.call('/v2/accounts/password',{method:'POST',token,body:{password,replace,client:this.client}});
+ // Whether a username can still be claimed, asked before the player types a password.
+ // The answer is one boolean and a reason code: no account, no email, no hint.
+ async usernameAvailable(username,signal){
+  if(typeof username!=='string'||!USERNAME_PATTERN.test(username))return {available:false,reason:'username_policy'};
+  const found=await this.call('/v2/accounts/username/available',{method:'POST',body:{username},signal,timeout:Math.min(this.timeout,10000)});
+  const reason=['username_taken','username_policy'].includes(found?.reason)?found.reason:null;
+  return {available:found?.available===true&&!reason,reason};
+ }
+ // The username travels only on the call that claims it, together with the first
+ // password. It is never sent again once the account has one.
+ async setPassword(token,password,replace=false,username=null){
+  const body={...(username?{username}:{}),password,replace,client:this.client};
+  const created=await this.call('/v2/accounts/password',{method:'POST',token,body});
   return this.signed(created);
  }
  signed(created){
@@ -116,4 +152,4 @@ function storedSession(value){
  if(!value||typeof value.token!=='string'||!value.token||!Number.isFinite(value.expiresAt))return null;
  try{return {token:value.token,expiresAt:value.expiresAt,account:sanitizeAccount(value.account)};}catch{return null;}
 }
-module.exports={AccountClient,AccountError,sanitizeAccount,publicAccount,MESSAGES,companySession,storedSession,companyVaultName};
+module.exports={AccountClient,AccountError,sanitizeAccount,publicAccount,MESSAGES,USERNAME_PATTERN,companySession,storedSession,companyVaultName};

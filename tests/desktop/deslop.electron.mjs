@@ -43,7 +43,7 @@ try{
  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).canPlay,true);
  await page.waitForFunction(()=>document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(16,16,1,1).data[0]===200);
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Add account',exact:true}).click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();
+ await page.getByRole('button',{name:'Add account',exact:true}).click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
  await page.waitForFunction(async()=>Boolean((await window.easterDesktop.status()).device));
  await page.evaluate(()=>window.easterDesktop.cancelSignIn());
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).device===null);
@@ -51,7 +51,7 @@ try{
  await page.keyboard.press('Escape');await signIn();
  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).accounts.length,2);
  await page.locator('.desktop-account-nav').click();await page.waitForTimeout(250);await page.screenshot({path:'/tmp/easter-deslop-profile.png'});await page.getByRole('button',{name:'Switch Account',exact:true}).click();
- await page.getByRole('button',{name:'Captain1 · EC-1',exact:true}).click();
+ await page.getByRole('button',{name:'captain1',exact:true}).click();
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).profile?.name==='Captain1');
  await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Logout',exact:true}).click();
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).profile===null);

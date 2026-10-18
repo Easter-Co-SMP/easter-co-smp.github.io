@@ -27,7 +27,7 @@ try{
  await page.waitForFunction(()=>!document.querySelector('#desktop-update').open);
  await page.keyboard.press('Escape');
  await page.locator('[data-desktop-play][data-action=download]').click();
- await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();
+ await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();
  await app.evaluate(()=>global.easterTestApprove());
  await page.locator('[data-desktop-play][data-action=play]').waitFor();
