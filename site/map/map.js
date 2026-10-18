@@ -25,23 +25,71 @@ const markerKinds=Object.freeze(Object.keys(layers));
 const inputs=[...document.querySelectorAll('[data-layer]')];
 for(const input of inputs){input.checked=enabled(input.dataset.layer);input.onchange=()=>{settings.layers={...settings.layers,[input.dataset.layer]:input.checked};save();draw();};}
 $('map-key').open=settings.keyOpen===true;
-// The key and the personal-drawings palette share the top-left corner, and the palette sits
-// above the key: once the key is open its box would swallow clicks on the key's left entries.
-// While the key is open, slide the palette to the right edge of the open key (it keeps its
-// 104px gap, so its panel clears the key exactly) and leave it untouched when the key closes.
-// A viewport too narrow to hold the shifted palette keeps the stylesheet layout instead.
-function alignDrawingPanel(){
- const drawing=document.querySelector('.map-drawing'),panel=drawing?.querySelector('.drawing-panel');
- if(!drawing||!panel)return;
- const base=drawing.dataset.baseLeft??getComputedStyle(drawing).left;
- drawing.dataset.baseLeft=base;
- const key=$('map-key').getBoundingClientRect(),edge=parseFloat(base);
- // left is relative to the offset parent, so convert the wanted viewport box back to it.
- const parentLeft=drawing.offsetParent?.getBoundingClientRect().left??0,moved=Math.round(key.right+edge-parentLeft);
- const fits=parentLeft+moved+edge+panel.offsetWidth<document.documentElement.clientWidth-8;
- drawing.style.left=$('map-key').open&&fits?moved+'px':base;
+// The personal-drawings palette is chart furniture on a full-bleed chart, and two separate things
+// own its geometry for as long as the page is open: the stylesheet's own rule — and the media query
+// that overrides it below 600px — decides where the palette sits at the current width, and the
+// edges below it decide how tall the panel it opens is allowed to be. Neither may be captured once
+// at load, which is what round-three review measured. A chart loaded at 390 kept the narrow 148px
+// after the window widened to 1440, where the palette covered 6.4px of the map key's summary so a
+// click in that strip opened Draw instead of the key; a chart loaded wide kept 166px at 390, 18px
+// right of the position the narrow rule gives it. The panel's own max-height was a bare viewport
+// subtraction that knew about neither the launcher's sticky bar nor the notice band's reserved
+// room, so at 390 Colour and Stroke were behind the bar before a sentence was even on screen.
+const PANEL_GAP=10;
+function drawingParts(){
+ const palette=document.querySelector('.map-drawing'),panel=palette?.querySelector('.drawing-panel');
+ return palette&&panel?{palette,panel}:null;
 }
-$('map-key').addEventListener('toggle',()=>{settings.keyOpen=$('map-key').open;save();alignDrawingPanel();});
+// The designed left is read from the stylesheet every time it is wanted, with the inline value
+// taken out first: an inline `left` outranks the media query, so a number written at one width
+// would otherwise freeze the palette at that width for the rest of the session.
+function stylesheetLeft(palette){
+ palette.style.removeProperty('left');
+ return parseFloat(getComputedStyle(palette).left)||0;
+}
+// The key and the palette share the top-left corner, and the palette sits above the key: once the
+// key is open its box would swallow clicks on the key's left entries. While the key is open, slide
+// the palette to the right edge of the open key (it keeps the gap its panel is offset by, so the
+// panel clears the key exactly) and leave it untouched when the key closes. A viewport too narrow
+// to hold the shifted palette keeps the stylesheet layout instead — the stylesheet's position at
+// the current width, which is what taking the inline value out restores.
+function alignDrawingPanel(){
+ const parts=drawingParts();if(!parts)return;
+ const {palette,panel}=parts,base=stylesheetLeft(palette);
+ const key=$('map-key').getBoundingClientRect();
+ // left is relative to the offset parent, so convert the wanted viewport box back to it.
+ const parentLeft=palette.offsetParent?.getBoundingClientRect().left??0,moved=Math.round(key.right+base-parentLeft);
+ const fits=parentLeft+moved+base+panel.offsetWidth<document.documentElement.clientWidth-8;
+ if($('map-key').open&&fits)palette.style.left=moved+'px';
+}
+// The panel grows downward from its own summary, so the room it may use is measured from its own
+// top to the first edge it would run into. Two edges can be under it, and both are read as boxes
+// rather than as numbers in this file: the chart's own footer, and the launcher's sticky bar, which
+// floats above that footer and spans the window at narrow widths. An edge only counts where it
+// really stands over the panel's own columns — at 1440 the bar is a narrower band that ends to the
+// right of where the panel does — and the room is published as --drawing-panel-room for
+// site/styles.css to cap the panel with. The notice band's reserved height needs no term of its
+// own: it moves the whole strip down, so the panel's measured top already carries it. Nothing is
+// capped unless the panel would really run under something, so a chart with room to spare keeps
+// exactly the panel it always had.
+function fitDrawingPanel(){
+ const parts=drawingParts();if(!parts)return;
+ const {palette,panel}=parts;
+ if(!palette.open){palette.style.removeProperty('--drawing-panel-room');return;}
+ const box=panel.getBoundingClientRect();
+ let ceiling=innerHeight;
+ for(const node of [document.querySelector('.map-bottom'),document.getElementById('launcher-bar')]){
+  if(!node||!node.getClientRects().length)continue;
+  const edge=node.getBoundingClientRect();
+  if(edge.height<=0||edge.top<=box.top||edge.right<=box.left||edge.left>=box.right)continue;
+  ceiling=Math.min(ceiling,edge.top);
+ }
+ const room=Math.max(0,Math.round(ceiling-box.top-PANEL_GAP))+'px';
+ if(palette.style.getPropertyValue('--drawing-panel-room')!==room)palette.style.setProperty('--drawing-panel-room',room);
+}
+// Both answers are layout, so both are re-read whenever anything that feeds them moves.
+function placeDrawingPanel(){alignDrawingPanel();fitDrawingPanel();}
+$('map-key').addEventListener('toggle',()=>{settings.keyOpen=$('map-key').open;save();placeDrawingPanel();});
 function validWorld(value){
  return value?.schema===1&&typeof value.captured_at==='string'&&Array.isArray(value.center)&&value.center.length===2&&value.center.every(Number.isFinite)&&
   Array.isArray(value.tiles)&&value.tiles.every(r=>Number.isInteger(r.x)&&Number.isInteger(r.z)&&/^[a-f0-9]{64}$/.test(r.version))&&
@@ -141,7 +189,10 @@ async function refresh(){
  }catch{if(epoch===serial){failed=true;draw();}}
 }
 function zoom(factor,x=width/2,y=height/2){const old=scale;scale=Math.max(.04,Math.min(12,scale*factor));cx+=(x-width/2)*(1/old-1/scale);cz+=(y-height/2)*(1/old-1/scale);rememberView();draw();}
-function resize(){width=stage.clientWidth;height=stage.clientHeight;const dpr=window.devicePixelRatio||1;canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);draw();}
+// The stage's own box is what a window resize, a rotation or a fullscreen change moves first, and
+// the palette's width-dependent position lives behind a media query on the window's width, so the
+// palette is re-placed here rather than at whichever width the chart happened to load at.
+function resize(){width=stage.clientWidth;height=stage.clientHeight;const dpr=window.devicePixelRatio||1;canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);draw();placeDrawingPanel();}
 function hover(e){
  const rect=canvas.getBoundingClientRect(),px=e.clientX-rect.left,py=e.clientY-rect.top,x=cx+(px-width/2)/scale,z=cz+(py-height/2)/scale;
  const region=world?.regions.find(r=>contains(r.points,x,z));$('map-location').textContent=region?.name||'The Wilds';
@@ -168,12 +219,27 @@ $('fullscreen').onclick=()=>{if(document.fullscreenElement)void document.exitFul
 document.addEventListener('fullscreenchange',()=>{const label=document.fullscreenElement?'Exit full screen':'Enter full screen';$('fullscreen').setAttribute('aria-label',label);$('fullscreen').title=label;});
 function schedule(){clearTimeout(timer);if(document.visibilityState==='visible')timer=setTimeout(async()=>{await refresh();schedule();},300000);}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void refresh();schedule();});
-// The personal-drawings palette is created by createDrawings, so it exists only now.
-// The open key and that palette share the top-left corner, and the palette sits above the
-// key, so its box would otherwise swallow clicks on the key's left entries. While the key is
-// open, slide that box clear of the key and draw it under the key; a closed key leaves the
-// palette exactly where the stylesheet puts it.
+// The personal-drawings palette is created by createDrawings, so it exists only now, and every
+// edge that places it or caps it arrives later still: the palette opening, the chart's footer after
+// the first draw, and the launcher's sticky bar whenever the launcher has something to report. The
+// two numbers site/desktop.js publishes on the document - the bar's own offset and the room the
+// notice band reserves - arrive on <html style>, and both move this furniture without touching the
+// stage's size. So each of those is watched rather than sampled once at load.
 annotations=createDrawings({canvas,stage,getView:view,redraw:draw});
-alignDrawingPanel();
+const palette=document.querySelector('.map-drawing');
+palette?.addEventListener('toggle',placeDrawingPanel);
+// The window's own size is what the palette's position is a function of, and a resize observer
+// reports only the change it sees between frames: a window that comes back to the size it last
+// reported - dragging a window edge and letting go, or a rotation - delivers no record at all, and
+// the palette would keep the geometry of the size in between. The event fires for every change.
+window.addEventListener('resize',placeDrawingPanel,{passive:true});
+if(typeof ResizeObserver==='function'){
+ const edges=new ResizeObserver(()=>placeDrawingPanel());
+ const watchEdges=()=>{for(const node of [document.querySelector('.map-bottom'),document.getElementById('launcher-bar')])if(node)edges.observe(node);};
+ watchEdges();
+ if(typeof MutationObserver==='function')new MutationObserver(watchEdges).observe(document.body,{childList:true});
+}
+if(typeof MutationObserver==='function')new MutationObserver(()=>placeDrawingPanel()).observe(document.documentElement,{attributes:true,attributeFilter:['style']});
+placeDrawingPanel();
 new ResizeObserver(resize).observe(stage);
 void(async()=>{const saved=await cache.readSnapshot('world');if(!world&&validWorld(saved)){cached=true;setWorld(saved);}await refresh();schedule();})();
