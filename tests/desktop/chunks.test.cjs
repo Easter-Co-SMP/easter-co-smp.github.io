@@ -685,31 +685,65 @@ test('published JAR paths install into mods and legacy markers request repair',a
 
 // ---- the client's display defaults -------------------------------------------
 // Owen asked for a first launch that is already fullscreen at GUI scale 2, and later for
-// five key bindings set the way the household plays: sprint and crouch swapped from
-// vanilla, inventory on tab, the player list on the grave key that frees, and third
-// person on R. The seed is not a graphics choice, so every case here runs with the toggle
-// off, and the second one starts from a tree that has already been played: the game
-// writes every key on its first exit, and that tree is where the feature has to be
+// the controls the household plays with: sprint and crouch swapped from vanilla, inventory
+// on tab, the player list on the grave key that frees, third person on R, chat on enter,
+// the GUI toggle on F10, social interactions on I, smooth camera on right shift, the
+// vanilla debug keys unbound, and the Shippy Ships quick-build hotkey moved off the Left
+// Ctrl that crouch owns. The seed is not a graphics choice, so every case here runs with
+// the toggle off, and the second one starts from a tree that has already been played: the
+// game writes every key on its first exit, and that tree is where the feature has to be
 // observable.
 const {parseProperties}=require('../../desktop/hardware.cjs');
 const PLAYED_OPTIONS='version:4903\nao:true\nfullscreen:false\nguiScale:4\nfov:0.5\nrenderDistance:12\ngraphicsMode:fancy\n';
-// The values Owen verified in the real clients, and vanilla's beside them.
+// The values Owen verified in the real clients. A fresh tree gets everything except the
+// one binding only a mod can register.
+const DEFERRED_KEY='key_key.shippy-ships.isPressingCtrl';
+const DEBUG_BINDINGS=[
+ 'key_key.debug.clearChat',
+ 'key_key.debug.copyLocation',
+ 'key_key.debug.copyRecreateCommand',
+ 'key_key.debug.crash',
+ 'key_key.debug.debugOptions',
+ 'key_key.debug.dumpDynamicTextures',
+ 'key_key.debug.dumpVersion',
+ 'key_key.debug.focusPause',
+ 'key_key.debug.fpsCharts',
+ 'key_key.debug.lightmapTexture',
+ 'key_key.debug.modifier',
+ 'key_key.debug.networkCharts',
+ 'key_key.debug.overlay',
+ 'key_key.debug.profiling',
+ 'key_key.debug.profilingChart',
+ 'key_key.debug.reloadChunk',
+ 'key_key.debug.reloadResourcePacks',
+ 'key_key.debug.showAdvancedTooltips',
+ 'key_key.debug.showChunkBorders',
+ 'key_key.debug.showHitboxes',
+ 'key_key.debug.spectate',
+ 'key_key.debug.switchGameMode'
+];
 const WANTED_BINDS={
  'key_key.sneak':'key.keyboard.left.control',
  'key_key.sprint':'key.keyboard.left.shift',
  'key_key.inventory':'key.keyboard.tab',
  'key_key.playerlist':'key.keyboard.grave.accent',
- 'key_key.togglePerspective':'key.keyboard.r'
-};
-const VANILLA_BINDS={
- 'key_key.sneak':'key.keyboard.left.shift',
- 'key_key.sprint':'key.keyboard.left.control',
- 'key_key.inventory':'key.keyboard.e',
- 'key_key.playerlist':'key.keyboard.tab',
- 'key_key.togglePerspective':'key.keyboard.f5'
+ 'key_key.togglePerspective':'key.keyboard.r',
+ 'key_key.chat':'key.keyboard.enter',
+ 'key_key.toggleGui':'key.keyboard.f10',
+ 'key_key.socialInteractions':'key.keyboard.i',
+ 'key_key.smoothCamera':'key.keyboard.right.shift',
+ ...Object.fromEntries(DEBUG_BINDINGS.map(key=>[key,'key.keyboard.unknown'])),
+ [DEFERRED_KEY]:'key.keyboard.right.control'
 };
 const bindLines=binds=>Object.entries(binds).map(([key,value])=>key+':'+value);
-const SEEDED_BINDS=bindLines(WANTED_BINDS).join('\n')+'\n';
+const SEEDED_BINDINGS=Object.keys(WANTED_BINDS);
+// What a fresh tree gets: everything except the binding only a mod can register.
+const IMMEDIATE_BINDINGS=SEEDED_BINDINGS.filter(key=>key!==DEFERRED_KEY);
+const immediateBinds=()=>Object.fromEntries(IMMEDIATE_BINDINGS.map(key=>[key,WANTED_BINDS[key]]));
+const SEEDED_BINDS=bindLines(immediateBinds()).join('\n')+'\n';
+const DEFERRED_VANILLA=DEFERRED_KEY+':key.keyboard.left.control';
+const DEFERRED_SEEDED=DEFERRED_KEY+':key.keyboard.right.control';
+const SEVEN_KEYS={'key_key.sneak':WANTED_BINDS['key_key.sneak'],'key_key.sprint':WANTED_BINDS['key_key.sprint'],'key_key.inventory':WANTED_BINDS['key_key.inventory'],'key_key.playerlist':WANTED_BINDS['key_key.playerlist'],'key_key.togglePerspective':WANTED_BINDS['key_key.togglePerspective']};
 const optionsFile=root=>path.join(root,'options.txt');
 const displayRecordFile=root=>path.join(root,'.easter-client-display');
 const shown=text=>text.split('\n').filter(Boolean);
@@ -717,9 +751,13 @@ const shown=text=>text.split('\n').filter(Boolean);
 // player list, so the seed has to move both or neither.
 function assertDistinctBindings(text,label){
  const options=parseProperties(text);
- const bound=Object.keys(WANTED_BINDS).map(key=>[key,options.get(key)??null]);
- assert.deepEqual(bound.filter(([,value])=>value===null),[],label+': every seeded action has a binding: '+JSON.stringify(bound));
- const values=bound.map(([,value])=>value);
+ for(const key of DEBUG_BINDINGS)assert.equal(options.get(key),'key.keyboard.unknown',label+': '+key+' is unbound');
+ const absent=IMMEDIATE_BINDINGS.filter(key=>!options.has(key));
+ assert.deepEqual(absent,[],label+': every seeded action has a binding');
+ // The deferred key is only there once the client has written it, so it joins the check
+ // when it is present and is never missed when it is not.
+ const bound=[...IMMEDIATE_BINDINGS,...(options.has(DEFERRED_KEY)?[DEFERRED_KEY]:[])].filter(key=>!DEBUG_BINDINGS.includes(key)).map(key=>[key,options.get(key)]);
+ const values=bound.map(([,value])=>value).filter(value=>value!=='key.keyboard.unknown');
  assert.equal(new Set(values).size,values.length,label+': no two seeded actions share a key: '+JSON.stringify(bound));
 }
 
@@ -734,14 +772,16 @@ test('an install seeds the display defaults with enhanced graphics off, and only
   assert.equal(result.unchanged,undefined);
   // Read the file itself: the defaults are on disk, not merely intended.
   const options=await fs.readFile(optionsFile(tree.root),'utf8');
-  assert.deepEqual(shown(options),['guiScale:2','fullscreen:true',...bindLines(WANTED_BINDS)],'the toggle was off and they were written anyway, bindings included');
+  assert.deepEqual(shown(options),['guiScale:2','fullscreen:true',...bindLines(immediateBinds())],'the toggle was off and they were written anyway, bindings included');
+  assert.equal(options.includes(DEFERRED_KEY),false,'and the mod’s own key is not invented before the client has written it');
   assert.equal(options.includes('\r'),false,'LF line endings');
   assert.equal((await fs.stat(optionsFile(tree.root))).mode&0o777,0o600,'the mode the existing settings writer uses');
   assertDistinctBindings(options,'an install');
   assert.equal(await fs.stat(path.join(tree.root,'config','iris.properties')).then(()=>'present',()=>'absent'),'absent','the graphics step wrote nothing');
   const record=JSON.parse(await fs.readFile(displayRecordFile(tree.root),'utf8'));
-  assert.equal(record.schema,2,'the record covers the key bindings as well as the display pair');
-  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS});
+  assert.equal(record.schema,3,'the record covers the whole approved set, not only the display pair');
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...immediateBinds()},'and it covers exactly what it wrote');
+  assert.equal(DEFERRED_KEY in record.values,false,'the deferred key is not claimed before the client has written it');
   // A second install/update run rewrites neither the file nor the record.
   const past=new Date('2020-01-01T00:00:00.000Z');
   await fs.utimes(optionsFile(tree.root),past,past);
@@ -788,32 +828,35 @@ test('an install seeds a tree that has already been played once, and a later pla
  }finally{await server.close();await tree.cleanup();}
 });
 
-// The bindings came after the display pair had shipped, so a tree the earlier build
-// seeded carries a schema-1 record. The install path may add exactly the five bindings
-// once, must move inventory and the player list together, and must not re-decide the
-// guiScale and fullscreen the player has since chosen.
-test('an install upgrades a schema-1 tree by adding only the five bindings, once',async()=>{
+// The rest of the approved set came after the first controls shipped, so a tree the
+// previous build seeded carries a schema-2 record and, if the client has run with the mod
+// since, the Shippy Ships hotkey the mod registered on Left Ctrl. The install path may add
+// exactly the keys the record does not cover once, must take the mod's key off the Left
+// Ctrl that crouch owns, and must not re-decide the guiScale and fullscreen the player has
+// since chosen.
+test('an install upgrades a schema-2 tree by adding only the keys it does not cover, once',async()=>{
  const body=Buffer.from('base-mod-jar');
  const server=await fileServer({'/files/base.jar':body});
  const tree=await installedTree();
  try{
   await fs.writeFile(path.join(tree.root,'.easter-client'),'');
-  // A tree the display-only seed had already run on, since played with windowed mode and
-  // a scale of the player's own, still carrying the vanilla bindings.
-  const before='version:4903\nfullscreen:false\nguiScale:1\n'+bindLines(VANILLA_BINDS).join('\n')+'\nfov:0.5\n';
+  // A tree the earlier seed had already run on, since played with windowed mode and a
+  // scale of the player's own, carrying the seven keys it covered and the mod's own key.
+  const before=['version:4903','fullscreen:false','guiScale:1',...bindLines(SEVEN_KEYS),DEFERRED_VANILLA,'fov:0.5'].join('\n')+'\n';
   await fs.writeFile(optionsFile(tree.root),before);
-  const appliedAt='2026-10-17T09:00:00.000Z';
-  await fs.writeFile(displayRecordFile(tree.root),JSON.stringify({schema:1,values:{guiScale:'2',fullscreen:'true'},appliedAt},null,2)+'\n',{mode:0o600});
+  const appliedAt='2026-10-18T09:00:00.000Z';
+  await fs.writeFile(displayRecordFile(tree.root),JSON.stringify({schema:2,values:{guiScale:'2',fullscreen:'true',...SEVEN_KEYS},appliedAt},null,2)+'\n',{mode:0o600});
   const baseChunk={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(body),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',body)]};
   const published=chunkFixture({base:baseChunk});
   await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
-  const expected=before.replace('key_key.sneak:key.keyboard.left.shift','key_key.sneak:key.keyboard.left.control').replace('key_key.sprint:key.keyboard.left.control','key_key.sprint:key.keyboard.left.shift').replace('key_key.inventory:key.keyboard.e','key_key.inventory:key.keyboard.tab').replace('key_key.playerlist:key.keyboard.tab','key_key.playerlist:key.keyboard.grave.accent').replace('key_key.togglePerspective:key.keyboard.f5','key_key.togglePerspective:key.keyboard.r');
-  assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),expected,'exactly the five bindings moved in place; the player’s own scale and window mode are untouched');
-  assertDistinctBindings(expected,'a schema-1 upgrade through the install path');
+  const grown=IMMEDIATE_BINDINGS.filter(key=>!(key in SEVEN_KEYS));
+  const expected=['version:4903','fullscreen:false','guiScale:1',...bindLines(SEVEN_KEYS),DEFERRED_SEEDED,'fov:0.5',...bindLines(Object.fromEntries(grown.map(key=>[key,WANTED_BINDS[key]])))].join('\n')+'\n';
+  assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),expected,'exactly the keys the record did not cover, the mod’s hotkey moved in place, and the player’s own scale and window mode untouched');
+  assertDistinctBindings(expected,'a schema-2 upgrade through the install path');
   const record=JSON.parse(await fs.readFile(displayRecordFile(tree.root),'utf8'));
-  assert.equal(record.schema,2);
+  assert.equal(record.schema,3);
   assert.equal(record.appliedAt,appliedAt,'the seed time does not move');
-  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS});
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS},'and every key in the table is covered now');
   // Exactly once: the next update run rewrites neither file.
   const past=new Date('2020-01-01T00:00:00.000Z');
   await fs.utimes(optionsFile(tree.root),past,past);
@@ -827,6 +870,46 @@ test('an install upgrades a schema-1 tree by adding only the five bindings, once
  }finally{await server.close();await tree.cleanup();}
 });
 
+// The one binding a mod owns is deferred: it does not exist in options.txt until the mod
+// has registered it, and vanilla drops a key_ entry it never read. Through the install
+// path that means a fresh tree gets everything else, and the Shippy hotkey is fixed on the
+// first launcher run after the client has written the line — once, and never again.
+test('an install seeds the Shippy Ships hotkey only once the client has written it',async()=>{
+ const body=Buffer.from('base-mod-jar');
+ const server=await fileServer({'/files/base.jar':body});
+ const tree=await installedTree();
+ try{
+  const baseChunk={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(body),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',body)]};
+  const published=chunkFixture({base:baseChunk});
+  // The client has never run with the mod: there is no such line, so none is invented.
+  await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false});
+  const first=await fs.readFile(optionsFile(tree.root),'utf8');
+  assert.deepEqual(shown(first),['guiScale:2','fullscreen:true',...bindLines(immediateBinds())]);
+  assert.equal(first.includes(DEFERRED_KEY),false,'the install does not invent the mod’s key');
+  assert.equal(DEFERRED_KEY in JSON.parse(await fs.readFile(displayRecordFile(tree.root),'utf8')).values,false);
+  // The client runs once with the mod, which registers the hotkey on its own default.
+  const withMod=first+DEFERRED_VANILLA+'\n';
+  await fs.writeFile(optionsFile(tree.root),withMod);
+  await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
+  const seeded=await fs.readFile(optionsFile(tree.root),'utf8');
+  assert.equal(seeded,withMod.replace(DEFERRED_VANILLA,DEFERRED_SEEDED),'only the mod’s own line changed: the hotkey is off Left Ctrl, and crouch keeps it');
+  assertDistinctBindings(seeded,'the deferred key through the install path');
+  const record=JSON.parse(await fs.readFile(displayRecordFile(tree.root),'utf8'));
+  assert.equal(record.schema,3);
+  assert.equal(record.values[DEFERRED_KEY],'key.keyboard.right.control','and the record covers it once it has been written');
+  // Once only: the next run, and a player’s own rebind, are both left alone.
+  const optionsStat=await fs.stat(optionsFile(tree.root));
+  const recordStat=await fs.stat(displayRecordFile(tree.root));
+  await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
+  assert.equal((await fs.stat(optionsFile(tree.root))).mtimeMs,optionsStat.mtimeMs,'a repeat run does not rewrite options.txt');
+  assert.equal((await fs.stat(displayRecordFile(tree.root))).mtimeMs,recordStat.mtimeMs);
+  const rebound=seeded.replace(DEFERRED_SEEDED,DEFERRED_VANILLA);
+  await fs.writeFile(optionsFile(tree.root),rebound);
+  await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
+  assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),rebound,'a player’s own rebind of a covered key survives every update');
+ }finally{await server.close();await tree.cleanup();}
+});
+
 test('the display defaults are written alongside the graphics step, not instead of it',async()=>{
  const base=Buffer.from('base-mod-jar'),graphics=Buffer.from('shader-bundle');
  const server=await fileServer({'/files/base.jar':base,'/files/graphics.zip':graphics});
@@ -837,7 +920,7 @@ test('the display defaults are written alongside the graphics step, not instead 
   const published=chunkFixture({base:baseChunk,graphics:graphicsChunk});
   const result=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:true,hardware:{vramMB:8188,tier:'capable'}});
   const options=shown(await fs.readFile(optionsFile(tree.root),'utf8'));
-  for(const line of ['guiScale:2','fullscreen:true','graphicsMode:fancy','renderDistance:16',...bindLines(WANTED_BINDS)])assert(options.includes(line),line+' is in options.txt: '+JSON.stringify(options));
+  for(const line of ['guiScale:2','fullscreen:true','graphicsMode:fancy','renderDistance:16',...bindLines(immediateBinds())])assert(options.includes(line),line+' is in options.txt: '+JSON.stringify(options));
   assertDistinctBindings(await fs.readFile(optionsFile(tree.root),'utf8'),'the seed beside the graphics step');
   assert.equal(await fs.stat(displayRecordFile(tree.root)).then(()=>'present',()=>'absent'),'present');
   assert.deepEqual({...result.quality},{renderDistance:16,shadowDistance:12,shaders:true},'the quality report is unchanged by the display seed');

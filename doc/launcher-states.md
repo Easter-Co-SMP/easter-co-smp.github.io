@@ -411,9 +411,8 @@ refused, exactly like the quality files, and the seed never runs while a client 
 is up, because a running client rewrites `options.txt` on exit. None of this adds a
 field to the state contract, and the UI never mentions it.
 
-**The seeded key bindings are the household's controls, five of them.**
-The same once-per-tree seed also writes five key bindings into that client's
-`options.txt`:
+**The seeded controls are the household's layout, and the whole approved set is pinned.**
+The same once-per-tree seed writes the following into that client's `options.txt`:
 
 | Key | Seeded value | Vanilla value | Why |
 |---|---|---|---|
@@ -422,45 +421,93 @@ The same once-per-tree seed also writes five key bindings into that client's
 | `key_key.inventory` | `key.keyboard.tab` | `key.keyboard.e` | tab is where the household keeps it |
 | `key_key.playerlist` | `key.keyboard.grave.accent` | `key.keyboard.tab` | frees tab for inventory |
 | `key_key.togglePerspective` | `key.keyboard.r` | `key.keyboard.f5` | third person on R |
+| `key_key.chat` | `key.keyboard.enter` | `key.keyboard.t` | chat opens on enter |
+| `key_key.toggleGui` | `key.keyboard.f10` | `key.keyboard.f1` | the GUI toggle moves off F1 |
+| `key_key.socialInteractions` | `key.keyboard.i` | `key.keyboard.p` | the social screen sits on I |
+| `key_key.smoothCamera` | `key.keyboard.right.shift` | unbound | smooth camera gets a key of its own |
+| `key_key.debug.*`, 22 actions | `key.keyboard.unknown` | F3 and its combinations | the debug keys are unbound |
+| `key_key.shippy-ships.isPressingCtrl` | `key.keyboard.right.control` | none — the mod's own Left Ctrl | deferred, see below |
+
+The 22 debug actions are pinned by name, because that is the set this client writes:
+`debug.clearChat`, `copyLocation`, `copyRecreateCommand`, `crash`, `debugOptions`,
+`dumpDynamicTextures`, `dumpVersion`, `focusPause`, `fpsCharts`, `lightmapTexture`,
+`modifier`, `networkCharts`, `overlay`, `profiling`, `profilingChart`, `reloadChunk`,
+`reloadResourcePacks`, `showAdvancedTooltips`, `showChunkBorders`, `showHitboxes`,
+`spectate` and `switchGameMode`. `key.keyboard.unknown` is the client's own word for an
+action with no key, so those 22 rows are unbinds and not invented bindings. An action the
+client stops writing is a name to remove from that list rather than a key left half-bound.
 
 The sprint/crouch pair is swapped on purpose, exactly as Owen asked, and that is the
 point of the change rather than an accident or a player's rebind: sprint on Left Shift
 and crouch on Left Ctrl is how the household and most other games are laid out, so
 **Ctrl is crouch in a client this launcher installs**. The values were read off the real
-clients rather than guessed, and Owen's own `~/.minecraft` already plays exactly this
-way while a launcher-installed tree is still vanilla, which is the gap this seed closes.
-A fresh tree gets all seven keys in one write.
+clients rather than guessed: every row above except Shippy's is what Owen's own
+`~/.minecraft` already plays while a launcher-installed tree is still vanilla, which is
+the gap this seed closes, and Shippy's row is the one move his tree does not have yet
+because that tree is not launcher-managed. A fresh tree gets everything in that table
+except the one deferred row in a single write.
+
+**Unbinding the debug keys is player-visible and deliberate.** The client's F3 debug
+overlay is `debug.overlay`, and every other debug combination is one of those 22 actions
+(`debug.modifier` is the F3 half of the F3+key chords). Unbound, a seeded client has **no
+F3 debug overlay at all** — no chunk borders, hitboxes, chunk-reload or F3+ combinations —
+until the player binds them again in the game's own controls screen, which is always
+allowed: a key the record covers is theirs from then on. Anyone debugging a client this
+launcher installed should expect that and rebind rather than assume a broken client.
 
 **Inventory and the player list move together.** Inventory takes `tab`, which is
 vanilla's player-list key, so applying one without the other would leave two actions on
 one key. Whenever either member of that pair is written, the seed writes both; a member
 the player is already carrying is only written when its present value is exactly the key
 a sibling is taking, so a player-chosen player-list key of their own survives a repair.
-After any seed, no two of the five seeded actions share a key.
+After any seed, no two of the seeded actions share a key.
 
-Two consequences to keep in mind when reading a bug report. The client mod set includes
-Shippy Ships, whose own `key.shippy-ships.isPressingCtrl` ("Quick Build (Use Stack)")
-hotkey also defaults to Left Ctrl, so crouch and that hotkey now share a key — Owen
-plays that way already, and the launcher seeds bindings rather than mod hotkeys, so the
-collision is the player's to rebind if it ever bites. And moving the player list moves
-the Easter Navy crew menu with it: the mod registers no key of its own, it opens while
-vanilla's player-list key is held (`client.options.keyPlayerList` in `TabMenu`), so after
-a seed that menu follows the player list to the grave key and `tab` is inventory. No mod
-writes `options.txt`: the vanilla client owns that file and persists whatever it finds
-there on exit, which is why seeding it is neither redundant nor fighting a mod.
+**The Shippy Ships hotkey moves off Left Ctrl, and waits for the mod to exist.**
+`key.shippy-ships.isPressingCtrl` ("Quick Build (Use Stack)") is the mod's own binding and
+it registers on Left Ctrl — every household `options.txt` carries it there — which crouch
+now owns. The seed moves it to `key.keyboard.right.control`: that keeps the mod's Ctrl
+intent, collides with no vanilla key and with no other seeded action, and leaves Left Ctrl
+to crouch alone. But this row cannot be written like the others. A mod-provided binding does not exist in `options.txt`
+until the mod has registered it, and the vanilla client only persists the key mappings it
+read: a `key_` entry for an unknown action is dropped the next time the game saves, so
+writing this key into a tree that has not run with the mod is silently lost — and worse,
+marking it covered then would mean it is never seeded once the mod does arrive. So the
+seed treats it as **deferred**: the key is written only when it is already present in
+`options.txt`, it is not marked as covered in the record until it has actually been
+written, and it is re-checked on every seed run. The net effect is that a new install
+seeds everything else immediately, and the Shippy hotkey is fixed on the first launcher
+start after the client has run once with the mod. Once it has been written it is a normal
+covered key and is never rewritten. A tree whose `options.txt` is recreated loses the
+line, so the record releases the key rather than keeping a claim on a binding the tree no
+longer has, and the seed pins it again as soon as the client writes it again — which is
+the same repair every other seeded key gets, deferred to the moment it becomes writable.
+The one household tree whose free-camera mod keeps `hold_zoom` on Right Ctrl is Hannah's
+own choice of key: the seed touches no mod key but Shippy's, so it stays where she put it.
 
-**The record is versioned, so a tree seeded by an earlier schema is upgraded once.** The
-schema says which keys the record has already taken responsibility for: schema 1 covered
-`guiScale` and `fullscreen`, schema 2 adds the five bindings. A tree carrying a schema-1
-record therefore gets exactly the five bindings written once — its bindings on disk are
-the vanilla ones the game wrote, never a decision about the launcher's defaults — while
-its `guiScale` and `fullscreen`, including ones the player has since changed, are left
-exactly as they are; the record is raised to schema 2, keeps its original `appliedAt`,
-and gains an `upgradedAt`. After that, a present key is the player's again: a player who
-rebinds sprint back to Ctrl, or the player list onto a key of their own, keeps it through
-every later launcher run and update, and the only write left is repair of a recorded key
-that has gone missing, bindings included. A record carrying a schema this build does not
-know is left alone rather than pulled back down to it.
+Two further consequences to keep in mind when reading a bug report. Moving the player
+list moves the Easter Navy crew menu with it: the mod registers no key of its own, it
+opens while vanilla's player-list key is held (`client.options.keyPlayerList` in
+`TabMenu`), so after a seed that menu follows the player list to the grave key and `tab`
+is inventory. And no mod writes `options.txt`: the vanilla client owns that file and
+persists whatever it finds there on exit, which is why seeding it is neither redundant nor
+fighting a mod — and why a binding for a mod that has not registered it would not survive.
+
+**Coverage is per key, and the record's schema is history.** The record is versioned, and
+the schema records what each build added for a human reader: schema 1 covered `guiScale`
+and `fullscreen`, schema 2 the five bindings Owen plays with, and schema 3 the rest of the
+approved set above. The schema is metadata and nothing more. What decides whether a tree
+is seeded is the record's `values`: they are the set of keys the launcher has had its say
+over. A tree holding an older record therefore gets exactly the keys that record does not
+cover, once — so a schema-2 tree gets the four new controls, the 22 debug unbinds and the
+Shippy hotkey if the client has written it, and nothing else — while every value it
+already covers, including ones the player has since changed or rebound, is left
+byte-identical; the record keeps its original `appliedAt` and gains an `updatedAt` (and an
+`upgradedAt` when the schema was raised). After that, a present key is the player's again:
+a player who rebinds sprint back to Ctrl, or the player list onto a key of their own,
+keeps it through every later launcher run and update, and the only write left is repair of
+a covered key that has gone missing, bindings included. A record carrying a schema this
+build does not know is left alone rather than pulled back down to it, and this build does
+not extend it with keys it has never seeded for that tree.
 
 **The GUI scale follows the display, and is read in physical pixels.** Owen's follow-up
 of 2026-10-18: a flat GUI scale of 2 is right on an ordinary display and too small on a
