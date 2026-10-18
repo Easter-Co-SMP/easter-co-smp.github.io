@@ -684,14 +684,44 @@ test('published JAR paths install into mods and legacy markers request repair',a
 });
 
 // ---- the client's display defaults -------------------------------------------
-// Owen asked for a first launch that is already fullscreen at GUI scale 2. The seed
-// is not a graphics choice, so every case here runs with the toggle off, and the
-// second one starts from a tree that has already been played: the game writes every
-// key on its first exit, and that tree is where the feature has to be observable.
+// Owen asked for a first launch that is already fullscreen at GUI scale 2, and later for
+// five key bindings set the way the household plays: sprint and crouch swapped from
+// vanilla, inventory on tab, the player list on the grave key that frees, and third
+// person on R. The seed is not a graphics choice, so every case here runs with the toggle
+// off, and the second one starts from a tree that has already been played: the game
+// writes every key on its first exit, and that tree is where the feature has to be
+// observable.
+const {parseProperties}=require('../../desktop/hardware.cjs');
 const PLAYED_OPTIONS='version:4903\nao:true\nfullscreen:false\nguiScale:4\nfov:0.5\nrenderDistance:12\ngraphicsMode:fancy\n';
+// The values Owen verified in the real clients, and vanilla's beside them.
+const WANTED_BINDS={
+ 'key_key.sneak':'key.keyboard.left.control',
+ 'key_key.sprint':'key.keyboard.left.shift',
+ 'key_key.inventory':'key.keyboard.tab',
+ 'key_key.playerlist':'key.keyboard.grave.accent',
+ 'key_key.togglePerspective':'key.keyboard.r'
+};
+const VANILLA_BINDS={
+ 'key_key.sneak':'key.keyboard.left.shift',
+ 'key_key.sprint':'key.keyboard.left.control',
+ 'key_key.inventory':'key.keyboard.e',
+ 'key_key.playerlist':'key.keyboard.tab',
+ 'key_key.togglePerspective':'key.keyboard.f5'
+};
+const bindLines=binds=>Object.entries(binds).map(([key,value])=>key+':'+value);
+const SEEDED_BINDS=bindLines(WANTED_BINDS).join('\n')+'\n';
 const optionsFile=root=>path.join(root,'options.txt');
 const displayRecordFile=root=>path.join(root,'.easter-client-display');
-const shown=(text)=>text.split('\n').filter(Boolean);
+const shown=text=>text.split('\n').filter(Boolean);
+// No two actions may end up on one key: inventory takes tab, which vanilla gives the
+// player list, so the seed has to move both or neither.
+function assertDistinctBindings(text,label){
+ const options=parseProperties(text);
+ const bound=Object.keys(WANTED_BINDS).map(key=>[key,options.get(key)??null]);
+ assert.deepEqual(bound.filter(([,value])=>value===null),[],label+': every seeded action has a binding: '+JSON.stringify(bound));
+ const values=bound.map(([,value])=>value);
+ assert.equal(new Set(values).size,values.length,label+': no two seeded actions share a key: '+JSON.stringify(bound));
+}
 
 test('an install seeds the display defaults with enhanced graphics off, and only once',async()=>{
  const body=Buffer.from('base-mod-jar');
@@ -704,13 +734,14 @@ test('an install seeds the display defaults with enhanced graphics off, and only
   assert.equal(result.unchanged,undefined);
   // Read the file itself: the defaults are on disk, not merely intended.
   const options=await fs.readFile(optionsFile(tree.root),'utf8');
-  assert.deepEqual(shown(options),['guiScale:2','fullscreen:true'],'the toggle was off and they were written anyway');
+  assert.deepEqual(shown(options),['guiScale:2','fullscreen:true',...bindLines(WANTED_BINDS)],'the toggle was off and they were written anyway, bindings included');
   assert.equal(options.includes('\r'),false,'LF line endings');
   assert.equal((await fs.stat(optionsFile(tree.root))).mode&0o777,0o600,'the mode the existing settings writer uses');
+  assertDistinctBindings(options,'an install');
   assert.equal(await fs.stat(path.join(tree.root,'config','iris.properties')).then(()=>'present',()=>'absent'),'absent','the graphics step wrote nothing');
   const record=JSON.parse(await fs.readFile(displayRecordFile(tree.root),'utf8'));
-  assert.equal(record.schema,1);
-  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true'});
+  assert.equal(record.schema,2,'the record covers the key bindings as well as the display pair');
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS});
   // A second install/update run rewrites neither the file nor the record.
   const past=new Date('2020-01-01T00:00:00.000Z');
   await fs.utimes(optionsFile(tree.root),past,past);
@@ -737,19 +768,62 @@ test('an install seeds a tree that has already been played once, and a later pla
   const baseChunk={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(body),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',body)]};
   const published=chunkFixture({base:baseChunk});
   await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
-  assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),PLAYED_OPTIONS.replace('fullscreen:false','fullscreen:true').replace('guiScale:4','guiScale:2'),'seeded once, every other line kept exactly where it was');
+  const seededOnce=PLAYED_OPTIONS.replace('fullscreen:false','fullscreen:true').replace('guiScale:4','guiScale:2')+SEEDED_BINDS;
+  assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),seededOnce,'seeded once, every other line kept exactly where it was, with the household binds added');
+  assertDistinctBindings(seededOnce,'a played tree');
   assert.equal(await fs.stat(displayRecordFile(tree.root)).then(()=>'present',()=>'absent'),'present','the seed is remembered in the tree');
   const recordStat=await fs.stat(displayRecordFile(tree.root));
   // The player plays again and turns fullscreen back off in the game's own settings.
-  const chosen=PLAYED_OPTIONS.replace('guiScale:4','guiScale:2');
+  const chosen=seededOnce.replace('fullscreen:true','fullscreen:false');
   await fs.writeFile(optionsFile(tree.root),chosen);
   await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
   assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),chosen,'a later update never re-decides a player’s choice');
   assert.equal((await fs.stat(displayRecordFile(tree.root))).mtimeMs,recordStat.mtimeMs,'and the record is written only once');
-  // A key that goes missing is repaired through the install path too.
+  // A key that goes missing is repaired through the install path too, bindings included.
   await fs.writeFile(optionsFile(tree.root),'ao:true\nfullscreen:false\n');
   await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
-  assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),'ao:true\nfullscreen:false\nguiScale:2\n','the missing key came back and the present one was not touched');
+  const repairedUp='ao:true\nfullscreen:false\nguiScale:2\n'+SEEDED_BINDS;
+  assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),repairedUp,'the missing keys came back, bindings included, and the present one was not touched');
+  assertDistinctBindings(repairedUp,'a repair through the install path');
+ }finally{await server.close();await tree.cleanup();}
+});
+
+// The bindings came after the display pair had shipped, so a tree the earlier build
+// seeded carries a schema-1 record. The install path may add exactly the five bindings
+// once, must move inventory and the player list together, and must not re-decide the
+// guiScale and fullscreen the player has since chosen.
+test('an install upgrades a schema-1 tree by adding only the five bindings, once',async()=>{
+ const body=Buffer.from('base-mod-jar');
+ const server=await fileServer({'/files/base.jar':body});
+ const tree=await installedTree();
+ try{
+  await fs.writeFile(path.join(tree.root,'.easter-client'),'');
+  // A tree the display-only seed had already run on, since played with windowed mode and
+  // a scale of the player's own, still carrying the vanilla bindings.
+  const before='version:4903\nfullscreen:false\nguiScale:1\n'+bindLines(VANILLA_BINDS).join('\n')+'\nfov:0.5\n';
+  await fs.writeFile(optionsFile(tree.root),before);
+  const appliedAt='2026-10-17T09:00:00.000Z';
+  await fs.writeFile(displayRecordFile(tree.root),JSON.stringify({schema:1,values:{guiScale:'2',fullscreen:'true'},appliedAt},null,2)+'\n',{mode:0o600});
+  const baseChunk={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(body),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',body)]};
+  const published=chunkFixture({base:baseChunk});
+  await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
+  const expected=before.replace('key_key.sneak:key.keyboard.left.shift','key_key.sneak:key.keyboard.left.control').replace('key_key.sprint:key.keyboard.left.control','key_key.sprint:key.keyboard.left.shift').replace('key_key.inventory:key.keyboard.e','key_key.inventory:key.keyboard.tab').replace('key_key.playerlist:key.keyboard.tab','key_key.playerlist:key.keyboard.grave.accent').replace('key_key.togglePerspective:key.keyboard.f5','key_key.togglePerspective:key.keyboard.r');
+  assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),expected,'exactly the five bindings moved in place; the player’s own scale and window mode are untouched');
+  assertDistinctBindings(expected,'a schema-1 upgrade through the install path');
+  const record=JSON.parse(await fs.readFile(displayRecordFile(tree.root),'utf8'));
+  assert.equal(record.schema,2);
+  assert.equal(record.appliedAt,appliedAt,'the seed time does not move');
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS});
+  // Exactly once: the next update run rewrites neither file.
+  const past=new Date('2020-01-01T00:00:00.000Z');
+  await fs.utimes(optionsFile(tree.root),past,past);
+  await fs.utimes(displayRecordFile(tree.root),past,past);
+  const optionsBefore=await fs.readFile(optionsFile(tree.root));
+  const repeat=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
+  assert.equal(repeat.unchanged,true);
+  assert.deepEqual(await fs.readFile(optionsFile(tree.root)),optionsBefore,'byte-identical');
+  assert.equal((await fs.stat(optionsFile(tree.root))).mtimeMs,past.getTime());
+  assert.equal((await fs.stat(displayRecordFile(tree.root))).mtimeMs,past.getTime());
  }finally{await server.close();await tree.cleanup();}
 });
 
@@ -763,7 +837,8 @@ test('the display defaults are written alongside the graphics step, not instead 
   const published=chunkFixture({base:baseChunk,graphics:graphicsChunk});
   const result=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:true,hardware:{vramMB:8188,tier:'capable'}});
   const options=shown(await fs.readFile(optionsFile(tree.root),'utf8'));
-  for(const line of ['guiScale:2','fullscreen:true','graphicsMode:fancy','renderDistance:16'])assert(options.includes(line),line+' is in options.txt: '+JSON.stringify(options));
+  for(const line of ['guiScale:2','fullscreen:true','graphicsMode:fancy','renderDistance:16',...bindLines(WANTED_BINDS)])assert(options.includes(line),line+' is in options.txt: '+JSON.stringify(options));
+  assertDistinctBindings(await fs.readFile(optionsFile(tree.root),'utf8'),'the seed beside the graphics step');
   assert.equal(await fs.stat(displayRecordFile(tree.root)).then(()=>'present',()=>'absent'),'present');
   assert.deepEqual({...result.quality},{renderDistance:16,shadowDistance:12,shaders:true},'the quality report is unchanged by the display seed');
   assert.match(await fs.readFile(path.join(tree.root,'config','iris.properties'),'utf8'),/^enableShaders:true$/m);

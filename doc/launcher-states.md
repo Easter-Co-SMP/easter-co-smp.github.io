@@ -404,12 +404,60 @@ reaches the install pipeline at all. The optional graphics chunk is never requir
 them, and they are not part of the quality step `tuned` reports. The seed happens once
 per client tree and is remembered by `.easter-client-display` inside that tree rather
 than in `installed.json`, so it cannot race the pipeline's own atomic write of the
-install marker. After the record exists the launcher never rewrites a key again: a value
+install marker. After the record covers a key the launcher never rewrites it: a value
 the player or the game changed later is theirs, and the only later write is a repair of a
 recorded key that has gone missing. A tree without the launcher's marker file is
 refused, exactly like the quality files, and the seed never runs while a client process
 is up, because a running client rewrites `options.txt` on exit. None of this adds a
 field to the state contract, and the UI never mentions it.
+
+**The seeded key bindings are the household's controls, five of them.**
+The same once-per-tree seed also writes five key bindings into that client's
+`options.txt`:
+
+| Key | Seeded value | Vanilla value | Why |
+|---|---|---|---|
+| `key_key.sneak` (crouch) | `key.keyboard.left.control` | `key.keyboard.left.shift` | swapped with sprint |
+| `key_key.sprint` (sprint) | `key.keyboard.left.shift` | `key.keyboard.left.control` | the other half of that swap |
+| `key_key.inventory` | `key.keyboard.tab` | `key.keyboard.e` | tab is where the household keeps it |
+| `key_key.playerlist` | `key.keyboard.grave.accent` | `key.keyboard.tab` | frees tab for inventory |
+| `key_key.togglePerspective` | `key.keyboard.r` | `key.keyboard.f5` | third person on R |
+
+The sprint/crouch pair is swapped on purpose, exactly as Owen asked, and that is the
+point of the change rather than an accident or a player's rebind: sprint on Left Shift
+and crouch on Left Ctrl is how the household and most other games are laid out, so
+**Ctrl is crouch in a client this launcher installs**. The values were read off the real
+clients rather than guessed, and Owen's own `~/.minecraft` already plays exactly this
+way while a launcher-installed tree is still vanilla, which is the gap this seed closes.
+A fresh tree gets all seven keys in one write.
+
+**Inventory and the player list move together.** Inventory takes `tab`, which is
+vanilla's player-list key, so applying one without the other would leave two actions on
+one key. Whenever either member of that pair is written, the seed writes both; a member
+the player is already carrying is only written when its present value is exactly the key
+a sibling is taking, so a player-chosen player-list key of their own survives a repair.
+After any seed, no two of the five seeded actions share a key.
+
+One consequence to keep in mind when reading a bug report: the client mod set includes
+Shippy Ships, whose own `key.shippy-ships.isPressingCtrl` ("Quick Build (Use Stack)")
+hotkey also defaults to Left Ctrl, so crouch and that hotkey now share a key — Owen
+plays that way already, and the launcher seeds bindings rather than mod hotkeys, so the
+collision is the player's to rebind if it ever bites. Nothing else in the client writes
+`options.txt`: the vanilla client owns that file and persists whatever it finds there on
+exit, which is why seeding it is neither redundant nor fighting a mod.
+
+**The record is versioned, so a tree seeded by an earlier schema is upgraded once.** The
+schema says which keys the record has already taken responsibility for: schema 1 covered
+`guiScale` and `fullscreen`, schema 2 adds the five bindings. A tree carrying a schema-1
+record therefore gets exactly the five bindings written once — its bindings on disk are
+the vanilla ones the game wrote, never a decision about the launcher's defaults — while
+its `guiScale` and `fullscreen`, including ones the player has since changed, are left
+exactly as they are; the record is raised to schema 2, keeps its original `appliedAt`,
+and gains an `upgradedAt`. After that, a present key is the player's again: a player who
+rebinds sprint back to Ctrl, or the player list onto a key of their own, keeps it through
+every later launcher run and update, and the only write left is repair of a recorded key
+that has gone missing, bindings included. A record carrying a schema this build does not
+know is left alone rather than pulled back down to it.
 
 **The GUI scale follows the display, and is read in physical pixels.** Owen's follow-up
 of 2026-10-18: a flat GUI scale of 2 is right on an ordinary display and too small on a
