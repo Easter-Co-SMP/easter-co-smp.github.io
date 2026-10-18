@@ -8,14 +8,15 @@
 // account service's own record, read through the owner-only profile action when the
 // section opens and never cached, so the choice shown is the choice the server holds. Only
 // the selected address is a login key; the others are recorded and cannot sign in.
-const PROVIDER_NAMES={microsoft:'Microsoft',xbox:'Xbox',discord:'Discord',steam:'Steam',email:'Email'};
+const PROVIDER_NAMES={microsoft:'Microsoft',xbox:'Xbox',discord:'Discord',steam:'Steam',google:'Google',email:'Email'};
 const providerName=value=>{
  const key=String(value||'').trim().toLowerCase();
  return PROVIDER_NAMES[key]||(key?key[0].toUpperCase()+key.slice(1):'Verified');
 };
-const NO_EMAILS='No verified email is recorded for this account. Sign in with Microsoft or with your username.';
-const NO_LOGIN_EMAIL='No login email is selected. Sign in with Microsoft or with your username.';
+const NO_EMAILS='No verified email is recorded for this account. Sign in with a linked provider or with your username.';
+const NO_LOGIN_EMAIL='No login email is selected. Sign in with a linked provider or with your username.';
 export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlineError=null}){
+ let providerAvailabilityState=null,providerPending=false;
  let state={},busy=false,dismissed=null,pendingUsername=null,replacePassword=false,advancing=false;
  const chooser=document.createElement('dialog'),username=document.createElement('dialog'),password=document.createElement('dialog'),emails=document.createElement('dialog');
  for(const dialog of [chooser,username,password])dialog.className='desktop-company-dialog';
@@ -67,15 +68,15 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   node.hidden=!shown.length;
   if(shown.length&&dialog.open)reveal(dialog,node);
  };
- const lock=value=>{busy=value;for(const dialog of [chooser,username,password,emails]){dialog.setAttribute('aria-busy',String(value));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}chooser.querySelector('.company-submit').textContent=value?'Signing in…':'Sign in';username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';emails.querySelector('.company-submit').textContent=value?'Saving…':'Save selection';};
+ const lock=value=>{busy=value;for(const dialog of [chooser,username,password,emails]){dialog.setAttribute('aria-busy',String(value));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}if(!value&&providerAvailabilityState)for(const button of chooser.querySelectorAll('[data-provider]'))button.disabled=!providerAvailabilityState.includes(button.dataset.provider);chooser.querySelector('.company-submit').textContent=value?'Signing in…':'Sign in';username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';emails.querySelector('.company-submit').textContent=value?'Saving…':'Save selection';};
  // A username the server rejects is a plain sentence beside the field, never a hint
  // about any other account: taken and policy are the only two answers there are.
  const usernamePolicy='Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.';
  const usernameTaken='That username is already taken. Try another.';
  const checkUsername=typeof desktop.checkCompanyUsername==='function'?desktop.checkCompanyUsername.bind(desktop):null;
  for(const dialog of [chooser,username,password]){
-  dialog.querySelector('.dialog-close').onclick=()=>{if(!busy)dialog.close();};
-  dialog.addEventListener('cancel',event=>{if(busy)event.preventDefault();});
+  dialog.querySelector('.dialog-close').onclick=()=>{if(dialog===chooser&&providerPending){void desktop.cancelSignIn();return;}if(!busy)dialog.close();};
+  dialog.addEventListener('cancel',event=>{if(busy){event.preventDefault();if(dialog===chooser&&providerPending)void desktop.cancelSignIn();}});
   dialog.addEventListener('close',()=>{dialog.querySelector('form').reset();for(const input of dialog.querySelectorAll('input[name=password],input[name=confirm]'))input.type='password';error(dialog,'');if(dialog!==chooser)dismissed=state.account?.id;
    // Step 1 is the choice; closing it forgets it. Step 2 keeps the username from step 1
    // so a dismissal answers the same question rather than starting the flow over, and a
@@ -159,7 +160,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
     paintEmails();
    }else{
     showEmails(outcome&&outcome.value?outcome.value:await loadEmails());
-    emailNodes.status.textContent=address===null?'Your login email is cleared. Sign in with Microsoft or with your username.':'Your login email is saved.';
+    emailNodes.status.textContent=address===null?'Your login email is cleared. Sign in with a linked provider or with your username.':'Your login email is saved.';
    }
   }
   catch(cause){
@@ -184,7 +185,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   error(emails,'');emailNodes.status.textContent='';emails.showModal();
   await loadEmails();
  }
- let chooseOptions={};
+ let chooseOptions={},recovering=false;
  // The one refusal in this flow that stops it. `identity_conflict` means the Microsoft
  // account the player just used belongs to a different Easter Company account, so there is
  // nothing to fall through to: completing a fresh sign-in would replace the account they
@@ -197,14 +198,14 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  // (desktop/accounts.cjs MESSAGES.identity_conflict, and the same wording whether the
  // launcher or the service noticed the conflict). The fallback below is only for a build
  // that answers with no sentence at all.
- const IDENTITY_CONFLICT='Sign in with the Microsoft account linked to this Easter Company account, or switch Easter Company accounts.';
+ const IDENTITY_CONFLICT='This provider belongs to a different Easter Company account.';
  // What that sentence leaves unsaid and the player needs, one line each rather than one
  // paragraph: their account is untouched, and then the way out. The way out starts by closing
  // this dialog, because that is not a detail — the profile it names is behind a modal dialog, so
  // its Switch Account control cannot be pressed until this window is gone. Neither line names an
  // account, an address or a Company ID.
  const IDENTITY_CONFLICT_UNCHANGED='Nothing on your Easter Company account has changed.';
- const IDENTITY_CONFLICT_NEXT='Close this window first. Then open your profile at the top of the page and choose Switch Account, or Add account.';
+ const IDENTITY_CONFLICT_NEXT='Close this window and sign out from your profile before signing in to a different account.';
  const identityConflictCopy=sentence=>{
   const own=typeof sentence==='string'&&sentence.trim()?sentence.trim():IDENTITY_CONFLICT;
   return [own,IDENTITY_CONFLICT_UNCHANGED,IDENTITY_CONFLICT_NEXT];
@@ -242,8 +243,31 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   const result=await signInMicrosoft({link:recover?Boolean(state.account&&!chooseOptions.switchAccount):Boolean(chooseOptions.link)});
   if(result&&recover&&state.account&&!state.account.passwordRequired)setup(true);
  }
- chooser.querySelector('.company-microsoft').onclick=()=>void microsoft();
- chooser.querySelector('.company-recover').onclick=()=>void microsoft(true);
+ chooser.querySelector('.company-microsoft').onclick=()=>void microsoft(recovering);
+ const recoveryNote=document.createElement('p');recoveryNote.className='company-recovery-note';recoveryNote.hidden=true;chooser.querySelector('.company-provider-note').after(recoveryNote);
+ const providerButtons=[];
+ for(const provider of ['google','steam','discord']){
+  const button=document.createElement('button');button.type='button';button.className='company-provider';button.dataset.provider=provider;button.textContent='Sign in with '+providerName(provider);
+  chooser.querySelector('.company-provider-note').before(button);providerButtons.push(button);
+  button.onclick=async()=>{
+   if(busy)return;error(chooser,'');providerPending=true;let completed=false;lock(true);chooser.querySelector('.dialog-close').disabled=false;
+   try{
+    const outcome=await desktop.signInProvider(provider,Boolean(state.account));
+    if(outcome?.ok===false)error(chooser,outcome.error||'Sign-in could not finish.');
+    else{chooser.close();completed=true;}
+   }catch(cause){error(chooser,cause.message||'Sign-in could not finish.');}
+   finally{providerPending=false;lock(false);render(state);if(completed&&recovering&&!state.account?.passwordRequired)setup(true);}
+  };
+ }
+ async function providerAvailability(){
+  if(typeof desktop.accountProviders!=='function')return;
+  try{const found=await desktop.accountProviders();providerAvailabilityState=found.providers||[];for(const button of providerButtons){const available=found.providers?.includes(button.dataset.provider);button.disabled=!available;button.title=available?'':'This provider is not configured.';}}
+  catch{providerAvailabilityState=[];for(const button of providerButtons){button.disabled=true;button.title='Provider availability could not be checked.';}}
+ }
+ chooser.querySelector('.company-recover').onclick=()=>{
+  recovering=true;recoveryNote.hidden=false;recoveryNote.textContent='Choose a provider already linked to your account, then set a new Easter Company password.';chooser.querySelector('form').hidden=true;
+  for(const button of providerButtons)button.hidden=Boolean(state.account)&&!state.account.providers?.includes(button.dataset.provider);
+ };
  chooser.querySelector('form').onsubmit=async event=>{
   event.preventDefault();if(busy)return;
   const form=event.currentTarget,identifier=form.elements.identifier.value.trim(),secret=form.elements.password.value;
@@ -317,7 +341,8 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   // The race the step-1 answer could not see: step 1 comes back with the name kept.
   if(walkBack){pendingUsername=walkBack.value;password.close();openUsername(walkBack.message,walkBack.value);}
  };
- password.querySelector('.company-verify').onclick=async()=>{password.close();const ok=await signInMicrosoft({link:true});if(ok)setup(replacePassword);};
+ password.querySelector('.company-verify').textContent='Verify with a linked provider';
+ password.querySelector('.company-verify').onclick=()=>{password.close();openRecovery();};
  function setup(replace=false){
   if(!state.account||password.open||busy)return;
   // A player who still has to choose a username starts at step 1, whichever action
@@ -349,5 +374,10 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   // An account that already has a username is only ever asked for its password.
   if(state.account.username)setup();else openUsername();
  }
- return {render,setup,open(options={}){chooseOptions=options;error(chooser,'');if(!chooser.open&&!busy)chooser.showModal();},async reset(){const ok=await signInMicrosoft({link:true});if(ok)setup(true);},emails:openEmails,refreshEmails};
+ function openChoice(options={}){
+  chooseOptions=options;recovering=false;recoveryNote.hidden=true;chooser.querySelector('form').hidden=false;for(const button of providerButtons)button.hidden=false;
+  error(chooser,'');if(!chooser.open&&!busy)chooser.showModal();void providerAvailability();
+ }
+ function openRecovery(){openChoice({link:Boolean(state.account)});chooser.querySelector('.company-recover').click();}
+ return {render,setup,open:openChoice,reset:openRecovery,emails:openEmails,refreshEmails};
 }

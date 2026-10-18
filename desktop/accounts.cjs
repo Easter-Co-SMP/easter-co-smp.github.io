@@ -23,13 +23,15 @@ const PROBE_REASONS={taken:'username_taken',username_taken:'username_taken',poli
 const EMAIL_STATUSES=['stored','unavailable','none'];
 // Error messages and codes from the frozen contract, mapped to one actionable line.
 const MESSAGES={
+ provider_not_configured:'This sign-in provider is not available yet.',
+ invalid_provider_token:'Your provider sign-in was not accepted. Try again.',
  invalid_credentials:'The username or email, or the password, is incorrect.',
  username_taken:'That username is already taken. Try another.',
  username_policy:'Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.',
  invalid_microsoft_token:'Your Microsoft sign-in needs to be renewed. Sign in again.',
- identity_conflict:'Sign in with the Microsoft account linked to this Easter Company account, or switch Easter Company accounts.',
+ identity_conflict:'That provider belongs to a different Easter Company account, or this account already has a different link. Sign out to use another account.',
  password_policy:'Use a password or passphrase of 15 to 128 characters. Avoid common passwords.',
- reauthentication_required:'Sign in with your linked Microsoft account to set or reset your password.',
+ reauthentication_required:'Sign in with a linked provider to set or reset your password.',
  invalid_minecraft_token:'Microsoft signed you in, but Minecraft did not accept that session. Sign in again.',
  invalid_session:'Your Easter Company session expired. Sign in again.',
  invalid_request:'The account service rejected the request. Update the launcher and try again.',
@@ -67,12 +69,15 @@ function sanitizeAccount(account){
  // No password needed means a username was claimed, so the two cannot disagree. A
  // payload that says so is a server bug and is refused rather than shown blank.
  if(!passwordRequired&&!username)throw new AccountError('invalid_response',FALLBACK);
- return {id,companyId:'EC-'+id,username,passwordRequired,minecraftUuid:uuid?uuid.toLowerCase():null,minecraftName:minecraftName||null,displayName,roles,createdAt,microsoftLinked:account.microsoftLinked===true,microsoftSubject};
+ const providers=Array.isArray(account.providers)?account.providers.filter(p=>['microsoft','google','steam','discord'].includes(p)):account.microsoftLinked?['microsoft']:[];
+ const primaryProvider=providers.includes(account.primaryProvider)?account.primaryProvider:providers[0]||null;
+ const picture=typeof account.picture==='string'&&account.picture.length<=360000&&(account.picture.startsWith('data:image/png;base64,')||/^https:\/\//.test(account.picture))?account.picture:null;
+ return {providers,primaryProvider,picture,id,companyId:'EC-'+id,username,passwordRequired,minecraftUuid:uuid?uuid.toLowerCase():null,minecraftName:minecraftName||null,displayName,roles,createdAt,microsoftLinked:account.microsoftLinked===true,microsoftSubject};
 }
 // The renderer needs a name to show, nothing more. No UUID, no token, and the Company
 // ID travels only as the opaque account handle the account menu switches on: it is
 // never a label the player reads.
-function publicAccount(session){return session?.account?{id:session.account.companyId,username:session.account.username,name:session.account.displayName||session.account.minecraftName||session.account.username||'Company member',roles:session.account.roles||[],passwordRequired:session.account.passwordRequired,microsoftLinked:session.account.microsoftLinked}:null;}
+function publicAccount(session){return session?.account?{id:session.account.companyId,username:session.account.username,name:session.account.displayName||session.account.minecraftName||session.account.username||'Company member',roles:session.account.roles||[],passwordRequired:session.account.passwordRequired,microsoftLinked:session.account.microsoftLinked,providers:session.account.providers||[],primaryProvider:session.account.primaryProvider||null,picture:session.account.picture?.startsWith('data:image/png;base64,')?session.account.picture:null}:null;}
 
 // The verified-address list is the one payload that carries an email, and it is handed
 // straight to the profile section and nowhere else. Nothing here is stored: the shape is
@@ -208,6 +213,9 @@ class AccountClient{
   // the choice survive a restart: it is asked for, never remembered.
   return this.emails(token,signal);
  }
+ async providers(signal){return this.call('/v2/accounts/providers',{signal});}
+ async refreshSession(token,signal){return this.signed(await this.call('/v2/accounts/session/refresh',{method:'POST',token,signal,body:{client:this.client}}));}
+ async updateProfile(token,body){const found=await this.call('/v2/accounts/profile',{method:'POST',token,body});return sanitizeAccount(found?.account);}
  async logout(token,signal){
   // Revocation is best effort. A refusal or a dead network must still let the
   // launcher forget the session locally, so this resolves either way.

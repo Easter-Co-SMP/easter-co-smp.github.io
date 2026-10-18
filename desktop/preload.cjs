@@ -29,7 +29,8 @@ contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  // broadcast: the list is asked for when the profile section opens, and the selection
  // answers with the whole result because a refusal carries its own code and sentence.
  profileEmails:invoke('profile-emails'),selectLoginEmail:invokeResult('login-email'),
- signOut:invoke('sign-out'),switchAccount:invoke('switch-account'),play:invoke('play'),saveSettings:invoke('settings'),
+ accountProviders:invoke('account-providers'),signInProvider:invokeResult('provider-sign-in'),updateProfile:invokeResult('profile-update'),setProfilePicture:invokeResult('profile-picture'),
+ signOut:invoke('sign-out'),play:invoke('play'),saveSettings:invoke('settings'),
  openMinecraftStore:invoke('open-minecraft-store'),openMinecraftProfile:invoke('open-minecraft-profile'),recheckAccess:invoke('recheck-access'),
  refreshAccount:invoke('account-refresh'),signOutAccount:invoke('account-sign-out'),
  chooseJava:invoke('choose-java'),openFolder:invoke('open-folder'),openMicrosoft:invoke('open-microsoft'),

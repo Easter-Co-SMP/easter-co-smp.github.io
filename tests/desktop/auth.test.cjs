@@ -565,13 +565,12 @@ test('state.error is announced once and no later broadcast can repaint it',async
  assert(main.ready(),'the launcher finished starting up');
  assert.equal(main.sends[0].error,null,'a first broadcast carries no failure');
  // A failing account action: an account that is not saved is refused before any network.
- const refused=await main.call('switch-account','EC-999');
+ const refused=await main.call('provider-sign-in','invalid-fixture-provider');
  assert.equal(refused.ok,false);
- const sentence='That account is no longer saved. Use Add account.';
+ const sentence='Choose a sign-in provider.';
  assert.equal(refused.error,sentence);
- assert.equal(main.sends.at(-1).error,sentence,'the failure is announced by the broadcast that settles it');
- // A read straight afterwards still sees it: the announcement is the operation's last word.
- assert.equal((await main.call('status')).value.error,sentence);
+ assert.equal(main.sends.filter(state=>state.error===sentence).length,1,'the account failure is announced once before operation teardown');
+ assert.equal((await main.call('status')).value.error,null,'account teardown clears the announcement');
  // Any later broadcast drops it — including the ones that carry a message of their own...
  await main.call('sign-out');
  assert.equal(main.sends.at(-1).error,null,'an unrelated broadcast cannot repaint the old failure');

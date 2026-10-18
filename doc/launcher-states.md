@@ -1,3 +1,22 @@
+> Account behavior is updated by [Provider accounts](provider-accounts.md). The new
+> contract supersedes Microsoft-only signup and Add/Switch account descriptions below.
+
+## Provider account state
+
+Account state adds public providers, primaryProvider and a PNG picture data URI or null.
+Provider subjects, tokens and email addresses remain out of broadcasts. accounts is an
+empty compatibility array; switchAccount is removed from the preload and IPC handlers.
+Only the active Microsoft game credential is retained when migrating old vaults.
+The sign-in chooser offers Microsoft, Google, Steam and Discord, with unconfigured
+providers disabled. Product access is independent of Company sign-in.
+
+New origin-checked main-process actions are account-providers, provider-sign-in(provider,
+link), profile-update(displayName), and profile-picture(remove). File picking and decoding
+stay in main; renderer input cannot supply a file path. Provider login without a linking
+intent refuses replacement of an active account. Logout is the boundary before a new login.
+The existing Company vault name and userData directory are stable across updates.
+Startup and idle renewal extend valid sessions without changing recent-authentication time.
+
 # Launcher state contract
 
 Frozen interface between the Electron main process (`desktop/`) and the shared UI

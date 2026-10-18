@@ -34,7 +34,7 @@
  // It is called the same thing in the hero, in the sticky bar and in the chooser, and it is the
  // same verb the sentences about this action already use ("Sign in again.", "Sign in with
  // Microsoft or with your username."): one action, one name.
- const LOGIN_ACTION='Sign in with Microsoft';
+ const LOGIN_ACTION='Sign in';
  let companyAuth=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const CUSTOM_SERVER='__custom__';
@@ -56,7 +56,7 @@
  const accessPanel=document.createElement('section');accessPanel.className='desktop-access';accessPanel.hidden=true;accessPanel.setAttribute('aria-label','Minecraft Java access');
  accessPanel.innerHTML='<p class="desktop-access-copy" role="status"></p><div><button type="button" data-recheck-access>Check again</button><button type="button" data-use-account>Use a different account</button></div>';
  accessPanel.querySelector('[data-recheck-access]').onclick=()=>{void desktop.recheckAccess().catch(report);};
- accessPanel.querySelector('[data-use-account]').onclick=()=>signIn({switchAccount:true});
+ accessPanel.querySelector('[data-use-account]').remove();
  const installOf=state=>state&&state.install&&typeof state.install==='object'?state.install:{};
  const progressOf=state=>state&&state.progress&&typeof state.progress==='object'?state.progress:null;
  const actionsOf=state=>state&&Array.isArray(state.actions)?state.actions:[];
@@ -89,7 +89,7 @@
   if(state?.accessChecking)return {kind:'busy',label:'Checking Java access…',note:'Please wait'};
   if(state?.account?.passwordRequired)return {kind:'setup-password',label:'Create your password',note:'Finish your Easter Company account'};
   if(state?.account&&state.microsoftConnected===false)return {kind:'connect-microsoft',label:'Sign in to Minecraft',note:'Use your linked Microsoft account'};
-  if(state?.companyReady===false&&!state.account&&(install.installed||state.microsoftAccount))return {kind:'signin',label:LOGIN_ACTION,note:'Microsoft account required'};
+  if(state?.companyReady===false&&!state.account&&(install.installed||state.microsoftAccount))return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account required'};
   if(state?.minecraftAccess==='missing')return {kind:'buy',label:'Buy Now',note:'Minecraft Java Edition required'};
   if(state?.minecraftAccess==='profile-required')return {kind:'setup-profile',label:'Set up Java profile',note:'Choose your Java player name'};
   if(state?.minecraftAccess==='unknown')return {kind:'check-access',label:'Retry account check',note:'Java access could not be confirmed'};
@@ -97,12 +97,12 @@
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Please wait'};
   if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
   // A download or install under way asks for the account while the player waits.
-  if(!account&&(transferring(state)||(!actions.includes('download')&&actions.includes('signin'))))return {kind:'signin',label:LOGIN_ACTION,note:'Microsoft account required'};
+  if(!account&&(transferring(state)||(!actions.includes('download')&&actions.includes('signin'))))return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account required'};
   if(account&&transferring(state))return {kind:'busy',label:phase==='paused'?'Download paused':'Installing Minecraft…',note:'Follow progress below'};
   // Fresh install: nothing downloaded and no account requirement to show yet.
   if(actions.includes('download')||install.installed!==true)
    return {kind:'download',label:'Download the game',note:'Easter Company client'};
-  return {kind:'signin',label:LOGIN_ACTION,note:'Microsoft account required'};
+  return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account required'};
  }
 
  const panel=document.createElement('dialog');panel.id='desktop-launcher';panel.setAttribute('aria-labelledby','desktop-title');
@@ -893,8 +893,7 @@
  // section an address is ever displayed.
  const emailLine=document.createElement('p');emailLine.className='desktop-profile-heading desktop-email';emailLine.hidden=true;profileMenu.append(emailLine);
  for(const [label,action,key] of [
-  ['Add account',()=>{profileMenu.hidePopover();signIn({switchAccount:true});},'add'],
-  ['Switch Account',()=>renderAccountList(),'switch'],
+  ['Profile & linked accounts',()=>{profileMenu.hidePopover();void import('./company-profile.mjs').then(({openCompanyProfile})=>openCompanyProfile({desktop,getState:()=>current,signInMicrosoft})).catch(report);},'companyProfile'],
   ['Logout',()=>{profileMenu.hidePopover();void desktop.signOut().catch(report);},'logout'],
   ['Reset password',()=>{profileMenu.hidePopover();void companyUI.then(ui=>ui.reset()).catch(report);},'companyPassword'],
   ['Verified emails',()=>{profileMenu.hidePopover();void companyUI.then(ui=>ui.emails()).catch(report);},'companyEmails']]){
@@ -935,26 +934,17 @@
    button.disabled=locked;
    button.hidden=button.dataset.profileAction.startsWith('company')&&!state.account;
   }
-  if(!accountList.hidden)renderAccountList();
+
   // The email line belongs to one account and to one read of it.
   if(!emailView||!account||emailView.id!==account.id){emailLine.hidden=true;emailLine.textContent='';}
   if(!account){emailView=null;if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
   const ctx=face.getContext('2d');
-  const source=state.microsoftConnected?state.profile?.skin||'':'';
+  const source=account.picture||'';
   const key=account.id+source;if(key===skinSource)return;skinSource=key;
   ctx.fillStyle='#536b66';ctx.fillRect(0,0,32,32);ctx.fillStyle='#eedbb2';ctx.font='bold 20px sans-serif';ctx.textAlign='center';ctx.fillText((account.username||account.name)[0],16,24);
-  if(source.startsWith('data:image/png;base64,')){
-   const image=new Image();image.onload=()=>{if(skinSource!==key)return;ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;ctx.drawImage(image,8,8,8,8,0,0,32,32);ctx.drawImage(image,40,8,8,8,0,0,32,32);};image.src=source;
+  if(source.startsWith('data:image/png;base64,')||source.startsWith('https://')){
+   const image=new Image();image.onload=()=>{if(skinSource!==key)return;ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;ctx.drawImage(image,0,0,32,32);};image.src=source;
   }
- }
- function renderAccountList(){
-  accountList.replaceChildren();accountList.hidden=false;
-  const accounts=current?.accounts||[];
-  for(const account of accounts){
-   const button=document.createElement('button');button.type='button';button.textContent=(account.username||account.name)+(account.id===(current.account?.id)?' (current)':'');button.disabled=account.id===(current.account?.id)||signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
-   button.onclick=async()=>{button.disabled=true;try{await desktop.switchAccount(account.id);profileMenu.hidePopover();}catch(error){profileMenu.hidePopover();report(error);}finally{renderAccountList();}};accountList.append(button);
-  }
-  if(!accounts.length)accountList.textContent='No saved accounts. Use Add account.';
  }
 
  barPrimary.onclick=()=>heroAction();

@@ -230,3 +230,15 @@
    rather than sliding behind either of them. Unset — no sentence on screen, or a key whose content
    already fits above every edge — leaves the key laid out exactly as it always was. */
 .desktop-mode .atlas .key-content{max-height:var(--launcher-notice-key-space,none);overflow:auto;overscroll-behavior:contain}
+
+/* Provider choices share visible controls and remain usable on short screens. */
+.desktop-company-dialog .company-provider{display:block;width:100%;margin-top:8px;padding:12px;border:1px solid #ffffff38;border-radius:6px;background:#122b34;color:#e5e9df;font:600 13px/1.4 system-ui;cursor:pointer}
+.desktop-company-dialog button:disabled{opacity:.5;cursor:default}
+.desktop-company-dialog button:focus-visible{outline:2px solid var(--app-gold);outline-offset:3px}
+#company-profile form button,.company-picture-actions button,.company-provider-link button{min-height:40px;padding:9px 13px;border:1px solid #ffffff38;border-radius:6px;background:#17333c;color:#e5e9df;font:600 12px/1.4 system-ui;cursor:pointer}
+#company-profile form button{width:100%;border-color:var(--app-gold)}
+.company-picture-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.company-provider-links{display:grid;gap:8px}
+.company-provider-link{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #ffffff18;font:13px/1.5 system-ui}
+.company-provider-link span{min-width:0;overflow-wrap:anywhere}
+.company-provider-link button{flex-shrink:0}

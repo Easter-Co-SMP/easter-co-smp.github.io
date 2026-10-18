@@ -1,10 +1,12 @@
 'use strict';
-const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog,screen,Tray,Menu}=require('electron');
+const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog,screen,Tray,Menu,nativeImage}=require('electron');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{pathToFileURL}=require('node:url'),{execFile}=require('node:child_process');
 const {MicrosoftAuth,SignInLog,DEFAULT_CLIENT_ID}=require('./auth.cjs');
 const {AccountClient,AccountError,publicAccount,companySession,storedSession,companyVaultName,MESSAGES:ACCOUNT_MESSAGES,USERNAME_PATTERN}=require('./accounts.cjs');
 const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation,serverList}=require('./config.cjs');
 const vault=require('./vault.cjs');
+const {providerSignIn}=require('./providers.cjs');
+const {hydratePicture}=require('./profile.cjs');
 const identity=require('./identity.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,migrateLaunchPreferences,launchBehaviour,includeGraphicsValue}=require('./security.cjs');
 const {APP_USER_MODEL_ID,ICON_FILE,wantsAutoStart,autoStartDecision,shortcutSupport,readGameShortcuts,applyGameShortcuts}=require('./shortcuts.cjs');
@@ -128,7 +130,7 @@ function notify(patch={}){
  if(!('error' in patch))patch={...patch,error:null};
  if('progress' in patch)progress=patch.progress;
  if(typeof patch.phase==='string')phase=patch.phase;
- state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedCompanyAccounts()};
+ state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:[]};
  const install=installInfo(),actions=remainingActions();
  const paused=Boolean(control&&control.paused&&!control.cancelled);
  state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),settings,shortcuts:shortcutState,launcherUpdate}};
@@ -171,6 +173,7 @@ function secureStorageAvailable(){return safeStorage.isEncryptionAvailable()&&(p
 const vaultOptions=()=>({safeStorage,platform:process.platform});
 function saveSession(){
  if(session){savedAccounts=savedAccounts.filter(entry=>identity.id(entry)!==identity.id(session)&&!(session.microsoftId&&entry.microsoftId===session.microsoftId)&&!(session.xuid&&session.xuid!=='0'&&entry.xuid===session.xuid)&&!(session.profile&&entry.profile?.id===session.profile.id));savedAccounts.push(session);}
+ savedAccounts=session?[session]:[];
  const payload={active:identity.id(session),accounts:[...savedAccounts]};
  // Skin loading and sign-in can finish together. Serialize atomic vault writes.
  sessionWrite=sessionWrite.catch(()=>{}).then(async()=>{
@@ -203,6 +206,8 @@ async function loadSkin(target){
 // The Easter Company session uses the same vault discipline as the Microsoft one:
 // OS-backed safeStorage or nothing at all.
 async function saveCompany(){
+ const target=company,profile=target?.account;
+ if(target){const hydrated=await hydratePicture(profile,{request:(...args)=>net.fetch(...args),nativeImage});if(company!==target)return;if(target.account===profile)target.account=hydrated;}
  const write=company?await vault.writeEncrypted(companyFile(),{token:company.token,expiresAt:company.expiresAt,account:company.account},vaultOptions()):false;
  if(!write)await vault.remove(companyFile());
 }
@@ -217,12 +222,13 @@ async function accountOperation(action){
  try{return control?await action():await exclusively(action);}
  finally{accountWorking=false;notify({});}
 }
+async function renewCompany(){
+ const target=company;if(!target)return;
+ try{const signed=await accounts.refreshSession(target.token);if(company!==target||accountWorking||controller)return;company=companySession(signed);await saveCompany();notify({});}
+ catch(error){if(company!==target)return;if(error.code==='invalid_session'){company=null;await vault.remove(companyFile());notify({message:ACCOUNT_MESSAGES.invalid_session});}}
+}
 function companyReady(){return Boolean(company&&company.expiresAt>Date.now()&&company.account.passwordRequired===false);}
 function microsoftConnected(){return Boolean(company&&session&&company.account.microsoftSubject&&session.companySubject===company.account.microsoftSubject);}
-function savedCompanyAccounts(){
- const seen=new Set();
- return savedAccounts.filter(entry=>Number.isSafeInteger(entry.companyId)&&!seen.has(entry.companyId)&&seen.add(entry.companyId)).map(entry=>({id:'EC-'+entry.companyId,username:entry.companyUsername||null,name:entry.companyName||entry.profile?.name||'Company member'}));
-}
 // Only a successful server-verified login replaces the current Company identity.
 async function enrolAccount({announce=true,throwOnError=false,candidate=session,lockCompany=true}={}){
  if(!candidate)return;
@@ -233,9 +239,7 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
   // account's own email. It is optional: when it cannot be obtained the sign-in carries
   // on without it, and it is put in the first account request only.
   const microsoftAccessToken=typeof auth.graphAccessToken==='function'?await auth.graphAccessToken(candidate.refreshToken,controller?.signal):null;
-  let signed;
-  try{signed=await accounts.login(candidate.xboxUserToken,controller?.signal,lockCompany&&company?.expiresAt>Date.now()?company.token:undefined,microsoftAccessToken);}
-  catch(error){if(error.code!=='invalid_session'||!lockCompany||!company)throw error;signed=await accounts.login(candidate.xboxUserToken,controller?.signal);}
+  const signed=await accounts.login(candidate.xboxUserToken,controller?.signal,lockCompany&&company?.expiresAt>Date.now()?company.token:undefined,microsoftAccessToken);
   // The Microsoft identity the service answered with is not the one this launcher is signed
   // in to. The sentence is the account service's own, from the one table that words these
   // refusals (accounts.cjs MESSAGES), so the player reads the same copy whichever side
@@ -361,6 +365,7 @@ async function setGraphics(enabled){
  });
 }
 async function login(options={}){
+ if(company&&!options.link)throw Error('Sign out before signing in to a different account.');
  controller=new AbortController();
  notify({message:'Opening Microsoft sign-in…',device:null,...(control?{}:{progress:null})});
  try{
@@ -589,7 +594,7 @@ function registerIPC(){
   // Settings asks this whenever it opens, and the answer carries the two shortcut
   // entries as they are on this computer right now rather than as last saved.
   await refreshShortcuts();
-  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedCompanyAccounts(),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
+  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:[],settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
  });
  handle('sign-in',async(options={})=>{
   if(controller||accountWorking)throw Error('Account sign-in is already running.');
@@ -601,14 +606,41 @@ function registerIPC(){
   }
   return exclusively(()=>login({link:options?.link===true}));
  });
- handle('switch-account',id=>exclusively(async()=>{
-  if(typeof id!=='string'||!/^EC-[1-9][0-9]{0,17}$/.test(id))throw Error('Choose a saved Easter Company account.');
-  const selected=savedAccounts.find(entry=>'EC-'+entry.companyId===id);
-  if(!selected)throw Error('That account is no longer saved. Use Add account.');
-  let refreshed;
-  try{refreshed=await auth.refresh(selected,undefined,true);}catch{throw Error('This account needs to sign in again. Use Add account.');}
-  await enrolAccount({candidate:refreshed,lockCompany:false,announce:false,throwOnError:true});
-  notify({message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
+ handle('account-providers',()=>accounts.providers());
+ handle('provider-sign-in',(provider,link=false)=>accountOperation(async()=>{
+  if(company&&!link)throw Error('Sign out before signing in to a different account.');
+  const abort=new AbortController();controller=abort;
+  try{
+   const signed=await providerSignIn(accounts,provider,{token:link?company?.token:undefined,signal:abort.signal,openExternal:url=>shell.openExternal(url)});
+   const next=companySession(signed);
+   if(link&&company&&next.account.id!==company.account.id)throw new AccountError('identity_conflict',ACCOUNT_MESSAGES.identity_conflict);
+   const previous=company;company=next;
+   session=savedAccounts.find(entry=>entry.companyId===next.account.id&&entry.companySubject===next.account.microsoftSubject)||null;
+   await saveSession();await saveCompany();
+   if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
+   notify({message:signed.created?'Account created. Choose your username and password.':'Provider connected.'});
+   return publicAccount(company);
+  }finally{if(controller===abort)controller=null;}
+ }));
+ handle('profile-update',(displayName)=>accountOperation(async()=>{
+  if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
+  company.account=await accounts.updateProfile(company.token,{displayName});await saveCompany();notify({});return publicAccount(company);
+ }));
+ handle('profile-picture',(remove=false)=>accountOperation(async()=>{
+  if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
+  let picture=null;
+  if(!remove){
+   const chosen=await dialog.showOpenDialog(window,{title:'Choose profile picture',properties:['openFile'],filters:[{name:'Images',extensions:['png','jpg','jpeg','webp']}]});
+   if(chosen.canceled)return {cancelled:true};
+   const file=chosen.filePaths[0],info=await fs.stat(file);
+   if(info.size>5*1024*1024)throw Error('Choose an image smaller than 5 MB.');
+   let image=nativeImage.createFromBuffer(await fs.readFile(file));
+   if(image.isEmpty())throw Error('This picture could not be opened.');
+   const size=image.getSize(),edge=Math.min(size.width,size.height);
+   image=image.crop({x:Math.floor((size.width-edge)/2),y:Math.floor((size.height-edge)/2),width:edge,height:edge}).resize({width:256,height:256});
+   picture='data:image/png;base64,'+image.toPNG().toString('base64');
+  }
+  company.account=await accounts.updateProfile(company.token,{picture});await saveCompany();notify({});return publicAccount(company);
  }));
  handle('continue-microsoft',()=>accountOperation(async()=>{
   if(!session)throw Error('Sign in with Microsoft to continue.');
@@ -618,6 +650,7 @@ function registerIPC(){
  // Direct Company login. The identifier is the Easter Company username or the email the
  // account was created with; neither a Company ID nor anything else is accepted here.
  handle('company-login',(identifier,password)=>accountOperation(async()=>{
+  if(company)throw Error('Sign out before signing in to a different account.');
   const login=typeof identifier==='string'?identifier.trim():'';
   if(!login||login.length>254||typeof password!=='string'||password.length>128)throw Error('Enter your username or email and your password.');
   const signed=await accounts.loginPassword(login,password);
@@ -638,7 +671,7 @@ function registerIPC(){
  });
  // The username is claimed with the first password and never travels again.
  handle('company-password',(password,replace=false,username)=>accountOperation(async()=>{
-  if(!company)throw Error('Sign in with Microsoft first.');
+  if(!company)throw Error('Sign in with a provider first.');
   if(typeof password!=='string'||[...password].length<15||[...password].length>128)throw Error('Use a password or passphrase of 15 to 128 characters.');
   let claim=null;
   if(username!==undefined&&username!==null&&username!==''){
@@ -930,6 +963,7 @@ if(instance){
   if(saved&&Array.isArray(saved.accounts)){
    savedAccounts=saved.accounts.filter(identity.valid);
    session=savedAccounts.find(entry=>identity.id(entry)===saved.active)||null;
+   savedAccounts=session?[session]:[];await saveSession();
    state.remembered=Boolean(session);
   }else if(secureStorageAvailable())try{
    session=JSON.parse(safeStorage.decryptString(await fs.readFile(vaultFile())));
@@ -955,6 +989,8 @@ if(instance){
   // The game shortcut's own launch. Scheduled after the startup update gates so the
   // auto-start waits for them rather than racing them.
   if(wantsAutoStart(process.argv))void autoStart();
+  if(company)void renewCompany();
+  const renewal=setInterval(()=>{if(company&&!accountWorking&&!controller)void renewCompany();},6*60*60*1000);renewal.unref();
   if(session?.profile&&!session.profile.skin){const target=session;void loadSkin(target).then(async()=>{if(session===target)await saveSession();});}
  });
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
