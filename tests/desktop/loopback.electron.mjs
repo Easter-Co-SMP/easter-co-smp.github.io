@@ -11,8 +11,12 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import {createRequire} from 'node:module';
 import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
 const root=process.cwd();
+// The guiScale rule itself, so the value the launcher writes is compared with the rule
+// applied to this display instead of with a constant that would pass on any screen.
+const {displayGuiScale}=createRequire(import.meta.url)(path.join(root,'desktop','hardware.cjs'));
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'easter-loopback-test-'));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const sha256=buffer=>crypto.createHash('sha256').update(buffer).digest('hex');
@@ -134,11 +138,21 @@ try{
  // Nothing above installed anything: the tree was current before the app started, so
  // this is the path a returning player takes.
  const seeded=await fs.readFile(optionsPath,'utf8');
- check(/^guiScale:2$/m.test(seeded),'starting the launcher seeded guiScale:2 into the client options.txt: '+JSON.stringify(seeded));
+ // What this screen asks for, read from the real window rather than from a constant:
+ // the renderer states its own screen size and pixel ratio, and the rule is applied to
+ // that exactly as the main process applied it before the window existed.
+ const seen=await page.evaluate(()=>({width:window.screen.width,height:window.screen.height,devicePixelRatio:window.devicePixelRatio,widthPx:Math.round(window.screen.width*window.devicePixelRatio),heightPx:Math.round(window.screen.height*window.devicePixelRatio)}));
+ const inMain=await app.evaluate(({screen})=>{const display=screen.getPrimaryDisplay();return {width:display.size.width,height:display.size.height,scaleFactor:display.scaleFactor,widthPx:Math.round(display.size.width*display.scaleFactor),heightPx:Math.round(display.size.height*display.scaleFactor)};});
+ const expectedScale=displayGuiScale(seen);
+ console.log('  info the renderer read window.screen '+seen.width+'x'+seen.height+' CSS px at devicePixelRatio '+seen.devicePixelRatio+' = '+seen.widthPx+'x'+seen.heightPx+' physical; the main process read the primary display as '+inMain.width+'x'+inMain.height+' at scaleFactor '+inMain.scaleFactor+' = '+inMain.widthPx+'x'+inMain.heightPx+' physical; the rule says guiScale '+expectedScale);
+ check(inMain.widthPx===seen.widthPx&&inMain.heightPx===seen.heightPx,'the physical display the main process resolved is the one the renderer is drawn on: '+JSON.stringify({main:inMain,renderer:seen}));
+ check(displayGuiScale(inMain)===expectedScale,'so the launch-time answer and the renderer’s own screen agree on the rule’s result: '+expectedScale);
+ check(new RegExp('^guiScale:'+expectedScale+'$','m').test(seeded),'starting the launcher seeded guiScale:'+expectedScale+', the rule applied to this display ('+seen.widthPx+'x'+seen.heightPx+' physical), into the client options.txt: '+JSON.stringify(seeded));
  check(/^fullscreen:true$/m.test(seeded),'and fullscreen:true, read back from the file');
- check(seeded.split('\n').filter(Boolean).every(line=>/^(guiScale:2|fullscreen:true)$/.test(line)),'and nothing else was written into it: '+JSON.stringify(seeded));
+ const expectedLines=new RegExp('^(guiScale:'+expectedScale+'|fullscreen:true)$');
+ check(seeded.split('\n').filter(Boolean).every(line=>expectedLines.test(line)),'and nothing else was written into it: '+JSON.stringify(seeded));
  const seedRecord=JSON.parse(await fs.readFile(displayRecordPath,'utf8'));
- check(seedRecord.schema===1&&seedRecord.values?.guiScale==='2'&&seedRecord.values?.fullscreen==='true','the seed is remembered by its own record in the tree: '+JSON.stringify(seedRecord));
+ check(seedRecord.schema===1&&seedRecord.values?.guiScale===String(expectedScale)&&seedRecord.values?.fullscreen==='true','the seed is remembered by its own record in the tree, with the value that was applied: '+JSON.stringify(seedRecord));
  check(await fs.readFile(path.join(clientRoot,'installed.json'),'utf8')===installedBefore,'the install marker is byte-identical: the seed did not create or race it');
  check(await fs.stat(path.join(clientRoot,'config','iris.properties')).then(()=>'present',()=>'absent')==='absent','the seed is not the graphics step: no iris.properties was written');
  check(requests.every(entry=>entry.path.startsWith('/data/')),'and the seed fetched nothing');
@@ -233,7 +247,7 @@ try{
  const iris=await fs.readFile(path.join(clientRoot,'config','iris.properties'),'utf8');
  check(/^graphicsMode:(fancy|fast)$/m.test(options),'the client options carry a graphics mode: '+options.trim().split('\n').join(' '));
  check(new RegExp('^renderDistance:'+onState.graphics.tuned.renderDistance+'$','m').test(options),'and the render distance that was reported');
- check(/^guiScale:2$/m.test(options)&&/^fullscreen:true$/m.test(options),'the display defaults are still there after the graphics write');
+ check(new RegExp('^guiScale:'+expectedScale+'$','m').test(options)&&/^fullscreen:true$/m.test(options),'the display defaults are still there after the graphics write: guiScale:'+expectedScale);
  check(/^enableShaders:true$/m.test(iris),'the shader loader is switched on');
  check(/^shaderPack:ComplementaryUnbound_r5\.9\.3\.zip$/m.test(iris),'and names the pack Owen chose');
  check(onState.graphics.tuned.shaders===true||onState.graphics.tuned.shaders===false,'shaders are reported as written');
@@ -279,5 +293,5 @@ try{
  await fs.rm(temp,{recursive:true,force:true});
 }
 
-console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults from its startup path on an already-installed tree and wrote nothing on the second run, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, and applied the enhanced graphics toggle in both directions by writing the client\'s own quality files':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
+console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for, from its startup path on an already-installed tree and wrote nothing on the second run, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, and applied the enhanced graphics toggle in both directions by writing the client\'s own quality files':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
 process.exitCode=failures===0?0:1;

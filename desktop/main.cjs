@@ -1,5 +1,5 @@
 'use strict';
-const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog}=require('electron');
+const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog,screen}=require('electron');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{pathToFileURL}=require('node:url');
 const {MicrosoftAuth,DEFAULT_CLIENT_ID}=require('./auth.cjs');
 const {AccountClient,AccountError,publicAccount,companySession,storedSession,companyVaultName}=require('./accounts.cjs');
@@ -9,7 +9,7 @@ const identity=require('./identity.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,includeGraphicsValue}=require('./security.cjs');
 const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
 const {renderOffload}=require('./hardware.cjs');
-const {detectHardware,installedQuality,applyDisplayDefaults}=require('./hardware.cjs');
+const {detectHardware,installedQuality,applyDisplayDefaults,displayGuiScale,displayPhysicalPixels}=require('./hardware.cjs');
 const APP_VERSION=require('../package.json').version;
 // The installed application is "Easter Co. Launcher". The per-user directory stays
 // "Easter Company": renaming it would orphan the saved account and settings of anyone
@@ -104,11 +104,25 @@ function notify(patch={}){
 // sign-in action through `actions`, and the phase returns to the resting value.
 function settle(message,extra={}){phase=null;progress=null;control=null;notify({message,device:controller?state.device:null,...extra});}
 async function refreshClient(){client=await clientStatus(gameRoot());await readQuality();}
-// Owen asked for a first launch that is already fullscreen at GUI scale 2, and a
-// returning player never reaches the install pipeline: for a tree that is already
-// installed and current, checkForUpdates reports "nothing changed" and never calls
-// installClient, so the display defaults are seeded from the startup path too. It is
-// once per client tree - a tree that carries the seed record is two file reads and
+// The display the client will open on, in the pixels the player actually has. Electron
+// reports a display's size in device-independent pixels, so a 2160p screen at 200%
+// scaling reports 1920x1080 there; the client's interface is laid out in physical
+// pixels, which is why the GUI scale table is read in them. The primary display is
+// meant on purpose: the client opens fullscreen, and the primary display is what a
+// fullscreen window opens on and what the player is looking at. The screen module
+// only answers once the app is ready, so this is only ever called from the startup
+// path and the pipeline, never at module load, and a display it cannot describe is
+// passed on as unknown rather than guessed.
+function clientDisplayPixels(){
+ try{return displayPhysicalPixels(screen.getPrimaryDisplay());}
+ catch{return {widthPx:null,heightPx:null};}
+}
+function clientGuiScale(){return displayGuiScale(clientDisplayPixels());}
+// Owen asked for a first launch that is already fullscreen at a GUI scale suited to the
+// screen, and a returning player never reaches the install pipeline: for a tree that is
+// already installed and current, checkForUpdates reports "nothing changed" and never
+// calls installClient, so the display defaults are seeded from the startup path too. It
+// is once per client tree - a tree that carries the seed record is two file reads and
 // nothing else - and it writes only inside the launcher's own marked tree. It never
 // runs while a client process is up, because a running client rewrites options.txt on
 // exit and would silently undo it; at startup there is no client process. It cannot
@@ -116,7 +130,7 @@ async function refreshClient(){client=await clientStatus(gameRoot());await readQ
 // it and no status field describes it.
 async function seedClientDisplay(){
  if(!client?.installed||game)return null;
- try{return await applyDisplayDefaults(gameRoot());}
+ try{return await applyDisplayDefaults(gameRoot(),{guiScale:clientGuiScale()});}
  catch{return null;}
 }
 function secureStorageAvailable(){return safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');}
@@ -238,7 +252,7 @@ async function withControl(action){
 }
 async function runInstall({includeGraphics=Boolean(settings.includeGraphics)}={}){
  return withControl(async()=>{
-  const result=await installClient({root:gameRoot(),settings,notify,control,mode:'install',includeGraphics,hardware:hardwareState()});
+  const result=await installClient({root:gameRoot(),settings,notify,control,mode:'install',includeGraphics,hardware:hardwareState(),guiScale:clientGuiScale()});
   await refreshClient();
   if(!client.installed)throw Error('Installation did not complete. Retry to repair the missing client files.');
   settle(result.message||'Client ready.');
@@ -250,7 +264,7 @@ async function runInstall({includeGraphics=Boolean(settings.includeGraphics)}={}
 // does not notify at all unless it is going to do work.
 async function runUpdate(){
  return withControl(async()=>{
-  const result=await checkForUpdates({root:gameRoot(),settings,notify,control,includeGraphics:Boolean(settings.includeGraphics),hardware:hardwareState()});
+  const result=await checkForUpdates({root:gameRoot(),settings,notify,control,includeGraphics:Boolean(settings.includeGraphics),hardware:hardwareState(),guiScale:clientGuiScale()});
   await refreshClient();
   if(result.applied)settle(result.result?.message||'Client updated.');
   return result;
@@ -278,7 +292,7 @@ async function setGraphics(enabled){
  return withControl(async()=>{
   let result;
   try{
-   result=await applyGraphics({root:gameRoot(),settings,notify,control,includeGraphics:enabled,hardware:hardwareState()});
+   result=await applyGraphics({root:gameRoot(),settings,notify,control,includeGraphics:enabled,hardware:hardwareState(),guiScale:clientGuiScale()});
   }catch(error){
    // The toggle itself succeeded: the player's choice is saved and the next check
    // picks the chunk up. Only the transfer failed, and that is what is reported.

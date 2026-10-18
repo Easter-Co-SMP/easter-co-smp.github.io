@@ -395,21 +395,56 @@ report enough about the GPU to promise a quality level, and `tuned` is
 `{renderDistance, shadowDistance, shaders}` actually written into the client.
 
 **The display defaults come from the install and from startup, not from this toggle.**
-Owen's requirement is that a new player's first launch is already fullscreen at a GUI
-scale of 2, so the launcher writes `guiScale:2` and `fullscreen:true` into the client's
-own `options.txt` whether Enhanced Graphics is on or off: from the install pipeline,
-and also from the startup path of a tree that is already installed, because a
-returning player's update check finds nothing changed and never reaches the install
-pipeline at all. The optional graphics chunk is never required for them, and they are
-not part of the quality step `tuned` reports. The seed happens once per client tree and
-is remembered by `.easter-client-display` inside that tree rather than in
-`installed.json`, so it cannot race the pipeline's own atomic write of the install
-marker. After the record exists the launcher never rewrites a key again: a value the
-player or the game changed later is theirs, and the only later write is a repair of a
+Owen's requirement is that a new player's first launch is already fullscreen, at a GUI
+scale their own display can read, so the launcher writes `guiScale` and
+`fullscreen:true` into the client's own `options.txt` whether Enhanced Graphics is on or
+off: from the install pipeline, and also from the startup path of a tree that is already
+installed, because a returning player's update check finds nothing changed and never
+reaches the install pipeline at all. The optional graphics chunk is never required for
+them, and they are not part of the quality step `tuned` reports. The seed happens once
+per client tree and is remembered by `.easter-client-display` inside that tree rather
+than in `installed.json`, so it cannot race the pipeline's own atomic write of the
+install marker. After the record exists the launcher never rewrites a key again: a value
+the player or the game changed later is theirs, and the only later write is a repair of a
 recorded key that has gone missing. A tree without the launcher's marker file is
-refused, exactly like the quality files, and the seed never runs while a client
-process is up, because a running client rewrites `options.txt` on exit. None of this
-adds a field to the state contract, and the UI never mentions it.
+refused, exactly like the quality files, and the seed never runs while a client process
+is up, because a running client rewrites `options.txt` on exit. None of this adds a
+field to the state contract, and the UI never mentions it.
+
+**The GUI scale follows the display, and is read in physical pixels.** Owen's follow-up
+of 2026-10-18: a flat GUI scale of 2 is right on an ordinary display and too small on a
+high-resolution one. `displayGuiScale` in `desktop/hardware.cjs` is the whole rule, a
+pure function of a pixel size:
+
+| Physical height | `guiScale` |
+|---|---|
+| 2160 (2160p and up) | 4 |
+| 1350 (1440p, 1600p) | 3 |
+| anything shorter, down to the smallest display | 2 |
+| no usable size reported | 2 |
+
+Height is the axis that binds: a 21:9 1440p display is as tall as any other 1440p one,
+and the interface a player runs out of room on is the vertical one. 1080p deliberately
+stays on the bottom rung, so both household machines keep the 2 they are tuned to, and
+the table stops at 4 because that is as far as the launcher is willing to go on a
+high-resolution display we have not played on — a limit of ours, not a claim about what
+the client itself allows. A rung the display cannot actually show is not written either:
+the client needs 320x240 pixels per scale step, so a display too small to fit the wanted
+rung gets the lower one it does fit (on a very small screen that is 1), rather than being
+recorded at a scale the game would silently reduce. An unusable answer from the caller
+is not invented into the file; the seed writes the documented fallback of 2.
+
+The scale is computed from the display the client will actually open on, measured in
+**physical** pixels: `screen.getPrimaryDisplay()` in the main process, inside
+`app.whenReady()`, and `display.size * display.scaleFactor` rather than the
+device-independent size, because a 2160p screen at 200% scaling describes itself as
+1080p and its interface is still laid out in 2160 physical lines. The primary display is
+meant: the client opens fullscreen, and a fullscreen window opens on the primary display,
+the one the player is looking at. That value is passed through `installClient` into the
+seed, so the startup seed and the install-pipeline seed cannot disagree. The record
+stores the value that was applied, and a repair reuses it: a launcher moved to a second
+screen never re-decides a tree that has already been seeded, and a player who changes the
+scale in game keeps their choice.
 
 The server field becomes a choice with a working default, and the entries are
 published by the main process rather than hardcoded in the view:
