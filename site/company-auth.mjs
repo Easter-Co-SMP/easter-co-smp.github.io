@@ -156,6 +156,32 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   await loadEmails();
  }
  let chooseOptions={};
+ // The one refusal in this flow that stops it. `identity_conflict` means the Microsoft
+ // account the player just used belongs to a different Easter Company account, so there is
+ // nothing to fall through to: completing a fresh sign-in would replace the account they
+ // are signed in to, which is the opposite of an answer.
+ //
+ // The code decides that, and a code cannot cross the isolated world inside a thrown Error,
+ // which is why the saved-session shortcut answers with its whole result ({ok, value} or
+ // {ok:false, error, code}); a bridge that still throws is read the same way rather than
+ // being ignored. The sentence itself is the account service's own, carried on the failure
+ // (desktop/accounts.cjs MESSAGES.identity_conflict, and the same wording whether the
+ // launcher or the service noticed the conflict). The fallback below is only for a build
+ // that answers with no sentence at all.
+ const IDENTITY_CONFLICT='That Microsoft account belongs to a different Easter Company account. Use the linked account or switch Company accounts.';
+ // What that sentence leaves unsaid and the player needs: their account is untouched, and
+ // switching Company accounts is something the profile can do. Both are said here, in the
+ // place the failure is read, and neither names an account, an address or a Company ID.
+ const IDENTITY_CONFLICT_NEXT='Nothing on your Easter Company account has changed. To use a different Easter Company account, open your profile at the top of the page and choose Switch Account, or Add account.';
+ const identityConflictCopy=sentence=>{
+  const own=typeof sentence==='string'&&sentence.trim()?sentence.trim():IDENTITY_CONFLICT;
+  return own+' '+IDENTITY_CONFLICT_NEXT;
+ };
+ // The saved-session shortcut, answered as one result the renderer can read.
+ const continueSaved=async()=>{
+  try{const answer=await desktop.continueMicrosoft();return answer&&typeof answer==='object'?answer:{ok:true,value:answer};}
+  catch(cause){return {ok:false,error:cause&&cause.message,code:cause&&cause.code};}
+ };
  async function microsoft(recover=false){
   if(busy)return;
   const useSaved=!recover&&!chooseOptions.switchAccount&&state.microsoftAccount&&typeof desktop.continueMicrosoft==='function';
@@ -168,16 +194,17 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   // shortcut failing rather than the sign-in, so the player still gets the code that the
   // Forgot your password path already gives them.
   if(useSaved){
-   try{await desktop.continueMicrosoft();return;}
-   catch(cause){
-    if(cause&&cause.code==='identity_conflict'){
-     // Identity conflict is the one stop: the player has to choose the Microsoft account linked
-     // to this Easter Company account, so the chooser comes back carrying that sentence.
-     // Choosing Microsoft closed it, and its own close handler runs as a task after this catch,
-     // so the dialog is reopened once that task has run rather than racing the reset it does.
-     await new Promise(resolve=>setTimeout(resolve,0));
-     chooser.showModal();error(chooser,cause.message);return;
-    }
+   const answer=await continueSaved();
+   if(!answer||answer.ok!==false)return;
+   if(answer.code==='identity_conflict'){
+    // Identity conflict is the one stop: the player has to choose the Microsoft account linked
+    // to this Easter Company account, so the chooser comes back carrying that sentence and
+    // nothing else opens. No device code, no second sign-in, and the account stays as it was.
+    // Choosing Microsoft closed the chooser, and its own close handler runs as a task after
+    // this answer arrives, so the dialog is reopened once that task has run rather than
+    // racing the reset it does.
+    await new Promise(resolve=>setTimeout(resolve,0));
+    chooser.showModal();error(chooser,identityConflictCopy(answer.error));return;
    }
   }
   const result=await signInMicrosoft({link:recover?Boolean(state.account&&!chooseOptions.switchAccount):Boolean(chooseOptions.link)});
