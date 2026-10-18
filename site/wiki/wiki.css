@@ -2,6 +2,11 @@
 .wiki .site-header{width:100%;height:64px;padding:0 32px;background:#10232b;border-color:#ffffff14}
 .wiki-skip{position:fixed;left:16px;top:12px;z-index:20;opacity:0;pointer-events:none;background:var(--gold);color:#10232b;padding:12px 18px;border-radius:6px}.wiki-skip:focus{opacity:1;pointer-events:auto}
 .wiki-layout{display:grid;grid-template-columns:228px minmax(0,1fr);gap:56px;width:min(1300px,calc(100% - 80px));margin:0 auto;min-height:calc(100dvh - 123px)}
+/* The failure notice is a fixed band across the top of the page, and site/desktop.js publishes the
+   room it needs as --launcher-notice-space (0 while no notice is showing). A guide page has no hero
+   card for that reservation to sit on, so it is taken here, on the layout that holds the sidebar and
+   the article: the first line of each column then starts below the band instead of under it. */
+.desktop-mode .wiki-layout{padding-top:var(--launcher-notice-space,0px)}
 .wiki-sidebar{position:sticky;top:0;align-self:start;padding:38px 0;max-height:100dvh;overflow-y:auto;scrollbar-width:thin}
 .wiki-brand{display:flex;gap:13px;align-items:center;text-decoration:none;color:#e6d5b3;font:19px Georgia,serif}.wiki-brand>svg{width:30px;height:30px;color:var(--gold)}.wiki-brand small{display:block;font:10px system-ui;color:var(--muted);margin-top:6px;letter-spacing:.035em}
 .wiki-search{margin:31px 0 26px}.wiki-search label{display:block;font-size:11px;color:#bdc9c2;margin-bottom:10px}.wiki-search>div{position:relative}.wiki-search input{width:100%;min-width:0;border:1px solid #ffffff25;border-radius:7px;background:#081a2270;color:var(--ink);padding:12px 32px 12px 12px;font-size:12px;line-height:1.4}.wiki-search input::placeholder{color:#8b9e9c}.wiki-search input:focus{border-color:#dbba7980}.wiki-search kbd{position:absolute;right:12px;top:13px;font:11px system-ui;color:#839795;pointer-events:none}.wiki-search:focus-within kbd{display:none}

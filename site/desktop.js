@@ -213,21 +213,43 @@
  // The notice carries a dismiss control as its last child; replacing the text drops it.
  function clearFailureNodes(){for(const node of failureNodes()){node.hidden=true;node.textContent='';node.classList.remove('is-error','is-notice');}reserveNoticeSpace();}
  function clearEmailNotice(){const node=emailNoticeNode();node.hidden=true;node.textContent='';node.classList.remove('is-notice');}
- // The notice is a fixed band above the sheet, and the hero card keeps its place below it. Where
- // the band would reach into the card the page reserves the room the notice needs, so it never
- // sits on the crest or the heading. How far the card moves for one pixel of reserved space
- // depends on how the window centres it, so the reservation is measured instead of assumed: one
+ // The notice is a fixed band above the sheet, and the page keeps its place below it. Where the
+ // band would reach into the content the page reserves the room the notice needs, so it never
+ // sits on the crest, the heading, or a guide's first line.
+ //
+ // Home reserves on the hero card, and how far that card moves for one pixel of reserved space
+ // depends on how the window centres it, so that reservation is measured instead of assumed: one
  // pass finds the card's response, the second gives exactly the room the notice asks for.
+ //
+ // A guide page has no hero card, so its room is reserved on the layout that holds the sidebar and
+ // the article (site/wiki/wiki.css reads --launcher-notice-space for it). Those columns are in
+ // normal flow, so the reserved padding and the movement are the same number and one pass is
+ // exact. The measurement is taken from the first block of each column the band actually reaches,
+ // because which column it covers depends on the window width: at 1440 the sidebar sits clear of
+ // the centred band and the guide's eyebrow line is what it lands on, and below that the sidebar's
+ // own brand and search are. A band that reaches nothing reserves nothing.
  function reserveNoticeSpace(){
   const root=document.documentElement;
   const set=value=>root.style.setProperty('--launcher-notice-space',Math.max(0,Math.round(value))+'px');
   const shown=!notice.hidden&&Boolean(notice.textContent.trim());
-  const card=document.querySelector('.hero-copy');
-  if(!shown||!card){if(root.style.getPropertyValue('--launcher-notice-space')!=='0px')set(0);return;}
+  const card=document.querySelector('.hero-copy'),layout=shown&&!card?document.querySelector('.wiki-layout'):null;
+  if(!shown||(!card&&!layout)){if(root.style.getPropertyValue('--launcher-notice-space')!=='0px')set(0);return;}
   set(0);
-  const bottom=notice.getBoundingClientRect().bottom,gap=16;
+  const band=notice.getBoundingClientRect(),gap=16;
+  if(layout){
+   let reserve=0;
+   for(const column of layout.children){
+    const first=column.firstElementChild||column,box=first.getBoundingClientRect();
+    // An unrendered column has nothing to clear, and only a column the band horizontally reaches
+    // can be covered by it.
+    if(box.height<=0||box.width<=0||box.right<=band.left||box.left>=band.right||box.top>=band.bottom)continue;
+    reserve=Math.max(reserve,band.bottom+gap-box.top);
+   }
+   set(reserve);
+   return;
+  }
   const start=card.getBoundingClientRect().top;
-  const deficit=Math.ceil(bottom+gap-start);
+  const deficit=Math.ceil(band.bottom+gap-start);
   // The band above the card is already clear: nothing to reserve.
   if(deficit<=0)return;
   const probe=Math.max(deficit,80);

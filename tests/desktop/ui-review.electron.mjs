@@ -244,6 +244,88 @@ try{
  await send({...ready,error:'Unable to start Minecraft. Try again.'});
  assert.equal(await page.locator('.desktop-page-notice').isVisible(),true,'utility pages show failures');
  assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'utility failures do not open settings');
+ // A guide page has no hero card for Home's reservation to sit on, so until this pass the fixed
+ // notice band covered the guide's eyebrow line at 1440 and the sidebar's brand and search box at
+ // 800 and 390 — interactive controls, under a band whose Dismiss control was the only thing
+ // reachable there. What must hold at every width is that the band reaches nothing: the guide's
+ // first line reads below it, and no control — the brand, the search input, the topic links, the
+ // header's own nav — is under it, asked both by box intersection and by elementFromPoint at the
+ // point the band would have covered.
+ const guideNotice=()=>page.evaluate(()=>{
+  const box=node=>{const r=node.getBoundingClientRect();return {left:Math.round(r.left),top:Math.round(r.top),right:Math.round(r.right),bottom:Math.round(r.bottom)};};
+  const notice=document.querySelector('.desktop-page-notice'),band=box(notice),controls=[];
+  const add=(name,node)=>{if(node&&node.getClientRects().length)controls.push({name,box:box(node)});};
+  add('brand',document.querySelector('.wiki-brand'));
+  add('search',document.querySelector('.wiki-search input'));
+  add('topics toggle',document.querySelector('.wiki-topics-toggle'));
+  for(const link of document.querySelectorAll('#wiki-topics a'))add('topic link',link);
+  for(const link of document.querySelectorAll('.site-header nav a, .site-header nav button'))add('nav',link);
+  const under=controls.filter(control=>control.box.right>band.left&&control.box.left<band.right&&control.box.bottom>band.top&&control.box.top<band.bottom).map(control=>control.name);
+  const reached=[];
+  for(const control of controls){
+   const x=Math.round((Math.max(control.box.left,band.left)+Math.min(control.box.right,band.right))/2);
+   const y=Math.round((Math.max(control.box.top,band.top)+Math.min(control.box.bottom,band.bottom))/2);
+   if(x<0||y<0||x>=innerWidth||y>=innerHeight)continue;
+   const hit=document.elementFromPoint(x,y);
+   if(hit&&hit.closest('.desktop-page-notice'))reached.push(control.name);
+  }
+  const first=document.querySelector('.wiki-page-header');
+  return {band,under,reached,first:first?box(first):null,content:box(document.querySelector('.wiki-content')),reserved:getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-space').trim(),overflow:document.documentElement.scrollWidth<=innerWidth+1};
+ });
+ const checkGuideNotice=async(where)=>{
+  for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+   await page.setViewportSize({width,height});
+   // The reserved room is layout, so it is re-measured on the frame after the window changes, and
+   // the band itself re-wraps when the window narrows: wait for the reservation to settle before
+   // reading it, exactly as the Home notice helper above does.
+   await page.waitForFunction(()=>{
+    const notice=document.querySelector('.desktop-page-notice'),brand=document.querySelector('.wiki-brand');
+    return !notice||!brand||notice.getBoundingClientRect().bottom<=brand.getBoundingClientRect().top+1;
+   },{timeout:4000}).catch(()=>{});
+   const geometry=await guideNotice();
+   assert.deepEqual(geometry.under,[],'the notice reaches no control on '+where+' at '+width+'px: '+JSON.stringify(geometry));
+   assert.deepEqual(geometry.reached,[],'and elementFromPoint agrees on '+where+' at '+width+'px: '+JSON.stringify(geometry));
+   assert(geometry.first&&geometry.first.top>=geometry.band.bottom+1,'the first line of '+where+' reads below the notice at '+width+'px: '+JSON.stringify(geometry));
+   assert(geometry.overflow,'and the reserved room adds no horizontal overflow at '+width+'px');
+   await shot('notice-wiki-'+where+'-'+width);
+  }
+  await page.setViewportSize({width:1360,height:920});
+ };
+ await checkGuideNotice('overview');
+ // The same checks on an actual guide, which is the page the reviewer measured: the eyebrow
+ // line the band used to sit on is the article's own header here.
+ await page.locator('.wiki-card').first().click();
+ await page.locator('.wiki-article-section').first().waitFor();
+ await checkGuideNotice('guide');
+ assert((await page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-space').trim()))!=='0px','the guide page reserves the room the notice asks for');
+ // An install/update failure, in the sentences that no longer print a status. The update gate's
+ // own sentence, and a download failure on Home, at the same three widths: each says what stopped
+ // and what to do, and neither carries an HTTP status or a provider code.
+ const installFailure='The download stopped before it finished. Your installed files are unchanged.';
+ const updateFailure='Launcher update required. The launcher update could not be checked. Check your connection and try again.';
+ const noStatus=text=>assert(!/HTTP\s*\d|\b[45]\d\d\b|XErr/.test(text),'the sentence the player reads carries no status: '+text);
+ await send({...ready,launcherUpdate:{phase:'blocked',percent:null,message:updateFailure}});
+ await page.locator('#desktop-update').waitFor({state:'visible'});
+ noStatus(await page.locator('#desktop-update [data-update-detail]').innerText());
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  const gate=await page.locator('#desktop-update').boundingBox();
+  assert(gate.x>=0&&gate.x+gate.width<=width+1&&gate.y>=0&&gate.y+gate.height<=height+1,'the update failure fits '+width+'px');
+  await shot('update-failure-'+width);
+ }
+ await page.setViewportSize({width:1360,height:920});
+ await send({...ready,launcherUpdate:{phase:'current'},error:installFailure});
+ await page.locator('.desktop-page-notice').filter({hasText:installFailure}).waitFor();
+ noStatus(await page.locator('.desktop-page-notice').evaluate(el=>el.firstChild.textContent));
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  const notice=await page.locator('.desktop-page-notice').boundingBox();
+  assert(notice.x>=0&&notice.x+notice.width<=width+1,'the install failure notice fits '+width+'px');
+  assert.equal(await page.locator('.desktop-page-notice').isVisible(),true,'the install failure is visible at '+width+'px');
+  await shot('install-failure-'+width);
+ }
+ await page.setViewportSize({width:1360,height:920});
+ await page.getByRole('button',{name:'Dismiss message'}).click();
  // The launch-time pair, honestly. Main is told by EASTER_TEST_TRAY=0 that this desktop
  // has no status-notifier host, which is the state of the test seat, of a bare X session
  // and of Owen's own i3/polybar seat: polybar's tray is XEmbed, so no watcher owns the
