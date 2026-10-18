@@ -477,3 +477,26 @@ test('a malformed list is refused rather than half-rendered',async()=>{
  assert.equal(error.message,'The Easter Company account service could not be reached.');
  assert(!error.message.includes(EMAIL_ONE));
 });
+
+test('the account service email answer rides the sign-in as a status word, never an address',async()=>{
+ // The sign-in dialog can only say "we could not read your Microsoft email address" if the
+ // service's own answer reaches it. It travels as one of three words: no address, and an
+ // answer this launcher does not recognise is dropped rather than echoed.
+ const statuses=[['stored','stored'],['unavailable','unavailable'],['none','none']];
+ for(const [sent,expected] of statuses){
+  const stub=await startStub(({response})=>send(response,200,{...loginBody(false),emailStatus:sent}));
+  try{assert.equal((await client(stub.origin).login(TOKEN)).emailStatus,expected);}finally{await stub.close();}
+ }
+ // A server that says nothing leaves the field out: absence is not a claim of 'none'.
+ const silent=await startStub(({response})=>send(response,200,loginBody(false)));
+ try{assert.equal('emailStatus' in await client(silent.origin).login(TOKEN),false);}finally{await silent.close();}
+ // Neither an unknown word nor an address smuggled into the field can reach the renderer.
+ for(const bogus of ['captain@example.test','unavailable:captain@example.test','STORED','']){
+  const stub=await startStub(({response})=>send(response,200,{...loginBody(false),emailStatus:bogus}));
+  try{
+   const signed=await client(stub.origin).login(TOKEN);
+   assert.equal('emailStatus' in signed,false,'only the three known words leave this module: '+JSON.stringify(bogus));
+   assert(!JSON.stringify(signed).includes('captain@example.test'));
+  }finally{await stub.close();}
+ }
+});

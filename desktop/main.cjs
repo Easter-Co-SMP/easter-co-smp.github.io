@@ -36,7 +36,10 @@ const accountsFile=()=>path.join(configRoot(),'accounts.enc');
 const vaultFile=()=>path.join(configRoot(),'account.enc');
 const companyFile=()=>path.join(configRoot(),companyVaultName());
 const clientId=process.env.EASTER_MICROSOFT_CLIENT_ID||DEFAULT_CLIENT_ID;
-const auth=new MicrosoftAuth({clientId});
+// The sign-in log doc/launcher-states.md describes: one redacted line per step, in the
+// per-user directory beside the settings and the vaults, so a failure the owner reports
+// can be read back as which leg failed rather than guessed at. Nothing else writes it.
+const auth=new MicrosoftAuth({clientId,logPath:path.join(configRoot(),'signin.log'),version:APP_VERSION});
 const accounts=new AccountClient({baseUrl:apiOrigin(),client:'launcher/'+APP_VERSION});
 const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false,desktopShortcut:false,startMenuShortcut:false};
 // The launcher state contract in doc/launcher-states.md. `phase` and `progress`
@@ -110,7 +113,12 @@ function installInfo(){
 }
 function notify(patch={}){
  if(company&&company.expiresAt<=Date.now())company=null;
- if('message' in patch && !('error' in patch))patch={...patch,error:null};
+ // A failure is announced once, by the broadcast that settles the operation that failed,
+ // and every later broadcast drops it again. Anything else leaves a stale sentence in the
+ // state for any unrelated update to repaint — which is how a long-finished failure kept
+ // reappearing over a sign-in the player had just started. A new account action clears it
+ // as it begins, because that also starts with a broadcast that carries no error.
+ if(!('error' in patch))patch={...patch,error:null};
  if('progress' in patch)progress=patch.progress;
  if(typeof patch.phase==='string')phase=patch.phase;
  state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedCompanyAccounts()};
@@ -228,7 +236,11 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
   await loadSkin(session);await saveSession();await saveCompany();
   if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
   if(announce)notify({message:signed.created?'Easter Company account created. Set a password to finish.':'Signed in to your Easter Company account.'});
-  return publicAccount(company);
+  // The account service's answer about the Microsoft account's own email address travels
+  // back on the sign-in answer, not in the state: it is one status word ('stored',
+  // 'unavailable', 'none') with no address in it, and the sign-in dialog is the only thing
+  // that needs it, for the one sentence it shows when Graph could not be read.
+  return {...publicAccount(company),...(typeof signed?.emailStatus==='string'?{emailStatus:signed.emailStatus}:{})};
  }catch(error){
   if(error.name==='AbortError')throw error;
   if(throwOnError)throw error;
@@ -334,8 +346,11 @@ async function login(options={}){
  notify({message:'Opening Microsoft sign-in…',device:null,...(control?{}:{progress:null})});
  try{
   const signed=await auth.signIn(device=>notify({device,message:'Enter this code on Microsoft’s sign-in page.'}),controller.signal);
-  await enrolAccount({candidate:signed,lockCompany:options.link===true,throwOnError:true});
+  const enrolled=await enrolAccount({candidate:signed,lockCompany:options.link===true,throwOnError:true});
   notify({device:null,message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
+  // The sign-in answer is the one place `emailStatus` leaves the main process, so the
+  // sign-in dialog can say that Microsoft's address could not be read. No address, ever.
+  return typeof enrolled?.emailStatus==='string'?{emailStatus:enrolled.emailStatus}:undefined;
  }finally{controller=undefined;}
 }
 // Install or update before launch. Returns the prepared release, or null when the

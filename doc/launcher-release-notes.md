@@ -10,3 +10,5 @@ The wiki now contains twelve complete guides to the custom rules of Easter Co. S
 The guides focus on installed custom mechanics, including death-loss exceptions, reverse rowing, bounty jurisdiction, banking input units, crew permissions and custom food/equipment recipes. They replace all demo articles and demo notices.
 
 Gameplay content was checked against the installed Easter Navy mod, the loaded Matcha datapack and existing focused tests. Publication does not change gameplay rules or require a server restart. Website/browser and offline Electron checks cover the wiki; no real Microsoft login, Windows installer interaction or production gameplay transaction is claimed by this release.
+
+This release also preserves the preceding sign-in update: clearer step-specific failures, one visible home for each failure, a fresh-sign-in fallback for an unusable saved Microsoft session, redacted bounded sign-in diagnostics, and the service email notice.

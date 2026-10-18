@@ -43,11 +43,58 @@ meaning. These are added or extended:
 | `canPlay` | boolean | Exactly `install.installed && profile !== null` |
 | `bar` | object | `{visible}`: progress/action dock availability. The renderer omits an idle dock on Home because Home already provides the action; utility pages retain it. The minimised preference stays renderer-local. |
 | `settings` | object | The saved settings, exactly as `status()` already returned them, so the Settings dialog refreshes from a broadcast as well as from a read. |
-| `error` | string \| null | Safe operation failure text for a visible notice. Cleared by the next operation or a new ordinary message. Cancellation is not an error. Older states without this field still render. |
+| `error` | string \| null | Safe operation failure text, announced in the one broadcast that carries it and dropped from the next, so no later unrelated broadcast can repaint an old failure; a new account action clears it as it starts. A sign-in failure names its step (see *Sign-in steps, sentences and the redacted log*). **It has exactly one home, and the UI decides it, not the state:** while the sign-in dialog is on screen the failure belongs to that dialog's own error area and to nothing else; otherwise it belongs to the page notice, with its dismiss control. The Settings dialog is never an error surface. The renderer owns the sentence once delivered — it keeps it without re-reading this field, and only a dismissal or a new action (sign-in, Play, download, save settings) takes it away. A failure already given a home is never shown again by a later broadcast, a re-open or a close. Cancellation is not an error. Older states without this field still render. |
 
 `canPlay` is the single source of truth for the Play action. No view may compute
 its own version of the gate, and no view may enable Play on install completion
 alone.
+
+## One failure, one visible home (2026-10-18)
+
+A single failed operation is announced by the main process **twice**: `exclusively()`
+settles a state carrying `error` (which every other broadcast then repeats, because
+`error` stays set until the next ordinary message clears it) and it also rejects the
+account IPC promise. The UI must not turn that into two failures, two places, or a
+failure that returns.
+
+- **One home.** While the sign-in dialog is on screen, a failure belongs to that
+  dialog's own error area (`.desktop-auth-error`) and to nothing else, because a
+  failed sign-in is the sign-in dialog's news. With no sign-in dialog on screen the
+  failure belongs to the page notice, once, with its dismiss control.
+- **Settings is never an error surface.** The settings dialog carries the server,
+  the preferences and the shortcuts, and no status or failure area of any kind. A
+  failure is never moved into it because it happened to be open, and opening or
+  closing it never shows, repeats or brings back a failure.
+- **Delivered once, then owned by the UI.** A failure is delivered when `error`
+  becomes a sentence that has not been delivered yet, and the renderer keeps it from
+  then on: it never re-reads `error` to decide whether the notice is still valid,
+  because main drops the sentence from the next broadcast and a notice that depended
+  on it would flash and vanish. Repeated broadcasts of the same sentence deliver
+  nothing. Dismissing a failure, or starting a new action (sign-in, Play, download,
+  save settings), clears what is on screen without making that sentence deliverable
+  again — a stale repaint stays stale.
+- **A running sign-in is never presented as failed.** While the sign-in dialog is
+  showing its device code and browser action, or while a sign-in call is still
+  outstanding, a sentence arriving from the state channel is not painted over them.
+  A failure that really ends the flow arrives through the call that rejected, after
+  which the dialog closes and the sentence takes its one home.
+- **A closed dialog does not take its failure with it.** When the sign-in dialog
+  closes while it was showing a failure, that sentence moves to the page notice. It
+  does not vanish, and no other dialog inherits it.
+- **Nothing is hard-coded.** The UI renders whatever sentence the state or the
+  rejected call supplies; it does not compose or re-word failures.
+
+**Microsoft's email answer is a notice, not a failure.** The sign-in answer may carry
+`emailStatus` (`'stored'`, `'unavailable'`, `'none'`) at its own top level. Only
+`'unavailable'` says anything: the sign-in dialog holds the sentence "We could not
+read your Microsoft email address. You can sign in, and choose a login email later
+from your profile." until the player closes the dialog, and `'stored'` and `'none'`
+say nothing at all. No address is printed anywhere, and a build that answers without
+the field renders exactly as before. The word comes from the account service's own
+sign-in answer: `desktop/accounts.cjs` accepts only those three values and drops
+anything else (including an address sent in that field), `enrolAccount()` carries it
+on the sign-in result, and `desktop/main.cjs` returns it from the `sign-in` action —
+it is deliberately not part of `launcher:state`, so no broadcast ever carries it.
 
 ## Bar behaviour
 
@@ -829,6 +876,11 @@ not open Settings. Save can be submitted by keyboard and cannot submit twice whi
 pending. Client settings may be opened during gameplay; changes apply on a later
 launch. Graphics changes remain disabled while the game is running.
 
+**Update 2026-10-18: one failure, one surface.** The line above used to allow both a
+dialog and the notice at once, and nothing said which failure belonged where. The
+rule is now the one under *One failure, one visible home*: a failure has one home,
+delivered once, and it is never reproduced by reopening or closing a dialog.
+
 ## Mandatory update gate (2026-10-17)
 
 This supersedes the optional update preferences and notification-only launcher check above.
@@ -860,6 +912,64 @@ Actions may include buy, setup-profile or check-access. The hero and utility-pag
 dock use Buy Now only for confirmed missing entitlement, never an outage.
 Fixed-destination IPC opens the official store/profile pages; recheckAccess
 reuses the Microsoft session and can return directly to Download or Play.
+
+## Sign-in steps, sentences and the redacted log (2026-10-18)
+
+A sign-in is six steps, in this order, whether it starts from a fresh device code or from
+the saved session the account is already holding. Each step owns one sentence, so the
+notice says which leg failed instead of collapsing every answer into "Sign-in could not
+finish. Please try again."
+
+| Step id | Sentence |
+|---|---|
+| `device-code` | `Microsoft sign-in (device code) could not start: …` |
+| `code-completion` | `Microsoft sign-in (code completion) failed: …` |
+| `xbox-live` | `Xbox Live did not accept the Microsoft sign-in: …` |
+| `xsts` | `Xbox Live authorisation (XSTS) did not accept the sign-in: …` |
+| `minecraft` | `Minecraft sign-in failed: …` |
+| `java-profile` | `The Java profile could not be read: …` |
+
+`code-completion` is the token exchange on both routes: the device-code poll and the
+refresh of a saved session. The generic sentence is kept for a genuinely unknown step and
+is not used by any of the six.
+
+The reason after the colon carries what is safe and useful: the HTTP status, the AAD
+`error` string (`invalid_grant`, `invalid_scope`, `unauthorized_client`…), the Xbox `XErr`
+number with its own advice, and Minecraft's own distinction — `HTTP 401` (the Xbox Live
+session was refused), `HTTP 403` (this account may not sign in), `HTTP 5xx` (temporarily
+unavailable) and `HTTP 429` each read differently. Nothing from a response body, and no
+token, refresh token, device code, user code or email address, is ever part of a sentence.
+
+**The log is `userData/signin.log`.** One line per step, appended, LF endings:
+
+```
+2026-10-18T04:52:31.123Z v1.0.17 step=xsts outcome=failed http=400 code=XErr2148916238
+```
+
+Fields: ISO-8601 UTC timestamp, launcher version, step, outcome (`ok` or `failed`), HTTP
+status or `-`, provider code or `-`, and an optional `note=reissued` when the Xbox Live
+token had to be minted first. A network failure is one line with `code=network`. The two
+poll answers that only mean "the player has not finished on Microsoft's page yet"
+(`authorization_pending`, `slow_down`) are not step outcomes and are not logged, so a
+sign-in that is simply waiting writes nothing. A step that fails writes exactly one line,
+before its sentence is thrown, and nothing else in the launcher writes to this file.
+
+The file is bounded: when a line would take it past 64 KiB it is rotated once to
+`signin.log.1`, so at most two files exist however many times the launcher signs in. A log
+that cannot be written never affects the sign-in. `signin.log` is a diagnostic for the
+owner and is never read by the launcher, never broadcast, and not part of this contract.
+
+**The Xbox Live leg always holds a token minted for its own scope.** The device code asks
+for `XboxLive.signin offline_access https://graph.microsoft.com/User.Read` in one consent,
+and Microsoft decides which of those resources an answer is minted for. Before
+`user.auth.xboxlive.com` the launcher therefore checks the token's own claims: an Xbox Live
+audience, or an Xbox Live scope claim, is proof that it may be presented as the RPS ticket.
+Anything else — an opaque answer, a Graph audience, no audience — is not proof, and the
+token is reissued for `XboxLive.signin` from the same refresh token first, with one
+`xbox-live` log line and `note=reissued`. That replaces the earlier silent retry, which
+swallowed its own failure and rethrew the original: the path is now deterministic, written
+down, and the same on the saved-session route, which is where a failure is most likely to
+appear because it re-runs the whole chain from a stored refresh token.
 
 ## Company identity and password login
 
