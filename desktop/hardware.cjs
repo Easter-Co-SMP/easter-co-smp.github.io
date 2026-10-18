@@ -490,10 +490,69 @@ async function applyQualitySettings(root,quality,{marker='.easter-client'}={}){
  await fs.writeFile(irisFile,iris,{mode:0o600});
  return {optionsFile,irisFile,tuned:tunedDigest(quality)};
 }
+// ---- the GUI scale this display asks for --------------------------------------
+// Owen's follow-up of 2026-10-18: a flat GUI scale of 2 was right on an ordinary
+// display and too small on a high-resolution one, so the seeded scale follows the
+// display the client will open on. The table is the whole rule, and it is read in
+// PHYSICAL pixels, because that is what the player actually has:
+//
+//   physical height >= 2160 (2160p and up)  -> 4
+//   physical height >= 1350 (1440p, 1600p)  -> 3
+//   anything shorter, down to the smallest  -> 2
+//   no usable size reported                 -> 2
+//
+// Height is the axis that binds: a 21:9 1440p display is as tall as any other 1440p
+// one, and the interface a player runs out of room on is the vertical one, so the
+// rungs are heights. They are cut where 2 stops being legible rather than at round
+// numbers of width, and 1080p stays on the bottom rung on purpose: both household
+// machines are 1080p and keep the 2 Owen asked for, which is the whole promise of
+// the change. Nothing above 4 is ever seeded, and that ceiling is the launcher's own
+// decision: 4 is as far as we are willing to go on a high-resolution display we have
+// not played on, and it is not a claim about what the client itself allows.
+//
+// A rung the display cannot show is not written either. The client lays its interface
+// out in 320x240 steps, so a display too small to fit the wanted rung gets the lower
+// one it does fit - on a very small screen that can be 1 - instead of the launcher
+// recording a number the game would have to reduce.
+const GUI_SCALE_LADDER=[
+ {minHeightPx:2160,guiScale:4},
+ {minHeightPx:1350,guiScale:3},
+ {minHeightPx:1,guiScale:2}
+];
+const GUI_SCALE_DEFAULT=2;
+// One scale step needs this much room in the client's window.
+const GUI_SCALE_STEP={widthPx:320,heightPx:240};
+function positivePixels(value){
+ const number=Number(value);
+ return Number.isFinite(number)&&number>0?number:null;
+}
+function displayGuiScale({widthPx,heightPx}={}){
+ const height=positivePixels(heightPx),width=positivePixels(widthPx);
+ // No reported height is not a small display: it is an unknown one, and an unknown
+ // display gets the ordinary-display answer rather than a guess in either direction.
+ if(height===null)return GUI_SCALE_DEFAULT;
+ const rung=GUI_SCALE_LADDER.find(candidate=>height>=candidate.minHeightPx);
+ const wanted=rung?rung.guiScale:GUI_SCALE_DEFAULT;
+ const fitsWidth=width===null?Infinity:Math.floor(width/GUI_SCALE_STEP.widthPx);
+ const fitsHeight=Math.floor(height/GUI_SCALE_STEP.heightPx);
+ return Math.max(1,Math.min(wanted,fitsWidth,fitsHeight));
+}
+// Electron reports a display's size in device-independent pixels and the factor it
+// multiplies them by; the client draws, and the table above is read, in physical
+// pixels. This is the one conversion, kept pure so it can be stated and tested
+// without a running display server.
+function displayPhysicalPixels(display){
+ const size=display&&typeof display==='object'&&display.size&&typeof display.size==='object'?display.size:{};
+ const factor=Number(display&&display.scaleFactor);
+ const scale=Number.isFinite(factor)&&factor>0?factor:1;
+ const width=positivePixels(size.width),height=positivePixels(size.height);
+ return {widthPx:width===null?null:Math.round(width*scale),heightPx:height===null?null:Math.round(height*scale)};
+}
 // ---- the client's display defaults -------------------------------------------
 // Owen's goal: a new player's first launch is already fullscreen at a GUI scale of 2.
-// Two keys in the vanilla client's own options.txt carry that, and they are seeded
-// once per client tree. The first seed writes both values whether or not the game has
+// Two keys in the vanilla client's own options.txt carry that — the GUI scale the
+// display asked for above, and fullscreen — and they are seeded once per client tree.
+// The first seed writes both values whether or not the game has
 // written options.txt before, because the game writes every key on its first exit and
 // a tree that has already been played would otherwise never see them. A small record
 // inside the same app-owned tree remembers that the seed happened, so after it exists
@@ -505,6 +564,19 @@ async function applyQualitySettings(root,quality,{marker='.easter-client'}={}){
 // launcher's marker.
 const DISPLAY_DEFAULTS={guiScale:'2',fullscreen:'true'};
 const DISPLAY_RECORD='.easter-client-display';
+// The range this launcher is willing to seed: 1 to 4, the ladder's bottom and its own
+// ceiling. Anything outside it is not a scale the launcher decided, so the documented
+// ordinary-display default is written instead of passing the value through.
+const GUI_SCALE_RANGE={min:1,max:4};
+// What the first seed writes: Owen's two defaults with the scale this display asked
+// for. An answer that is not a usable scale is not invented into the file - the
+// documented fallback of 2 is written instead, so a broken screen probe costs the
+// ordinary-display default and nothing else.
+function displayDefaultValues(guiScale){
+ const number=Number(guiScale);
+ const fit=Number.isInteger(number)&&number>=GUI_SCALE_RANGE.min&&number<=GUI_SCALE_RANGE.max?String(number):DISPLAY_DEFAULTS.guiScale;
+ return {...DISPLAY_DEFAULTS,guiScale:fit};
+}
 async function readDisplayRecord(file){
  try{
   const record=JSON.parse(await fs.readFile(file,'utf8'));
@@ -512,11 +584,16 @@ async function readDisplayRecord(file){
   return record;
  }catch{return null;}
 }
-async function applyDisplayDefaults(root,{marker='.easter-client',record=DISPLAY_RECORD,now=()=>new Date().toISOString()}={}){
+// `guiScale` is the value the display asked for (displayGuiScale of the display the
+// client will open on). It is only ever used for the first seed: after the record
+// exists the recorded value is the one a repair reuses, so a player who moved the
+// launcher to another screen does not have their choice re-decided.
+async function applyDisplayDefaults(root,{marker='.easter-client',record=DISPLAY_RECORD,now=()=>new Date().toISOString(),guiScale=null}={}){
  const base=path.resolve(String(root||''));
  if(!root)throw Error('There is no client folder to write display settings into.');
  try{await fs.stat(path.join(base,marker));}
  catch{throw Error('That folder is not the launcher’s client tree, so its settings were not touched.');}
+ const defaults=displayDefaultValues(guiScale);
  const optionsFile=path.join(base,'options.txt');
  const recordFile=path.join(base,record);
  // No record, or one that cannot be read, means this tree has not been seeded yet.
@@ -524,15 +601,16 @@ async function applyDisplayDefaults(root,{marker='.easter-client',record=DISPLAY
  const text=await readText(optionsFile);
  const existing=parseProperties(text??'');
  const wanted={};
- for(const [key,fallback] of Object.entries(DISPLAY_DEFAULTS)){
+ for(const [key,fallback] of Object.entries(defaults)){
   const value=typeof remembered?.values?.[key]==='string'&&remembered.values[key]!==''?remembered.values[key]:fallback;
   if(!remembered||!existing.has(key))wanted[key]=value;
  }
  if(!Object.keys(wanted).length)return {optionsFile,recordFile,written:false,firstSeed:false,keys:[]};
  await fs.writeFile(optionsFile,mergeProperties(text??'',wanted),{mode:0o600});
- // Written once, on the first seed. A repair leaves the record as it was, so a repeat
- // run touches neither file's mtime.
- if(!remembered)await fs.writeFile(recordFile,JSON.stringify({schema:1,values:{...DISPLAY_DEFAULTS},appliedAt:now()},null,2)+'\n',{mode:0o600});
+ // Written once, on the first seed, and it stores the values that were applied rather
+ // than the defaults, so a repair restores what this tree was actually seeded with. A
+ // repair leaves the record as it was, so a repeat run touches neither file's mtime.
+ if(!remembered)await fs.writeFile(recordFile,JSON.stringify({schema:1,values:{...wanted},appliedAt:now()},null,2)+'\n',{mode:0o600});
  return {optionsFile,recordFile,written:true,firstSeed:!remembered,keys:Object.keys(wanted)};
 }
 // The installed marker records what was written, so status() can report it without
@@ -568,4 +646,4 @@ async function installedQuality(root){
  const shadowDistance=Number(iris.get('shadowDistance'));
  return {renderDistance:Number.isFinite(renderDistance)?renderDistance:null,shadowDistance:Number.isFinite(shadowDistance)?shadowDistance:null,shaders:iris.get('enableShaders')==='true'};
 }
-module.exports={hex16,videoMemoryMB,busId,distinctAdapters,isDiscreteAdapter,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,gpuAdapters,drmCards,sessionDisplay,targetAdapter,pciForDriPrime,renderOffload,reportedDevices,reportedAdapter,chooseDevice,matchAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,SHADER_PACK_NAME,QUALITY_LADDER,qualitySettings,parseProperties,readProperty,mergeProperties,applyQualitySettings,recordQuality,installedQuality,tunedDigest,DISPLAY_DEFAULTS,DISPLAY_RECORD,applyDisplayDefaults};
+module.exports={hex16,videoMemoryMB,busId,distinctAdapters,isDiscreteAdapter,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,gpuAdapters,drmCards,sessionDisplay,targetAdapter,pciForDriPrime,renderOffload,reportedDevices,reportedAdapter,chooseDevice,matchAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,SHADER_PACK_NAME,QUALITY_LADDER,qualitySettings,parseProperties,readProperty,mergeProperties,applyQualitySettings,recordQuality,installedQuality,tunedDigest,GUI_SCALE_LADDER,GUI_SCALE_DEFAULT,displayGuiScale,displayPhysicalPixels,displayDefaultValues,DISPLAY_DEFAULTS,DISPLAY_RECORD,applyDisplayDefaults};

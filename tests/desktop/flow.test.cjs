@@ -398,8 +398,13 @@ test('the graphics toggle is exposed on the isolated preload and handled origin-
  assert.match(main,/require\('\.\/hardware\.cjs'\)/,'detection lives in its own module');
  assert.match(main,/app\.getGPUInfo\('complete'\)/);
  assert.match(main,/app\.getGPUFeatureStatus\(\)/);
- // The toggle's own path is the verified pipeline, never a second downloader.
- assert.match(main,/applyGraphics\(\{root:gameRoot\(\),settings,notify,control,includeGraphics:enabled,hardware:hardwareState\(\)\}\)/);
+ // The toggle's own path is the verified pipeline, never a second downloader, and it
+ // carries the display's own GUI scale answer so the pipeline seed and the startup seed
+ // cannot disagree.
+ assert.match(main,/applyGraphics\(\{root:gameRoot\(\),settings,notify,control,includeGraphics:enabled,hardware:hardwareState\(\),guiScale:clientGuiScale\(\)\}\)/);
+ assert.match(main,/const \{detectHardware,installedQuality,applyDisplayDefaults,displayGuiScale,displayPhysicalPixels\}=require\('\.\/hardware\.cjs'\)/,'the display rule lives in its own module');
+ assert.match(main,/displayPhysicalPixels\(screen\.getPrimaryDisplay\(\)\)/,'the primary display is resolved from Electron and read in physical pixels, not guessed');
+ assert.match(main,/applyDisplayDefaults\(gameRoot\(\),\{guiScale:clientGuiScale\(\)\}\)/,'the startup seed uses the same value');
 });
 
 test('the published graphics state carries the contract shape',()=>{
