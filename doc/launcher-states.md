@@ -394,19 +394,22 @@ automatic answer for this machine, `tunable` is false when this platform cannot
 report enough about the GPU to promise a quality level, and `tuned` is
 `{renderDistance, shadowDistance, shaders}` actually written into the client.
 
-**The display defaults come from the install, not from this toggle.** Owen's
-requirement is that a new player's first launch is already fullscreen at a GUI scale
-of 2, so the install pipeline writes `guiScale:2` and `fullscreen:true` into the
-client's own `options.txt` whether Enhanced Graphics is on or off; the optional
-graphics chunk is never required for them, and they are not part of the quality step
-`tuned` reports. The seed happens once per client tree and is remembered by
-`.easter-client-display` inside that tree rather than in `installed.json`, so it
-cannot race the pipeline's own atomic write of the install marker. After the record
-exists the launcher never rewrites a key again: a value the player or the game
-changed later is theirs, and the only later write is a repair of a recorded key that
-has gone missing. A tree without the launcher's marker file is refused, exactly like
-the quality files. None of this adds a field to the state contract, and the UI never
-mentions it.
+**The display defaults come from the install and from startup, not from this toggle.**
+Owen's requirement is that a new player's first launch is already fullscreen at a GUI
+scale of 2, so the launcher writes `guiScale:2` and `fullscreen:true` into the client's
+own `options.txt` whether Enhanced Graphics is on or off: from the install pipeline,
+and also from the startup path of a tree that is already installed, because a
+returning player's update check finds nothing changed and never reaches the install
+pipeline at all. The optional graphics chunk is never required for them, and they are
+not part of the quality step `tuned` reports. The seed happens once per client tree and
+is remembered by `.easter-client-display` inside that tree rather than in
+`installed.json`, so it cannot race the pipeline's own atomic write of the install
+marker. After the record exists the launcher never rewrites a key again: a value the
+player or the game changed later is theirs, and the only later write is a repair of a
+recorded key that has gone missing. A tree without the launcher's marker file is
+refused, exactly like the quality files, and the seed never runs while a client
+process is up, because a running client rewrites `options.txt` on exit. None of this
+adds a field to the state contract, and the UI never mentions it.
 
 The server field becomes a choice with a working default, and the entries are
 published by the main process rather than hardcoded in the view:
