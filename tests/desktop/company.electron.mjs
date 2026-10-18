@@ -12,7 +12,7 @@ try{
  const status=()=>page.evaluate(()=>window.easterDesktop.status());
  const approve=async()=>{await page.locator('.desktop-code').filter({hasText:'COMPANY-TEST'}).waitFor();await app.evaluate(()=>global.companyApprove());};
  await hero('signin').click();await page.locator('#desktop-company-signin').waitFor();await page.screenshot({path:'/tmp/company-signin.png',animations:'disabled'});
- await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();await approve();
+ await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();await approve();
  const usernameStep=page.locator('#desktop-company-username'),setup=page.locator('#desktop-company-password');
  await usernameStep.waitFor();let state=await status();assert.equal(state.account.username,null);assert(state.account.passwordRequired);assert.equal(state.canPlay,false);
  assert.equal(await setup.isVisible(),false,'the password step is not offered before the username');
@@ -85,7 +85,7 @@ try{
  const surface=JSON.stringify(await status());for(const secret of ['fixture-xbox:','fixture-private','fixture secret passphrase','replacement fixture passphrase','microsoftSubject'])assert(!surface.includes(secret));
  await page.evaluate(()=>window.easterDesktop.signOut());await hero('signin').waitFor();
  await app.evaluate(()=>{global.companyUser='3';global.companyMode='missing';});
- await hero('signin').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();await approve();await usernameStep.waitFor();
+ await hero('signin').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();await approve();await usernameStep.waitFor();
  assert.equal((await status()).profile,null);assert((await status()).account.passwordRequired);
  await usernameStep.getByLabel('Username',{exact:true}).fill(nonowner);await usernameStep.getByRole('button',{name:'Continue',exact:true}).click();await setup.waitFor();
  await setup.getByLabel('New password',{exact:true}).fill('nonowner fixture passphrase');await setup.getByLabel('Confirm password',{exact:true}).fill('nonowner fixture passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();await hero('buy').waitFor();

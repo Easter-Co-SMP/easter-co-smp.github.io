@@ -30,8 +30,11 @@
  for(const selector of ['.hero-welcome','.home-below','.home-story','.home-notes'])document.querySelectorAll(selector).forEach(node=>node.remove());
 
  const TRANSFER=['downloading','paused','verifying','installing','updating'];
- // The signed-out action starts Microsoft linking, which is where an account comes from.
- const LOGIN_ACTION='Link Microsoft Account';
+ // The signed-out action starts the Microsoft sign-in, which is where an account comes from.
+ // It is called the same thing in the hero, in the sticky bar and in the chooser, and it is the
+ // same verb the sentences about this action already use ("Sign in again.", "Sign in with
+ // Microsoft or with your username."): one action, one name.
+ const LOGIN_ACTION='Sign in with Microsoft';
  let companyAuth=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const CUSTOM_SERVER='__custom__';
@@ -122,7 +125,7 @@
  signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close sign-in">×</button><h2 id="desktop-signin-title">Sign in with Microsoft</h2>
  <p class="desktop-auth-wait" role="status">Connecting to Microsoft…</p><section class="desktop-device" hidden>
  <p class="desktop-device-instruction" id="desktop-device-instruction">Enter this code on the Microsoft sign-in page.</p><strong class="desktop-code"></strong>
- <button type="button" class="launcher-button desktop-device-action" data-open-microsoft>Login with Microsoft</button><p class="desktop-provider"></p></section>
+ <button type="button" class="launcher-button desktop-device-action" data-open-microsoft>Open the Microsoft page</button><p class="desktop-provider"></p></section>
  <p class="desktop-auth-error" role="alert" hidden></p><p class="desktop-auth-notice" role="status" hidden></p><button type="button" class="text-link" data-cancel>Cancel sign-in</button>`;
  document.body.append(signin);
  const startup=document.createElement('dialog');startup.id='desktop-update';startup.setAttribute('aria-labelledby','desktop-update-title');

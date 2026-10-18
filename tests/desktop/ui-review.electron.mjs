@@ -31,13 +31,27 @@ try{
  await page.locator('[data-desktop-play][data-action=download]').click();
  await page.locator('[data-desktop-play][data-action=signin]').waitFor();
  await app.evaluate(()=>global.easterTestDelayDevice=true);
- await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await page.locator('[data-desktop-play][data-action=signin]').click();
+ // One action, one verb: the chooser offers the same "Sign in with Microsoft" the hero does, at
+ // every width the review uses, in a dialog that fits each of them.
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  await page.locator('#desktop-company-signin').waitFor({state:'visible'});
+  const chooserBox=await page.locator('#desktop-company-signin').boundingBox();
+  assert(chooserBox.x>=0&&chooserBox.x+chooserBox.width<=width+1,'the chooser fits '+width+'px');
+  assert(chooserBox.y>=0&&chooserBox.y+chooserBox.height<=height+1,'the chooser fits the window at '+width+'px');
+  assert.equal(await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Microsoft',exact:true}).count(),1,'the chooser names the action "Sign in with Microsoft" at '+width+'px');
+  assert.equal(await page.locator('#desktop-company-signin').getByRole('button',{name:/Link Microsoft|Login with Microsoft/}).count(),0,'and no other verb is left at '+width+'px');
+  await shot('chooser-'+width);
+ }
+ await page.setViewportSize({width:1360,height:920});
+ await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-auth-wait').waitFor();await shot('sign-in-pending');
  assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'pending authentication never flashes settings');
  await page.keyboard.press('Escape');
  await page.waitForFunction(()=>document.querySelector('[data-desktop-play]').disabled===false);
  assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'pending authentication cancels cleanly');
- await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await page.locator('[data-desktop-play][data-action=signin]').click();await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-auth-wait').waitFor();
  await app.evaluate(()=>{global.easterTestDeviceReady();global.easterTestDelayDevice=false;});
  await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();await shot('sign-in');
@@ -47,7 +61,7 @@ try{
  await page.waitForFunction(()=>document.querySelector('[data-desktop-play]').disabled===false);
  assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'cancellation is not an error');
  assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'cancellation does not reveal settings');
- await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+ await page.locator('[data-desktop-play][data-action=signin]').click();await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();
  await app.evaluate(()=>global.easterTestApprove());
  await page.locator('[data-desktop-play][data-action=play]').waitFor();
@@ -153,7 +167,7 @@ try{
  await send({...await status(),device:{code:'TEST-LIVE',url:'https://microsoft.com/link',expiresAt:Date.now()+300000},error:'Minecraft sign-in failed: the Xbox Live session was not accepted. Sign in again.'});
  await page.locator('.desktop-code').filter({hasText:'TEST-LIVE'}).waitFor();
  assert.equal(await page.locator('.desktop-code').filter({hasText:'TEST-LIVE'}).isVisible(),true,'the device code stays readable');
- assert.equal(await page.getByRole('button',{name:'Login with Microsoft',exact:true}).isVisible(),true,'the sign-in link stays readable');
+ assert.equal(await page.getByRole('button',{name:'Open the Microsoft page',exact:true}).isVisible(),true,'the sign-in page action stays readable');
  assert.deepEqual(await visibleErrorNodes(),[],'a live sign-in is never painted as failed');
  await shot('sign-in-live-no-stale-failure');
  await send({...await status(),device:null,error:null});

@@ -21,7 +21,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  for(const dialog of [chooser,username,password])dialog.className='desktop-company-dialog';
  chooser.id='desktop-company-signin';username.id='desktop-company-username';password.id='desktop-company-password';
  chooser.setAttribute('aria-labelledby','company-signin-title');username.setAttribute('aria-labelledby','company-username-title');password.setAttribute('aria-labelledby','company-password-title');
- chooser.innerHTML='<button class="dialog-close" type="button" aria-label="Close account sign-in">×</button><h2 id="company-signin-title">Easter Company account</h2><button type="button" class="company-microsoft">Login with Microsoft Account</button><p class="company-provider-note">Please sign up using an existing online account provider, and then create an Easter Company account username &amp; password.</p><form><label>Username or Email<input name="identifier" autocomplete="username" maxlength="254" required spellcheck="false"></label><label>Password<input type="password" name="password" autocomplete="current-password" maxlength="128" required></label><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Sign in</button><button type="button" class="company-recover text-link">Forgot your password?</button></form>';
+ chooser.innerHTML='<button class="dialog-close" type="button" aria-label="Close account sign-in">×</button><h2 id="company-signin-title">Easter Company account</h2><button type="button" class="company-microsoft">Sign in with Microsoft</button><p class="company-provider-note">Please sign up using an existing online account provider, and then create an Easter Company account username &amp; password.</p><form><label>Username or Email<input name="identifier" autocomplete="username" maxlength="254" required spellcheck="false"></label><label>Password<input type="password" name="password" autocomplete="current-password" maxlength="128" required></label><div class="company-error" role="alert" hidden></div><button type="submit" class="company-submit">Sign in</button><button type="button" class="company-recover text-link">Forgot your password?</button></form>';
  username.innerHTML='<button class="dialog-close" type="button" aria-label="Close username setup">×</button><h2 id="company-username-title">Choose your Easter Company username</h2><p class="company-step">Step 1 of 2</p><form><label>Username<input name="username" autocomplete="username" maxlength="20" required spellcheck="false" aria-describedby="company-username-help"></label><p id="company-username-help">This is the name you sign in with, and it cannot be changed later. Use 3–20 characters: lowercase letters, numbers, underscores or dashes.</p><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Continue</button></form>';
  password.innerHTML='<button class="dialog-close" type="button" aria-label="Close password setup">×</button><h2 id="company-password-title">Create your Easter Company password</h2><p class="company-step">Step 2 of 2</p><p class="company-username"></p><p class="company-intro">Use your username or email and password to sign in directly next time.</p><form><label>New password<input name="password" type="password" minlength="15" maxlength="128" autocomplete="new-password" required aria-describedby="company-password-help"></label><p id="company-password-help">Use 15–128 characters. A long passphrase works well.</p><label>Confirm password<input name="confirm" type="password" minlength="15" maxlength="128" autocomplete="new-password" required></label><label class="company-show"><input type="checkbox" name="show">Show passwords</label><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Save password</button><button type="button" class="company-verify text-link" hidden>Verify with Microsoft</button></form>';
  // The verified emails section. The list renders whatever the account service reports, so
@@ -34,9 +34,19 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  // A sentence in one of these dialogs is that failure's only home: the page notice gives up
  // its copy rather than showing the same failure twice. A closed dialog holds no text the
  // player can see, so it never takes the failure away from the notice.
- const error=(dialog,message)=>{
-  if(message&&dialog.open&&typeof onInlineError==='function')onInlineError();
-  const node=dialog.querySelector('.company-error');node.textContent=message;node.hidden=!message;
+ //
+ // A refusal that is really three answers arrives as an array and is drawn as one line each:
+ // the sentence itself, then what did not happen, then what to do about it. One 55-word
+ // paragraph is where a player stops reading. The slot stays one alert, so assistive
+ // technology reads it once, in order. A single sentence stays a single text node, which is
+ // what every other dialog's slot is.
+ const error=(dialog,lines)=>{
+  const shown=(Array.isArray(lines)?lines:[lines]).filter(line=>typeof line==='string'&&line.trim());
+  if(shown.length&&dialog.open&&typeof onInlineError==='function')onInlineError();
+  const node=dialog.querySelector('.company-error');
+  if(shown.length===1)node.textContent=shown[0];
+  else node.replaceChildren(...shown.map(line=>{const paragraph=document.createElement('p');paragraph.textContent=line;return paragraph;}));
+  node.hidden=!shown.length;
  };
  const lock=value=>{busy=value;for(const dialog of [chooser,username,password,emails]){dialog.setAttribute('aria-busy',String(value));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}chooser.querySelector('.company-submit').textContent=value?'Signing in…':'Sign in';username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';emails.querySelector('.company-submit').textContent=value?'Saving…':'Save selection';};
  // A username the server rejects is a plain sentence beside the field, never a hint
@@ -168,14 +178,17 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  // (desktop/accounts.cjs MESSAGES.identity_conflict, and the same wording whether the
  // launcher or the service noticed the conflict). The fallback below is only for a build
  // that answers with no sentence at all.
- const IDENTITY_CONFLICT='That Microsoft account belongs to a different Easter Company account. Use the linked account or switch Company accounts.';
- // What that sentence leaves unsaid and the player needs: their account is untouched, and
- // switching Company accounts is something the profile can do. Both are said here, in the
- // place the failure is read, and neither names an account, an address or a Company ID.
- const IDENTITY_CONFLICT_NEXT='Nothing on your Easter Company account has changed. To use a different Easter Company account, open your profile at the top of the page and choose Switch Account, or Add account.';
+ const IDENTITY_CONFLICT='Sign in with the Microsoft account linked to this Easter Company account, or switch Easter Company accounts.';
+ // What that sentence leaves unsaid and the player needs, one line each rather than one
+ // paragraph: their account is untouched, and then the way out. The way out starts by closing
+ // this dialog, because that is not a detail — the profile it names is behind a modal dialog, so
+ // its Switch Account control cannot be pressed until this window is gone. Neither line names an
+ // account, an address or a Company ID.
+ const IDENTITY_CONFLICT_UNCHANGED='Nothing on your Easter Company account has changed.';
+ const IDENTITY_CONFLICT_NEXT='Close this window first. Then open your profile at the top of the page and choose Switch Account, or Add account.';
  const identityConflictCopy=sentence=>{
   const own=typeof sentence==='string'&&sentence.trim()?sentence.trim():IDENTITY_CONFLICT;
-  return own+' '+IDENTITY_CONFLICT_NEXT;
+  return [own,IDENTITY_CONFLICT_UNCHANGED,IDENTITY_CONFLICT_NEXT];
  };
  // The saved-session shortcut, answered as one result the renderer can read.
  const continueSaved=async()=>{

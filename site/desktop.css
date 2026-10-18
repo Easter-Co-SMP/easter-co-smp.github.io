@@ -177,6 +177,12 @@
 .desktop-company-dialog .company-microsoft,.desktop-company-dialog .company-submit{width:100%;padding:12px;border:1px solid var(--app-gold);border-radius:6px;background:var(--app-gold);color:#11252d;font:600 13px/1.4 system-ui;cursor:pointer}.desktop-company-dialog .company-microsoft{margin-top:10px}
 .desktop-company-dialog .company-provider-note{font-size:11px}.desktop-company-dialog .company-step{margin:0 0 6px;font:600 10px/1.4 system-ui;letter-spacing:.08em;text-transform:uppercase;color:var(--app-gold)}
 .desktop-company-dialog .company-recover{display:block;margin:16px auto 0;font-size:11px}.desktop-company-dialog .company-error{color:#f4b6a6}.desktop-company-dialog .company-username{color:var(--app-gold);font-size:15px}.desktop-company-dialog .company-show{display:flex;align-items:center;gap:8px}.company-show input{accent-color:var(--app-gold)}
+/* The identity conflict is three lines rather than one paragraph: the sentence, what did not
+   change, and the way out. They share the refusal colour and the slot's own spacing, so the
+   dialog reads as one answer and each part is separately scannable. */
+.desktop-company-dialog .company-error p{margin:0;color:inherit}
+.desktop-company-dialog .company-error p+p{margin-top:9px}
+
 
 /* Verified emails. One address per row, the selected one marked, and the copy that says
    only that address is a login key. The rows wrap rather than scroll sideways, so a long
