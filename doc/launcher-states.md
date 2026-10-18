@@ -115,6 +115,14 @@ that returns.
   the layout that holds the sidebar and the article (`site/wiki/wiki.css` reads the same
   `--launcher-notice-space`), measured from the first block of each column the band
   actually reaches, so no column starts under the band at any width.
+  The map is neither case: it is a full-bleed chart with its controls docked on top of it,
+  so the same variable moves that strip instead (`site/desktop.css`), measured from the
+  topmost dock the band reaches — the map key, the drawing palette, the compass and the
+  zoom controls. The band is narrower than the window, so a dock it does not reach at the
+  current width moves with the others and the strip stays one row. The open key's legend is
+  capped by the room left above the chart's own footer, so it scrolls inside the key rather
+  than sliding under that footer, and a dock the chart itself inserts after the notice is
+  painted (the drawing palette, once its saved notes have loaded) re-measures it.
 - **Nothing is hard-coded.** The UI renders whatever sentence the state or the
   rejected call supplies; it does not compose or re-word failures.
 
