@@ -11,7 +11,7 @@ function install(){
  accounts.AccountClient=class{
   async login(token){
    const id=token.split(':')[1],name=profiles.get(id)||'TestCaptain';
-   const account={id:parseInt(id.slice(-8),16)||1,minecraftUuid:id.slice(0,8)+'-'+id.slice(8,12)+'-'+id.slice(12,16)+'-'+id.slice(16,20)+'-'+id.slice(20),minecraftName:name,displayName:name,roles:['member'],createdAt:'2026-01-01T00:00:00Z',passwordRequired:false,microsoftLinked:true,microsoftSubject:createHash('sha256').update(id).digest('hex')};
+   const account={id:parseInt(id.slice(-8),16)||1,username:(name||'testcaptain').toLowerCase().replace(/[^a-z0-9_-]/g,'').slice(0,20)||'testcaptain',minecraftUuid:id.slice(0,8)+'-'+id.slice(8,12)+'-'+id.slice(12,16)+'-'+id.slice(16,20)+'-'+id.slice(20),minecraftName:name,displayName:name,roles:['member'],createdAt:'2026-01-01T00:00:00Z',passwordRequired:false,microsoftLinked:true,microsoftSubject:createHash('sha256').update(id).digest('hex')};
    return {created:false,account,session:{token:'fixture-company-session',expiresAt:Date.now()+86400000}};
   }
   async logout(){}

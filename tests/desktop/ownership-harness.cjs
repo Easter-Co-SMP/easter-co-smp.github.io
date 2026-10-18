@@ -21,7 +21,7 @@ auth.MicrosoftAuth=class extends Original{
  })});}
 };
 const accounts=require('../../desktop/accounts.cjs');
-accounts.AccountClient=class{async login(){global.ownershipEnrols++;return {created:false,account:{id:42,displayName:'JavaCaptain',minecraftName:null,minecraftUuid:null,roles:['member'],createdAt:'2026-01-01T00:00:00Z',passwordRequired:false,microsoftLinked:true,microsoftSubject:require('node:crypto').createHash('sha256').update('xbox-uhs:fixture-hash').digest('hex')},session:{token:'fixture-company-private',expiresAt:Date.now()+86400000}};}async logout(){}};
+accounts.AccountClient=class{async login(){global.ownershipEnrols++;return {created:false,account:{id:42,username:'javacaptain',displayName:'JavaCaptain',minecraftName:null,minecraftUuid:null,roles:['member'],createdAt:'2026-01-01T00:00:00Z',passwordRequired:false,microsoftLinked:true,microsoftSubject:require('node:crypto').createHash('sha256').update('xbox-uhs:fixture-hash').digest('hex')},session:{token:'fixture-company-private',expiresAt:Date.now()+86400000}};}async logout(){}};
 const install=require('../../desktop/install.cjs');
 install.clientStatus=async()=>({installed:true,version:'fixture',record:{version:'fixture',java:'/fixture/java'}});
 install.checkForUpdates=async()=>({applied:false});

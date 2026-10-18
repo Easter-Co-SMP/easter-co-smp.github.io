@@ -57,6 +57,21 @@ test('first sign-in creates the account and the next one logs in',async()=>{
  }finally{await stub.close();}
 });
 
+test('the optional Graph token rides on the Microsoft signup request and nothing else',async()=>{
+ const stub=await startStub(({response})=>send(response,200,loginBody(false)));
+ try{
+  const api=client(stub.origin);
+  await api.login(TOKEN,undefined,undefined,'graph-access-token-private');
+  await api.login(TOKEN,undefined,undefined);
+  await api.login(TOKEN,undefined,undefined,'');
+ }finally{await stub.close();}
+ const bodies=stub.calls.map(call=>JSON.parse(call.body));
+ assert.deepEqual(bodies[0],{xboxUserToken:TOKEN,microsoftAccessToken:'graph-access-token-private',client:'launcher/1.0.1'});
+ assert.deepEqual(bodies[1],{xboxUserToken:TOKEN,client:'launcher/1.0.1'},'a sign-in without one sends no empty field');
+ assert.deepEqual(bodies[2],{xboxUserToken:TOKEN,client:'launcher/1.0.1'});
+ assert(stub.calls.every(call=>call.url==='/v2/accounts/microsoft'));
+});
+
 test('me and logout send the session as a Bearer header',async()=>{
  const stub=await startStub(({request,response})=>{
   if(request.url==='/v2/accounts/me'&&request.method==='GET')return send(response,200,{account:ACCOUNT});
@@ -145,12 +160,14 @@ test('the transport path used in production is exercised against a real socket',
  assert.equal(refused.message,'The Easter Company account service could not be reached.');
 });
 
-test('the renderer only ever sees a name and roles',async()=>{
+test('the renderer only ever sees a name, a username and roles',async()=>{
  const {publicAccount,companySession,storedSession}=require('../../desktop/accounts.cjs');
  const signed=companySession({created:true,account:ACCOUNT,session:{token:SESSION,expiresAt:Date.parse('2026-02-01T00:00:00Z')}});
  assert.equal(signed.token,SESSION);
  assert.equal(signed.expiresAt,Date.parse('2026-02-01T00:00:00Z'));
- assert.deepEqual(publicAccount(signed),{id:'EC-42',name:'Captain Testbeard',roles:['crew'],passwordRequired:false,microsoftLinked:true});
+ // The username is the identity the player sees; the Company ID rides along only as the
+ // opaque handle the account menu switches on, and an email never leaves the server.
+ assert.deepEqual(publicAccount(signed),{id:'EC-42',username:'testcaptain',name:'Captain Testbeard',roles:['crew'],passwordRequired:false,microsoftLinked:true});
  // A response that nests the session wrongly must be refused, not stored empty.
  assert.throws(()=>companySession({created:true,account:ACCOUNT,token:SESSION,expiresAt:1}),(error)=>error.code==='invalid_response');
  assert.throws(()=>companySession({created:true,account:ACCOUNT,session:{token:'',expiresAt:1}}),(error)=>error.code==='invalid_response');
@@ -173,21 +190,130 @@ test('profile-less Company identity has a stable ID and keeps provider binding p
  assert.throws(()=>sanitizeAccount({...ACCOUNT,microsoftSubject:null}),(error)=>error.code==='invalid_response');
 });
 
-test('password login and reset use fixed Company routes and bearer-bound reset',async()=>{
+test('the account payload carries the claimed username and refuses a contradictory one',()=>{
+ const {sanitizeAccount,publicAccount}=require('../../desktop/accounts.cjs');
+ // A brand new Microsoft account has no username and is asked for one before a password.
+ const fresh=sanitizeAccount({...ACCOUNT,username:null,passwordRequired:true});
+ assert.equal(fresh.username,null);assert.equal(sanitizeAccount(ACCOUNT).username,'testcaptain');
+ // A payload that needs no password and carries no username is a server bug, not a blank
+ // identity: it is refused instead of shown.
+ assert.throws(()=>sanitizeAccount({...ACCOUNT,username:null,passwordRequired:false}),(error)=>error.code==='invalid_response');
+ assert.throws(()=>sanitizeAccount({...ACCOUNT,username:null}),(error)=>error.code==='invalid_response');
+ // The username rules, so nothing the username field accepts can break the account view.
+ for(const bad of ['ab','a'.repeat(21),'Has Space','UPPER','has.dot','has@sign'])assert.throws(()=>sanitizeAccount({...ACCOUNT,username:bad}),(error)=>error.code==='invalid_response',bad);
+ assert.equal(publicAccount({account:sanitizeAccount({...ACCOUNT,username:'a_b-c9'})}).username,'a_b-c9');
+});
+
+test('an email in the payload never reaches the renderer or the vault',()=>{
+ const {sanitizeAccount,publicAccount,storedSession}=require('../../desktop/accounts.cjs');
+ const withEmail={...ACCOUNT,email:'player@example.test',providerEmail:'player@example.test'};
+ const account=sanitizeAccount(withEmail);
+ const view=publicAccount({account});
+ assert(!JSON.stringify(view).includes('example.test'),'the account view carries no email');
+ assert(!JSON.stringify(account).includes('example.test'),'the sanitized account carries no email');
+ assert(!JSON.stringify(storedSession({token:SESSION,expiresAt:1,account:withEmail})).includes('example.test'),'a vaulted session carries no email');
+});
+
+test('direct login posts the typed identifier, never a Company ID',async()=>{
  const secret='fixture password passphrase';
- const stub=await startStub(({request,response,body})=>{
-  const payload=JSON.parse(body);
-  if(request.url==='/v2/accounts/password/login'){
-   assert.equal(payload.companyId,'EC-42');assert.equal(payload.password,secret);assert.equal(request.headers.authorization,undefined);
-  }else{
-   assert.equal(request.url,'/v2/accounts/password');assert.equal(request.headers.authorization,'Bearer '+SESSION);assert.equal(payload.replace,true);
-  }
-  send(response,200,loginBody(false));
+ const stub=await startStub(({response})=>send(response,200,loginBody(false)));
+ try{
+  const api=client(stub.origin);
+  const signed=await api.loginPassword('testcaptain',secret);
+  assert.equal(signed.account.passwordRequired,false);
+  await api.loginPassword('player@example.test',secret);
+ }finally{await stub.close();}
+ // The exact bodies leave this client, and nothing else does.
+ assert.deepEqual(stub.calls.map(call=>JSON.parse(call.body)),[
+  {identifier:'testcaptain',password:secret,client:'launcher/1.0.1'},
+  {identifier:'player@example.test',password:secret,client:'launcher/1.0.1'}
+ ]);
+ assert(stub.calls.every(call=>call.url==='/v2/accounts/password/login'&&call.method==='POST'));
+ assert(stub.calls.every(call=>call.headers.authorization===undefined),'direct login is authenticated by the password, not a Bearer header');
+ assert(stub.calls.every(call=>!('companyId' in JSON.parse(call.body))),'no Company ID is ever posted');
+});
+
+test('the availability probe answers one boolean and a reason the launcher understands',async()=>{
+ // The deployed probe says 'taken'/'policy' (api/identity_routes.py); the frozen contract
+ // named the same two answers after their error codes. Both spellings must land on the
+ // launcher's codes, because the message the player reads is chosen from them.
+ const stub=await startStub(({response,body})=>{
+  const {username}=JSON.parse(body);
+  const answers={
+   free:{available:true,reason:null,email:'leak@example.test'},
+   taken:{available:false,reason:'taken',account:{id:9,email:'leak@example.test'}},
+   policy:{available:false,reason:'policy'},
+   contract_taken:{available:false,reason:'username_taken'},
+   contract_policy:{available:false,reason:'username_policy'},
+   silent:{available:false},
+   unknown:{available:false,reason:'something_new'}
+  };
+  send(response,200,answers[username]||answers.free);
  });
  try{
   const api=client(stub.origin);
-  const signed=await api.loginPassword('EC-42',secret);
-  assert.equal(signed.account.passwordRequired,false);
+  assert.deepEqual(await api.usernameAvailable('free'),{available:true,reason:null});
+  assert.deepEqual(await api.usernameAvailable('taken'),{available:false,reason:'username_taken'},'the deployed service says taken');
+  assert.deepEqual(await api.usernameAvailable('policy'),{available:false,reason:'username_policy'},'and policy for a reserved word');
+  assert.deepEqual(await api.usernameAvailable('contract_taken'),{available:false,reason:'username_taken'});
+  assert.deepEqual(await api.usernameAvailable('contract_policy'),{available:false,reason:'username_policy'});
+  // A refusal with no reason and a reason nobody has learned yet are both refusals, never
+  // availability: the player is never advanced on a maybe.
+  assert.deepEqual(await api.usernameAvailable('silent'),{available:false,reason:'username_taken'});
+  assert.deepEqual(await api.usernameAvailable('unknown'),{available:false,reason:'username_taken'});
+  // A name that fails the rules never becomes a request at all.
+  assert.deepEqual(await api.usernameAvailable('Bad Name'),{available:false,reason:'username_policy'});
+ }finally{await stub.close();}
+ assert.deepEqual(stub.calls.map(call=>JSON.parse(call.body)),[{username:'free'},{username:'taken'},{username:'policy'},{username:'contract_taken'},{username:'contract_policy'},{username:'silent'},{username:'unknown'}]);
+ assert(stub.calls.every(call=>call.url==='/v2/accounts/username/available'&&call.method==='POST'));
+ assert(stub.calls.every(call=>call.headers.authorization===undefined),'the probe carries no session');
+ assert(!JSON.stringify(stub.calls).includes('leak@example.test'),'nothing in the probe answer is forwarded');
+});
+
+test('a reserved or malformed username reads as policy, not as a name someone holds',async()=>{
+ // End to end through the main-process handler, because the wording lives in its table.
+ const {MESSAGES}=require('../../desktop/accounts.cjs');
+ assert.equal(MESSAGES.username_policy,'Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.');
+ assert.equal(MESSAGES.username_taken,'That username is already taken. Try another.');
+ assert.notEqual(MESSAGES.username_policy,MESSAGES.username_taken);
+ const stub=await startStub(({response,body})=>{
+  const {username}=JSON.parse(body);
+  send(response,200,username==='easter'?{available:false,reason:'policy'}:{available:false,reason:'taken'});
+ });
+ try{
+  const api=client(stub.origin);
+  for(const name of ['easter','taken']){
+   const answer=await api.usernameAvailable(name);
+   assert.equal(answer.available,false);
+   assert.equal(MESSAGES[answer.reason],name==='easter'?MESSAGES.username_policy:MESSAGES.username_taken);
+  }
+ }finally{await stub.close();}
+});
+
+test('the username is posted once, with the first password, and the reset posts none',async()=>{
+ const secret='fixture password passphrase';
+ const stub=await startStub(({response})=>send(response,200,loginBody(false)));
+ try{
+  const api=client(stub.origin);
+  await api.setPassword(SESSION,secret,false,'testcaptain');
   await api.setPassword(SESSION,secret,true);
  }finally{await stub.close();}
+ assert.deepEqual(stub.calls.map(call=>JSON.parse(call.body)),[
+  {username:'testcaptain',password:secret,replace:false,client:'launcher/1.0.1'},
+  {password:secret,replace:true,client:'launcher/1.0.1'}
+ ]);
+ assert(stub.calls.every(call=>call.url==='/v2/accounts/password'&&call.headers.authorization==='Bearer '+SESSION));
+});
+
+test('a rejected username and a wrong identifier read as plain sentences',async()=>{
+ const cases=[[409,'username_taken',/That username is already taken\. Try another\./],[400,'username_policy',/Use 3 to 20 characters/],[401,'invalid_credentials',/The username or email, or the password, is incorrect\./]];
+ for(const [status,code,match] of cases){
+  const stub=await startStub(({response})=>send(response,status,{error:code,detail:'server detail that must not surface'}));
+  try{
+   const api=client(stub.origin);
+   const error=code==='invalid_credentials'?await rejects(assert,api.loginPassword('testcaptain','wrong passphrase here'),code):await rejects(assert,api.setPassword(SESSION,'fixture password passphrase',false,'testcaptain'),code);
+   assert.match(error.message,match);
+   assert(!error.message.includes('server detail'));
+  }finally{await stub.close();}
+ }
 });

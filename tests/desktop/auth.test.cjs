@@ -8,7 +8,7 @@ test('device code, pending, slow down, Xbox and Minecraft profile; only user cod
  const messages=[];const session=await auth.signIn(value=>messages.push(value));
  assert.equal(session.profile.name,'TestCaptain');assert.equal(session.accessToken,'minecraft-secret');assert.equal(session.refreshToken,'refresh-secret');assert.equal(session.clientId,'test-app');
  assert(!JSON.stringify(messages).includes('secret'));assert.equal(messages[0].code,'TEST-CODE');
- assert(calls.some(c=>c.url.includes('xsts')));assert.equal(calls[0].options.body.get('scope'),'XboxLive.signin offline_access');
+ assert(calls.some(c=>c.url.includes('xsts')));assert.equal(calls[0].options.body.get('scope'),'XboxLive.signin offline_access https://graph.microsoft.com/User.Read');
 });
 test('unexpired session avoids network, expired session rotates refresh token',async()=>{
  const {auth,calls}=fixture([{data:{access_token:'new-ms',refresh_token:'new-refresh'}},...exchange]);
@@ -69,4 +69,38 @@ test('Microsoft account identity remains stable when XSTS omits its optional Xbo
  const a=await first.auth.exchange({access_token:'private'}),b=await second.auth.exchange({access_token:'private'});
  assert.equal(a.minecraftAccess,'missing');assert.equal(a.accountId,b.accountId);assert.equal(a.xuid,'0');
  assert.match(a.accountId,/^msa:[a-f0-9]{64}$/);assert(!a.accountId.includes('stable-user'));
+});
+
+test('the Graph token is asked for on its own scope and stays out of the session',async()=>{
+ const {auth,calls}=fixture([{data:{access_token:'graph-secret'}}]);
+ const token=await auth.graphAccessToken('refresh-secret');
+ assert.equal(token,'graph-secret');
+ assert.equal(calls[0].url,'https://login.microsoftonline.com/consumers/oauth2/v2.0/token');
+ assert.equal(calls[0].options.body.get('scope'),'https://graph.microsoft.com/User.Read');
+ assert.equal(calls[0].options.body.get('refresh_token'),'refresh-secret');
+ assert.equal(calls[0].options.body.get('grant_type'),'refresh_token');
+ const session=await (fixture([{data:{access_token:'ms'},...exchange[0]},...exchange.slice(1)]).auth.exchange({access_token:'private',refresh_token:'private-refresh'}));
+ assert(!JSON.stringify(session).includes('graph'),'the Graph token never enters the session');
+});
+
+test('a Graph token that cannot be obtained never blocks the sign-in',async()=>{
+ // No refresh token at all, a refusal, an unreadable answer and an abort all answer null.
+ assert.equal(await new MicrosoftAuth({clientId:'test-app',request:async()=>assert.fail('no request without a refresh token')}).graphAccessToken(''),null);
+ for(const response of [{status:400,data:{error:'invalid_grant'}},{status:200,data:{}},{status:500,data:{}}]){
+  const {auth}=fixture([response]);
+  assert.equal(await auth.graphAccessToken('refresh-secret'),null);
+ }
+ const broken=fixture([{data:{access_token:'graph-secret'}}]);
+ broken.auth.request=async()=>{throw Object.assign(new Error('aborted'),{name:'AbortError'});};
+ assert.equal(await broken.auth.graphAccessToken('refresh-secret'),null);
+});
+
+test('an Xbox refusal of a token for another audience is re-issued once for Xbox Live',async()=>{
+ const {auth,calls}=fixture([{status:401,data:{error:'invalid_token'}},{data:{access_token:'xbox-audience-token'}},{data:{Token:'xbox',NotAfter:new Date(Date.now()+86400000).toISOString()}},...exchange.slice(1)]);
+ const session=await auth.exchange({access_token:'graph-audience-token',refresh_token:'refresh-secret'});
+ assert.equal(session.minecraftAccess,'owned');
+ assert.equal(calls[1].options.body.get('scope'),'XboxLive.signin');
+ assert.equal(calls[1].options.body.get('refresh_token'),'refresh-secret');
+ assert.equal(JSON.parse(calls[2].options.body).Properties.RpsTicket,'d=xbox-audience-token');
+ assert(!JSON.stringify(session).includes('xbox-audience-token'),'the re-issued token is used, not stored');
 });
