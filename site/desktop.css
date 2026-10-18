@@ -64,6 +64,11 @@
 .desktop-preference input::after{content:'';position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#a8b9b4}
 .desktop-preference input:checked{background:var(--app-gold);border-color:var(--app-gold)}
 .desktop-preference input:checked::after{left:19px;background:#17313a}
+/* The two game shortcuts are their own small group under the launch behaviours: one
+   preference each, and the line under them states whether the files are really there. */
+.desktop-shortcuts{margin:0 0 20px;padding-top:8px;border-top:1px solid var(--app-border)}
+.desktop-settings .desktop-shortcuts .desktop-preference{margin:14px 0;padding:6px 0}
+.desktop-shortcuts-note{margin:6px 0 0;color:var(--app-muted);font-size:11px;line-height:1.6}
 .desktop-advanced{border-top:1px solid var(--app-border);border-bottom:1px solid var(--app-border);padding:14px 0;margin:0 0 20px}
 .desktop-advanced summary{cursor:pointer;color:#c7d4cb}
 .desktop-advanced-note{font-size:11px;margin:14px 0!important}
@@ -109,7 +114,15 @@
 .launcher-bar.is-minimised .launcher-bar-tab-text{display:block}
 @keyframes launcher-bar-sweep{from{transform:translateX(-110%)}to{transform:translateX(320%)}}
 @media(prefers-reduced-motion:reduce){.launcher-bar.is-indeterminate .launcher-bar-track i{animation:none}}
-@media(max-height:700px){.desktop-mode body.home>.home-content{padding-top:16px;padding-bottom:76px}.desktop-mode .hero-copy{padding:22px}.desktop-home-heading{margin-bottom:20px}.desktop-install-details,.hero-graphics{margin-top:18px;padding-top:14px}}
+@media(max-height:700px){.desktop-mode body.home>.home-content{padding-top:16px;padding-bottom:76px}.desktop-mode .hero-copy{padding:22px}.desktop-home-heading{margin-bottom:20px}.desktop-install-details,.hero-graphics{margin-top:18px;padding-top:14px}
+ /* The settings dialog carries four preferences and the shortcut state now, so on a short
+    window it closes up its own spacing rather than scrolling. */
+ #desktop-launcher{padding:22px}#desktop-launcher h2{margin-bottom:18px}
+ .desktop-settings .desktop-preference{margin:14px 0;padding:6px 0}
+ .desktop-settings .desktop-shortcuts .desktop-preference{margin:8px 0;padding:4px 0}
+ .desktop-shortcuts{margin-bottom:12px;padding-top:6px}
+ .desktop-advanced{padding:10px 0;margin-bottom:12px}
+ .desktop-utilities{padding-top:12px;margin-top:14px}}
 @media(max-width:720px){
  .desktop-mode .site-header{padding:0 16px}.desktop-mode .site-header nav .desktop-account-nav{margin-left:4px;max-width:160px}
  .desktop-mode .hero-copy{max-height:none;overflow:visible}

@@ -17,7 +17,10 @@ name from `/releases/latest/download/`. The launcher job is
 2. The full check suite passes on that exact tree: `python -m unittest discover -s tests
    -p 'test_*.py'` (use `/root/e-server/.venv/bin/python`), `python scripts/validate.py
    site`, `npm test`, `node tests/drawings.mjs`, `node tests/browser.mjs` against a local
-   preview, and `xvfb-run -a node tests/desktop/electron.mjs`.
+   preview, `xvfb-run -a node tests/desktop/electron.mjs`, and
+   `xvfb-run -a node tests/desktop/shortcuts.electron.mjs` (the game shortcuts: both
+   entries created and removed in an isolated HOME, and the auto-start path driven
+   through the real main process).
 3. The version in `package.json` is higher than the published one. The tag is derived
    from it, so forgetting this step produces a release that cannot be created.
 4. Nothing is being shipped that the app bundles but does not fetch. The packaged app
@@ -85,6 +88,52 @@ The `deb` target needs no equivalent: Ubuntu 24.04 and Debian 13 renamed `libgtk
 `libatspi2.0-0` to t64 builds, but the new packages `Provides:` the old names, so the
 dependencies already listed still resolve.
 
+## The game shortcuts an installed launcher offers
+
+An installed launcher can put two entries on the machine from its own Settings dialog: a
+desktop shortcut and a Start menu entry. **Both run the launcher, never Minecraft.**
+Each one passes the single argument `--play`, and the launcher then applies its mandatory
+launcher update, its client update gate and its account/access checks before it starts a
+game, honouring the player's launch-behaviour setting — stay open, close behind the game,
+or minimise to the tray — exactly as pressing Play does. That is deliberate: a shortcut
+that started the client directly would skip the updater and the access checks.
+
+| Platform | Desktop shortcut | Start menu entry |
+|---|---|---|
+| Linux | `~/Desktop/easter-co-game.desktop` | `~/.local/share/applications/easter-co-game.desktop` |
+| Windows | `Easter Co. Game.lnk` on the shell's desktop | `Easter Co. Game.lnk` in the per-user Start menu |
+| macOS | not offered, and said so in the dialog | not offered |
+
+Both preferences default to off, so nothing is written until the player ticks a switch,
+and saving the dialog is the only thing that creates or removes an entry.
+
+**What the uninstaller removes, and what it does not.** The installers create the
+launcher's own shortcut ("Easter Co. Launcher": the NSIS `createDesktopShortcut` with
+`shortcutName`, and the packaged `easter-company.desktop` for the deb and pacman
+packages), and that is what an uninstall removes, along with the installed files. The two
+game entries are a different thing: the launcher writes them later, in the user's own
+directories, at the player's request. **The uninstaller removes neither of them**, because
+it has no record of a file written after it ran, and it keeps the launcher's data
+directory (Windows: `deleteAppDataOnUninstall` is off), which is where the saved
+preference lives. So an uninstalled launcher can leave "Easter Co. Game" entries behind,
+pointing at a binary that is no longer there. The removal path the launcher owns is the
+dialog: untick both switches before uninstalling. Reinstalling with the preference still
+saved does not recreate the files on its own — entries are created on a settings save, and
+the reopened dialog says plainly that a ticked entry is not on the computer.
+
+**macOS is not supported and a release must not claim it is.** Electron's shortcut API is
+a Windows feature, and an alias the launcher wrote would not survive the launcher's own
+update path, so the two switches are hidden there and the dialog states why. Everything
+about the entries is exercised on Linux; the Windows `.lnk` details and the macOS refusal
+are covered by their pure builders and by the platform rule, not by a run on those
+machines.
+
+**Nothing about an account goes into an entry.** A shortcut file carries the launcher's
+path, `--play`, its own name, the launcher's comment, the icon path and the launcher's
+marker, and nothing else: no token, no account id, no client path and no log line.
+`npm test` (`tests/desktop/shortcuts.test.cjs`) pins the contents and that absence, and
+`tests/desktop/shortcuts.electron.mjs` reads both files back after creating them.
+
 ## Verify after it publishes
 
     gh release view launcher-v<version> -R Easter-Co-SMP/easter-co-smp.github.io \
@@ -112,3 +161,7 @@ Then confirm, rather than assume:
   exercised on Linux with fixtures.
 - CI builds on runners; it does not launch the game, sign in a person, or exercise the
   client download end to end. Say so in the release notes rather than implying it.
+- The game shortcuts are proven on Linux, in an isolated HOME, with a stubbed client and
+  account. A real desktop's own icon-permission behaviour, a real Windows Start menu and a
+  real macOS desktop are not covered, and the two entries are not removed by any
+  uninstaller this repository builds.

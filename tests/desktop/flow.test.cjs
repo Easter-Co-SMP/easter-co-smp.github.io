@@ -392,7 +392,9 @@ test('the graphics toggle is exposed on the isolated preload and handled origin-
  assert.match(main,/handle\('set-graphics',/,'the handler exists');
  assert.match(main,/if\(!trustedFrame\(event\)\)throw Error\('Untrusted launcher request\.'\)/,'and follows the origin-checked pattern every other handler uses');
  // The state the contract publishes, merged into the object status() already returns.
- for(const field of ['hardware','graphics','servers'])assert.match(main,new RegExp('handle\\(.status.,\\(\\)=>\\(\\{\\.\\.\\.state'),'status() spreads the state that carries '+field);
+ // status() is what Settings asks when it opens, so it refreshes the two shortcut entries
+ // before answering, and answers with everything the contract carries.
+ assert.match(main,/handle\('status',async\(\)=>\{[\s\S]{0,300}?await refreshShortcuts\(\);[\s\S]{0,400}?return \{\.\.\.state,shortcuts:shortcutState,/,'status() refreshes the real shortcut state and spreads the state that carries hardware, graphics and servers');
  assert.match(main,/hardware:hardwareState\(\),graphics:graphicsState\(\),servers:serversState\(\)/,'every broadcast carries hardware, graphics and servers');
  assert.match(main,/function chooseGraphicsDefault\(stored,recommended\)/,'the first-run default is decided once');
  assert.match(main,/require\('\.\/hardware\.cjs'\)/,'detection lives in its own module');
@@ -422,7 +424,9 @@ test('the location guard is what the main process uses, not a second copy',async
  const source=await fs.readFile(path.join(__dirname,'../../desktop/main.cjs'),'utf8');
  assert.match(source,/require\('\.\/config\.cjs'\)/);
  assert.match(source,/ensureLocation\(resolveLocation\(/);
- assert.match(source,/canPlay\(install,profile\)/);
+ // The one gate, computed in one place and reused by Play and by the game shortcut.
+ assert.match(source,/function canPlayNow\(\)\{/);
+ assert.match(source,/canPlay\(installInfo\(\),publicProfile\(session\)\)/);
  assert.match(source,/properties:\['openDirectory','createDirectory'\]/);
  for(const channel of ['choose-location','set-location','start-install','pause-install','resume-install','cancel-install','check-updates'])
   assert.match(source,new RegExp("handle\\('"+channel+"'"),channel+' handler must exist');
@@ -482,8 +486,11 @@ test('the window steps aside with a tray or a way back, and returns when the gam
  // Without a tray icon the window still hides, and the sentence says how to come back.
  assert.match(source,/if\(decision\.message\)notify\(\{message:decision\.message,error:decision\.message\}\)/,'the no-tray case is not silent');
  // Starting the launcher again is the way back, and it is the game shortcut's path too.
- assert.match(source,/app\.on\('second-instance',\(\)=>\{[\s\S]{0,400}?window\.show\(\);window\.focus\(\);/,'a second instance shows and focuses the existing window');
- assert.match(source,/if\(!window\|\|window\.isDestroyed\(\)\)\{createWindow\(\);return;\}/,'and creates one if the window is gone');
+ assert.match(source,/app\.on\('second-instance',\(_event,argv\)=>\{[\s\S]{0,500}?window\.show\(\);window\.focus\(\);/,'a second instance shows and focuses the existing window');
+ assert.match(source,/if\(!window\|\|window\.isDestroyed\(\)\)createWindow\(\);/,'and creates one if the window is gone');
+ // The shortcut clicked while the launcher is running arrives on this same event with
+ // its own command line, so the flag is read from there and not from the first launch.
+ assert.match(source,/if\(wantsAutoStart\(argv\)\)void autoStart\(\);/,'a second launch carrying the auto-start flag starts the game through the same path');
  // Both game handlers put the window back, and keep the messages they settled before.
  const exitHandler=/child\.once\('exit',code=>\{game=null;returnToLauncher\(\);const message=code===0\?'Minecraft closed\. Ready to play\.':'Minecraft closed with code '\+code\+'\. Its log is in the client folder\.';settle\(message,\{error:code===0\?null:message\}\);\}\)/.exec(source);
  assert(exitHandler,'the exit handler restores the window and settles the same message');
@@ -502,7 +509,7 @@ test('the window steps aside with a tray or a way back, and returns when the gam
  assert.match(source,/if\(process\.platform!=='linux'\)return Promise\.resolve\(true\)/);
  assert.match(source,/resolve\(!error&&\/\\btrue\\b\/\.test\(String\(stdout\)\)\)/);
  // The Settings dialog reads the pair from the broadcast, which now carries it.
- assert.match(source,/servers:serversState\(\),settings,launcherUpdate/,'the state broadcast publishes settings');
+ assert.match(source,/servers:serversState\(\),settings,shortcuts:shortcutState,launcherUpdate/,'the state broadcast publishes settings and the two shortcut entries');
  assert.match(source,/accounts:savedCompanyAccounts\(\),settings,totalMemoryMB/,'and so does the status the dialog reads on open');
  // No new privileged surface: the preferences ride on the existing settings channel.
  const preload=await fs.readFile(path.join(__dirname,'../../desktop/preload.cjs'),'utf8');

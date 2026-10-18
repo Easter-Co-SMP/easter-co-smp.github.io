@@ -39,5 +39,8 @@ install.installClient=async({notify,control,includeGraphics=false})=>{
  installed=true;
  return {version:'fixture-fabric',javaPath:'/fixture/java',includeGraphics,graphics:graphicsPublished?'fixture-hash':'not-published',message:graphicsPublished?'Client ready. Enhanced graphics installed.':'Client ready. Enhanced graphics are not published yet, so the client was installed without them.'};
 };
-install.launch=async()=>{const game=new EventEmitter();game.stdout=new EventEmitter();game.stderr=new EventEmitter();global.easterTestGame=game;return game;};
+// Counted so the game shortcut can be shown to start exactly one game, and none at all
+// when something still needs the player.
+global.easterTestLaunches=0;
+install.launch=async()=>{global.easterTestLaunches++;const game=new EventEmitter();game.stdout=new EventEmitter();game.stderr=new EventEmitter();global.easterTestGame=game;return game;};
 require('../../desktop/main.cjs');

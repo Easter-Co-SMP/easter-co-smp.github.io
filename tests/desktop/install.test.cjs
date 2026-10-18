@@ -22,7 +22,7 @@ test('only safe app paths and HTTPS external links are accepted',()=>{
  const main={url:'easter://easter/'};assert(trustedFrame({senderFrame:main,sender:{mainFrame:main}}));assert(!trustedFrame({senderFrame:{url:'easter://easter/'},sender:{mainFrame:main}}));
 });
 test('settings reject command strings; public account view omits all tokens',()=>{
- assert.deepEqual(cleanSettings({memoryMB:4096,server:'play.example.com:25565',javaPath:''}),{memoryMB:4096,server:'play.example.com:25565',javaPath:'',autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false});
+ assert.deepEqual(cleanSettings({memoryMB:4096,server:'play.example.com:25565',javaPath:''}),{memoryMB:4096,server:'play.example.com:25565',javaPath:'',autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false,desktopShortcut:false,startMenuShortcut:false});
  // Update opt-outs, including legacy false values, cannot disable mandatory updates.
  assert.deepEqual(
   (({autoUpdateLauncher,autoUpdateGame,exitOnLaunch})=>({autoUpdateLauncher,autoUpdateGame,exitOnLaunch}))(

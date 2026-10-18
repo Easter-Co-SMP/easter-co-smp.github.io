@@ -7,6 +7,7 @@ const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocat
 const vault=require('./vault.cjs');
 const identity=require('./identity.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,migrateLaunchPreferences,launchBehaviour,includeGraphicsValue}=require('./security.cjs');
+const {APP_USER_MODEL_ID,ICON_FILE,wantsAutoStart,autoStartDecision,shortcutSupport,readGameShortcuts,applyGameShortcuts}=require('./shortcuts.cjs');
 const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
 const {renderOffload}=require('./hardware.cjs');
 const {detectHardware,installedQuality,applyDisplayDefaults,displayGuiScale,displayPhysicalPixels}=require('./hardware.cjs');
@@ -15,6 +16,10 @@ const APP_VERSION=require('../package.json').version;
 // "Easter Company": renaming it would orphan the saved account and settings of anyone
 // already signed in, so the name and the path are deliberately decoupled here.
 app.setName('Easter Co. Launcher');
+// Windows groups taskbar buttons and toast notifications under this identity, and the
+// shortcut the player creates in Settings carries the same one, so a launcher started
+// from that shortcut is the same application to the shell rather than a new one.
+if(process.platform==='win32')app.setAppUserModelId(APP_USER_MODEL_ID);
 app.setPath('userData',path.join(app.getPath('appData'),'Easter Company'));
 protocol.registerSchemesAsPrivileged([{scheme:'easter',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true,stream:true}}]);
 if(!app.isPackaged&&process.env.EASTER_TEST_HOME)app.setPath('userData',process.env.EASTER_TEST_HOME);
@@ -33,12 +38,16 @@ const companyFile=()=>path.join(configRoot(),companyVaultName());
 const clientId=process.env.EASTER_MICROSOFT_CLIENT_ID||DEFAULT_CLIENT_ID;
 const auth=new MicrosoftAuth({clientId});
 const accounts=new AccountClient({baseUrl:apiOrigin(),client:'launcher/'+APP_VERSION});
-const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false};
+const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false,desktopShortcut:false,startMenuShortcut:false};
 // The launcher state contract in doc/launcher-states.md. `phase` and `progress`
 // are the live pipeline's; everything else is derived from the installed client,
 // the account session and the saved settings on every broadcast, so no view has to
 // guess. canPlay is computed here and nowhere else.
 let state={message:'Download the game to get started.',error:null,device:null,progress:null,profile:null,remembered:false,account:null};
+// The two game-shortcut entries, as they really are on this computer: the file exists or
+// it does not, which is not the same question as the saved preference. Filled before the
+// first broadcast and refreshed whenever Settings is opened or saved.
+let shortcutState={available:false,reason:null,message:null,desktop:{id:'desktop',wanted:false,exists:false,ours:false},startMenu:{id:'startMenu',wanted:false,exists:false,ours:false}};
 let phase=null,progress=null,control=null,installStarted=false,backgroundUpdate=null;
 let startupReady=!app.isPackaged,startupPromise=null;
 const updater=require('./updater.cjs');
@@ -77,6 +86,23 @@ function graphicsState(){
  return {enabled:Boolean(settings?.includeGraphics),recommended,tunable:Boolean(hardware?.tunable),tuned:quality};
 }
 function serversState(){return serverList();}
+// What still stands between the player and the game, in the order the launcher asks for
+// it. One list, computed here: the UI renders it, and the game shortcut reads it to
+// decide whether a launch may go ahead without stopping to ask the player anything.
+function remainingActions(){
+ const install=installInfo(),actions=[];
+ if(!install.installed)actions.push('download');
+ if(!company)actions.push('signin');
+ else if(!companyReady())actions.push('setup-password');
+ else if(!microsoftConnected())actions.push('connect-microsoft');
+ else if(identity.access(session)==='missing')actions.push('buy');
+ else if(identity.access(session)==='profile-required')actions.push('setup-profile');
+ else if(identity.access(session)==='unknown')actions.push('check-access');
+ return actions;
+}
+// The frozen Play gate. `canPlay` in the state is exactly this, and the game shortcut
+// asks the same question before it starts anything.
+function canPlayNow(){return !accountWorking&&companyReady()&&microsoftConnected()&&!accessChecking&&identity.access(session)==='owned'&&startupReady&&!backgroundUpdate&&!['downloading','paused','verifying','installing','updating','checking-client'].includes(phase)&&canPlay(installInfo(),publicProfile(session));}
 async function readQuality(){quality=await installedQuality(gameRoot());return quality;}
 function installInfo(){
  const installed=Boolean(client.installed);
@@ -88,16 +114,9 @@ function notify(patch={}){
  if('progress' in patch)progress=patch.progress;
  if(typeof patch.phase==='string')phase=patch.phase;
  state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedCompanyAccounts()};
- const install=installInfo(),profile=publicProfile(session),actions=[];
- if(!install.installed)actions.push('download');
- if(!company)actions.push('signin');
- else if(!companyReady())actions.push('setup-password');
- else if(!microsoftConnected())actions.push('connect-microsoft');
- else if(identity.access(session)==='missing')actions.push('buy');
- else if(identity.access(session)==='profile-required')actions.push('setup-profile');
- else if(identity.access(session)==='unknown')actions.push('check-access');
+ const install=installInfo(),actions=remainingActions();
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:!accountWorking&&companyReady()&&microsoftConnected()&&!accessChecking&&identity.access(session)==='owned'&&startupReady&&!backgroundUpdate&&!['downloading','paused','verifying','installing','updating','checking-client'].includes(phase)&&canPlay(install,profile),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),settings,launcherUpdate}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),settings,shortcuts:shortcutState,launcherUpdate}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
@@ -432,6 +451,92 @@ async function play(){
  // back when the game ends. Never both — cleanSettings has already resolved the pair.
  else if(settings.trayOnLaunch===true)setTimeout(()=>{ if(game)void leaveTheWay(); },800);
 }
+// ---- Game shortcuts ---------------------------------------------------------
+// Owen's ask, and his own correction to it: a shortcut for the game that starts the
+// LAUNCHER and lets the launcher start the game, because a shortcut that ran Minecraft
+// itself would skip the mandatory updater. So both entries this launcher writes run the
+// launcher binary with one explicit argument, and everything below is about where those
+// two files live and what happens when one is clicked.
+//
+// An AppImage runs from a temporary mount, so the running binary is not a path the
+// desktop could launch later; APPIMAGE is the file the player actually has.
+function shortcutExecutable(){return process.env.APPIMAGE||process.execPath;}
+function shortcutOptions(){
+ return {platform:process.platform,home:os.homedir(),env:process.env,executable:shortcutExecutable(),
+  // Windows keeps its desktop and Start menu folders somewhere only the shell knows.
+  desktopDir:process.platform==='win32'?app.getPath('desktop'):null,
+  desktop:settings?.desktopShortcut===true,startMenu:settings?.startMenuShortcut===true,
+  icon:{source:path.join(__dirname,'launcher-icon.png'),target:path.join(configRoot(),ICON_FILE)},
+  writeShortcutLink:(...args)=>shell.writeShortcutLink(...args)};
+}
+async function refreshShortcuts(){
+ try{shortcutState=await readGameShortcuts(shortcutOptions());}
+ catch{shortcutState={available:false,reason:'The game shortcuts could not be read on this computer.',desktop:{id:'desktop',wanted:false,exists:false},startMenu:{id:'startMenu',wanted:false,exists:false}};}
+ return shortcutState;
+}
+// Only the contract's own shape is ever published: what a save reports about its own
+// successes and failures stays in this process.
+function publishedShortcuts(report,message){
+ return {available:report.available,reason:report.reason,message:message||null,desktop:report.desktop,startMenu:report.startMenu};
+}
+// A settings save creates and removes both entries. Each one is independent, and a file
+// this computer will not let the launcher write is reported plainly and the preference is
+// turned back off, so the saved setting and the file on disk never disagree.
+async function saveShortcuts(){
+ const before=JSON.stringify(shortcutState);
+ const report=await applyGameShortcuts(shortcutOptions());
+ const failed=(report.failures||[])[0];
+ if(failed){
+  // The entry could not be written, so its own preference goes back off: the saved setting
+  // and the file on disk never disagree, and the sentence the dialog shows is carried in
+  // the shortcut state rather than hidden in a failed request.
+  settings={...settings,[failed.setting]:false};
+  await atomicJSON(settingsFile(),settings);
+ }
+ const next=publishedShortcuts(await readGameShortcuts(shortcutOptions()),failed?failed.message:null);
+ shortcutState=next;
+ // A save that changed neither entry publishes nothing: the dialog already has the answer
+ // it asked for, and a broadcast for an unchanged state would only disturb the view.
+ if(JSON.stringify(next)!==before)notify({});
+ return failed?failed.message:null;
+}
+// ---- The one way a game starts -------------------------------------------------
+// Play and the game shortcut are the same path, so the shortcut cannot start a game the
+// Play button would not offer, cannot skip the launcher update and cannot mean something
+// different for the launch-behaviour settings.
+async function startGame(){
+ if(backgroundUpdate)await backgroundUpdate.catch(()=>{});
+ if(game||working||controller)throw Error('Wait for the current operation to finish.');
+ if(app.isPackaged)await checkLauncherUpdate();
+ if(!startupReady)throw Error('Update the launcher before playing.');
+ return exclusively(play);
+}
+// A shortcut launch waits for the mandatory update gate rather than racing it, and then
+// asks the one decision in shortcuts.cjs. A launch that may not start a game does nothing
+// at all beyond the window it has already opened: the normal state says what needs
+// attention, so no second, vaguer sentence is printed at the player.
+async function startupSettled(){
+ const deadline=Date.now()+300000;
+ while(startupPromise&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,120));
+ return startupReady;
+}
+let autoStarting=false;
+async function autoStart(){
+ if(autoStarting)return null;
+ autoStarting=true;
+ try{
+  await startupSettled();
+  if(backgroundUpdate)await backgroundUpdate.catch(()=>{});
+  const decision=autoStartDecision({startupReady,installed:Boolean(client.installed),running:Boolean(game),busy:Boolean(working||controller||accountWorking||accessChecking),updating:Boolean(backgroundUpdate),actions:remainingActions(),canPlay:canPlayNow()});
+  if(!decision.start)return decision;
+  await startGame();
+  return decision;
+ }catch(error){
+  // The play path has already settled a safe message for anything that failed, exactly as
+  // it does when the player presses Play.
+  return {start:false,reason:'failed',error:safeError(error)};
+ }finally{autoStarting=false;}
+}
 function registerIPC(){
  const handle=(name,fn)=>ipcMain.handle('launcher:'+name,async(event,...args)=>{
   if(!trustedFrame(event))throw Error('Untrusted launcher request.');
@@ -440,7 +545,12 @@ function registerIPC(){
    return {ok:true,value:await fn(...args)};
   }catch(error){return {ok:false,error:safeError(error),code:['invalid_grant','invalid_session','invalid_microsoft_token','identity_conflict','reauthentication_required','password_policy','rate_limited'].includes(error.code)?error.code:undefined};}
  });
- handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedCompanyAccounts(),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
+ handle('status',async()=>{
+  // Settings asks this whenever it opens, and the answer carries the two shortcut
+  // entries as they are on this computer right now rather than as last saved.
+  await refreshShortcuts();
+  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedCompanyAccounts(),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
+ });
  handle('sign-in',async(options={})=>{
   if(controller||accountWorking)throw Error('Account sign-in is already running.');
   // Authentication can overlap the install pipeline, but never starts a second
@@ -507,7 +617,7 @@ function registerIPC(){
  // Company account only: the Microsoft session on this device is kept.
  handle('account-sign-out',async()=>{if(working||controller||accountWorking)throw Error('Wait for the current operation to finish.');await forgetCompany();notify({message:'Signed out of your Easter Company account.'});});
  handle('retry-updates',()=>{if(game)throw Error('Close Minecraft before updating the launcher.');return startupUpdates();});
- handle('play',async()=>{if(backgroundUpdate)await backgroundUpdate;if(game||working||controller)throw Error('Wait for the current operation to finish.');if(app.isPackaged)await checkLauncherUpdate();if(!startupReady)throw Error('Update the launcher before playing.');return exclusively(play);});
+ handle('play',()=>startGame());
  handle('settings',async input=>{
   if(working||controller)throw Error('Wait for the current operation before changing settings.');
   // A running game already owns its launch configuration. Saved preferences apply
@@ -515,7 +625,15 @@ function registerIPC(){
   // The location is never taken from this handler: it comes from the folder
   // picker or the saved setting, nowhere else.
   settings={...cleanSettings(input,Math.floor(os.totalmem()/1024/1024)),location:settings.location,includeGraphics:includeGraphicsValue(input,settings.includeGraphics)};
-  await atomicJSON(settingsFile(),settings);return settings;
+  // Where the launcher cannot write a shortcut at all, the pair is saved off: the dialog
+  // hides the rows and says why, and a settings file never claims an entry that this
+  // computer cannot have.
+  if(!shortcutSupport({platform:process.platform}).available)settings={...settings,desktopShortcut:false,startMenuShortcut:false};
+  await atomicJSON(settingsFile(),settings);
+  // The save is what creates and removes the two files, and a file that could not be
+  // written turns its own preference back off before the dialog is told.
+  await saveShortcuts();
+  return settings;
  });
  handle('choose-java',async()=>{const selected=await dialog.showOpenDialog(window,{title:'Choose Java 25 executable',properties:['openFile'],filters:process.platform==='win32'?[{name:'Java',extensions:['exe']}]:[]});return selected.canceled?null:selected.filePaths[0];});
  // The picker is the only source of a new installation folder.
@@ -673,13 +791,20 @@ async function detectGraphicsHardware(){
  return hardware;
 }
 if(instance){
- app.on('second-instance',()=>{
+ app.on('second-instance',(_event,argv)=>{
   // Starting the launcher again is the way back to a window that stepped aside,
   // whether it is behind a tray icon or hidden on a desktop that has none. The game
   // shortcut uses this same path.
-  if(!window||window.isDestroyed()){createWindow();return;}
-  if(window.isMinimized())window.restore();
-  window.show();window.focus();
+  if(!window||window.isDestroyed())createWindow();
+  else{
+   if(window.isMinimized())window.restore();
+   window.show();window.focus();
+  }
+  // The shortcut clicked while the launcher is already running arrives here carrying its
+  // own command line, so the flag is read from that line rather than from the first
+  // launch's arguments: the click then starts the game once everything is ready instead
+  // of being a plain window focus.
+  if(wantsAutoStart(argv))void autoStart();
  });
  app.whenReady().then(async()=>{
   await fs.mkdir(configRoot(),{recursive:true});
@@ -732,9 +857,15 @@ if(instance){
   // been seeded, and awaited only for the two reads it costs.
   await seedClientDisplay();
   protocol.handle('easter',resource);registerIPC();createWindow();
+  // Before the first broadcast, so the dialog's own render already knows whether the two
+  // entries exist and the window never shows a shortcut state it has to correct.
+  await refreshShortcuts();
   notify({message:client.installed?'Client ready.':'Download the game to get started.'});
   if(app.isPackaged)void startupUpdates();
   else void updateOnLaunch()?.catch(()=>{});
+  // The game shortcut's own launch. Scheduled after the startup update gates so the
+  // auto-start waits for them rather than racing them.
+  if(wantsAutoStart(process.argv))void autoStart();
   if(session?.profile&&!session.profile.skin){const target=session;void loadSkin(target).then(async()=>{if(session===target)await saveSession();});}
  });
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});

@@ -109,6 +109,9 @@
  <label>Server address<select name="serverSelect"></select><input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><p class="desktop-settings-note" hidden></p>
  <label class="desktop-preference"><span>Close launcher when the game starts</span><input type="checkbox" name="exitOnLaunch"></label>
  <label class="desktop-preference"><span>Minimise launcher to the system tray when the game starts</span><input type="checkbox" name="trayOnLaunch"></label>
+ <div class="desktop-shortcuts"><label class="desktop-preference"><span>Desktop shortcut</span><input type="checkbox" name="desktopShortcut"></label>
+ <label class="desktop-preference"><span>Start menu entry</span><input type="checkbox" name="startMenuShortcut"></label>
+ <p class="desktop-shortcuts-note" role="status" hidden></p></div>
  <details class="desktop-advanced"><summary>Advanced settings</summary><p class="desktop-advanced-note">Memory is shared with other apps. Increase it only if Minecraft needs more. Changes apply the next time you launch.</p>
  <label>Memory allocated to the game<output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"><small class="desktop-memory-detail"></small></label>
  <label>Java executable<small>Leave empty to use the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label></details>
@@ -173,6 +176,9 @@
  $('.dialog-close').onclick=()=>panel.close();
  panel.addEventListener('click',event=>{if(event.target!==panel||event.detail===0)return;const r=panel.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)panel.close();});
  const open=()=>{if(!panel.open)panel.showModal();showError(localError);};
+ // The two game-shortcut rows report the files, not the preference. Asking main as the
+ // dialog opens is the difference between "you ticked this" and "it is on this computer".
+ const refreshShortcutState=()=>{Promise.resolve(desktop.status()).then(state=>{if(!current||!state)return;current={...current,shortcuts:state.shortcuts};render(current);}).catch(()=>{});};
  let cancelledSignIn=false,localError='';
  function showError(value){
   localError=value||'';
@@ -342,6 +348,43 @@
   settingsForm.inert=busy&&phaseOf(state)!=='running';
  }
 
+ // ---- Game shortcuts -------------------------------------------------------
+ // Two preferences, and the truth about the files beside them. The main process reports
+ // whether each entry is really on this computer, which is not the same question as the
+ // saved preference, so a shortcut the player deleted by hand is visible here instead of
+ // being assumed to work. Where the platform has no shortcut the launcher can write, the
+ // rows are not offered at all and the reason is stated in their place.
+ const shortcutsGroup=$('.desktop-shortcuts');
+ const shortcutsNote=$('.desktop-shortcuts-note');
+ const shortcutInputs={desktopShortcut:settingsForm.elements.desktopShortcut,startMenuShortcut:settingsForm.elements.startMenuShortcut};
+ function shortcutNote(info){
+  if(info.available===false)return info.reason||'Game shortcuts are not available on this computer.';
+  // A save that could not write an entry says so in the sentence the main process chose,
+  // because only it knows why the file was refused.
+  if(typeof info.message==='string'&&info.message)return info.message;
+  const parts=[];
+  const describe=(entry,label)=>{
+   if(!entry||typeof entry!=='object')return;
+   if(entry.wanted&&!entry.exists)parts.push(label+' is not on this computer. Save settings to create it again.');
+   // A file at the entry's name that this launcher did not write is never deleted, and
+   // saying so is the difference between that and a silent no-op.
+   else if(!entry.wanted&&entry.exists&&entry.ours===false)parts.push(label+' was not created by this launcher, so it is left where it is.');
+   else if(!entry.wanted&&entry.exists)parts.push(label+' is still on this computer. Save settings again to remove it.');
+  };
+  describe(info.desktop,'The desktop shortcut');describe(info.startMenu,'The Start menu entry');
+  return parts.join(' ');
+ }
+ function renderShortcuts(state){
+  const info=state&&state.shortcuts&&typeof state.shortcuts==='object'?state.shortcuts:null;
+  // An older main process publishes no shortcut state, and then carries no shortcut rows.
+  shortcutsGroup.hidden=!info;
+  if(!info)return;
+  const available=info.available!==false;
+  for(const input of Object.values(shortcutInputs)){input.parentElement.hidden=!available;input.disabled=!available;}
+  const note=shortcutNote(info);
+  shortcutsNote.hidden=!note;shortcutsNote.textContent=note;
+ }
+
  function fillServerRow(state,address){
   const choice=buildServerOptions(state,address);
   serverField.value=address;
@@ -414,7 +457,11 @@
    const exitOnLaunch=settings?.exitOnLaunch===true;
    settingsForm.elements.exitOnLaunch.checked=exitOnLaunch;
    settingsForm.elements.trayOnLaunch.checked=!exitOnLaunch&&settings?.trayOnLaunch===true;
+   // The two game shortcuts are independent of each other and of the launch behaviour.
+   shortcutInputs.desktopShortcut.checked=settings?.desktopShortcut===true;
+   shortcutInputs.startMenuShortcut.checked=settings?.startMenuShortcut===true;
   }
+  renderShortcuts(current);
   renderStartup(current);
   renderProfile(current);
   companyAuth?.render(current);
@@ -483,6 +530,9 @@
  // settings. Failures appear in the visible page notice without opening Settings.
  const start=()=>{showError('');void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
  const openSettings=()=>{open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
+  // The two shortcut rows say whether the files are really there, so the truth is asked
+  // for as the dialog opens rather than trusted from the last broadcast.
+  refreshShortcutState();
   // Land the keyboard on the first setting that is actually usable.
   const first=!serverSelect.hidden?serverSelect:serverField;
   first?.focus?.();};
@@ -640,6 +690,9 @@
   if(!toggle.checked)return;
   for(const [other,input] of Object.entries(launchToggles))if(other!==name)input.checked=false;
  };
+ // The game shortcuts are one preference each: ticking one never touches the other, and
+ // the save is what creates or removes the file.
+ for(const input of Object.values(shortcutInputs))input.onchange=()=>{settingsDirty=true;settingsResult.textContent='';};
  memory.oninput=()=>{$('#memory-value').textContent=memoryLabel(memory.value);
   $('.desktop-memory-detail').textContent=memoryLabel(memory.value)+' of '+memoryLabel(memory.max)+' this machine can give the game.';};
  let savingSettings=false;
@@ -650,7 +703,8 @@
   savingSettings=true;$('[data-save-settings]').disabled=true;
   try{
    settings=await desktop.saveSettings({memoryMB:Number(memory.value),server,javaPath:settingsForm.elements.javaPath.value,
-    exitOnLaunch:settingsForm.elements.exitOnLaunch.checked,trayOnLaunch:settingsForm.elements.trayOnLaunch.checked});
+    exitOnLaunch:settingsForm.elements.exitOnLaunch.checked,trayOnLaunch:settingsForm.elements.trayOnLaunch.checked,
+    desktopShortcut:shortcutInputs.desktopShortcut.checked,startMenuShortcut:shortcutInputs.startMenuShortcut.checked});
    // The save is the newest word on the settings, ahead of the state on screen, so the
    // dialog reads back what the main process stored rather than the broadcast before it.
    if(current)current={...current,settings};
