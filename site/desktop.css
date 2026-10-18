@@ -59,9 +59,7 @@
 .desktop-settings input:not([type=range]):not([type=checkbox]),.desktop-settings select{display:block;width:100%;min-width:0;padding:10px 12px;background:#0b1d25;color:#e5e9df;border:1px solid #ffffff28;border-radius:6px;font:12px/1.5 system-ui;margin-top:8px}
 .desktop-settings select option{background:#11252d}
 .desktop-settings small{display:block;color:var(--app-muted);font-size:11px;margin-top:6px;line-height:1.6}
-.desktop-settings fieldset{margin:24px 0;padding:0;border:0}
-.desktop-settings legend{padding:0;margin-bottom:12px;color:var(--app-muted);font-size:11px}
-.desktop-settings .desktop-preference{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:0;padding:10px 0;cursor:pointer;line-height:1.4}
+.desktop-settings .desktop-preference{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:24px 0;padding:10px 0;cursor:pointer;line-height:1.4}
 .desktop-preference input[type=checkbox]{appearance:none;flex:none;width:38px;height:22px;border-radius:12px;border:1px solid #71857d;background:#0b1d25;position:relative;margin:0;cursor:pointer}
 .desktop-preference input::after{content:'';position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#a8b9b4}
 .desktop-preference input:checked{background:var(--app-gold);border-color:var(--app-gold)}
