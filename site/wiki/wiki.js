@@ -1,4 +1,4 @@
-import {groups, pages, searchPages} from './pages.mjs';
+import {groups, pages, searchPages, sectionAliases} from './pages.mjs';
 
 const main = document.querySelector('#wiki-content');
 const search = document.querySelector('#wiki-search');
@@ -28,12 +28,6 @@ function icon(name) {
 function link(title, href, className) {
   const node = el('a', className, title); node.href = href; return node;
 }
-function notice() {
-  const box = el('div', 'wiki-demo');
-  box.append(el('span', 'wiki-demo-label', 'Demo pages'), el('p', '',
-    'You’re exploring the wiki’s first edition. These sample articles demonstrate the layout; they are not gameplay instructions.'));
-  return box;
-}
 function card(page, compact = false) {
   const node = link('', '#/' + page.id, compact ? 'wiki-result' : 'wiki-card');
   node.append(icon(page.icon));
@@ -59,9 +53,8 @@ for (const group of groups) {
 function overview() {
   main.append(heading('The Easter Isles · Field guide', 'Your guide to\nthe Easter Isles.',
     'Find your bearings, chart a course, and make the Isles your own.'));
-  main.append(notice());
   const headingRow = el('div', 'wiki-section-heading');
-  headingRow.append(el('h2', '', 'Browse the guide'), el('span', '', pages.length + ' sample articles'));
+  headingRow.append(el('h2', '', 'Browse the guide'), el('span', '', pages.length + ' guides'));
   main.append(headingRow);
   const cards = el('div', 'wiki-cards'); pages.forEach(page => cards.append(card(page))); main.append(cards);
 }
@@ -74,13 +67,48 @@ function article(page) {
   const crumb = el('nav', 'wiki-breadcrumb'); crumb.setAttribute('aria-label', 'Breadcrumb');
   crumb.append(link('Wiki', '#/'), el('span', '', '/'), el('span', '', page.group)); main.append(crumb);
   const reading = el('div', 'wiki-reading'), body = el('article', 'wiki-article');
-  body.append(heading(page.group, page.title, page.summary), notice());
+  body.append(heading(page.group, page.title, page.summary));
   const mobileToc = el('details', 'wiki-mobile-toc'); mobileToc.append(el('summary', '', 'On this page'), contents(page, '')); body.append(mobileToc);
   for (const section of page.sections) {
     const block = el('section', 'wiki-article-section'); block.id = section.id;
     const h2 = el('h2'); h2.append(link(section.title, '#/' + page.id + '/' + section.id)); block.append(h2, el('p', '', section.text));
     if (section.list) {
       const list = el('ul'); section.list.forEach(text => list.append(el('li', '', text))); block.append(list);
+    }
+    for (const text of section.paragraphs || []) block.append(el('p', '', text));
+    if (section.steps) {
+      const list = el('ol', 'wiki-steps');
+      section.steps.forEach(text => list.append(el('li', '', text))); block.append(list);
+    }
+    if (section.table) {
+      const wrap = el('div', 'wiki-table-wrap');
+      wrap.tabIndex = 0; wrap.setAttribute('role', 'region');
+      wrap.setAttribute('aria-label', section.table.caption);
+      const table = el('table', 'wiki-table');
+      table.append(el('caption', '', section.table.caption));
+      const head = el('thead'), row = el('tr');
+      for (const title of section.table.headers) {
+        const cell = el('th', '', title); cell.scope = 'col'; row.append(cell);
+      }
+      head.append(row); table.append(head);
+      const body = el('tbody');
+      for (const cells of section.table.rows) {
+        const row = el('tr'); cells.forEach(text => row.append(el('td', '', text))); body.append(row);
+      }
+      table.append(body); wrap.append(table); block.append(wrap);
+    }
+    if (section.note) {
+      const note = el('aside', 'wiki-note');
+      note.append(el('strong', '', section.note.title), el('p', '', section.note.text)); block.append(note);
+    }
+    for (const text of section.paragraphsAfter || []) block.append(el('p', '', text));
+    if (section.links?.length) {
+      const links = el('nav', 'wiki-section-links'); links.setAttribute('aria-label', section.title + ' guides');
+      for (const id of section.links) {
+        const target = pages.find(item => item.id === id);
+        links.append(link(target.title + ' →', '#/' + id));
+      }
+      block.append(links);
     }
     if (section.map) block.append(link('Open the world map ↗', '../map/', 'wiki-inline-link'));
     body.append(block);
@@ -108,7 +136,9 @@ function render(focus = false) {
   // Article IDs and section IDs are resolved from our bundled catalogue, never HTML.
   const route = location.hash.slice(1) || '/';
   const [path, queryString = ''] = route.split('?');
-  const [, id = '', sectionId] = path.split('/');
+  const [, id = '', requestedSection = ''] = path.split('/');
+  const sectionId = sectionAliases[id]?.[requestedSection] || requestedSection;
+  if (sectionId !== requestedSection) history.replaceState(null, '', '#/' + id + '/' + sectionId);
   const query = (new URLSearchParams(queryString).get('q') || '').slice(0, 120);
   const page = pages.find(item => item.id === id);
   main.replaceChildren();

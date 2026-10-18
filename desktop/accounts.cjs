@@ -17,6 +17,10 @@ const USERNAME_PATTERN=/^[a-z0-9_-]{3,20}$/;
 // service sends 'taken'/'policy'; the contract named the same answers 'username_taken'/
 // 'username_policy'. Either spelling lands on one message.
 const PROBE_REASONS={taken:'username_taken',username_taken:'username_taken',policy:'username_policy',username_policy:'username_policy'};
+// The account service's answer about the Microsoft account's own email address: stored,
+// unavailable, or none when no Microsoft Graph permission was granted. It is a status word,
+// never an address, and it is the only email-shaped thing this module ever sees.
+const EMAIL_STATUSES=['stored','unavailable','none'];
 // Error messages and codes from the frozen contract, mapped to one actionable line.
 const MESSAGES={
  invalid_credentials:'The username or email, or the password, is incorrect.',
@@ -174,7 +178,12 @@ class AccountClient{
   if(typeof token!=='string'||!token)throw new AccountError('invalid_response',FALLBACK);
   const expiresAt=Date.parse(created.session.expiresAt);
   if(!Number.isFinite(expiresAt))throw new AccountError('invalid_response',FALLBACK);
-  return {created:created.created===true,account,session:{token,expiresAt}};
+  // Whether the account service could read the Microsoft account's own address. It is one
+  // of three words and never an address, so the sign-in dialog can say what happened
+  // without ever receiving or printing an email. A server that says nothing leaves the
+  // field out rather than claiming 'none', which would assert more than it knows.
+  const emailStatus=EMAIL_STATUSES.includes(created?.emailStatus)?created.emailStatus:undefined;
+  return {created:created.created===true,account,session:{token,expiresAt},...(emailStatus?{emailStatus}:{})};
  }
  async me(token,signal){
   const found=await this.call('/v2/accounts/me',{token,signal});

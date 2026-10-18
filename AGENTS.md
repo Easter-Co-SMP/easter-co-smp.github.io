@@ -75,6 +75,13 @@ reviewer before it reaches production. Passing tests, the browser suite and even
 bundle check are necessary but not sufficient: they prove behaviour, not design. Do not ship a
 site/ change on test evidence alone, and do not treat a green gate as the sign-off.
 
+Owen has given standing authority to diagnose and fix launcher bugs and to ship launcher patch
+releases end to end — investigate, ticket, delegate, verify, publish, report — without asking
+first. Run the whole process here, including the reviewer's pass, and report the outcome rather
+than pausing for permission to fix a bug, cut a release, or do the follow-up work that fix needs.
+Work that leaves this repository's own release process — the world or player data, another
+person's machine, credentials, or restarting a service — still needs its own authorization.
+
 Text line endings are pinned to LF in .gitattributes and tests/test_line_endings.py enforces it.
 scripts/verify_app_bundle.py compares the packaged app.asar against site/ byte for byte, and the
 Windows installer is built on a Windows runner where Git's default autocrlf would rewrite every
