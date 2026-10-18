@@ -45,6 +45,10 @@
  const setGraphicsAction=bridge('setGraphics');
 
  const phaseOf=state=>state&&typeof state.phase==='string'?state.phase:'';
+ const accessPanel=document.createElement('section');accessPanel.className='desktop-access';accessPanel.hidden=true;accessPanel.setAttribute('aria-label','Minecraft Java access');
+ accessPanel.innerHTML='<p class="desktop-access-copy" role="status"></p><div><button type="button" data-recheck-access>Check again</button><button type="button" data-use-account>Use a different account</button></div>';
+ accessPanel.querySelector('[data-recheck-access]').onclick=()=>{void desktop.recheckAccess().catch(report);};
+ accessPanel.querySelector('[data-use-account]').onclick=()=>signIn();
  const installOf=state=>state&&state.install&&typeof state.install==='object'?state.install:{};
  const progressOf=state=>state&&state.progress&&typeof state.progress==='object'?state.progress:null;
  const actionsOf=state=>state&&Array.isArray(state.actions)?state.actions:[];
@@ -65,7 +69,7 @@
  // while `launcherUpdate.phase` is `checking`. Everything else stays usable.
  const checkingForUpdate=state=>state?.launcherUpdate?.phase==='checking';
  const settingsOffered=state=>atPlayNow(state)&&!transferring(state)&&!checkingForUpdate(state);
- const graphicsOffered=state=>Boolean(graphicsOf(state))&&typeof setGraphicsAction==='function'&&atPlayNow(state)&&!transferring(state);
+ const graphicsOffered=state=>(!state.minecraftAccess||state.minecraftAccess==='owned')&&Boolean(graphicsOf(state))&&typeof setGraphicsAction==='function'&&atPlayNow(state)&&!transferring(state);
 
  // The hero's primary action and the sticky bar both read this one function,
  // so no second view can invent its own version of the gate.
@@ -73,6 +77,10 @@
   const phase=phaseOf(state),account=state?.profile?.name,install=installOf(state),actions=actionsOf(state);
   if(state?.startupReady===false)return {kind:'busy',label:'Updating…',note:'Updates are required to continue'};
   if(signInPending)return {kind:'busy',label:'Connecting your account…',note:'Complete Microsoft sign-in'};
+  if(state?.accessChecking)return {kind:'busy',label:'Checking Java access…',note:'Please wait'};
+  if(state?.minecraftAccess==='missing')return {kind:'buy',label:'Buy Now',note:'Minecraft Java Edition required'};
+  if(state?.minecraftAccess==='profile-required')return {kind:'setup-profile',label:'Set up Java profile',note:'Choose your Java player name'};
+  if(state?.minecraftAccess==='unknown')return {kind:'check-access',label:'Retry account check',note:'Java access could not be confirmed'};
   if(state&&state.canPlay&&phase!=='launching'&&phase!=='running')return {kind:'play',label:'PLAY NOW',note:'Minecraft Java Edition'};
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Please wait'};
   if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
@@ -256,8 +264,8 @@
   const percentText=percent===null?'':Math.round(percent)+'%';
   if(minimised&&!active)barTabText.textContent=action.kind==='play'?'PLAY NOW':action.kind==='signin'?LOGIN_ACTION:action.label;
   else barTabText.textContent=percentText||'…';
-  barLabel.textContent=active?label:state.canPlay?'Ready to play':installOf(state).installed?'Your client is ready':label;
-  barPrimary.hidden=active||!['play','signin','download'].includes(action.kind);
+  barLabel.textContent=active?label:state.minecraftAccess==='missing'?'Minecraft Java Edition required':state.minecraftAccess==='profile-required'?'Java profile setup required':state.minecraftAccess==='unknown'?'Check Minecraft Java access':state.canPlay?'Ready to play':installOf(state).installed?'Your client is ready':label;
+  barPrimary.hidden=active||!['play','signin','download','buy','setup-profile','check-access'].includes(action.kind);
   barPrimary.textContent=action.label;
   const bytes=progressState&&typeof progressState.bytesDone==='number'&&typeof progressState.bytesTotal==='number'?formatBytes(progressState.bytesDone)+' of '+formatBytes(progressState.bytesTotal):null;
   const speed=progressState&&typeof progressState.bytesPerSecond==='number'?formatSpeed(progressState.bytesPerSecond):null;
@@ -377,7 +385,7 @@
   const fromMain=state!==current;
   current={...current,...state};
   if(installRequested&&transferring(current)){installRequested=false;if(panel.open)panel.close();}
-  const busy=signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
+  const busy=signInPending||Boolean(current.accessChecking)||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
   const action=primaryAction(current);
 
   document.querySelector('.home-footer>span:last-child')?.replaceChildren(document.createTextNode('Launcher '+(current.version||'')));
@@ -395,6 +403,11 @@
    settingsForm.elements[name].checked=settings?.[name]!==false;
   renderStartup(current);
   renderProfile(current);
+  const access=current.minecraftAccess;
+  accessPanel.hidden=!['missing','profile-required','unknown'].includes(access);
+  accessPanel.querySelector('p').textContent=access==='missing'?'This Microsoft account does not have access to Minecraft Java Edition. Buy it using the same account, then check again.':access==='profile-required'?'This account has Java Edition access. Set up your Java player profile, then check again.':'We could not confirm Java Edition access. Check again, or sign in with the account that has Minecraft.';
+  accessPanel.querySelector('[data-recheck-access]').hidden=access==='unknown';
+  for(const button of accessPanel.querySelectorAll('button'))button.disabled=Boolean(current.accessChecking)||signInPending;
   const device=current.device,wasWaiting=auth('.desktop-device').hidden;
   auth('.desktop-device').hidden=!device;auth('.desktop-auth-wait').hidden=Boolean(device);
   if(device&&!cancelledSignIn){
@@ -429,7 +442,7 @@
    const icon=heroButton.querySelector('svg');
    if(icon){
     icon.setAttribute('viewBox','0 0 24 24');
-    icon.innerHTML=action.kind==='signin'?'<path fill="currentColor" stroke="none" d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/>':action.kind==='play'?'<path fill="currentColor" stroke="none" d="M7 4v16l13-8z"/>':action.kind==='download'?'<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>':'<path d="M8 5v14M16 5v14"/>';
+    icon.innerHTML=action.kind==='signin'?'<path fill="currentColor" stroke="none" d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/>':action.kind==='play'?'<path fill="currentColor" stroke="none" d="M7 4v16l13-8z"/>':['buy','setup-profile'].includes(action.kind)?'<path d="M14 3h7v7m0-7L10 14M10 3H3v18h18v-7"/>':action.kind==='check-access'?'<path d="M20 7v5h-5m5 0a8 8 0 1 0-2 6"/>':action.kind==='download'?'<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>':'<path d="M8 5v14M16 5v14"/>';
    }
    heroButton.querySelector('span').firstChild.textContent=action.label;
    heroButton.querySelector('small').textContent=action.kind==='play'?joinParts([action.note,current.profile?.name]):action.note;
@@ -459,6 +472,9 @@
   first?.focus?.();};
  // The hero is one control whose action follows the same state its label does.
  const heroAction=()=>{const action=primaryAction(current||{});
+  if(action.kind==='buy')return void desktop.openMinecraftStore().catch(report);
+  if(action.kind==='setup-profile')return void desktop.openMinecraftProfile().catch(report);
+  if(action.kind==='check-access')return void desktop.recheckAccess().catch(report);
   if(action.kind==='play')return start();
   if(action.kind==='signin')return signIn();
   if(action.kind==='download')return void beginInstall();
@@ -510,6 +526,7 @@
   // The download details follow the toggle, in the hero, and belong to the hero's own
   // Download the game action.
   graphics.parentElement?.insertBefore(installDetails,graphics.nextSibling);
+  graphics.parentElement?.insertBefore(accessPanel,graphics);
   graphicsSection=graphics;graphicsSwitch=graphics.querySelector('[data-graphics-toggle]');
   graphicsLabel=graphics.querySelector('.desktop-graphics-label'),graphicsNote=graphics.querySelector('.desktop-graphics-note');graphicsError=graphics.querySelector('.desktop-graphics-error');
   graphicsSwitch.addEventListener('change',async()=>{
@@ -553,20 +570,21 @@
  window.addEventListener('resize',positionProfile);
  let skinSource=null;
  function renderProfile(state){
-  profileButton.hidden=!state.profile;profileName.textContent=state.profile?.name||'';
-  accountHeading.textContent='Microsoft account: '+(state.profile?.name||'');
+  const account=state.microsoftAccount||state.profile;
+  profileButton.hidden=!account;profileName.textContent=account?.name||'';
+  accountHeading.textContent=state.profile?'Microsoft account: '+state.profile.name:'Microsoft account';
   companyHeading.hidden=!state.account;companyHeading.textContent=state.account?'Easter Company account: '+state.account.name:'';
-  const locked=signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(state));
+  const locked=signInPending||Boolean(state.accessChecking)||['signing-in','refreshing','launching','running'].includes(phaseOf(state));
   for(const button of profileMenu.querySelectorAll('[data-profile-action]')){
    button.disabled=locked;
    button.hidden=button.dataset.profileAction.startsWith('company')&&!state.account;
   }
   if(!accountList.hidden)renderAccountList();
-  if(!state.profile){if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
+  if(!account){if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
   const ctx=face.getContext('2d');
-  const source=state.profile.skin||'';
-  const key=state.profile.id+source;if(key===skinSource)return;skinSource=key;
-  ctx.fillStyle='#536b66';ctx.fillRect(0,0,32,32);ctx.fillStyle='#eedbb2';ctx.font='bold 20px sans-serif';ctx.textAlign='center';ctx.fillText(state.profile.name[0],16,24);
+  const source=state.profile?.skin||'';
+  const key=account.id+source;if(key===skinSource)return;skinSource=key;
+  ctx.fillStyle='#536b66';ctx.fillRect(0,0,32,32);ctx.fillStyle='#eedbb2';ctx.font='bold 20px sans-serif';ctx.textAlign='center';ctx.fillText(account.name[0],16,24);
   if(source.startsWith('data:image/png;base64,')){
    const image=new Image();image.onload=()=>{if(skinSource!==key)return;ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;ctx.drawImage(image,8,8,8,8,0,0,32,32);ctx.drawImage(image,40,8,8,8,0,0,32,32);};image.src=source;
   }
@@ -575,7 +593,7 @@
   accountList.replaceChildren();accountList.hidden=false;
   const accounts=current?.accounts||[];
   for(const account of accounts){
-   const button=document.createElement('button');button.type='button';button.textContent=account.name+(account.id===current.profile?.id?' (current)':'');button.disabled=account.id===current.profile?.id||signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
+   const button=document.createElement('button');button.type='button';button.textContent=account.name+(account.id===(current.microsoftAccount?.id||current.profile?.id)?' (current)':'');button.disabled=account.id===(current.microsoftAccount?.id||current.profile?.id)||signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
    button.onclick=async()=>{button.disabled=true;try{await desktop.switchAccount(account.id);profileMenu.hidePopover();}catch(error){profileMenu.hidePopover();report(error);}finally{renderAccountList();}};accountList.append(button);
   }
   if(!accounts.length)accountList.textContent='No saved accounts. Use Add account.';

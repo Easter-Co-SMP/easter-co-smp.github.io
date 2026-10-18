@@ -1,15 +1,19 @@
-# Easter Company launcher 1.0.11
+# Easter Company launcher 1.0.12
 
-Launcher and game updates are now required. The two update switches and the Settings release-link notice have been removed. Legacy saved opt-outs are ignored; closing the launcher when Minecraft starts remains optional.
+A Microsoft login without Minecraft Java Edition access now has a complete recovery path.
 
-Startup checks the latest launcher app-file manifest, downloads a newer application bundle with progress, verifies its byte length and SHA-256, activates it atomically in the user's application directory, and restarts automatically. It then checks the game client before enabling Play. Both feeds are checked again before a game launch. Failed checks/downloads keep Play blocked and offer Retry; offline mode does not bypass the version requirement.
+- Confirmed missing Java access shows **Buy Now**, opening the official Java & Bedrock Edition for PC store in your browser.
+- **Check again** reuses the Microsoft session after purchase and moves the same account to Download or Play once access and a Java profile are available.
+- An entitled account without a configured Java profile gets **Set up Java profile**, with an official profile-page link.
+- Service failures show **Retry account check**, never a prompt to buy another copy.
+- Subscription-based Java access is accepted. Bedrock-only access is not treated as Java access.
+- **Use a different account**, account switching and logout also work without a Java profile. Cancellation and failed account addition preserve the prior active account.
+- Access is checked before every launch, so an expired/revoked entitlement cannot launch using a cached Java profile or enrol an Easter Company account.
 
-A persistent bootstrap loads verified downloaded app bundles on subsequent starts. Routine application updates do not overwrite installed program files, open an installer, or change account vaults/Minecraft files. Payloads are specific to platform, architecture, bootstrap protocol and Electron runtime. An incompatible runtime/bootstrap requires installing a newer base launcher; incompatible code is never loaded.
+Profile-less Microsoft sessions use stable public identity keys in the existing encrypted vault. Tokens never cross into the renderer. No plaintext persistence fallback is added.
 
-**One bootstrap installation is required for users on 1.0.10 or earlier:** those releases contain only an update notice and cannot install this updater themselves. Install 1.0.11 once to enable app-file updates.
+Validation includes Node auth/identity tests; existing launcher/account/browser/site checks; a new real Electron journey using fixture Microsoft/Xbox/Minecraft responses; and packaged-bundle verification. Cases cover missing ownership, setup, outages, subscription access, purchase recovery, duplicate prevention, cancellation/failed-add retention, direct Play rejection and the Wiki action dock. Real player authentication/purchases were not performed; the host exercised the secure-vault refusal path because no OS keyring was available.
 
-The update screen appears before the bounded Home arrival. Settings now contains the server, launch preference and advanced fields, without update opt-outs.
+v1.0.11 can download this app-file update automatically. Users on 1.0.10 or earlier still need the bootstrap installer once. The existing required launcher/game update gate remains in effect.
 
-Validation includes 96 Node tests; Python/site/browser checks; Electron installation, sign-in/account, state, transfer, mandatory-gate and downloaded-ASAR/bootstrap tests. Windows and Linux packaging and bundled-site verification run in CI. Real Microsoft approval/gameplay and clean-machine Windows update execution remain manual checks; fixtures were used for authentication/game execution.
-
-Installers are unsigned. SHA256SUMS covers the four installers and four update payload/manifest files.
+Installers are unsigned. SHA256SUMS covers all installers and update payload/manifest files.
