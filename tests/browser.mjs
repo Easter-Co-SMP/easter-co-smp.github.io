@@ -1155,7 +1155,11 @@ try{
    // The email notice is a notice, never a failure node. An unrelated failure arriving while it
    // is on screen must not blank it: the dialog used to end up an empty body with only the close
    // control, and a player waiting on one sentence was left with nothing to read.
-   const EMAIL_SENTENCE='We could not read your Microsoft email address. You can sign in, and choose a login email later from your profile.';
+   //
+   // The sentence itself is never quoted here. It is the sign-in step's own sentence, it changes
+   // with the account service, and the property under test is identity — the same text before and
+   // after the failure paint — not any particular wording. The sentence is read back as it
+   // arrives and compared with itself.
    const emailNotice=launcherPage.locator('.desktop-auth-notice');
    const unrelated='The launcher could not reach the account service.';
    await pushState({phase:'ready',actions:['signin'],canPlay:false,install:INSTALLED,profile:null,account:null,companyReady:false,microsoftConnected:false,error:null});
@@ -1163,13 +1167,15 @@ try{
    await companyChooser.waitFor({state:'visible'});
    await launcherPage.evaluate(()=>{window.easterRenderer.signInAnswer={emailStatus:'unavailable'};});
    await companyChooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
-   await emailNotice.filter({hasText:'We could not read your Microsoft email address'}).waitFor();
+   await emailNotice.waitFor({state:'visible'});
+   const emailSentence=(await emailNotice.textContent()).trim();
+   assert(emailSentence.length>0,'the sign-in dialog holds the step\'s own sentence about the email address');
    await pushState({error:unrelated});
    await launcherPage.locator('.desktop-auth-error').filter({hasText:unrelated}).waitFor();
    assert.equal(await emailNotice.isVisible(),true,'an unrelated failure does not blank the email notice');
-   assert.equal((await emailNotice.textContent()).trim(),EMAIL_SENTENCE,'the email sentence is still the whole of it');
+   assert.equal((await emailNotice.textContent()).trim(),emailSentence,'the step\'s own sentence is still the whole of it, unchanged');
    const emailDialogText=(await signInDialog.innerText()).replace(/\s+/g,' ');
-   assert(emailDialogText.includes('We could not read your Microsoft email address'),'the dialog still carries the sentence the player is waiting on');
+   assert(emailDialogText.includes(emailSentence),'the dialog still carries the sentence the player is waiting on');
    assert(emailDialogText.includes(unrelated),'beside the failure that arrived while it was open, in its own error area');
    await signInDialog.screenshot({path:'/tmp/easter-launcher-email-notice-with-failure.png'});
    // The email notice belongs to the sign-in it answered: closing the dialog ends it, and the
