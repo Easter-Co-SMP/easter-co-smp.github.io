@@ -988,23 +988,38 @@ finish. Please try again."
 
 | Step id | Sentence |
 |---|---|
-| `device-code` | `Microsoft sign-in (device code) could not start: …` |
-| `code-completion` | `Microsoft sign-in (code completion) failed: …` |
+| `device-code` | `Microsoft sign-in could not start: …` |
+| `code-completion` | `Microsoft sign-in did not finish: …` |
 | `xbox-live` | `Xbox Live did not accept the Microsoft sign-in: …` |
-| `xsts` | `Xbox Live authorisation (XSTS) did not accept the sign-in: …` |
+| `xsts` | `Xbox Live authorisation did not accept the sign-in: …` |
 | `minecraft` | `Minecraft sign-in failed: …` |
 | `java-profile` | `The Java profile could not be read: …` |
 
+A network failure has its own shape, so it never claims a refusal that did not happen:
+`Sign-in stopped while <step>: the connection failed. Check your network and try again.`
 `code-completion` is the token exchange on both routes: the device-code poll and the
 refresh of a saved session. The generic sentence is kept for a genuinely unknown step and
 is not used by any of the six.
 
-The reason after the colon carries what is safe and useful: the HTTP status, the AAD
-`error` string (`invalid_grant`, `invalid_scope`, `unauthorized_client`…), the Xbox `XErr`
-number with its own advice, and Minecraft's own distinction — `HTTP 401` (the Xbox Live
-session was refused), `HTTP 403` (this account may not sign in), `HTTP 5xx` (temporarily
-unavailable) and `HTTP 429` each read differently. Nothing from a response body, and no
-token, refresh token, device code, user code or email address, is ever part of a sentence.
+**A sentence never carries a provider code.** No HTTP status, no AAD `error` string
+(`invalid_grant`, `invalid_scope`, `unauthorized_client`…), no `XErr` number and no
+internal step id appears in what the player reads; the last section of this document's
+contract is the log below, which keeps all of it. What the player gets instead is the
+human cause and an instruction, and the five causes a person can act on read differently:
+
+| Cause | What the player reads |
+|---|---|
+| A refused Xbox Live session | `Minecraft sign-in failed: the Xbox Live session was not accepted. Sign in again.` |
+| An account that may not play | `Minecraft sign-in failed: this account may not play Minecraft: Java Edition. Check that it owns the game.` |
+| An outage | `Minecraft sign-in is temporarily unavailable: the service is not answering right now. Try again in a few minutes.` |
+| Rate limiting | `Minecraft sign-in failed: there have been too many sign-in attempts in a short time. Wait a few minutes and try again.` |
+| No connection | `Sign-in stopped while <step>: the connection failed. Check your network and try again.` |
+
+The Xbox `XErr` causes that the player can act on are kept verbatim (create an Xbox
+profile, country, age verification, Microsoft Family approval) without the number. Nothing
+from a response body, and no token, refresh token, device code, user code or email address,
+is ever part of a sentence; a provider code that would itself contain the word "token" is
+scrubbed by `main.cjs`'s safeError() rather than shown.
 
 **The log is `userData/signin.log`.** One line per step, appended, LF endings:
 

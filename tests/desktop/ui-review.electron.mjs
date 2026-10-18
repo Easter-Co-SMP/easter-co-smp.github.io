@@ -150,7 +150,7 @@ try{
  assert.deepEqual(await visibleErrorNodes(),[],'a dismissed failure is not resurrected by the same broadcast');
  // A sign-in that is still running is never presented as failed: the code and the browser action
  // are what the player is waiting for, so a stale sentence is not painted over them.
- await send({...await status(),device:{code:'TEST-LIVE',url:'https://microsoft.com/link',expiresAt:Date.now()+300000},error:'Xbox Live did not accept the Microsoft sign-in: the provider answered UNAUTHORIZED (HTTP 401). Try again.'});
+ await send({...await status(),device:{code:'TEST-LIVE',url:'https://microsoft.com/link',expiresAt:Date.now()+300000},error:'Minecraft sign-in failed: the Xbox Live session was not accepted. Sign in again.'});
  await page.locator('.desktop-code').filter({hasText:'TEST-LIVE'}).waitFor();
  assert.equal(await page.locator('.desktop-code').filter({hasText:'TEST-LIVE'}).isVisible(),true,'the device code stays readable');
  assert.equal(await page.getByRole('button',{name:'Login with Microsoft',exact:true}).isVisible(),true,'the sign-in link stays readable');
