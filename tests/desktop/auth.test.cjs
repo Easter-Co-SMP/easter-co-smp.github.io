@@ -347,7 +347,11 @@ test('the log is bounded by one rotation however often it is written',async()=>{
  assert(!fs.existsSync(file+'.2'),'rotation is a single file, not an ever-growing set');
  assert.equal(fs.readFileSync(file,'utf8').split('\n')[0],'2026-10-18T04:52:31.123Z v1.0.17 step=xsts outcome=failed http=400 code=XErr2148916238');
  // A log file that cannot be written never breaks a sign-in.
- const unwritable=new SignInLog({file:path.join('/proc','nonexistent','signin.log'),version:'1.0.17'});
+ // A regular file as the parent fails with ENOTDIR on every platform, even as root.
+ // Avoid special filesystems: Node 24 can spin inside recursive mkdir on /proc.
+ const blockedParent=path.join(logDir(),'not-a-directory');
+ fs.writeFileSync(blockedParent,'fixture');
+ const unwritable=new SignInLog({file:path.join(blockedParent,'signin.log'),version:'1.0.17'});
  assert.doesNotThrow(()=>{unwritable.append({step:'xsts',outcome:'failed',status:400,code:'x'});unwritable.append({step:'xsts',outcome:'ok',status:200,code:'ok'});});
 });
 
