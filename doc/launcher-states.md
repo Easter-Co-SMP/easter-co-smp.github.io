@@ -394,6 +394,58 @@ automatic answer for this machine, `tunable` is false when this platform cannot
 report enough about the GPU to promise a quality level, and `tuned` is
 `{renderDistance, shadowDistance, shaders}` actually written into the client.
 
+**The display defaults come from the install and from startup, not from this toggle.**
+Owen's requirement is that a new player's first launch is already fullscreen, at a GUI
+scale their own display can read, so the launcher writes `guiScale` and
+`fullscreen:true` into the client's own `options.txt` whether Enhanced Graphics is on or
+off: from the install pipeline, and also from the startup path of a tree that is already
+installed, because a returning player's update check finds nothing changed and never
+reaches the install pipeline at all. The optional graphics chunk is never required for
+them, and they are not part of the quality step `tuned` reports. The seed happens once
+per client tree and is remembered by `.easter-client-display` inside that tree rather
+than in `installed.json`, so it cannot race the pipeline's own atomic write of the
+install marker. After the record exists the launcher never rewrites a key again: a value
+the player or the game changed later is theirs, and the only later write is a repair of a
+recorded key that has gone missing. A tree without the launcher's marker file is
+refused, exactly like the quality files, and the seed never runs while a client process
+is up, because a running client rewrites `options.txt` on exit. None of this adds a
+field to the state contract, and the UI never mentions it.
+
+**The GUI scale follows the display, and is read in physical pixels.** Owen's follow-up
+of 2026-10-18: a flat GUI scale of 2 is right on an ordinary display and too small on a
+high-resolution one. `displayGuiScale` in `desktop/hardware.cjs` is the whole rule, a
+pure function of a pixel size:
+
+| Physical height | `guiScale` |
+|---|---|
+| 2160 (2160p and up) | 4 |
+| 1350 (1440p, 1600p) | 3 |
+| anything shorter, down to the smallest display | 2 |
+| no usable size reported | 2 |
+
+Height is the axis that binds: a 21:9 1440p display is as tall as any other 1440p one,
+and the interface a player runs out of room on is the vertical one. 1080p deliberately
+stays on the bottom rung, so both household machines keep the 2 they are tuned to, and
+the table stops at 4 because that is as far as the launcher is willing to go on a
+high-resolution display we have not played on — a limit of ours, not a claim about what
+the client itself allows. A rung the display cannot actually show is not written either:
+the client needs 320x240 pixels per scale step, so a display too small to fit the wanted
+rung gets the lower one it does fit (on a very small screen that is 1), rather than being
+recorded at a scale the game would silently reduce. An unusable answer from the caller
+is not invented into the file; the seed writes the documented fallback of 2.
+
+The scale is computed from the display the client will actually open on, measured in
+**physical** pixels: `screen.getPrimaryDisplay()` in the main process, inside
+`app.whenReady()`, and `display.size * display.scaleFactor` rather than the
+device-independent size, because a 2160p screen at 200% scaling describes itself as
+1080p and its interface is still laid out in 2160 physical lines. The primary display is
+meant: the client opens fullscreen, and a fullscreen window opens on the primary display,
+the one the player is looking at. That value is passed through `installClient` into the
+seed, so the startup seed and the install-pipeline seed cannot disagree. The record
+stores the value that was applied, and a repair reuses it: a launcher moved to a second
+screen never re-decides a tree that has already been seeded, and a player who changes the
+scale in game keeps their choice.
+
 The server field becomes a choice with a working default, and the entries are
 published by the main process rather than hardcoded in the view:
 
@@ -407,13 +459,11 @@ record yet; a pending entry is shown as unavailable rather than silently failing
 connect. An entry the player types is kept as their own choice and is never
 rewritten to an entry id.
 
-**Two accounts are never rendered as one.** The Microsoft account and the Easter
-Company account are separate systems, and the profile popover labels them separately. A
-signed-in Microsoft account must not be followed by "No Easter Company account on
-this device yet." as bare, unlabelled copy: the company line is labelled, and when
-nothing depends on a company account it is omitted rather than advertised. The
-memory control is an explained advanced setting, not a bare slider under a heading
-that says nothing about what it does.
+**Easter Company is the primary identity.** The profile popover leads with the
+Company name and ID, then names Microsoft/Xbox as its linked provider. Signed-out
+users get a sign-in chooser with Microsoft signup/sign-in and Company ID/password
+login. New and migrated accounts without a password must complete setup before
+Play. The memory control remains an explained advanced setting.
 
 **Automation is the player's choice, and it is stated in the settings.** Three
 preferences are persisted with the rest of the settings, default on, and are never
@@ -454,7 +504,7 @@ previous session until sign-in succeeds. Switch Account lists app-owned accounts
 and refreshes the selected session before activation. Logout removes the active
 account, including its saved session, without deleting other accounts. Account
 sessions persist only in an OS-backed encrypted vault, otherwise for this process.
-The state includes `accounts` (public profiles only) and an optional skin PNG data
+The state includes `accounts` (public Company IDs/names only) and an optional skin PNG data
 URL in each public profile. Tokens remain in the main process. Switching is refused
 while Minecraft or authentication is running.
 
@@ -515,3 +565,11 @@ Actions may include buy, setup-profile or check-access. The hero and utility-pag
 dock use Buy Now only for confirmed missing entitlement, never an outage.
 Fixed-destination IPC opens the official store/profile pages; recheckAccess
 reuses the Microsoft session and can return directly to Download or Play.
+
+## Company identity and password login
+
+This replaces the earlier separate-account presentation: Easter Company is the primary identity. State.account exposes Company ID/name, passwordRequired and microsoftLinked; companyReady and microsoftConnected are separate gates. Provider proofs, link subjects, passwords and session tokens never appear in state. Microsoft signup validates an Xbox user token on the server and copies only available public Minecraft profile data. Accounts without Java profiles can register. Existing account IDs are retained when verified Minecraft ownership migrates their Xbox link.
+
+The sign-in chooser offers Continue with Microsoft (automatic signup/sign-in) and Company ID/password login. Signup and existing accounts without a password must complete password setup. Company ID is displayed for subsequent direct login. Password setup/reset uses a recent Microsoft-authenticated Company session; reset revokes other sessions. Closing setup leaves Play blocked and a Create password action available. Passwords are never persisted on the client.
+
+Company login restores only a matching cached Microsoft session. Otherwise Sign in to Minecraft asks for the linked Microsoft identity. Wrong-provider login cannot replace the active Company identity. Play requires a complete Company account, a matching Microsoft link, current launcher/client and confirmed Java access. Revoked Java access retains the Company identity and shows Buy Now. Add/switch/cancel/failure retain the current account until a new login succeeds. Logout signs out the primary identity. Provider storage supports future Steam linking; no Steam button or unverified linking is shipped.

@@ -45,8 +45,8 @@ class MicrosoftAuth{
   }
   throw new AuthError('The sign-in code expired. Start sign-in again.','expired_token');
  }
- async refresh(session,signal,recheck=false){
-  if(session.expiresAt>Date.now()+300000)return recheck?this.checkAccess(session,signal):session;
+ async refresh(session,signal,recheck=false,force=false){
+  if(!force&&session.expiresAt>Date.now()+300000)return recheck?this.checkAccess(session,signal):session;
   const msa=await this.form('/token',{grant_type:'refresh_token',client_id:this.clientId,refresh_token:session.refreshToken,scope:SCOPE},signal);
   return {...await this.exchange(msa,session.refreshToken,signal),accountId:session.accountId||session.profile?.id||'xbox:'+session.xuid};
  }
@@ -62,7 +62,7 @@ class MicrosoftAuth{
   // The user hash is present even when the optional Xbox ID is omitted.
   // Hash it into a stable, non-credential account key; never invent a Java profile.
   const microsoftId='msa:'+createHash('sha256').update(this.clientId+'\0'+String(uhs)).digest('hex');
-  return this.checkAccess({clientId:this.clientId,xuid,microsoftId,accountId:microsoftId,refreshToken:msa.refresh_token||oldRefresh,accessToken:mc.access_token,expiresAt:Date.now()+(mc.expires_in||86400)*1000,profile:null},signal);
+  return this.checkAccess({clientId:this.clientId,xuid,microsoftId,companySubject:createHash('sha256').update('xbox-uhs:'+String(uhs)).digest('hex'),xboxUserToken:xbox.Token,xboxExpiresAt:Date.parse(xbox.NotAfter)||0,accountId:microsoftId,refreshToken:msa.refresh_token||oldRefresh,accessToken:mc.access_token,expiresAt:Date.now()+(mc.expires_in||86400)*1000,profile:null},signal);
  }
  async checkAccess(session,signal){
   const headers={Authorization:'Bearer '+session.accessToken};

@@ -788,16 +788,15 @@ try{
    await dialog.locator('.desktop-settings-result').filter({hasText:'Saved.'}).waitFor();
    assert.equal((await callsNamed('saveSettings')).at(-1).payload.memoryMB,6144,'the memory choice reaches main');
 
-   // Two accounts, two labelled lines, and the company line is omitted when there
-   // is no company account rather than advertised as an absence.
+   // Company identity is primary; Microsoft is a linked provider underneath it.
    assert.equal(await dialog.locator('.desktop-account,.desktop-company').count(),0,'account management has one home in the profile menu');
    await launcherPage.keyboard.press('Escape');
+   await pushState({account:{id:'EC-7',name:'Captain Owen',roles:['crew'],passwordRequired:false,microsoftLinked:true},companyReady:true,microsoftConnected:true});
    await launcherPage.locator('.desktop-account-nav').click();
    const profileMenu=launcherPage.locator('.desktop-profile-menu');
-   assert((await profileMenu.locator('.desktop-account').textContent()).startsWith('Microsoft account: Owen'),'the Microsoft line is labelled');
-   assert.equal(await profileMenu.locator('.desktop-company').isVisible(),false,'with no company account the line is omitted');
-   await pushState({account:{name:'Captain Owen',roles:['crew']}});
-   assert((await profileMenu.locator('.desktop-company').textContent()).includes('Easter Company account: Captain Owen'),'the company line is labelled separately');
+   assert((await profileMenu.locator('.desktop-account').textContent()).startsWith('Captain Owen · EC-7'),'the Company name and ID lead the menu');
+   assert((await profileMenu.locator('.desktop-company').textContent()).includes('Microsoft / Xbox linked'),'Microsoft is shown as a linked provider');
+   assert.equal(await profileMenu.getByRole('button',{name:'Sign out of Easter Company',exact:true}).count(),0,'one primary Logout action');
    await launcherPage.keyboard.press('Escape');
 
    // The themed graphics toggle sits below the hero's primary action, at the Play Now

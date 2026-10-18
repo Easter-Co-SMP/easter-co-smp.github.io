@@ -4,7 +4,7 @@
 // network, and nothing writes outside a temporary directory.
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
-const {hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,gpuAdapters,drmCards,sessionDisplay,targetAdapter,renderOffload,pciForDriPrime,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,matchAdapter,chooseDevice,reportedDevices,reportedAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hex16,videoMemoryMB,busId,qualitySettings,parseProperties,mergeProperties,applyQualitySettings,recordQuality,installedQuality,SHADER_PACK_NAME}=require('../../desktop/hardware.cjs');
+const {hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,gpuAdapters,drmCards,sessionDisplay,targetAdapter,renderOffload,pciForDriPrime,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,matchAdapter,chooseDevice,reportedDevices,reportedAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hex16,videoMemoryMB,busId,qualitySettings,parseProperties,mergeProperties,applyQualitySettings,recordQuality,installedQuality,applyDisplayDefaults,displayGuiScale,displayPhysicalPixels,displayDefaultValues,GUI_SCALE_LADDER,GUI_SCALE_DEFAULT,DISPLAY_DEFAULTS,DISPLAY_RECORD,SHADER_PACK_NAME}=require('../../desktop/hardware.cjs');
 const {deriveQuality}=require('../../desktop/install.cjs');
 async function tempDir(prefix){return fs.mkdtemp(path.join(os.tmpdir(),prefix));}
 
@@ -339,5 +339,210 @@ test('a quality setting write does not create the installed marker it may not ow
   await fs.writeFile(path.join(root,'.easter-client'),'');
   await fs.writeFile(path.join(root,'installed.json'),'not json');
   assert.equal(await recordQuality(root,qualitySettings({vramMB:8192,tier:'capable'})),false,'a damaged marker is left for the pipeline to repair');
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+// ---- the client's display defaults -------------------------------------------
+// Owen asked for a first launch that is already fullscreen at GUI scale 2. The two
+// keys live in options.txt, are seeded once per client tree, and are then never
+// rewritten unless a recorded key has gone missing.
+test('the display defaults are seeded once into the launcher’s client tree',async()=>{
+ const dir=await tempDir('easter-display-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  assert.deepEqual(DISPLAY_DEFAULTS,{guiScale:'2',fullscreen:'true'},'the values are Owen’s, exactly');
+  assert.equal(DISPLAY_RECORD,'.easter-client-display');
+  const seeded=await applyDisplayDefaults(root);
+  assert.equal(seeded.written,true);
+  assert.equal(seeded.firstSeed,true,'the first seed records itself');
+  assert.deepEqual(seeded.keys.sort(),['fullscreen','guiScale']);
+  // Read the file itself, not the intent.
+  const options=await fs.readFile(path.join(root,'options.txt'),'utf8');
+  assert.deepEqual(options.split('\n').filter(Boolean),['guiScale:2','fullscreen:true']);
+  assert.equal(options.includes('\r'),false,'LF line endings');
+  assert.equal((await fs.stat(path.join(root,'options.txt'))).mode&0o777,0o600,'the same mode the quality writer uses');
+  const record=JSON.parse(await fs.readFile(path.join(root,DISPLAY_RECORD),'utf8'));
+  assert.equal(record.schema,1);
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true'});
+  assert.equal(typeof record.appliedAt,'string');
+  assert.match(record.appliedAt,/^\d{4}-\d\d-\d\dT/);
+  assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mode&0o777,0o600);
+  // The install pipeline owns installed.json; a settings write never creates it.
+  assert.equal(await fs.stat(path.join(root,'installed.json')).then(()=>'present',()=>'absent'),'absent');
+  assert.equal(await fs.stat(path.join(root,'config','iris.properties')).then(()=>'present',()=>'absent'),'absent','display defaults are not the graphics step');
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('a tree that has already been played is seeded once, and a key the player changed later is never rewritten',async()=>{
+ const dir=await tempDir('easter-display-played-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  // What the game itself writes on its first exit: every key, its own values.
+  await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\nguiScale:4\nfov:0.5\nrenderDistance:12\n');
+  const first=await applyDisplayDefaults(root);
+  assert.equal(first.firstSeed,true,'an already-played tree still takes the defaults once');
+  const seeded=await fs.readFile(path.join(root,'options.txt'),'utf8');
+  assert.deepEqual(seeded.split('\n').filter(Boolean),['fullscreen:true','guiScale:2','fov:0.5','renderDistance:12'],'the two defaults win on the first seed and every other line is kept');
+  const optionsBefore=await fs.readFile(path.join(root,'options.txt'));
+  const recordBefore=await fs.readFile(path.join(root,DISPLAY_RECORD));
+  const optionsStat=await fs.stat(path.join(root,'options.txt'));
+  const recordStat=await fs.stat(path.join(root,DISPLAY_RECORD));
+  // A second run has nothing to do and must touch neither file.
+  const second=await applyDisplayDefaults(root);
+  assert.equal(second.written,false);
+  assert.equal(second.firstSeed,false);
+  assert.deepEqual(second.keys,[]);
+  assert.deepEqual(await fs.readFile(path.join(root,'options.txt')),optionsBefore,'the file is byte-identical');
+  assert.equal((await fs.stat(path.join(root,'options.txt'))).mtimeMs,optionsStat.mtimeMs,'and its mtime is unchanged');
+  assert.deepEqual(await fs.readFile(path.join(root,DISPLAY_RECORD)),recordBefore);
+  assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mtimeMs,recordStat.mtimeMs,'the record is written once and never again');
+  // The player plays again and turns fullscreen off in the game's own settings.
+  await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\nguiScale:2\nfov:0.75\n');
+  const playerStat=await fs.stat(path.join(root,'options.txt'));
+  const third=await applyDisplayDefaults(root);
+  assert.equal(third.written,false,'a present key is the player’s own from now on');
+  assert.equal(await fs.readFile(path.join(root,'options.txt'),'utf8'),'fullscreen:false\nguiScale:2\nfov:0.75\n','the launcher never re-decides a player’s choice');
+  assert.equal((await fs.stat(path.join(root,'options.txt'))).mtimeMs,playerStat.mtimeMs);
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('the only later seed is repair: a recorded key that went missing is written again',async()=>{
+ const dir=await tempDir('easter-display-repair-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  await applyDisplayDefaults(root);
+  const recordBefore=await fs.readFile(path.join(root,DISPLAY_RECORD));
+  const recordStat=await fs.stat(path.join(root,DISPLAY_RECORD));
+  // A truncated options.txt: the record still says this tree was seeded.
+  await fs.writeFile(path.join(root,'options.txt'),'renderDistance:12\n');
+  const repaired=await applyDisplayDefaults(root);
+  assert.equal(repaired.written,true);
+  assert.equal(repaired.firstSeed,false,'a repair is not a fresh seed');
+  assert.deepEqual(repaired.keys.sort(),['fullscreen','guiScale']);
+  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['renderDistance:12','guiScale:2','fullscreen:true'],'the missing keys are re-added and the rest is kept');
+  assert.deepEqual(await fs.readFile(path.join(root,DISPLAY_RECORD)),recordBefore,'the record describes the seed, so a repair leaves it alone');
+  assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mtimeMs,recordStat.mtimeMs);
+  // One key missing, one present and player-chosen: only the missing one comes back.
+  await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\n');
+  const single=await applyDisplayDefaults(root);
+  assert.deepEqual(single.keys,['guiScale']);
+  assert.equal(await fs.readFile(path.join(root,'options.txt'),'utf8'),'fullscreen:false\nguiScale:2\n','the present key is untouched');
+  // options.txt deleted entirely, as a fresh profile or a botched reset would: both
+  // recorded keys come back, from the record.
+  await fs.rm(path.join(root,'options.txt'));
+  const recreated=await applyDisplayDefaults(root);
+  assert.deepEqual(recreated.keys.sort(),['fullscreen','guiScale']);
+  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['guiScale:2','fullscreen:true']);
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('a tree without the launcher’s marker is refused and nothing is created',async()=>{
+ const dir=await tempDir('easter-display-foreign-');
+ try{
+  // An existing ~/.minecraft, another launcher's tree: no marker, so no write.
+  const foreign=path.join(dir,'.minecraft');
+  await fs.mkdir(foreign,{recursive:true});
+  await fs.writeFile(path.join(foreign,'options.txt'),'fullscreen:false\nguiScale:4\n');
+  await assert.rejects(applyDisplayDefaults(foreign),/not the launcher/);
+  assert.equal(await fs.readFile(path.join(foreign,'options.txt'),'utf8'),'fullscreen:false\nguiScale:4\n','the file is untouched');
+  assert.deepEqual(await fs.readdir(foreign),['options.txt'],'not even the record is created');
+  await assert.rejects(applyDisplayDefaults(''),/no client folder/);
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+// ---- the GUI scale follows the display it will open on ----------------------
+// Owen's follow-up of 2026-10-17: a flat 2 is right on an ordinary display and too
+// small on a high-resolution one. The table is the contract, so it is asserted one
+// pixel either side of every cut as well as on the displays that decide the change.
+test('the GUI scale rule follows the display, and keeps 2 on an ordinary one',()=>{
+ assert.equal(displayGuiScale({widthPx:1366,heightPx:768}),2,'a small laptop keeps 2');
+ assert.equal(displayGuiScale({widthPx:1600,heightPx:900}),2,'so does 1600x900');
+ assert.equal(displayGuiScale({widthPx:1920,heightPx:1080}),2,'1080p keeps 2: it is what both household machines run');
+ assert.equal(displayGuiScale({widthPx:1920,heightPx:1200}),2,'a 1200-tall display is still on the ordinary rung');
+ assert.equal(displayGuiScale({widthPx:2560,heightPx:1440}),3,'1440p is one rung up');
+ assert.equal(displayGuiScale({widthPx:3440,heightPx:1440}),3,'an ultrawide is judged by its height, like any other 1440p display');
+ assert.equal(displayGuiScale({widthPx:3840,heightPx:2160}),4,'2160p is the top rung');
+ assert.equal(displayGuiScale({widthPx:5120,heightPx:2880}),4,'and the table stops at 4: that is the launcher’s own ceiling, not a claim about the client');
+ // One pixel either side of each cut, so the table is the rule and not an impression.
+ assert.equal(displayGuiScale({widthPx:2560,heightPx:1349}),2);
+ assert.equal(displayGuiScale({widthPx:2560,heightPx:1350}),3);
+ assert.equal(displayGuiScale({widthPx:3840,heightPx:2159}),3);
+ assert.equal(displayGuiScale({widthPx:3840,heightPx:2160}),4);
+ assert.deepEqual(GUI_SCALE_LADDER.map(rung=>[rung.minHeightPx,rung.guiScale]),[[2160,4],[1350,3],[1,2]],'the documented table, in order');
+ assert.equal(GUI_SCALE_DEFAULT,2,'the documented fallback');
+ // A display that will not state its size is unknown, not small and not large.
+ assert.equal(displayGuiScale({}),2);
+ assert.equal(displayGuiScale(),2);
+ assert.equal(displayGuiScale({widthPx:null,heightPx:null}),2);
+ assert.equal(displayGuiScale({widthPx:3840,heightPx:null}),2,'a height the platform will not state is unknown, not 2160');
+ assert.equal(displayGuiScale({widthPx:3840,heightPx:0}),2);
+ assert.equal(displayGuiScale({widthPx:3840,heightPx:NaN}),2);
+ assert.equal(displayGuiScale({widthPx:3840,heightPx:'tall'}),2);
+ // A rung the display cannot show is not written: the client needs 320x240 per step.
+ assert.equal(displayGuiScale({widthPx:1080,heightPx:2160}),3,'a tall narrow display is capped by what its width fits');
+ assert.equal(displayGuiScale({widthPx:640,heightPx:480}),2,'a tiny display still gets the scale it can show');
+ assert.equal(displayGuiScale({widthPx:320,heightPx:240}),1);
+});
+
+test('the GUI scale is read in physical pixels, not device-independent ones',()=>{
+ assert.deepEqual(displayPhysicalPixels({size:{width:3840,height:2160},scaleFactor:1}),{widthPx:3840,heightPx:2160});
+ assert.deepEqual(displayPhysicalPixels({size:{width:1920},scaleFactor:2}),{widthPx:3840,heightPx:null},'a size with no height leaves the height unknown rather than assuming one');
+ assert.deepEqual(displayPhysicalPixels({size:{width:1920,height:1080},scaleFactor:2}),{widthPx:3840,heightPx:2160},'a 2160p screen at 200% scaling reports 1080p in device-independent pixels');
+ assert.equal(displayGuiScale(displayPhysicalPixels({size:{width:1920,height:1080},scaleFactor:2})),4,'which is the whole point: the scaled display gets the rung its real pixels earn');
+ assert.deepEqual(displayPhysicalPixels({size:{width:2560,height:1440},scaleFactor:1.25}),{widthPx:3200,heightPx:1800});
+ assert.equal(displayGuiScale(displayPhysicalPixels({size:{width:2560,height:1440},scaleFactor:1.25})),3);
+ assert.deepEqual(displayPhysicalPixels({size:{width:1280,height:1024}}),{widthPx:1280,heightPx:1024},'a display that reports no factor is read 1:1');
+ assert.deepEqual(displayPhysicalPixels({size:{width:1280,height:1024},scaleFactor:0}),{widthPx:1280,heightPx:1024},'and so is one that reports a nonsense factor');
+ assert.deepEqual(displayPhysicalPixels({}),{widthPx:null,heightPx:null});
+ assert.deepEqual(displayPhysicalPixels(null),{widthPx:null,heightPx:null});
+ assert.equal(displayGuiScale(displayPhysicalPixels(null)),2,'an unreadable display gets 2 rather than a guess');
+});
+
+test('the first seed writes the GUI scale its display asked for, and the record keeps that value',async()=>{
+ const dir=await tempDir('easter-display-scale-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  const seeded=await applyDisplayDefaults(root,{guiScale:3});
+  assert.equal(seeded.firstSeed,true);
+  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['guiScale:3','fullscreen:true'],'the display’s answer is what a fresh tree gets');
+  const record=JSON.parse(await fs.readFile(path.join(root,DISPLAY_RECORD),'utf8'));
+  assert.deepEqual(record.values,{guiScale:'3',fullscreen:'true'},'the record stores the value that was applied, not the fallback');
+  // A repair reuses the record, so the launcher moving to another screen cannot
+  // re-decide a tree that has already been seeded.
+  await fs.writeFile(path.join(root,'options.txt'),'renderDistance:12\n');
+  const repaired=await applyDisplayDefaults(root,{guiScale:4});
+  assert.equal(repaired.firstSeed,false);
+  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['renderDistance:12','guiScale:3','fullscreen:true'],'the recorded 3 comes back, not this display’s 4');
+  // And a key the player moved themselves is still never rewritten.
+  await fs.writeFile(path.join(root,'options.txt'),'guiScale:1\nfullscreen:false\n');
+  const kept=await applyDisplayDefaults(root,{guiScale:4});
+  assert.equal(kept.written,false);
+  assert.equal(await fs.readFile(path.join(root,'options.txt'),'utf8'),'guiScale:1\nfullscreen:false\n','a player’s own scale outranks every rung');
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('an unusable GUI scale is never invented into the client',async()=>{
+ const dir=await tempDir('easter-display-scale-fallback-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  for(const value of [null,undefined,0,5,-1,3.5,'',NaN,'three',{}]){
+   assert.equal(displayDefaultValues(value).guiScale,'2','an unusable value ('+String(value)+') falls back to the documented 2');
+  }
+  assert.equal(displayDefaultValues(3).guiScale,'3');
+  assert.equal(displayDefaultValues('4').guiScale,'4','the rule’s answer may arrive as a number or a string');
+  assert.equal(displayDefaultValues(4).fullscreen,'true','fullscreen does not depend on the scale at all');
+  const seeded=await applyDisplayDefaults(root,{guiScale:'nonsense'});
+  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['guiScale:2','fullscreen:true']);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(root,DISPLAY_RECORD),'utf8')).values,{guiScale:'2',fullscreen:'true'});
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });

@@ -1,8 +1,9 @@
 {
   "name": "easter-company-launcher",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "Easter Company Minecraft launcher, world map and crew companion",
   "main": "desktop/bootstrap.cjs",
+  "desktopName": "easter-company.desktop",
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/desktop/*.test.cjs tests/wiki.test.mjs",
@@ -61,6 +62,7 @@
     ],
     "files": [
       "desktop/*.cjs",
+      "desktop/launcher-icon.png",
       "site/**/*",
       "package.json"
     ],
@@ -72,15 +74,11 @@
         "pacman"
       ],
       "category": "Game",
-      "icon": "desktop/icon.png",
+      "icon": "desktop/launcher-icon.png",
       "executableName": "easter-company",
       "artifactName": "Easter-Company-Linux-${arch}.${ext}",
       "maintainer": "Easter LTD",
-      "desktop": {
-        "entry": {
-          "StartupWMClass": "electron"
-        }
-      }
+      "syncDesktopName": true
     },
     "pacman": {
       "depends": [
@@ -119,7 +117,7 @@
       "target": [
         "nsis"
       ],
-      "icon": "desktop/icon.png",
+      "icon": "desktop/launcher-icon.png",
       "artifactName": "Easter-Company-Windows-${arch}.${ext}",
       "legalTrademarks": "Easter Company is a trading name of Easter LTD."
     },

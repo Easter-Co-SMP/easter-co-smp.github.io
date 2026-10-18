@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+const home=await fs.mkdtemp('/tmp/company-identity-electron-');
+await fs.writeFile(path.join(home,'settings.json'),JSON.stringify({memoryMB:4096,server:'127.0.0.1:25565',exitOnLaunch:false}));
+const app=await electron.launch({executablePath:path.resolve('node_modules/electron/dist/electron'),args:['--no-sandbox',path.resolve('tests/desktop/company-harness.cjs')],env:{...process.env,EASTER_TEST_HOME:home,EASTER_API_BASE_URL:'http://127.0.0.1:18796',EASTER_IDENTITY_FIXTURE_SEED:String(Date.now())}});
+try{
+ const page=await app.firstWindow();page.setDefaultTimeout(18000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.keyboard.press('Escape');await page.setViewportSize({width:800,height:600});
+ const hero=kind=>page.locator('[data-desktop-play][data-action="'+kind+'"]');
+ const status=()=>page.evaluate(()=>window.easterDesktop.status());
+ const approve=async()=>{await page.locator('.desktop-code').filter({hasText:'COMPANY-TEST'}).waitFor();await app.evaluate(()=>global.companyApprove());};
+ await hero('signin').click();await page.locator('#desktop-company-signin').waitFor();await page.screenshot({path:'/tmp/company-signin.png',animations:'disabled'});
+ await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();await approve();
+ await page.locator('#desktop-company-password').waitFor();let state=await status();const id=state.account.id;assert.match(id,/^EC-[1-9][0-9]*$/);assert(state.account.passwordRequired);assert.equal(state.canPlay,false);
+ await page.evaluate(()=>window.easterDesktop.play());assert.equal(await app.evaluate(()=>global.companyLaunches),0);
+ await page.screenshot({path:'/tmp/company-password-setup.png',animations:'disabled'});
+ const setup=page.locator('#desktop-company-password');
+ await page.keyboard.press('Escape');await hero('setup-password').waitFor();assert.equal((await status()).canPlay,false);await hero('setup-password').click();
+ await setup.getByLabel('New password',{exact:true}).fill('fixture secret passphrase');await setup.getByLabel('Confirm password',{exact:true}).fill('different fixture passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();
+ await setup.locator('.company-error').filter({hasText:'do not match'}).waitFor();await setup.getByLabel('Confirm password',{exact:true}).fill('fixture secret passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();
+ await hero('play').waitFor();state=await status();assert.equal(state.account.id,id);assert.equal(state.companyReady,true);assert.equal(state.microsoftConnected,true);assert.equal(state.accounts.length,1);
+ await page.locator('.desktop-account-nav').click();assert((await page.locator('.desktop-profile-menu').textContent()).includes(id));await page.keyboard.press('Escape');
+ await page.getByRole('link',{name:'Wiki',exact:true}).click();await page.locator('.wiki-card').first().waitFor();assert.equal((await status()).account.id,id);await page.getByRole('link',{name:'Home',exact:true}).click();await page.keyboard.press('Escape');
+ await page.evaluate(()=>window.easterDesktop.signOut());await hero('signin').waitFor();
+ async function passwordLogin(secret){await hero('signin').click();const dialog=page.locator('#desktop-company-signin');await dialog.getByLabel('Company ID',{exact:true}).fill(id);await dialog.getByLabel('Password',{exact:true}).fill(secret);await dialog.getByRole('button',{name:'Sign in',exact:true}).click();}
+ await passwordLogin('wrong fixture passphrase');await page.locator('#desktop-company-signin .company-error').filter({hasText:'incorrect'}).waitFor();assert.equal((await status()).account,null);
+ await page.locator('#desktop-company-signin').getByLabel('Password',{exact:true}).fill('fixture secret passphrase');await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in',exact:true}).click();
+ await hero('connect-microsoft').waitFor();assert.equal((await status()).account.id,id);assert.equal((await status()).microsoftAccount,null);
+ await app.evaluate(()=>global.companyUser='2');await hero('connect-microsoft').click();await approve();await page.locator('.desktop-page-notice').waitFor();assert.equal((await status()).account.id,id);assert.equal((await status()).microsoftConnected,false,'wrong Microsoft account cannot replace Company identity');
+ await page.getByRole('button',{name:'Dismiss message'}).click();await app.evaluate(()=>global.companyUser='1');await hero('connect-microsoft').click();await approve();await hero('play').waitFor();assert.equal((await status()).account.id,id);
+ await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Reset password',exact:true}).click();await approve();await setup.getByRole('heading',{name:'Reset your Company password',exact:true}).waitFor();
+ await setup.getByLabel('New password',{exact:true}).fill('replacement fixture passphrase');await setup.getByLabel('Confirm password',{exact:true}).fill('replacement fixture passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();await hero('play').waitFor();
+ assert.equal(await page.locator('input[type=password]').evaluateAll(inputs=>inputs.every(input=>input.value==='')),true);
+ const surface=JSON.stringify(await status());for(const secret of ['fixture-xbox:','fixture-private','fixture secret passphrase','replacement fixture passphrase','microsoftSubject'])assert(!surface.includes(secret));
+ await page.evaluate(()=>window.easterDesktop.signOut());await hero('signin').waitFor();
+ await app.evaluate(()=>{global.companyUser='3';global.companyMode='missing';});
+ await hero('signin').click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();await approve();await setup.waitFor();
+ assert.equal((await status()).profile,null);assert((await status()).account.passwordRequired);
+ await setup.getByLabel('New password',{exact:true}).fill('nonowner fixture passphrase');await setup.getByLabel('Confirm password',{exact:true}).fill('nonowner fixture passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();await hero('buy').waitFor();
+ assert.equal((await status()).companyReady,true);assert.equal((await status()).canPlay,false);await page.screenshot({path:'/tmp/company-nonowner.png',animations:'disabled'});
+ assert.deepEqual(errors,[]);
+ console.log('Company identity Electron PASS: real API and PostgreSQL signup/password setup, stable ID, direct login, wrong-provider rejection, matching Microsoft reconnect, password reset, Wiki continuity, Play gate and no credential exposure.');
+}catch(error){const page=await app.firstWindow();console.log(await page.evaluate(async()=>{const s=await window.easterDesktop.status();return {phase:s.phase,account:s.account,ready:s.companyReady,connected:s.microsoftConnected,error:s.error,dialogs:[...document.querySelectorAll('dialog[open]')].map(x=>x.id)};}));throw error;}
+finally{await app.close();await fs.rm(home,{recursive:true,force:true});}

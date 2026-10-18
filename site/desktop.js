@@ -30,7 +30,9 @@
  for(const selector of ['.hero-welcome','.home-below','.home-story','.home-notes'])document.querySelectorAll(selector).forEach(node=>node.remove());
 
  const TRANSFER=['downloading','paused','verifying','installing','updating'];
- const LOGIN_ACTION='Sign in with Microsoft';
+ const LOGIN_ACTION='Sign in';
+ let companyAuth=null;
+ const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft});if(current)companyAuth.render(current);return companyAuth;});
  const CUSTOM_SERVER='__custom__';
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
  let current=null,settings,totalMemoryMB=0,heroButton=null,settingsButton=null,graphicsSection=null,graphicsSwitch=null,graphicsLabel=null,graphicsNote=null,graphicsError=null,signInPending=false;
@@ -50,7 +52,7 @@
  const accessPanel=document.createElement('section');accessPanel.className='desktop-access';accessPanel.hidden=true;accessPanel.setAttribute('aria-label','Minecraft Java access');
  accessPanel.innerHTML='<p class="desktop-access-copy" role="status"></p><div><button type="button" data-recheck-access>Check again</button><button type="button" data-use-account>Use a different account</button></div>';
  accessPanel.querySelector('[data-recheck-access]').onclick=()=>{void desktop.recheckAccess().catch(report);};
- accessPanel.querySelector('[data-use-account]').onclick=()=>signIn();
+ accessPanel.querySelector('[data-use-account]').onclick=()=>signIn({switchAccount:true});
  const installOf=state=>state&&state.install&&typeof state.install==='object'?state.install:{};
  const progressOf=state=>state&&state.progress&&typeof state.progress==='object'?state.progress:null;
  const actionsOf=state=>state&&Array.isArray(state.actions)?state.actions:[];
@@ -79,7 +81,11 @@
   const phase=phaseOf(state),account=state?.profile?.name,install=installOf(state),actions=actionsOf(state);
   if(state?.startupReady===false)return {kind:'busy',label:'Updating…',note:'Updates are required to continue'};
   if(signInPending)return {kind:'busy',label:'Connecting your account…',note:'Complete Microsoft sign-in'};
+  if(state?.accountWorking)return {kind:'busy',label:'Connecting your account…',note:'Please wait'};
   if(state?.accessChecking)return {kind:'busy',label:'Checking Java access…',note:'Please wait'};
+  if(state?.account?.passwordRequired)return {kind:'setup-password',label:'Create your password',note:'Finish your Easter Company account'};
+  if(state?.account&&state.microsoftConnected===false)return {kind:'connect-microsoft',label:'Sign in to Minecraft',note:'Use your linked Microsoft account'};
+  if(state?.companyReady===false&&!state.account&&(install.installed||state.microsoftAccount))return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account'};
   if(state?.minecraftAccess==='missing')return {kind:'buy',label:'Buy Now',note:'Minecraft Java Edition required'};
   if(state?.minecraftAccess==='profile-required')return {kind:'setup-profile',label:'Set up Java profile',note:'Choose your Java player name'};
   if(state?.minecraftAccess==='unknown')return {kind:'check-access',label:'Retry account check',note:'Java access could not be confirmed'};
@@ -266,7 +272,7 @@
   if(minimised&&!active)barTabText.textContent=action.kind==='play'?'PLAY NOW':action.kind==='signin'?LOGIN_ACTION:action.label;
   else barTabText.textContent=percentText||'…';
   barLabel.textContent=active?label:state.minecraftAccess==='missing'?'Minecraft Java Edition required':state.minecraftAccess==='profile-required'?'Java profile setup required':state.minecraftAccess==='unknown'?'Check Minecraft Java access':state.canPlay?'Ready to play':installOf(state).installed?'Your client is ready':label;
-  barPrimary.hidden=active||!['play','signin','download','buy','setup-profile','check-access'].includes(action.kind);
+  barPrimary.hidden=active||!['play','signin','download','buy','setup-profile','check-access','setup-password','connect-microsoft'].includes(action.kind);
   barPrimary.textContent=action.label;
   const bytes=progressState&&typeof progressState.bytesDone==='number'&&typeof progressState.bytesTotal==='number'?formatBytes(progressState.bytesDone)+' of '+formatBytes(progressState.bytesTotal):null;
   const speed=progressState&&typeof progressState.bytesPerSecond==='number'?formatSpeed(progressState.bytesPerSecond):null;
@@ -386,7 +392,7 @@
   const fromMain=state!==current;
   current={...current,...state};
   if(installRequested&&transferring(current)){installRequested=false;if(panel.open)panel.close();}
-  const busy=signInPending||Boolean(current.accessChecking)||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
+  const busy=signInPending||Boolean(current.accessChecking||current.accountWorking)||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
   const action=primaryAction(current);
 
   document.querySelector('.home-footer>span:last-child')?.replaceChildren(document.createTextNode('Launcher '+(current.version||'')));
@@ -404,11 +410,12 @@
    settingsForm.elements[name].checked=settings?.[name]!==false;
   renderStartup(current);
   renderProfile(current);
+  companyAuth?.render(current);
   const access=current.minecraftAccess;
-  accessPanel.hidden=!['missing','profile-required','unknown'].includes(access);
+  accessPanel.hidden=!current.account||current.account.passwordRequired||current.microsoftConnected===false||!['missing','profile-required','unknown'].includes(access);
   accessPanel.querySelector('p').textContent=access==='missing'?'This Microsoft account does not have access to Minecraft Java Edition. Buy it using the same account, then check again.':access==='profile-required'?'This account has Java Edition access. Set up your Java player profile, then check again.':'We could not confirm Java Edition access. Check again, or sign in with the account that has Minecraft.';
   accessPanel.querySelector('[data-recheck-access]').hidden=access==='unknown';
-  for(const button of accessPanel.querySelectorAll('button'))button.disabled=Boolean(current.accessChecking)||signInPending;
+  for(const button of accessPanel.querySelectorAll('button'))button.disabled=Boolean(current.accessChecking||current.accountWorking)||signInPending;
   const device=current.device,wasWaiting=auth('.desktop-device').hidden;
   auth('.desktop-device').hidden=!device;auth('.desktop-auth-wait').hidden=Boolean(device);
   if(device&&!cancelledSignIn){
@@ -456,14 +463,15 @@
  // Sign-in opens the dialog for its device code and closes it again when the flow is
  // over: a finished login must not leave the settings dialog sitting on screen.
  const closeSignIn=()=>{if(signin.open)signin.close();};
- const signIn=()=>{
+ const signIn=(options={})=>{void companyUI.then(ui=>ui.open(options)).catch(report);};
+ function signInMicrosoft(options={}){
   if(signInPending)return;
   cancelledSignIn=false;showError('');if(panel.open)panel.close();
   signInPending=true;render(current||{});signin.showModal();
-  void Promise.resolve(desktop.signIn()).then(closeSignIn).catch(error=>{
-   if(!cancelledSignIn){closeSignIn();report(error);}
+  return Promise.resolve(desktop.signIn(options)).then(()=>{closeSignIn();return true;}).catch(error=>{
+   if(!cancelledSignIn){closeSignIn();report(error);}return false;
   }).finally(()=>{signInPending=false;render(current||{});});
- };
+ }
  // Play Now starts the game. It opens nothing: the dialog is for sign-in and client
  // settings. Failures appear in the visible page notice without opening Settings.
  const start=()=>{showError('');void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
@@ -473,6 +481,8 @@
   first?.focus?.();};
  // The hero is one control whose action follows the same state its label does.
  const heroAction=()=>{const action=primaryAction(current||{});
+  if(action.kind==='setup-password')return void companyUI.then(ui=>ui.setup()).catch(report);
+  if(action.kind==='connect-microsoft')return void signInMicrosoft({link:true});
   if(action.kind==='buy')return void desktop.openMinecraftStore().catch(report);
   if(action.kind==='setup-profile')return void desktop.openMinecraftProfile().catch(report);
   if(action.kind==='check-access')return void desktop.recheckAccess().catch(report);
@@ -557,25 +567,25 @@
  const accountHeading=document.createElement('p');accountHeading.className='desktop-profile-heading desktop-account';profileMenu.append(accountHeading);
  const companyHeading=document.createElement('p');companyHeading.className='desktop-profile-heading desktop-company';profileMenu.append(companyHeading);
  for(const [label,action,key] of [
-  ['Add account',()=>{profileMenu.hidePopover();signIn();},'add'],
+  ['Add account',()=>{profileMenu.hidePopover();signIn({switchAccount:true});},'add'],
   ['Switch Account',()=>renderAccountList(),'switch'],
   ['Logout',()=>{profileMenu.hidePopover();void desktop.signOut().catch(report);},'logout'],
-  ['Refresh Easter Company account',()=>desktop.refreshAccount().catch(report),'companyRefresh'],
-  ['Sign out of Easter Company',()=>desktop.signOutAccount().catch(report),'companyLogout']]){
+  ['Reset password',()=>{profileMenu.hidePopover();void companyUI.then(ui=>ui.reset()).catch(report);},'companyPassword']]){
   const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.profileAction=key;button.onclick=action;profileMenu.append(button);
  }
  const accountList=document.createElement('div');accountList.className='desktop-account-list';accountList.hidden=true;profileMenu.append(accountList);document.body.append(profileMenu);
  const positionProfile=()=>{const rect=profileButton.getBoundingClientRect();profileMenu.style.top=rect.bottom+8+'px';profileMenu.style.right=Math.max(12,innerWidth-rect.right)+'px';};
- profileButton.onclick=()=>{accountList.hidden=true;profileMenu.togglePopover();positionProfile();};
+ profileButton.onclick=()=>{if(!current?.account){signIn();return;}accountList.hidden=true;profileMenu.togglePopover();positionProfile();};
  profileMenu.addEventListener('toggle',event=>profileButton.setAttribute('aria-expanded',String(event.newState==='open')));
  window.addEventListener('resize',positionProfile);
  let skinSource=null;
  function renderProfile(state){
-  const account=state.microsoftAccount||state.profile;
-  profileButton.hidden=!account;profileName.textContent=account?.name||'';
-  accountHeading.textContent=state.profile?'Microsoft account: '+state.profile.name:'Microsoft account';
-  companyHeading.hidden=!state.account;companyHeading.textContent=state.account?'Easter Company account: '+state.account.name:'';
-  const locked=signInPending||Boolean(state.accessChecking)||['signing-in','refreshing','launching','running'].includes(phaseOf(state));
+  const account=state.account;
+  profileButton.hidden=false;profileName.textContent=account?.name||'Sign in';face.hidden=!account;
+  profileButton.setAttribute('aria-haspopup',account?'true':'dialog');
+  accountHeading.textContent=account?account.name+' · '+account.id:'';
+  companyHeading.hidden=!account;companyHeading.textContent=state.microsoftConnected?'Microsoft / Xbox linked'+(state.profile?' · '+state.profile.name:''):account?.microsoftLinked?'Microsoft / Xbox linked · sign in to play':'Microsoft / Xbox not connected';
+  const locked=signInPending||Boolean(state.accessChecking||state.accountWorking)||['signing-in','refreshing','launching','running'].includes(phaseOf(state));
   for(const button of profileMenu.querySelectorAll('[data-profile-action]')){
    button.disabled=locked;
    button.hidden=button.dataset.profileAction.startsWith('company')&&!state.account;
@@ -583,7 +593,7 @@
   if(!accountList.hidden)renderAccountList();
   if(!account){if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
   const ctx=face.getContext('2d');
-  const source=state.profile?.skin||'';
+  const source=state.microsoftConnected?state.profile?.skin||'':'';
   const key=account.id+source;if(key===skinSource)return;skinSource=key;
   ctx.fillStyle='#536b66';ctx.fillRect(0,0,32,32);ctx.fillStyle='#eedbb2';ctx.font='bold 20px sans-serif';ctx.textAlign='center';ctx.fillText(account.name[0],16,24);
   if(source.startsWith('data:image/png;base64,')){
@@ -594,7 +604,7 @@
   accountList.replaceChildren();accountList.hidden=false;
   const accounts=current?.accounts||[];
   for(const account of accounts){
-   const button=document.createElement('button');button.type='button';button.textContent=account.name+(account.id===(current.microsoftAccount?.id||current.profile?.id)?' (current)':'');button.disabled=account.id===(current.microsoftAccount?.id||current.profile?.id)||signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
+   const button=document.createElement('button');button.type='button';button.textContent=account.name+' · '+account.id+(account.id===(current.account?.id)?' (current)':'');button.disabled=account.id===(current.account?.id)||signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
    button.onclick=async()=>{button.disabled=true;try{await desktop.switchAccount(account.id);profileMenu.hidePopover();}catch(error){profileMenu.hidePopover();report(error);}finally{renderAccountList();}};accountList.append(button);
   }
   if(!accounts.length)accountList.textContent='No saved accounts. Use Add account.';
