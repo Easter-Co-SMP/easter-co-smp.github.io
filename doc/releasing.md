@@ -27,6 +27,9 @@ name from `/releases/latest/download/`. The launcher job is
 
 ## Cutting it
 
+Update `doc/launcher-release-notes.md` for the version being released; the workflow
+copies that file into the published release notes.
+
     # 1. the version bump is a real commit, not a local edit
     #    package.json: "version": "1.0.2"
     git commit -am "Release launcher <version>" && git push origin main

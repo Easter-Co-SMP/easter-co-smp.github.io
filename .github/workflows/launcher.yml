@@ -87,8 +87,6 @@ jobs:
         working-directory: release
         run: |
           set -euo pipefail
-          VERSION=$(node -p "require('../package.json').version")
-          v="${VERSION#v}"
           # These four names are exactly what site/downloads.js requests from
           # /releases/latest/download/. A build that renames or drops one must fail here
           # instead of publishing a release whose buttons 404.
@@ -98,31 +96,7 @@ jobs:
             [ -s "$name" ] || { echo "::error::missing or empty installer $name"; exit 1; }
           done
           sha256sum $assets > SHA256SUMS
-          {
-            echo "Easter Company launcher v$v"
-            echo
-            echo "Download, install and open Easter Company; it signs in with a Microsoft account, installs its own Java 25, Minecraft, Fabric and the Easter Co. client into an app-owned directory, and launches onto the Easter Isles. It does not touch an existing ~/.minecraft or any saved account."
-            echo
-            echo "New in this release: shaders that actually appear, and two dialog faults fixed."
-            echo
-            echo "The enhanced graphics payload now carries the loader as well as the shader pack: Iris Shaders and Sodium are installed with Complementary Shaders - Unbound, so the pack is read by the game instead of sitting unopened next to a config file nothing consumes. 1.0.8 shipped the pack alone, which is why a player with enhanced graphics switched on saw no shaders."
-            echo
-            echo "Pressing PLAY NOW starts Minecraft and opens nothing. It used to open the client-settings dialog and launch from behind it. Signing in with Microsoft now closes the dialog that showed the device code, instead of leaving client settings on screen as though the login had been a settings request."
-            echo
-            echo "New in this release: the shared field guide. The Easter Co. SMP wiki is now one shared set of pages for the website and the launcher, reachable from Home and the Map. It opens on six demo articles - getting started, ships and sailing, the Isles, law and bounties, cooking and crafting, raids and expeditions - with topic navigation, full-text search and shareable article and section links. The pages are bundled with the launcher, so they open without a network connection. They are marked as demo pages on every screen: they show the wiki's shape and specify no gameplay rules."
-            echo
-            echo "The launcher now targets exactly one graphics adapter: the one your display runs on. It reports that card alone, tunes the client to that card's video memory, and pins the game to it when the platform has a way to say so. On a machine whose monitor is attached to one card and whose firmware boots another, that is the difference between tuning for the screen you are looking at and tuning for a card you cannot see."
-            echo
-            echo "Settings is no longer offered while the launcher is checking for its own update, and the launcher Home no longer repeats the website's headline: the crest and the Easter Co. SMP eyebrow stay, the controls take the space the marketing title used to."
-            echo
-            echo "Carried over from 1.0.7: Settings is a settings-only dialog at the Play Now stage, with the server address as a choice, memory as an explained advanced setting, the two accounts labelled separately and three automation preferences. Starting the client is one action per screen - Download the game starts the install, with the folder and Choose folder… beside it. Enhanced graphics and shaders are a themed toggle tuned to the display GPU, carrying Complementary Shaders - Unbound r5.9.3 from its publisher's own artifact. The launcher installs as Easter Co. Launcher on every platform."
-            echo
-            echo "Installers are unsigned: there is no Authenticode or package signature, so a Windows SmartScreen or Linux package-manager warning is expected."
-            echo
-            echo "Each installer is built on its own platform: the Windows .exe on a native windows-latest runner and the Linux packages on ubuntu-latest. None of the four has been launched from a clean machine, so first-run behaviour on a freshly installed PC is still unverified."
-            echo
-            echo "SHA256SUMS covers all four installers. Verify with \`sha256sum -c SHA256SUMS\`."
-          } > notes.md
+          cp ../doc/launcher-release-notes.md notes.md
       - name: Publish versioned installers
         env:
           GH_TOKEN: ${{ github.token }}
