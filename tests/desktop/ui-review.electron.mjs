@@ -540,6 +540,171 @@ try{
   }
  }
  await page.setViewportSize({width:1360,height:920});
+ // ---- The drawing palette's own geometry (round-three review, ticket c548056f) ----------------
+ // The chart's drawing palette is chart furniture, and both of the faults the review measured on
+ // it were about the two things the chart cannot know by itself: the launcher's sticky bar, and the
+ // width the visitor is at now. Its panel ran under the bar — at 390 Colour and Stroke were behind
+ // the bar before any sentence was on screen, and with the longest real sentence the tool rows fell
+ // under it too — because .drawing-panel's max-height was a bare viewport subtraction. And its
+ // inline left was captured once at load, so a chart loaded narrow kept 148px on a wide window
+ // (covering the last 6.4px of the map key's summary, where a click opened Draw instead of the
+ // key) and a chart loaded wide kept 166px on a narrow one, 18px right of its designed position.
+ // site/map/map.js now measures the room between the panel's own top and the first edge under it —
+ // the chart's footer, or the bar where the bar stands over the palette's columns — publishes it as
+ // --drawing-panel-room, and re-reads both that and the stylesheet's own left whenever anything
+ // that feeds them moves. What is proven here is the launcher's real bar at all three widths, with
+ // and without a sentence, and the palette following the current width inside the launcher.
+ const paletteGeometry=()=>page.evaluate(()=>{
+  const box=node=>{if(!node||!node.getClientRects().length)return null;const r=node.getBoundingClientRect();
+   return {left:Math.round(r.left),top:Math.round(r.top),right:Math.round(r.right),bottom:Math.round(r.bottom),width:Math.round(r.width),height:Math.round(r.height)};};
+  const hit=node=>{const r=node.getBoundingClientRect(),x=Math.round((r.left+r.right)/2),y=Math.round((r.top+r.bottom)/2);
+   if(x<0||y<0||x>=innerWidth||y>=innerHeight)return {at:{x,y},name:'offscreen',inside:false,onBar:false,onNotice:false};
+   const el=document.elementFromPoint(x,y);
+   return {at:{x,y},name:el?(el.id||String(el.className)||el.tagName):null,inside:Boolean(el&&(el===node||node.contains(el))),
+    onBar:Boolean(el&&el.closest('#launcher-bar')),onNotice:Boolean(el&&el.closest('.desktop-page-notice'))};};
+  const palette=document.querySelector('.map-drawing'),panel=palette.querySelector('.drawing-panel');
+  const key=document.querySelector('.map-key'),bar=document.getElementById('launcher-bar'),footer=document.querySelector('.map-bottom');
+  const panelBox=panel.getBoundingClientRect(),barBox=bar.getBoundingClientRect(),footerBox=footer.getBoundingClientRect();
+  const controls=[...document.querySelectorAll('.drawing-tools button')].map(node=>({name:node.querySelector('small').textContent,node}));
+  controls.push({name:'Colour',node:document.querySelector('input[aria-label="Drawing colour"]')});
+  controls.push({name:'Stroke',node:document.querySelector('select[aria-label="Stroke width"]')});
+  // Where the panel puts each control when it is opened, then each one scrolled into the room it
+  // has: a control below the fold is reached by scrolling the panel, which is the whole point of
+  // capping it rather than letting it run under the bar where no scroll reaches it.
+  const offset=node=>{const r=node.getBoundingClientRect();return {top:Math.round(r.top-panelBox.top+panel.scrollTop),bottom:Math.round(r.bottom-panelBox.top+panel.scrollTop)};};
+  const natural=controls.map(control=>({name:control.name,content:offset(control.node),box:box(control.node),hit:hit(control.node)}));
+  const reached=controls.map(control=>{control.node.scrollIntoView({block:'nearest'});const r=control.node.getBoundingClientRect();
+   return {name:control.name,box:box(control.node),hit:hit(control.node),
+    insidePanel:r.top>=panelBox.top-1&&r.bottom<=panelBox.bottom+1&&r.left>=panelBox.left-1&&r.right<=panelBox.right+1};});
+  return {width:innerWidth,height:innerHeight,open:palette.open,
+   left:getComputedStyle(palette).left,inlineLeft:palette.style.left||null,
+   palette:box(palette),summary:box(palette.querySelector('summary')),panel:box(panel),
+   keySummary:box(key.querySelector('summary')),keyOpen:key.open,
+   bar:box(bar),barHidden:bar.hidden,footer:box(footer),
+   noticeSpace:getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-space').trim(),
+   room:getComputedStyle(palette).getPropertyValue('--drawing-panel-room').trim(),
+   panelTop:Math.round(panelBox.top),barTop:Math.round(barBox.top),footerTop:Math.round(footerBox.top),
+   // The two rooms that were ever candidates for this panel, both from its own measured top: the
+   // room above the bar, and the room above the footer with no bar in the sum at all.
+   barRoom:Math.round(barBox.top-panelBox.top-10),footerRoom:Math.round(footerBox.top-panelBox.top-10),
+   overlapsBar:barBox.right>panelBox.left&&barBox.left<panelBox.right&&barBox.top>panelBox.top,
+   scrolling:panel.scrollHeight>panel.clientHeight+1,
+   // The height this panel would have had before the fix, which is the stylesheet's own fallback.
+   preFixHeight:Math.min(innerHeight,innerHeight-(innerWidth<=600?210:240)),
+   natural,reached};
+ });
+ // The room is layout and the strip it sits on is re-measured after the notice paints and after the
+ // bar moves, so the palette is read once those have stopped moving, twice in a row.
+ const settledPalette=async(where)=>{
+  let previous=null;
+  for(let attempt=0;attempt<240;attempt++){
+   const probe=await paletteGeometry();
+   if(previous&&probe.open&&probe.room!==''&&previous.room===probe.room&&previous.panel.top===probe.panel.top&&
+    previous.panel.bottom===probe.panel.bottom&&previous.noticeSpace===probe.noticeSpace&&previous.bar.top===probe.bar.top)return probe;
+   previous=probe;
+   await new Promise(resolve=>setTimeout(resolve,25));
+  }
+  throw Error('the palette never settled '+where+': '+JSON.stringify(previous));
+ };
+ const openPalette=async()=>{
+  if(!await page.evaluate(()=>document.querySelector('.map-drawing').open))await page.locator('#map-drawing summary').click();
+  await page.waitForFunction(()=>document.querySelector('.map-drawing').open);
+ };
+ const closePalette=async()=>{
+  if(await page.evaluate(()=>document.querySelector('.map-drawing').open))await page.locator('#map-drawing summary').click();
+  await page.waitForFunction(()=>!document.querySelector('.map-drawing').open);
+ };
+ const quietBar={...ready,launcherUpdate:{phase:'current'},bar:{visible:true},phase:'ready',progress:null};
+ const busyBar={...ready,launcherUpdate:{phase:'current'},bar:{visible:true},phase:'downloading',
+  progress:{label:'Downloading client files',percent:47,bytesDone:470000000,bytesTotal:1000000000,bytesPerSecond:12000000,etaSeconds:44}};
+ const paletteSentence='This desktop has no system tray, so start Easter Co. Launcher again to bring the window back.';
+ for(const width of [1440,800,390]){
+  const height=width===1440?900:width===800?600:568;
+  await page.setViewportSize({width,height});
+  // Two bar shapes and both states at 390 — the bar the review measured (merely present, no
+  // progress track) and the taller one — and the taller one at the two wider widths.
+  for(const shape of width===390?[['idle',quietBar],['downloading',busyBar]]:[['downloading',busyBar]]){
+   for(const painted of [false,true]){
+    const where='the '+shape[0]+' bar at '+width+'px '+(painted?'with a sentence':'without one');
+    await send(painted?{...shape[1],error:paletteSentence}:shape[1]);
+    await page.waitForTimeout(120);
+    if(painted)await page.locator('.desktop-page-notice').filter({hasText:paletteSentence}).waitFor({timeout:6000});
+    await openPalette();
+    const geometry=await settledPalette(where);
+    assert.equal(geometry.barHidden,false,'the launcher bar is on screen over the chart, '+where);
+    assert(geometry.bar.top<geometry.footer.top,'the bar floats above the chart footer, '+where);
+    assert(geometry.panel.bottom<=geometry.bar.top,'the open panel stops above the launcher bar, '+where+': '+JSON.stringify({panel:geometry.panel,bar:geometry.bar,room:geometry.room}));
+    assert(geometry.panel.bottom<=geometry.footer.top,'and above the chart footer, '+where+': '+JSON.stringify({panel:geometry.panel,footer:geometry.footer}));
+    assert(geometry.room!=='','the room the panel may use is published, '+where);
+    assert(Number.parseInt(geometry.room,10)<=geometry.barRoom,'and it is the room above the bar, '+where+': '+JSON.stringify({room:geometry.room,barRoom:geometry.barRoom,footerRoom:geometry.footerRoom}));
+    // Every tool and both drawing controls, scrolled into the panel: reached by elementFromPoint,
+    // inside the panel's own box, above the bar, and never answered by the bar or the notice.
+    for(const control of geometry.reached){
+     assert.equal(control.hit.inside,true,'elementFromPoint over '+control.name+' is that control, '+where+': '+JSON.stringify(control));
+     assert.equal(control.hit.onBar,false,'and never the launcher bar, '+control.name+', '+where+': '+JSON.stringify(control));
+     assert.equal(control.hit.onNotice,false,'nor the notice band, '+control.name+', '+where+': '+JSON.stringify(control));
+     assert.equal(control.insidePanel,true,control.name+' sits inside the room the panel has, '+where+': '+JSON.stringify({control:control.box,panel:geometry.panel}));
+     assert(control.box.bottom<=geometry.bar.top,'and above the bar itself, '+control.name+', '+where+': '+JSON.stringify({control:control.box,bar:geometry.bar}));
+    }
+    // The negative control, in the review's own numbers. Before the bar was in the sum the panel was
+    // the height the stylesheet still falls back to (the viewport minus 210px below 600, minus 240
+    // above it), and where the panel is taller than that fallback it ends under the bar. Take the bar
+    // term out of site/map/map.js and the panel stops above the footer instead - which is the height
+    // that put Colour and Stroke behind the bar at 390. The controls' own offsets from the panel's
+    // top are what the panel scrolls, so they are where they were: under it.
+    if(geometry.scrolling){
+     assert(geometry.panelTop+geometry.preFixHeight>geometry.bar.top,'the pre-fix panel ends under the bar, '+where+': '+JSON.stringify({panelTop:geometry.panelTop,preFixHeight:geometry.preFixHeight,bar:geometry.bar}));
+     if(geometry.overlapsBar){
+      // Where those controls sat at that height, from their own offsets inside the panel: before a
+      // sentence the two drawing controls are the ones buried, and with the strip moved down it is
+      // the lower tool row - in both cases a control the player cannot reach at all.
+      const buried=geometry.natural.filter(control=>{
+       const top=geometry.panelTop+control.content.top,bottom=geometry.panelTop+control.content.bottom;
+       return top<geometry.bar.bottom&&bottom>geometry.bar.top;}).map(control=>control.name);
+      assert(buried.length>0,'at the pre-fix height a drawing control is under the bar, '+where+': '+JSON.stringify({bar:geometry.bar,natural:geometry.natural}));
+      if(width===390&&!painted)for(const name of ['Colour','Stroke'])assert(buried.includes(name),name+' is under the bar at the pre-fix height with no sentence on screen, '+where+': '+JSON.stringify({buried,bar:geometry.bar}));
+     }
+    }
+    await shot('notice-map-palette-'+shape[0]+'-'+width+(painted?'-sentence':'-quiet'));
+    await closePalette();
+    if(painted)await page.getByRole('button',{name:'Dismiss message'}).click();
+    await send({...shape[1],error:null});
+    await page.waitForTimeout(80);
+   }
+  }
+ }
+ // The palette's own position inside the launcher: the launcher opens at a wide window, so this is
+ // the "loaded wide, narrowed, widened again" direction, and at every width the stylesheet's rule
+ // for that width has to win — never the width the chart was loaded at.
+ await page.setViewportSize({width:1440,height:900});
+ await page.waitForFunction(()=>getComputedStyle(document.querySelector('.map-drawing')).left==='166px',{timeout:4000})
+  .catch(()=>{throw Error('the palette never took the wide rule\'s 166px in the launcher');});
+ const loadedWide=await paletteGeometry();
+ assert.equal(loadedWide.inlineLeft,null,'the palette leaves its designed position to the stylesheet, not to an inline copy');
+ await page.setViewportSize({width:390,height:568});
+ await page.waitForFunction(()=>getComputedStyle(document.querySelector('.map-drawing')).left==='148px',{timeout:4000})
+  .catch(()=>{throw Error('the narrowed launcher never took the narrow rule\'s 148px');});
+ const narrowed=await paletteGeometry();
+ assert.equal(narrowed.left,'148px','a chart loaded wide takes the narrow rule once the window narrows: '+narrowed.left);
+ assert(narrowed.summary.left>=narrowed.keySummary.right,'and clears the map key instead of 18px past the narrow rule: '+JSON.stringify({palette:narrowed.summary,key:narrowed.keySummary}));
+ await page.setViewportSize({width:1440,height:900});
+ await page.waitForFunction(()=>getComputedStyle(document.querySelector('.map-drawing')).left==='166px',{timeout:4000})
+  .catch(()=>{throw Error('the widened launcher never took the wide rule\'s 166px');});
+ const widened=await paletteGeometry();
+ assert.equal(widened.left,'166px','and the wide rule again once it widens');
+ assert(widened.summary.left>=widened.keySummary.right,'with the key summary clear: '+JSON.stringify({palette:widened.summary,key:widened.keySummary}));
+ // The strip the review clicked: the key summary's own last pixels, which the frozen 148px put
+ // under the palette. A real click there opens the key, not Draw.
+ const strip={x:widened.keySummary.right-3,y:Math.round((widened.keySummary.top+widened.keySummary.bottom)/2)};
+ await page.mouse.click(strip.x,strip.y);
+ await page.waitForFunction(()=>document.querySelector('.map-key').open);
+ assert.equal(await page.evaluate(()=>document.querySelector('.map-drawing').open),false,'a click in the key summary\'s strip opens the key, not Draw');
+ await page.mouse.click(strip.x,strip.y);
+ await page.waitForFunction(()=>!document.querySelector('.map-key').open);
+ await send({...ready,launcherUpdate:{phase:'current'},bar:{visible:false}});
+ await page.waitForFunction(()=>document.getElementById('launcher-bar').hidden);
+ console.log('Launcher drawing palette geometry PASS: the open palette clears the launcher bar and the chart footer at 1440, 800 and 390 with and without a sentence and with both bar shapes, the published room is the room above the bar rather than above the footer, every tool and both drawing controls are reached by elementFromPoint after scrolling the capped panel, the pre-fix height would have put Colour and Stroke behind the bar at 390, and the palette follows the stylesheet\'s rule at the current width (148px at 390, 166px at 1440) with a click in the key summary strip opening the key.');
+ await page.setViewportSize({width:1360,height:920});
  // The launch-time pair, honestly. Main is told by EASTER_TEST_TRAY=0 that this desktop
  // has no status-notifier host, which is the state of the test seat, of a bare X session
  // and of Owen's own i3/polybar seat: polybar's tray is XEmbed, so no watcher owns the
