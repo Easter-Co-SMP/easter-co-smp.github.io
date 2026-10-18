@@ -1,14 +1,15 @@
 'use strict';
 const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog,screen,Tray,Menu}=require('electron');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{pathToFileURL}=require('node:url'),{execFile}=require('node:child_process');
-const {MicrosoftAuth,DEFAULT_CLIENT_ID}=require('./auth.cjs');
+const {MicrosoftAuth,SignInLog,DEFAULT_CLIENT_ID}=require('./auth.cjs');
 const {AccountClient,AccountError,publicAccount,companySession,storedSession,companyVaultName,MESSAGES:ACCOUNT_MESSAGES,USERNAME_PATTERN}=require('./accounts.cjs');
 const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation,serverList}=require('./config.cjs');
 const vault=require('./vault.cjs');
 const identity=require('./identity.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,migrateLaunchPreferences,launchBehaviour,includeGraphicsValue}=require('./security.cjs');
 const {APP_USER_MODEL_ID,ICON_FILE,wantsAutoStart,autoStartDecision,shortcutSupport,readGameShortcuts,applyGameShortcuts}=require('./shortcuts.cjs');
-const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
+const install=require('./install.cjs');
+const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=install;
 const {renderOffload}=require('./hardware.cjs');
 const {detectHardware,installedQuality,applyDisplayDefaults,displayGuiScale,displayPhysicalPixels}=require('./hardware.cjs');
 const APP_VERSION=require('../package.json').version;
@@ -54,6 +55,12 @@ let shortcutState={available:false,reason:null,message:null,desktop:{id:'desktop
 let phase=null,progress=null,control=null,installStarted=false,backgroundUpdate=null;
 let startupReady=!app.isPackaged,startupPromise=null;
 const updater=require('./updater.cjs');
+// The install and update failures a player cannot act on from a number: the same bounded, redacted
+// line log at the same rotation and under the same rules, in the same per-user directory
+// (doc/launcher-states.md). install.cjs and updater.cjs each write one line per failure and the
+// sentence they show carries no status; nothing reads this file back.
+install.setFailureLog(new SignInLog({file:path.join(configRoot(),'install.log'),version:APP_VERSION}));
+updater.setFailureLog(new SignInLog({file:path.join(configRoot(),'install.log'),version:APP_VERSION}));
 let client={installed:false,version:null,updatedAt:null,record:null};
 // doc/launcher-states.md, "Home actions, Settings and enhanced graphics": the
 // machine decides the default once, and the player's own choice wins from then on.
