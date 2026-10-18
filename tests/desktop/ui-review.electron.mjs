@@ -405,6 +405,141 @@ try{
  }
  await page.setViewportSize({width:1360,height:920});
  await page.getByRole('button',{name:'Dismiss message'}).click();
+ // The chart's footer is not the only thing under the key: the launcher's own sticky bar floats
+ // above that footer, and at 390 it spans the window. Round-three review measured the open key's
+ // last line — "Drag to pan · scroll to zoom / Arrow keys move · + / − zoom" — under the bar with
+ // elementFromPoint answering #launcher-bar-body, because the key was capped by the room above the
+ // footer and did not know the bar existed. The room a long sentence leaves is now measured from
+ // whichever edge the key meets first, so what is proven here is that the key's content stops above
+ // the bar, that its last line reads inside the key once the capped legend is scrolled to it, and
+ // that at 800 and 1440 — where the bar is not the nearer edge, or does not sit over the key's own
+ // columns — a key that already fits is left exactly as it was, with no cap and no scrollbar.
+ const keyBarGeometry=()=>page.evaluate(()=>{
+  const box=node=>{if(!node||!node.getClientRects().length)return null;const r=node.getBoundingClientRect();
+   return {left:Math.round(r.left),top:Math.round(r.top),right:Math.round(r.right),bottom:Math.round(r.bottom),height:Math.round(r.height)};};
+  const bar=document.getElementById('launcher-bar'),key=document.querySelector('.map-key');
+  const content=document.querySelector('.key-content'),footer=document.querySelector('.map-bottom');
+  const keyBox=key.getBoundingClientRect(),summary=key.querySelector('summary').getBoundingClientRect().height;
+  const paragraph=[...document.querySelectorAll('.key-content p')].find(node=>node.textContent.startsWith('Drag to pan'));
+  const walker=document.createTreeWalker(paragraph,NodeFilter.SHOW_TEXT);
+  let text=null;
+  for(let candidate=walker.nextNode();candidate;candidate=walker.nextNode())if(candidate.data.includes('Arrow keys move'))text=candidate;
+  const range=document.createRange();range.selectNodeContents(text);
+  const line=range.getBoundingClientRect(),lineBox={left:Math.round(line.left),top:Math.round(line.top),right:Math.round(line.right),bottom:Math.round(line.bottom)};
+  const x=Math.round((lineBox.left+lineBox.right)/2),y=Math.round((lineBox.top+lineBox.bottom)/2);
+  const hit=document.elementFromPoint(x,y);
+  range.detach();
+  // The room above the bar and the room above the footer, both from the same key top: the smaller is
+  // the edge the key has to clear, and the footer-only number is where this key would have ended had
+  // the bar never been counted — under it, which is the defect this block is about. A bar that does
+  // not stand over the key's own columns (1440, where the key sits left of a 600px band) can never
+  // cover it, and then the footer is the only edge that has any say.
+  const barTop=bar.getBoundingClientRect().top,footerTop=footer.getBoundingClientRect().top;
+  return {bar:box(bar),barHidden:bar.hidden,key:box(key),content:box(content),footer:box(footer),open:key.open,
+   overlaps:bar.getBoundingClientRect().right>keyBox.left&&bar.getBoundingClientRect().left<keyBox.right,
+   keyTop:Math.round(keyBox.top),summary:Math.round(summary),
+   contentBottom:Math.round(content.getBoundingClientRect().bottom),barTop:Math.round(barTop),footerTop:Math.round(footerTop),
+   scrollTop:Math.round(content.scrollTop),scrollHeight:Math.round(content.scrollHeight),clientHeight:Math.round(content.clientHeight),
+   scrolling:content.scrollHeight>content.clientHeight+1,
+   cap:getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-key-space').trim(),
+   barRoom:Math.floor(barTop-keyBox.top-summary-12),footerRoom:Math.floor(footerTop-keyBox.top-summary-12),line:lineBox,
+   hit:{at:{x,y},id:hit?hit.id||hit.tagName:null,insideKey:Boolean(hit&&hit.closest('.map-key')),
+    insideBar:Boolean(hit&&hit.closest('#launcher-bar')),insideNotice:Boolean(hit&&hit.closest('.desktop-page-notice'))}};
+ });
+ // The notice's room, the bar's offset and the key's cap are all layout, so they are re-measured on
+ // the frame after anything moves. Measure once the strip has stopped moving under the pointer and
+ // twice in a row, rather than once at an arbitrary moment.
+ const settledKeyBar=async(where)=>{
+  let previous=null;
+  for(let attempt=0;attempt<240;attempt++){
+   const probe=await page.evaluate(()=>{
+    const notice=document.querySelector('.desktop-page-notice'),key=document.querySelector('.map-key'),bar=document.getElementById('launcher-bar');
+    return {open:Boolean(key&&key.open),painted:Boolean(notice&&!notice.hidden&&notice.textContent.trim()),
+     barUp:Boolean(bar&&!bar.hidden&&bar.getBoundingClientRect().height>0),
+     space:getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-space').trim(),
+     cap:getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-key-space').trim(),
+     keyTop:key?Math.round(key.getBoundingClientRect().top):null};
+   });
+   if(probe.open&&probe.painted&&probe.barUp&&previous&&previous.space===probe.space&&previous.cap===probe.cap&&previous.keyTop===probe.keyTop)return probe;
+   previous=probe;
+   await new Promise(resolve=>setTimeout(resolve,25));
+  }
+  throw Error('the notice, the open key and the bar never settled '+where+': '+JSON.stringify(previous));
+ };
+ // The legend is long and the window is short: once the key is capped its last line is reached by
+ // scrolling the key, exactly as a capped legend is read above the chart's footer.
+ const scrollKeyToEnd=async()=>{
+  await page.evaluate(()=>{const content=document.querySelector('.key-content');content.scrollTop=content.scrollHeight;});
+  await page.waitForTimeout(60);
+ };
+ const keyBarFailures=[
+  {label:'downloading',state:{phase:'downloading',bar:{visible:true},progress:{label:'Downloading client files',percent:47,bytesDone:470000000,bytesTotal:1000000000,bytesPerSecond:12000000,etaSeconds:44}}},
+  {label:'idle',state:{phase:'ready',bar:{visible:true},progress:null}}
+ ];
+ const keySentence='This desktop has no system tray, so start Easter Co. Launcher again to bring the window back.';
+ for(const width of [1440,800,390]){
+  const height=width===1440?900:width===800?600:568;
+  await page.setViewportSize({width,height});
+  // The bar in two shapes: one carrying a progress track (taller, the harder case) and one that is
+  // merely present, which is the shape the reviewer measured at 390.
+  for(const failure of keyBarFailures){
+   if(width!==390&&failure.label==='idle')continue;
+   const where='the '+failure.label+' bar at '+width+'px';
+   await send({...ready,launcherUpdate:{phase:'current'},...failure.state,error:keySentence});
+   await page.locator('.desktop-page-notice').filter({hasText:keySentence}).waitFor({timeout:6000})
+    .catch(error=>{throw Error('the sentence never reached the page notice, '+where+' :: '+error.message);});
+   if(!await page.evaluate(()=>document.querySelector('.map-key').open)){
+    await page.locator('.map-key summary').click({position:{x:16,y:18}});
+    await page.waitForFunction(()=>document.querySelector('.map-key').open);
+   }
+   await settledKeyBar(where);
+   const geometry=await keyBarGeometry();
+   assert.equal(geometry.open,true,'the map key opens under a sentence and a bar at '+width+'px');
+   assert.equal(geometry.barHidden,false,'the bar is on screen on the map at '+width+'px');
+   assert(geometry.bar.top<geometry.footer.top,'the bar floats above the chart footer at '+width+'px: '+JSON.stringify({bar:geometry.bar,footer:geometry.footer}));
+   // Nothing of the key that is on screen may sit under the bar: its content box stops above it, and
+   // so does the key's own frame.
+   assert(geometry.contentBottom<=geometry.barTop+1,'the open key\'s content stops above the launcher bar, '+where+': '+JSON.stringify({contentBottom:geometry.contentBottom,barTop:geometry.barTop,cap:geometry.cap}));
+   assert(geometry.key.bottom<=geometry.barTop+1,'and so does the key\'s own box, '+where+': '+JSON.stringify(geometry.key));
+   assert(geometry.content.bottom<=geometry.footerTop+1,'while still clearing the chart footer, '+where+': '+JSON.stringify({content:geometry.content,footer:geometry.footer}));
+   // The negative control. The room above the footer on its own is where this key would have ended
+   // without the bar in the calculation — under it, which is the overlap the reviewer measured — so
+   // where the bar stands over the key the bar has to be the nearer edge and the key has to stop
+   // above both. Take the bar out of site/desktop.js and these two lines report exactly that overlap.
+   if(geometry.overlaps)assert(geometry.keyTop+geometry.summary+geometry.footerRoom>geometry.barTop,'the footer-only cap would put the key under the bar, '+where+': '+JSON.stringify({keyTop:geometry.keyTop,summary:geometry.summary,footerRoom:geometry.footerRoom,barTop:geometry.barTop}));
+   // Where the content has to be capped at all, the published cap is the room above the bar's own top
+   // edge, not the larger room above the footer: drop the bar from site/desktop.js and the cap grows
+   // back to footerRoom, which is the number this refuses.
+   if(geometry.scrolling)assert(geometry.cap!==''&&Number.parseInt(geometry.cap,10)<=geometry.barTop-geometry.keyTop-geometry.summary+1,'the published cap is the room above the bar, '+where+': '+JSON.stringify({cap:geometry.cap,room:geometry.barTop-geometry.keyTop-geometry.summary,footerRoom:geometry.footerRoom}));
+   // The line the reviewer could not read: scrolled into view it sits inside the key, above the bar,
+   // and elementFromPoint over it answers the key's own text — never #launcher-bar-body.
+   const wasScrolling=geometry.scrolling;
+   await scrollKeyToEnd();
+   const scrolled=await keyBarGeometry();
+   if(wasScrolling)assert(scrolled.scrollTop>0,'the capped legend scrolls to its last line, '+where+': '+JSON.stringify({scrollTop:scrolled.scrollTop,scrollHeight:scrolled.scrollHeight,clientHeight:scrolled.clientHeight}));
+   assert(scrolled.line.bottom<=scrolled.content.bottom+1,'the key\'s last line is inside its content box, '+where+': '+JSON.stringify({line:scrolled.line,content:scrolled.content}));
+   assert(scrolled.line.bottom<=scrolled.barTop+1,'the key\'s last line reads above the bar, '+where+': '+JSON.stringify({line:scrolled.line,barTop:scrolled.barTop}));
+   assert.equal(scrolled.hit.insideBar,false,'elementFromPoint over the key\'s last line is not the launcher bar, '+where+': '+JSON.stringify(scrolled.hit));
+   assert.equal(scrolled.hit.insideKey,true,'and it is the key\'s own text, '+where+': '+JSON.stringify(scrolled.hit));
+   assert.equal(scrolled.hit.insideNotice,false,'and not the notice band, '+where+': '+JSON.stringify(scrolled.hit));
+   await shot('notice-map-key-bar-'+width+'-'+failure.label);
+   // Where the bar does not stand over the key's columns (1440) or is not the nearer edge (800) the
+   // key must be the key it always was: no cap, no scrollbar, its content as tall as it wants.
+   if(!geometry.overlaps)assert.equal(geometry.cap,'','no cap is published for a bar that cannot cover the key at '+width+'px: '+JSON.stringify(geometry.cap));
+   if(width!==390)assert.equal(geometry.scrolling,false,'a key that already clears the bar is not made to scroll at '+width+'px: '+JSON.stringify({scrollHeight:geometry.scrollHeight,clientHeight:geometry.clientHeight,cap:geometry.cap}));
+   await page.evaluate(()=>{document.querySelector('.key-content').scrollTop=0;});
+   await page.locator('.map-key summary').click({position:{x:16,y:18}});
+   await page.waitForFunction(()=>!document.querySelector('.map-key').open);
+   await page.getByRole('button',{name:'Dismiss message'}).click();
+   // Main keeps the error set until the next ordinary message, and the page never delivers the same
+   // sentence twice: a clean broadcast between rounds is what lets the next sentence be a new one.
+   // Main's own bar flag is true once the client is installed, so putting that bar away is explicit.
+   await send({...ready,launcherUpdate:{phase:'current'},bar:{visible:false}});
+   await page.waitForFunction(()=>document.getElementById('launcher-bar').hidden);
+   await page.waitForTimeout(80);
+  }
+ }
+ await page.setViewportSize({width:1360,height:920});
  // The launch-time pair, honestly. Main is told by EASTER_TEST_TRAY=0 that this desktop
  // has no status-notifier host, which is the state of the test seat, of a bare X session
  // and of Owen's own i3/polybar seat: polybar's tray is XEmbed, so no watcher owns the
@@ -466,5 +601,5 @@ try{
  assert.equal(restored.error,null,'the exit message is the same one, with the launcher back on screen');
  await shot('tray-restored');
  assert.deepEqual(errors,[]);
- console.log('Launcher UI state review PASS: first run, transfer, failure, sign-in, ready, settings, one failure on one surface (no page notice painted while any modal dialog is open, the last one to close handing the same sentence back once with its dismiss control keyboard reachable, the notice reading above the hero crest and heading at 1440, 800 and 390 wide, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed), both linked launch behaviours, the no-tray hide and its way back, the tray path, profile, wiki, wiki guide pages whose notice band reserves its own height so nothing sits under it, and the map whose docked key, legend, zoom controls, compass and drawing palette all move clear of the band with the key still opening by a real click.');
+ console.log('Launcher UI state review PASS: first run, transfer, failure, sign-in, ready, settings, one failure on one surface (no page notice painted while any modal dialog is open, the last one to close handing the same sentence back once with its dismiss control keyboard reachable, the notice reading above the hero crest and heading at 1440, 800 and 390 wide, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed), both linked launch behaviours, the no-tray hide and its way back, the tray path, profile, wiki, wiki guide pages whose notice band reserves its own height so nothing sits under it, and the map whose docked key, legend, zoom controls, compass and drawing palette all move clear of the band with the key still opening by a real click, and the sticky bar the launcher itself floats, which the open key now clears at 390 — its last line scrolled to and read by elementFromPoint inside the key, never on #launcher-bar-body — while the key at 800 and 1440 is left at its natural size with no cap and no scrollbar.');
 }finally{await app.close();await fs.rm(home,{recursive:true,force:true});}

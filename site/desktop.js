@@ -272,17 +272,42 @@
     reserve=Math.max(reserve,band.bottom+gap-box.top);
    }
    set(reserve);
-   // Moving the strip down brings the map key nearer the chart's own footer, which is docked at the
-   // bottom of the same stage: an open key would slide under it. The room between them is published
-   // as the key content's cap (site/desktop.css), so a long legend scrolls inside the key instead of
-   // disappearing behind the footer. Nothing is capped unless the notice is up, and a cap larger
-   // than the content changes nothing.
+   // Moving the strip down brings the map key nearer the bottom of the chart, and an open key grows
+   // downward into whatever is docked there. Two things are: the chart's own footer, and the
+   // launcher's sticky bar, which floats above that footer and spans the window at narrow widths.
+   // The bar sits on the footer's own offset, so its top edge is 76 to 94px above the footer's: a key
+   // capped only by the footer slid its last line ("Arrow keys move · + / − zoom") under the bar,
+   // where elementFromPoint answered #launcher-bar-body and the line could not be read at all. Both
+   // are the same kind of obstacle, so the key clears the first edge it meets and one number owns the
+   // rule: the room above that edge is published as the key content's cap (site/desktop.css), so a
+   // long legend scrolls inside the key instead of disappearing behind whatever is below it. Nothing
+   // is capped unless the notice is up.
+   //
+   // The cap is applied with no cap underneath it, so the height the content wants is the height it
+   // is allowed: a key that already clears every edge is left exactly as it is, and only one that
+   // would run under an edge is capped. That is what keeps this rule silent at 800 and 1440, where
+   // the room exceeds the content and the key must not change size for a limit nobody can see.
+   root.style.removeProperty('--launcher-notice-key-space');
    const key=stage.querySelector('.map-key'),footer=stage.querySelector('.map-bottom');
    let cap=null;
    if(key&&footer){
     const keyBox=key.getBoundingClientRect(),footerBox=footer.getBoundingClientRect();
     const summary=key.querySelector('summary')?.getBoundingClientRect().height||0;
-    if(footerBox.top>keyBox.top)cap=Math.max(80,Math.floor(footerBox.top-keyBox.top-summary-12));
+    let ceiling=footerBox.top-12;
+    // The bar is read from the document rather than from this file's own reference, which is
+    // declared further down than this measurement is defined: a bar that does not exist yet, is
+    // hidden, or has no box simply has nothing to clear. Only a bar over the key's own columns can
+    // cover it, so at 1440 — where the key sits left of a narrower bar — the footer stays the edge.
+    // It is cleared by 4px rather than the footer's 12: the key's own border must not touch the
+    // pill's, and a wider gap would shorten a key that already clears the bar at 800 by an amount
+    // nobody could see, which is the kind of change that should never happen for nothing.
+    const barNode=document.getElementById('launcher-bar'),barBox=barNode?barNode.getBoundingClientRect():null;
+    if(barBox&&barBox.height>0&&barBox.width>0&&barBox.right>keyBox.left&&barBox.left<keyBox.right)ceiling=Math.min(ceiling,barBox.top-4);
+    // A closed key has no content to measure, so it is capped unconditionally and the chart's own
+    // mutation watch re-measures it when it opens.
+    const content=key.open?key.querySelector('.key-content'):null;
+    const room=Math.floor(ceiling-keyBox.top-summary);
+    if(ceiling>keyBox.top&&(!content||content.getBoundingClientRect().height>room))cap=Math.max(80,room);
    }
    if(cap===null)root.style.removeProperty('--launcher-notice-key-space');
    else root.style.setProperty('--launcher-notice-key-space',cap+'px');
@@ -439,6 +464,12 @@
  const memoryLabel=value=>(Number(value)/1024).toFixed(1)+' GB';
 
  function renderBar(state){
+  // The bar is one of the edges the open map key has to clear, and every pass through here can move
+  // it or take it away: a state that raises or lowers it, a new label that makes it taller, a
+  // minimised or reopened bar, a bar that stops being shown at all. The room the key is allowed is
+  // measured from the bar as it is, so it is re-measured — on the next frame, once this pass has been
+  // laid out — whenever there is a sentence on screen whose room is being reserved.
+  if(!notice.hidden)scheduleNoticeSpace();
   if(!barVisible(state)){bar.hidden=true;return;}
   offsetBar();bar.hidden=false;
   const progressState=progressOf(state),percent=progressState&&typeof progressState.percent==='number'?progressState.percent:null;
