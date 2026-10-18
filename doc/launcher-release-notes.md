@@ -6,7 +6,7 @@ Easter Company is now your primary account, with a unique Microsoft/Xbox link.
 - New accounts and existing accounts without a Company password must create one to finish setup. Your stable Company ID is shown for direct sign-in.
 - Sign in directly with your Company ID and password. Minecraft still requires the linked Microsoft account and valid Java access.
 - Reset your password through your linked Microsoft identity. Reset revokes previous Company sessions.
-- Minecraft starts fullscreen at GUI scale 2 after the launcher's first display setup, including for an already-installed client. Later changes made in Minecraft are preserved. These defaults work with Enhanced Graphics on or off.
+- Minecraft starts fullscreen with a GUI scale chosen for your primary display: 2 on ordinary screens, 3 on 1440p-class screens and 4 on 4K, reduced when needed to fit. This also sets up an already-installed client once; later changes made in Minecraft are preserved. These defaults work with Enhanced Graphics on or off.
 - A distinct gold compass and launch-symbol app icon identifies the launcher in windows, desktop shortcuts and Linux/Windows installers.
 - The profile menu leads with your Company name and ID. Cancellation, failed login and conflicting Microsoft identities preserve the active account.
 - The backend stores unique provider links so another verified provider, such as Steam, can be added later.
