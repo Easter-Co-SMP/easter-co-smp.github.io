@@ -229,7 +229,11 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
   let signed;
   try{signed=await accounts.login(candidate.xboxUserToken,controller?.signal,lockCompany&&company?.expiresAt>Date.now()?company.token:undefined,microsoftAccessToken);}
   catch(error){if(error.code!=='invalid_session'||!lockCompany||!company)throw error;signed=await accounts.login(candidate.xboxUserToken,controller?.signal);}
-  if(expected&&signed.account.id!==expected)throw new AccountError('identity_conflict','Use the Microsoft account linked to your Easter Company account.');
+  // The Microsoft identity the service answered with is not the one this launcher is signed
+  // in to. The sentence is the account service's own, from the one table that words these
+  // refusals (accounts.cjs MESSAGES), so the player reads the same copy whichever side
+  // noticed the conflict — here, or in the service's own answer further up.
+  if(expected&&signed.account.id!==expected)throw new AccountError('identity_conflict',ACCOUNT_MESSAGES.identity_conflict);
   const next=companySession(signed),previous=company;
   session={...candidate,companyId:next.account.id,companyName:next.account.displayName||next.account.minecraftName||'Company member',companyUsername:next.account.username||null};
   company=next;
@@ -265,7 +269,15 @@ async function exclusively(action){
  working=true;state.error=null;
  try{return await action();}catch(error){
   const message=safeError(error);
-  if(error.name!=='CancelledError')settle(message,{device:null,error:error.name==='AbortError'?null:message});
+  // An identity conflict has one home and it is not the page: the sign-in dialog comes back
+  // for it carrying the account service's sentence itself. Settling that sentence on the
+  // state channel as well painted it in the page notice for a single frame before the
+  // dialog took it over, which reads as a flicker rather than as an answer. The operation
+  // still settles — the device code goes with it, because the sign-in it belonged to is
+  // replaced by the dialog's own question — and no sentence travels, so the call that
+  // failed is the only thing that reports it.
+  if(error.code==='identity_conflict')settle(null,{device:null,error:null});
+  else if(error.name!=='CancelledError')settle(message,{device:null,error:error.name==='AbortError'?null:message});
   // The typed code decides what the dialog does next (a taken username sends the player
   // back to step 1), so it survives the rethrow as a safe error message does.
   throw Object.assign(Error(message),{code:error.code});

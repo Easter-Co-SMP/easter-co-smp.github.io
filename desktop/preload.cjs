@@ -5,6 +5,13 @@ const invoke=channel=>(...args)=>ipcRenderer.invoke('launcher:'+channel,...args)
 // refusal code is lost on the way. The account actions therefore answer with their whole
 // result instead of throwing: the dialog needs the code to know whether a taken username
 // sends the player back to step 1 or an expired session needs Microsoft again.
+//
+// The saved Microsoft session is one of those actions. An identity conflict is a refusal
+// the sign-in dialog has to recognise by its code — it is the one failure that stops the
+// flow instead of falling through to the interactive sign-in — so continue-microsoft
+// answers with the whole result too. Throwing it would hand the renderer a message with no
+// code, and the stop could never fire: that is how a conflicting Microsoft account once
+// replaced the signed-in Easter Company account without a word.
 const invokeResult=channel=>(...args)=>ipcRenderer.invoke('launcher:'+channel,...args);
 contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  mode:'desktop',
@@ -13,7 +20,10 @@ contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  // identifier the player typed and the username travels only on the call that claims it.
  // An email address comes back from exactly one of them, the owner-only profile read, and
  // never from the state broadcast.
- continueMicrosoft:invoke('continue-microsoft'),loginCompany:invokeResult('company-login'),
+ // The saved-session shortcut. It answers with its result for the same reason: the
+ // identity conflict is decided on its code, and a code cannot be thrown across this
+ // boundary.
+ continueMicrosoft:invokeResult('continue-microsoft'),loginCompany:invokeResult('company-login'),
  checkCompanyUsername:invokeResult('company-username-check'),setCompanyPassword:invokeResult('company-password'),
  // The profile's verified emails. Owner-only, on demand, and never part of the state
  // broadcast: the list is asked for when the profile section opens, and the selection

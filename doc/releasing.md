@@ -17,7 +17,11 @@ name from `/releases/latest/download/`. The launcher job is
 2. The full check suite passes on that exact tree: `python -m unittest discover -s tests
    -p 'test_*.py'` (use `/root/e-server/.venv/bin/python`), `python scripts/validate.py
    site`, `npm test`, `node tests/drawings.mjs`, `node tests/browser.mjs` against a local
-   preview, `xvfb-run -a node tests/desktop/electron.mjs`, and
+   preview, `xvfb-run -a node tests/desktop/electron.mjs`,
+   `xvfb-run -a node tests/desktop/launcher-identity-conflict.electron.mjs` (the identity
+   conflict through the real preload: the refusal code crosses the isolated world, the
+   chooser comes back with the account service's sentence, and the signed-in account is
+   unchanged — the browser suite drives a stub bridge and cannot see this), and
    `xvfb-run -a node tests/desktop/shortcuts.electron.mjs` (the game shortcuts: both
    entries created and removed in an isolated HOME, and the auto-start path driven
    through the real main process).
