@@ -62,10 +62,16 @@ const GENERIC='Sign-in could not finish. Please try again.';
 // profile, one in a country Xbox Live does not serve, one that has not verified its age
 // and one waiting for Microsoft Family approval all fail again the same way. Two numbers
 // word one cause, because age verification is one thing to go and finish.
+// The country cause is the one a player cannot settle in place: an account's country is
+// not something the launcher can change and, for most accounts, not something the player
+// can change at all. Its sentence therefore names the property and then the only thing
+// that clears it, a different Microsoft account — the same move the access panel already
+// offers as "Use a different account" — instead of sending the player off to change a
+// country they cannot change.
 const AGE_UNVERIFIED={detail:'this Microsoft account has not completed its age verification',advice:'Finish the age verification at xbox.com, then sign in again.'};
 const XERR={
  2148916233:{detail:'this Microsoft account does not have an Xbox profile yet',advice:'Create an Xbox profile for this account at xbox.com, then sign in again.'},
- 2148916235:{detail:'Xbox Live is not available in this account’s country',advice:'Sign in with a Microsoft account from a country where Xbox Live is available.'},
+ 2148916235:{detail:'Xbox Live is not available in this account’s country',advice:'Sign in with a different Microsoft account.'},
  2148916236:AGE_UNVERIFIED,
  2148916237:AGE_UNVERIFIED,
  2148916238:{detail:'this account is waiting for Microsoft Family approval',advice:'Ask your Microsoft Family organiser to approve Minecraft for this account, then sign in again.'}

@@ -145,7 +145,7 @@ test('every Xbox Live cause with a fix carries its own instruction, and the numb
  // each cause says that thing instead of sharing the step's retry.
  const causes=[
   [2148916233,/^Xbox Live authorisation did not accept the sign-in: this Microsoft account does not have an Xbox profile yet\. Create an Xbox profile for this account at xbox\.com, then sign in again\.$/],
-  [2148916235,/^Xbox Live authorisation did not accept the sign-in: Xbox Live is not available in this account’s country\. Sign in with a Microsoft account from a country where Xbox Live is available\.$/],
+  [2148916235,/^Xbox Live authorisation did not accept the sign-in: Xbox Live is not available in this account’s country\. Sign in with a different Microsoft account\.$/],
   [2148916236,/^Xbox Live authorisation did not accept the sign-in: this Microsoft account has not completed its age verification\. Finish the age verification at xbox\.com, then sign in again\.$/],
   [2148916237,/^Xbox Live authorisation did not accept the sign-in: this Microsoft account has not completed its age verification\. Finish the age verification at xbox\.com, then sign in again\.$/],
   [2148916238,/^Xbox Live authorisation did not accept the sign-in: this account is waiting for Microsoft Family approval\. Ask your Microsoft Family organiser to approve Minecraft for this account, then sign in again\.$/]
@@ -166,6 +166,13 @@ test('every Xbox Live cause with a fix carries its own instruction, and the numb
  // finish, so they share theirs rather than splitting it in two.
  assert.equal(new Set(sentences.values()).size,4,'each cause that has a fix reads differently');
  assert.equal(sentences.get(2148916236),sentences.get(2148916237),'age verification is one instruction');
+ // The country cause is a property of the account, so the one action it names is a
+ // different account. An account's country is not something the launcher can change and
+ // usually not something the player can change either, so telling them to sign in "from a
+ // country where Xbox Live is available" sent them somewhere that does not exist.
+ const country=sentences.get(2148916235);
+ assert.match(country,/\. Sign in with a different Microsoft account\.$/,country+' asks for the one thing that clears it: '+country);
+ assert.doesNotMatch(country,/country where|change .*country|country .*change/i,'the country cause does not send the player to edit a country: '+country);
  // A number the launcher does not know stays a plain refusal with the step's own advice.
  const unknown=fixture([xboxToken(),{status:401,data:{XErr:2148916299}}]);
  await refused(unknown.auth.exchange({access_token:forXbox}),/^Xbox Live authorisation did not accept the sign-in: Xbox Live refused this sign-in\. Try again\.$/);

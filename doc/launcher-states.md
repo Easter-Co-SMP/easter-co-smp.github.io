@@ -1096,7 +1096,7 @@ any of them. The number is dropped and the sentence says what to do:
 | `XErr` | What the player reads |
 |---|---|
 | 2148916233 | `… this Microsoft account does not have an Xbox profile yet. Create an Xbox profile for this account at xbox.com, then sign in again.` |
-| 2148916235 | `… Xbox Live is not available in this account's country. Sign in with a Microsoft account from a country where Xbox Live is available.` |
+| 2148916235 | `… Xbox Live is not available in this account's country. Sign in with a different Microsoft account.` An account's country is not a setting the launcher can change, so the sentence names the property and the one thing that clears it. |
 | 2148916236, 2148916237 | `… this Microsoft account has not completed its age verification. Finish the age verification at xbox.com, then sign in again.` (one cause, one sentence) |
 | 2148916238 | `… this account is waiting for Microsoft Family approval. Ask your Microsoft Family organiser to approve Minecraft for this account, then sign in again.` |
 | any other | the step's own `Try again.`, which is right for a cause the launcher cannot name |
