@@ -236,7 +236,11 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
   await loadSkin(session);await saveSession();await saveCompany();
   if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
   if(announce)notify({message:signed.created?'Easter Company account created. Set a password to finish.':'Signed in to your Easter Company account.'});
-  return publicAccount(company);
+  // The account service's answer about the Microsoft account's own email address travels
+  // back on the sign-in answer, not in the state: it is one status word ('stored',
+  // 'unavailable', 'none') with no address in it, and the sign-in dialog is the only thing
+  // that needs it, for the one sentence it shows when Graph could not be read.
+  return {...publicAccount(company),...(typeof signed?.emailStatus==='string'?{emailStatus:signed.emailStatus}:{})};
  }catch(error){
   if(error.name==='AbortError')throw error;
   if(throwOnError)throw error;
@@ -342,8 +346,11 @@ async function login(options={}){
  notify({message:'Opening Microsoft sign-in…',device:null,...(control?{}:{progress:null})});
  try{
   const signed=await auth.signIn(device=>notify({device,message:'Enter this code on Microsoft’s sign-in page.'}),controller.signal);
-  await enrolAccount({candidate:signed,lockCompany:options.link===true,throwOnError:true});
+  const enrolled=await enrolAccount({candidate:signed,lockCompany:options.link===true,throwOnError:true});
   notify({device:null,message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
+  // The sign-in answer is the one place `emailStatus` leaves the main process, so the
+  // sign-in dialog can say that Microsoft's address could not be read. No address, ever.
+  return typeof enrolled?.emailStatus==='string'?{emailStatus:enrolled.emailStatus}:undefined;
  }finally{controller=undefined;}
 }
 // Install or update before launch. Returns the prepared release, or null when the

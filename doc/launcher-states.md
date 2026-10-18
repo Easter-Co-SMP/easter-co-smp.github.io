@@ -90,7 +90,11 @@ failure that returns.
 read your Microsoft email address. You can sign in, and choose a login email later
 from your profile." until the player closes the dialog, and `'stored'` and `'none'`
 say nothing at all. No address is printed anywhere, and a build that answers without
-the field renders exactly as before.
+the field renders exactly as before. The word comes from the account service's own
+sign-in answer: `desktop/accounts.cjs` accepts only those three values and drops
+anything else (including an address sent in that field), `enrolAccount()` carries it
+on the sign-in result, and `desktop/main.cjs` returns it from the `sign-in` action —
+it is deliberately not part of `launcher:state`, so no broadcast ever carries it.
 
 ## Bar behaviour
 
