@@ -7,6 +7,7 @@ Easter Company is now your primary account, with a unique Microsoft/Xbox link.
 - Sign in directly with your Company ID and password. Minecraft still requires the linked Microsoft account and valid Java access.
 - Reset your password through your linked Microsoft identity. Reset revokes previous Company sessions.
 - Minecraft starts fullscreen with a GUI scale chosen for your primary display: 2 on ordinary screens, 3 on 1440p-class screens and 4 on 4K, reduced when needed to fit. This also sets up an already-installed client once; later changes made in Minecraft are preserved. These defaults work with Enhanced Graphics on or off.
+- The installed client is set up with the household's controls: crouch on Left Ctrl and sprint on Left Shift (the default pair swapped), inventory on Tab, the player list on the tilde key, and third person on R. Like the display settings, this happens once and any change you make in Minecraft afterwards is kept. Shippy Ships' own Quick Build hotkey shares Left Ctrl, so rebind it in Controls if that ever gets in the way.
 - A distinct gold compass and launch-symbol app icon identifies the launcher in windows, desktop shortcuts and Linux/Windows installers.
 - The profile menu leads with your Company name and ID. Cancellation, failed login and conflicting Microsoft identities preserve the active account.
 - The backend stores unique provider links so another verified provider, such as Steam, can be added later.
