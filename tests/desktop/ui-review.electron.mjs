@@ -31,13 +31,13 @@ try{
  await page.locator('[data-desktop-play][data-action=download]').click();
  await page.locator('[data-desktop-play][data-action=signin]').waitFor();
  await app.evaluate(()=>global.easterTestDelayDevice=true);
- await page.locator('[data-desktop-play][data-action=signin]').click();
+ await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();
  await page.locator('.desktop-auth-wait').waitFor();await shot('sign-in-pending');
  assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'pending authentication never flashes settings');
  await page.keyboard.press('Escape');
  await page.waitForFunction(()=>document.querySelector('[data-desktop-play]').disabled===false);
  assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'pending authentication cancels cleanly');
- await page.locator('[data-desktop-play][data-action=signin]').click();
+ await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();
  await page.locator('.desktop-auth-wait').waitFor();
  await app.evaluate(()=>{global.easterTestDeviceReady();global.easterTestDelayDevice=false;});
  await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();await shot('sign-in');
@@ -47,7 +47,7 @@ try{
  await page.waitForFunction(()=>document.querySelector('[data-desktop-play]').disabled===false);
  assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'cancellation is not an error');
  assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'cancellation does not reveal settings');
- await page.locator('[data-desktop-play][data-action=signin]').click();
+ await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();
  await app.evaluate(()=>global.easterTestApprove());
  await page.locator('[data-desktop-play][data-action=play]').waitFor();

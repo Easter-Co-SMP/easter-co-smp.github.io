@@ -8,7 +8,7 @@ const app=await electron.launch({executablePath:path.resolve('node_modules/elect
 try{
  const page=await app.firstWindow();await page.setViewportSize({width:1360,height:920});page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');await page.keyboard.press('Escape');
- assert.equal(await page.locator('.desktop-account-nav:visible').count(),0);
+ assert.equal(await page.locator('.desktop-account-nav:visible').textContent(),'Sign in');
  // The header already carries Map, so the hero carries no second route to it, and no
  // screen offers the same action twice.
  assert.equal(await page.getByRole('link',{name:'View Map',exact:true}).count(),0);
@@ -43,7 +43,7 @@ try{
  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).canPlay,true);
  await page.waitForFunction(()=>document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(16,16,1,1).data[0]===200);
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Add account',exact:true}).click();
+ await page.getByRole('button',{name:'Add account',exact:true}).click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();
  await page.waitForFunction(async()=>Boolean((await window.easterDesktop.status()).device));
  await page.evaluate(()=>window.easterDesktop.cancelSignIn());
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).device===null);
@@ -51,7 +51,7 @@ try{
  await page.keyboard.press('Escape');await signIn();
  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).accounts.length,2);
  await page.locator('.desktop-account-nav').click();await page.waitForTimeout(250);await page.screenshot({path:'/tmp/easter-deslop-profile.png'});await page.getByRole('button',{name:'Switch Account',exact:true}).click();
- await page.getByRole('button',{name:'Captain1',exact:true}).click();
+ await page.getByRole('button',{name:'Captain1 · EC-1',exact:true}).click();
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).profile?.name==='Captain1');
  await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Logout',exact:true}).click();
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).profile===null);

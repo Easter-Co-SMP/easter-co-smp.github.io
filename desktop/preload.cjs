@@ -1,9 +1,10 @@
 'use strict';
 const {contextBridge,ipcRenderer}=require('electron');
-const invoke=channel=>(...args)=>ipcRenderer.invoke('launcher:'+channel,...args).then(result=>{if(!result.ok)throw Error(result.error);return result.value;});
+const invoke=channel=>(...args)=>ipcRenderer.invoke('launcher:'+channel,...args).then(result=>{if(!result.ok){const error=Error(result.error);error.code=result.code;throw error;}return result.value;});
 contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  mode:'desktop',
  status:invoke('status'),signIn:invoke('sign-in'),cancelSignIn:invoke('cancel-sign-in'),
+ continueMicrosoft:invoke('continue-microsoft'),loginCompany:invoke('company-login'),setCompanyPassword:invoke('company-password'),
  signOut:invoke('sign-out'),switchAccount:invoke('switch-account'),play:invoke('play'),saveSettings:invoke('settings'),
  openMinecraftStore:invoke('open-minecraft-store'),openMinecraftProfile:invoke('open-minecraft-profile'),recheckAccess:invoke('recheck-access'),
  refreshAccount:invoke('account-refresh'),signOutAccount:invoke('account-sign-out'),

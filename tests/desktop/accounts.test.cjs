@@ -38,7 +38,7 @@ test('a malformed success body is refused instead of trusted',async()=>{
 test('first sign-in creates the account and the next one logs in',async()=>{
  const logins=[];
  const stub=await startStub(({request,response,body})=>{
-  if(request.url!=='/v1/accounts/login')return send(response,404,{error:'not_found'});
+  if(request.url!=='/v2/accounts/microsoft')return send(response,404,{error:'not_found'});
   logins.push(JSON.parse(body));
   send(response,200,loginBody(logins.length===1));
  });
@@ -50,7 +50,7 @@ test('first sign-in creates the account and the next one logs in',async()=>{
   assert.equal(first.account.displayName,'Captain Testbeard');
   const second=await client(stub.origin).login(TOKEN);
   assert.equal(second.created,false);
-  assert.deepEqual(logins,[{minecraftAccessToken:TOKEN,client:'launcher/1.0.1'},{minecraftAccessToken:TOKEN,client:'launcher/1.0.1'}]);
+  assert.deepEqual(logins,[{xboxUserToken:TOKEN,client:'launcher/1.0.1'},{xboxUserToken:TOKEN,client:'launcher/1.0.1'}]);
   assert.equal(stub.calls.length,2);
   assert.equal(stub.calls[0].headers['content-type'],'application/json');
   assert.equal(stub.calls[0].headers.authorization,undefined,'the login call is authenticated by the Minecraft token, not a Bearer header');
@@ -59,8 +59,8 @@ test('first sign-in creates the account and the next one logs in',async()=>{
 
 test('me and logout send the session as a Bearer header',async()=>{
  const stub=await startStub(({request,response})=>{
-  if(request.url==='/v1/accounts/me'&&request.method==='GET')return send(response,200,{account:ACCOUNT});
-  if(request.url==='/v1/accounts/logout'&&request.method==='POST')return send(response,204);
+  if(request.url==='/v2/accounts/me'&&request.method==='GET')return send(response,200,{account:ACCOUNT});
+  if(request.url==='/v2/accounts/logout'&&request.method==='POST')return send(response,204);
   send(response,404,{error:'not_found'});
  });
  try{
@@ -123,7 +123,7 @@ test('the transport path used in production is exercised against a real socket',
  // the transport, its bounded timeout and its cause-free transport errors.
  const {AccountClient}=require('../../desktop/accounts.cjs');
  const stub=await startStub(({request,response})=>{
-  if(request.url==='/v1/accounts/login')return send(response,200,loginBody(true));
+  if(request.url==='/v2/accounts/microsoft')return send(response,200,loginBody(true));
   // Hold the socket open and never answer: only the bounded timeout can end it.
   if(request.url==='/v1/accounts/stall')return;
   send(response,500,{error:'boom'});
@@ -133,7 +133,7 @@ test('the transport path used in production is exercised against a real socket',
   const signed=await api(800).login(TOKEN);
   assert.equal(signed.created,true);
   assert.equal(stub.calls[0].headers['content-type'],'application/json');
-  assert.equal(JSON.parse(stub.calls[0].body).minecraftAccessToken,TOKEN);
+  assert.equal(JSON.parse(stub.calls[0].body).xboxUserToken,TOKEN);
   const started=Date.now();
   const error=await rejects(assert,api(400).call('/v1/accounts/stall',{method:'POST',body:{},timeout:400}),'unreachable');
   assert(Date.now()-started<3000,'a body that never ends must be bounded');
@@ -150,7 +150,7 @@ test('the renderer only ever sees a name and roles',async()=>{
  const signed=companySession({created:true,account:ACCOUNT,session:{token:SESSION,expiresAt:Date.parse('2026-02-01T00:00:00Z')}});
  assert.equal(signed.token,SESSION);
  assert.equal(signed.expiresAt,Date.parse('2026-02-01T00:00:00Z'));
- assert.deepEqual(publicAccount(signed),{name:'Captain Testbeard',roles:['crew']});
+ assert.deepEqual(publicAccount(signed),{id:'EC-42',name:'Captain Testbeard',roles:['crew'],passwordRequired:false,microsoftLinked:true});
  // A response that nests the session wrongly must be refused, not stored empty.
  assert.throws(()=>companySession({created:true,account:ACCOUNT,token:SESSION,expiresAt:1}),(error)=>error.code==='invalid_response');
  assert.throws(()=>companySession({created:true,account:ACCOUNT,session:{token:'',expiresAt:1}}),(error)=>error.code==='invalid_response');
@@ -162,4 +162,32 @@ test('the renderer only ever sees a name and roles',async()=>{
  assert.equal(storedSession({token:SESSION,expiresAt:1,account:{...ACCOUNT,roles:'admin'}}).account.roles.length,0);
  assert.equal(storedSession({token:SESSION,expiresAt:1,account:{...ACCOUNT,minecraftName:'x'.repeat(40)}}),null);
  assert.equal(publicAccount(null),null);
+});
+
+test('profile-less Company identity has a stable ID and keeps provider binding private',()=>{
+ const {sanitizeAccount,publicAccount}=require('../../desktop/accounts.cjs');
+ const account=sanitizeAccount({...ACCOUNT,minecraftUuid:null,minecraftName:null,passwordRequired:true});
+ const view=publicAccount({account});
+ assert.equal(view.id,'EC-42');assert.equal(view.passwordRequired,true);
+ assert(!JSON.stringify(view).includes(ACCOUNT.microsoftSubject));
+ assert.throws(()=>sanitizeAccount({...ACCOUNT,microsoftSubject:null}),(error)=>error.code==='invalid_response');
+});
+
+test('password login and reset use fixed Company routes and bearer-bound reset',async()=>{
+ const secret='fixture password passphrase';
+ const stub=await startStub(({request,response,body})=>{
+  const payload=JSON.parse(body);
+  if(request.url==='/v2/accounts/password/login'){
+   assert.equal(payload.companyId,'EC-42');assert.equal(payload.password,secret);assert.equal(request.headers.authorization,undefined);
+  }else{
+   assert.equal(request.url,'/v2/accounts/password');assert.equal(request.headers.authorization,'Bearer '+SESSION);assert.equal(payload.replace,true);
+  }
+  send(response,200,loginBody(false));
+ });
+ try{
+  const api=client(stub.origin);
+  const signed=await api.loginPassword('EC-42',secret);
+  assert.equal(signed.account.passwordRequired,false);
+  await api.setPassword(SESSION,secret,true);
+ }finally{await stub.close();}
 });

@@ -77,7 +77,7 @@ try{
  await run(path.join(root,'tests/desktop/harness.cjs'),async(app,page)=>{
   await page.locator('[data-desktop-play]').click();
   await page.locator('#desktop-install-details').waitFor({state:'hidden'});
-  await page.locator('[data-desktop-play]').click();
+  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   const signin=page.getByRole('dialog',{name:'Sign in with Microsoft',exact:true});
   assert.equal(await signin.isVisible(),true);
@@ -106,7 +106,7 @@ try{
   // The dialog is modal: it has to be closed before the hero behind it can be used.
   await page.keyboard.press('Escape');
   await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open);
-  await page.locator('[data-desktop-play]').click();
+  await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Continue with Microsoft',exact:true}).click();
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   await app.evaluate(()=>global.easterTestApprove());
   // A completed sign-in closes the dialog it used for the device code. The player must not
@@ -212,7 +212,7 @@ try{
   await page.locator('.desktop-account-nav').click();
   await page.getByRole('button',{name:'Logout',exact:true}).click();
   await page.locator('[data-desktop-play][data-action=signin]').waitFor();
-  assert.equal(await page.locator('.desktop-account-nav').isVisible(),false);
+  assert.equal(await page.locator('.desktop-account-nav').textContent(),'Sign in');
  });
  const savedCustom=JSON.parse(await fs.readFile(path.join(temp,'settings.json'),'utf8'));
  assert.equal(savedCustom.server,'test.example:25565','a custom server address is saved exactly as typed');

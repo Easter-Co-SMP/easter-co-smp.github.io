@@ -2,7 +2,7 @@
 const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog}=require('electron');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{pathToFileURL}=require('node:url');
 const {MicrosoftAuth,DEFAULT_CLIENT_ID}=require('./auth.cjs');
-const {AccountClient,publicAccount,companySession,storedSession,companyVaultName}=require('./accounts.cjs');
+const {AccountClient,AccountError,publicAccount,companySession,storedSession,companyVaultName}=require('./accounts.cjs');
 const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation,serverList}=require('./config.cjs');
 const vault=require('./vault.cjs');
 const identity=require('./identity.cjs');
@@ -20,7 +20,7 @@ protocol.registerSchemesAsPrivileged([{scheme:'easter',privileges:{standard:true
 if(!app.isPackaged&&process.env.EASTER_TEST_HOME)app.setPath('userData',process.env.EASTER_TEST_HOME);
 const instance=app.requestSingleInstanceLock();
 if(!instance)app.quit();
-let window,settings,session=null,working=false,game=null,controller,company=null,accessChecking=false;
+let window,settings,session=null,working=false,game=null,controller,company=null,accessChecking=false,accountWorking=false;
 const siteRoot=path.resolve(__dirname,'../site');
 const configRoot=()=>app.getPath('userData');
 const defaultLocation=()=>defaultInstallLocation(configRoot());
@@ -83,18 +83,21 @@ function installInfo(){
  return {location:gameRoot(),defaultLocation:defaultLocation(),installed,includeGraphics:Boolean(settings?.includeGraphics),version:installed?client.version:null,updatedAt:installed?client.updatedAt:null};
 }
 function notify(patch={}){
+ if(company&&company.expiresAt<=Date.now())company=null;
  if('message' in patch && !('error' in patch))patch={...patch,error:null};
  if('progress' in patch)progress=patch.progress;
  if(typeof patch.phase==='string')phase=patch.phase;
- state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(identity.publicIdentity)};
+ state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedCompanyAccounts()};
  const install=installInfo(),profile=publicProfile(session),actions=[];
  if(!install.installed)actions.push('download');
- if(!session)actions.push('signin');
+ if(!company)actions.push('signin');
+ else if(!companyReady())actions.push('setup-password');
+ else if(!microsoftConnected())actions.push('connect-microsoft');
  else if(identity.access(session)==='missing')actions.push('buy');
  else if(identity.access(session)==='profile-required')actions.push('setup-profile');
  else if(identity.access(session)==='unknown')actions.push('check-access');
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:!accessChecking&&identity.access(session)==='owned'&&startupReady&&!backgroundUpdate&&!['downloading','paused','verifying','installing','updating','checking-client'].includes(phase)&&canPlay(install,profile),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:!accountWorking&&companyReady()&&microsoftConnected()&&!accessChecking&&identity.access(session)==='owned'&&startupReady&&!backgroundUpdate&&!['downloading','paused','verifying','installing','updating','checking-client'].includes(phase)&&canPlay(install,profile),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
@@ -145,20 +148,40 @@ async function forgetCompany(){
  if(token)await accounts.logout(token);
  await vault.remove(companyFile());
 }
-// Enrol or sign in with the Mojang access token the launcher already holds.
-async function enrolAccount({announce=true,throwOnError=false}={}){
- if(!session?.profile||identity.access(session)!=='owned')return;
+async function accountOperation(action){
+ if(accountWorking||controller||game||(working&&!control))throw Error('Wait for the current operation to finish.');
+ accountWorking=true;notify({});
+ try{return control?await action():await exclusively(action);}
+ finally{accountWorking=false;notify({});}
+}
+function companyReady(){return Boolean(company&&company.expiresAt>Date.now()&&company.account.passwordRequired===false);}
+function microsoftConnected(){return Boolean(company&&session&&company.account.microsoftSubject&&session.companySubject===company.account.microsoftSubject);}
+function savedCompanyAccounts(){
+ const seen=new Set();
+ return savedAccounts.filter(entry=>Number.isSafeInteger(entry.companyId)&&!seen.has(entry.companyId)&&seen.add(entry.companyId)).map(entry=>({id:'EC-'+entry.companyId,name:entry.companyName||entry.profile?.name||'Company member'}));
+}
+// Only a successful server-verified login replaces the current Company identity.
+async function enrolAccount({announce=true,throwOnError=false,candidate=session,lockCompany=true}={}){
+ if(!candidate)return;
  try{
-  const signed=await accounts.login(session.accessToken);
-  company=companySession(signed);
-  if(signed.created)notify({message:'Easter Company account created.'});
-  else if(announce)notify({message:'Signed in to your Easter Company account.'});
+  if(!candidate.xboxUserToken||candidate.xboxExpiresAt<Date.now()+300000)candidate=await auth.refresh(candidate,controller?.signal,false,true);
+  const expected=lockCompany?company?.account.id:null;
+  let signed;
+  try{signed=await accounts.login(candidate.xboxUserToken,controller?.signal,lockCompany&&company?.expiresAt>Date.now()?company.token:undefined);}
+  catch(error){if(error.code!=='invalid_session'||!lockCompany||!company)throw error;signed=await accounts.login(candidate.xboxUserToken,controller?.signal);}
+  if(expected&&signed.account.id!==expected)throw new AccountError('identity_conflict','Use the Microsoft account linked to your Easter Company account.');
+  const next=companySession(signed),previous=company;
+  session={...candidate,companyId:next.account.id,companyName:next.account.displayName||next.account.minecraftName||'Company member'};
+  company=next;
+  await loadSkin(session);await saveSession();await saveCompany();
+  if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
+  if(announce)notify({message:signed.created?'Easter Company account created. Set a password to finish.':'Signed in to your Easter Company account.'});
+  return publicAccount(company);
  }catch(error){
   if(error.name==='AbortError')throw error;
-  // The Microsoft session stays usable; only the account step failed.
-  notify({message:error.message||'The Easter Company account could not be signed in.'});
   if(throwOnError)throw error;
- }finally{await saveCompany();}
+  notify({message:error.message||'The Easter Company account could not be signed in.'});
+ }
 }
 function safeError(error){
  if(error.name==='AbortError')return 'Sign-in cancelled.';
@@ -252,15 +275,12 @@ async function setGraphics(enabled){
   return {...installInfo(),graphics:graphicsState(),graphicsMessage:result.graphicsMessage||null};
  });
 }
-async function login(){
+async function login(options={}){
  controller=new AbortController();
  notify({message:'Opening Microsoft sign-in…',device:null,...(control?{}:{progress:null})});
  try{
   const signed=await auth.signIn(device=>notify({device,message:'Enter this code on Microsoft’s sign-in page.'}),controller.signal);
-  await forgetCompany();
-  session=signed;
-  await loadSkin(session);
-  await saveSession();await enrolAccount();
+  await enrolAccount({candidate:signed,lockCompany:options.link===true,throwOnError:true});
   notify({device:null,message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
  }finally{controller=undefined;}
 }
@@ -273,19 +293,21 @@ async function ensureClient(){
  return checked?.result||null;
 }
 async function play(){
- if(!session)await login();
+ if(!companyReady()){settle(company?'Create your Easter Company password to finish setup.':'Sign in to your Easter Company account first.');return {requiresAccount:true};}
+ if(!microsoftConnected()){settle('Sign in with the Microsoft account linked to '+company.account.companyId+'.');return {requiresMicrosoft:true};}
  notify({phase:'launching',message:'Checking your Minecraft session…',device:null,progress:null});
  try{session=await auth.refresh(session,undefined,true);}catch(error){
   if(!['invalid_grant','invalid_request','unauthorized_client'].includes(error.code))throw error;
-  session=null;company=null;await fs.rm(vaultFile(),{force:true});await vault.remove(companyFile());await login();
+  session=null;await saveSession();settle('Sign in with your linked Microsoft account to play.');return {requiresMicrosoft:true};
  }
  await saveSession();
  if(identity.access(session)!=='owned'||!session.profile){
-  await forgetCompany();settle('Minecraft Java Edition access is required to play.');return {requiresAccess:true};
+  settle('Minecraft Java Edition access is required to play.');return {requiresAccess:true};
  }
  // The Mojang token is the enrolment credential: every sign-in re-posts it, so a
  // session the API has forgotten or revoked is reissued here instead of on launch.
- await enrolAccount({announce:false});
+ await enrolAccount({announce:false,throwOnError:true});
+ if(!companyReady()){settle('Create your Easter Company password to finish setup.');return {requiresAccount:true};}
  const prepared=await ensureClient();
  const record=client.record;
  const version=prepared?.version||record?.version;
@@ -308,40 +330,61 @@ function registerIPC(){
   try{
    if(!startupReady&&!['status','retry-updates','pause-install','resume-install','cancel-install'].includes(name))throw Error('Updates must finish before this launcher can be used.');
    return {ok:true,value:await fn(...args)};
-  }catch(error){return {ok:false,error:safeError(error)};}
+  }catch(error){return {ok:false,error:safeError(error),code:['invalid_grant','invalid_session','invalid_microsoft_token','identity_conflict','reauthentication_required','password_policy','rate_limited'].includes(error.code)?error.code:undefined};}
  });
- handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(identity.publicIdentity),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
- handle('sign-in',async()=>{
-  if(controller)throw Error('Microsoft sign-in is already running.');
+ handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedCompanyAccounts(),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
+ handle('sign-in',async(options={})=>{
+  if(controller||accountWorking)throw Error('Account sign-in is already running.');
   // Authentication can overlap the install pipeline, but never starts a second
   // pipeline or clears its progress when authentication fails or is cancelled.
   if(control){
-   try{return await login();}
+   try{return await login({link:options?.link===true});}
    catch(error){const message=safeError(error);notify({message,error:error.name==='AbortError'?null:message,device:null});throw error;}
   }
-  return exclusively(login);
+  return exclusively(()=>login({link:options?.link===true}));
  });
  handle('switch-account',id=>exclusively(async()=>{
-  if(typeof id!=='string'||!(/^[a-f0-9]{32}$/i.test(id)||/^xbox:\d{1,20}$/.test(id)||/^msa:[a-f0-9]{64}$/.test(id)))throw Error('Choose a saved account.');
-  const selected=savedAccounts.find(entry=>identity.id(entry)===id);
+  if(typeof id!=='string'||!/^EC-[1-9][0-9]{0,17}$/.test(id))throw Error('Choose a saved Company account.');
+  const selected=savedAccounts.find(entry=>'EC-'+entry.companyId===id);
   if(!selected)throw Error('That account is no longer saved. Use Add account.');
   let refreshed;
   try{refreshed=await auth.refresh(selected,undefined,true);}catch{throw Error('This account needs to sign in again. Use Add account.');}
-  await forgetCompany();session=refreshed;
-  if(session.profile&&!session.profile.skin)await loadSkin(session);
-  await saveSession();await enrolAccount({announce:false});
+  await enrolAccount({candidate:refreshed,lockCompany:false,announce:false,throwOnError:true});
   notify({message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
+ }));
+ handle('continue-microsoft',()=>accountOperation(async()=>{
+  if(!session)throw Error('Sign in with Microsoft to continue.');
+  await enrolAccount({throwOnError:true});
+  notify({message:'Signed in to your Easter Company account.'});
+ }));
+ handle('company-login',(companyId,password)=>accountOperation(async()=>{
+  if(typeof companyId!=='string'||companyId.length>64||typeof password!=='string'||password.length>128)throw Error('Enter your Company ID and password.');
+  const signed=await accounts.loginPassword(companyId,password);
+  const next=companySession(signed),previous=company;
+  company=next;
+  session=savedAccounts.find(entry=>entry.companyId===next.account.id&&entry.companySubject===next.account.microsoftSubject)||null;
+  await saveSession();await saveCompany();
+  if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
+  notify({message:'Signed in to '+next.account.companyId+'.'});
+  return publicAccount(company);
+ }));
+ handle('company-password',(password,replace=false)=>accountOperation(async()=>{
+  if(!company)throw Error('Sign in with Microsoft first.');
+  if(typeof password!=='string'||[...password].length<15||[...password].length>128)throw Error('Use a password or passphrase of 15 to 128 characters.');
+  const signed=await accounts.setPassword(company.token,password,replace===true);
+  company=companySession(signed);await saveCompany();notify({message:'Your Easter Company password is saved.'});
+  return publicAccount(company);
  }));
  handle('open-minecraft-store',()=>shell.openExternal('https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc'));
  handle('open-minecraft-profile',()=>shell.openExternal('https://www.minecraft.net/en-us/msaprofile'));
  handle('recheck-access',async()=>{
   if(!session)throw Error('Sign in with Microsoft first.');
-  if(controller||game||(working&&!control))throw Error('Wait for the current operation to finish.');
+  if(controller||accountWorking||game||(working&&!control))throw Error('Wait for the current operation to finish.');
   const run=async()=>{
    accessChecking=true;controller=new AbortController();notify({message:'Checking Minecraft Java access…'});
    try{
     const refreshed=await auth.refresh(session,controller.signal,true);
-    await forgetCompany();session=refreshed;
+    session=refreshed;
     await loadSkin(session);await saveSession();await enrolAccount({announce:false});
     notify({message:'Minecraft Java access checked.'});
    }catch(error){session={...session,minecraftAccess:'unknown'};notify({});throw error;}
@@ -350,11 +393,11 @@ function registerIPC(){
   return control?run():exclusively(run);
  });
  handle('cancel-sign-in',()=>controller?.abort());
- handle('sign-out',async()=>{if(working||controller)throw Error('Wait for the current operation to finish.');const id=identity.id(session);session=null;savedAccounts=savedAccounts.filter(entry=>identity.id(entry)!==id);await forgetCompany();await saveSession();notify({remembered:false,device:null,message:'Logged out.'});});
+ handle('sign-out',async()=>{if(working||controller||accountWorking)throw Error('Wait for the current operation to finish.');const id=identity.id(session);session=null;savedAccounts=savedAccounts.filter(entry=>identity.id(entry)!==id);await forgetCompany();await saveSession();notify({remembered:false,device:null,message:'Logged out.'});});
  // Re-issues the account session from the Mojang token the launcher already has.
  handle('account-refresh',()=>exclusively(async()=>{if(!session)throw Error('Sign in first.');await enrolAccount({throwOnError:true});return publicAccount(company);}));
  // Company account only: the Microsoft session on this device is kept.
- handle('account-sign-out',async()=>{if(working||controller)throw Error('Wait for the current operation to finish.');await forgetCompany();notify({message:'Signed out of your Easter Company account.'});});
+ handle('account-sign-out',async()=>{if(working||controller||accountWorking)throw Error('Wait for the current operation to finish.');await forgetCompany();notify({message:'Signed out of your Easter Company account.'});});
  handle('retry-updates',()=>{if(game)throw Error('Close Minecraft before updating the launcher.');return startupUpdates();});
  handle('play',async()=>{if(backgroundUpdate)await backgroundUpdate;if(game||working||controller)throw Error('Wait for the current operation to finish.');if(app.isPackaged)await checkLauncherUpdate();if(!startupReady)throw Error('Update the launcher before playing.');return exclusively(play);});
  handle('settings',async input=>{
@@ -439,7 +482,7 @@ async function resource(request){
  }catch{return new Response('This page is unavailable.',{status:404});}
 }
 function createWindow(){
- window=new BrowserWindow({width:1360,height:920,minWidth:800,minHeight:600,backgroundColor:'#10232b',title:'Easter Company',icon:path.join(siteRoot,'assets/favicon.png'),show:false,autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
+ window=new BrowserWindow({width:1360,height:920,minWidth:800,minHeight:600,backgroundColor:'#10232b',title:'Easter Co. Launcher',icon:path.join(__dirname,'launcher-icon.png'),show:false,autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
  window.once('ready-to-show',()=>window.show());
  window.webContents.setWindowOpenHandler(({url})=>{try{void shell.openExternal(externalURL(url));}catch{}return {action:'deny'};});
  window.webContents.on('will-navigate',(event,url)=>{if(!url.startsWith('easter://easter/')){event.preventDefault();try{void shell.openExternal(externalURL(url));}catch{}}});
@@ -555,7 +598,7 @@ if(instance){
   // Restore the Easter Company session from the vault without a network call, so
   // launch never waits on the account API. Sign-in and play re-issue it.
   company=storedSession(await vault.readEncrypted(companyFile(),vaultOptions()));
-  if(company&&(company.expiresAt<=Date.now()||identity.access(session)!=='owned'))company=null;
+  if(company&&company.expiresAt<=Date.now())company=null;
   await refreshClient();
   protocol.handle('easter',resource);registerIPC();createWindow();
   notify({message:client.installed?'Client ready.':'Download the game to get started.'});

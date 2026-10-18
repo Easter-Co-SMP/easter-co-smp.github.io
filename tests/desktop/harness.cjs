@@ -1,5 +1,6 @@
 // This entry point is excluded from desktop packages. No production test bypass.
 const {EventEmitter}=require('node:events');
+const companyFixture=require('./account-fixture.cjs');companyFixture.install();
 const auth=require('../../desktop/auth.cjs');
 auth.MicrosoftAuth=class{
  async signIn(notify,signal){
@@ -8,7 +9,7 @@ auth.MicrosoftAuth=class{
    global.easterTestApprove=resolve;
    signal.addEventListener('abort',()=>reject(new DOMException('Cancelled','AbortError')),{once:true});
   });
-  return {profile:{id:'1234567890abcdef1234567890abcdef',name:'TestCaptain'},accessToken:'fixture-private-token',refreshToken:'fixture-private-refresh',expiresAt:Date.now()+86400000};
+  return {...companyFixture.proof('1234567890abcdef1234567890abcdef','TestCaptain'),profile:{id:'1234567890abcdef1234567890abcdef',name:'TestCaptain'},accessToken:'fixture-private-token',refreshToken:'fixture-private-refresh',expiresAt:Date.now()+86400000};
  }
  async refresh(session){return session;}
 };

@@ -5,12 +5,17 @@
 // and in the safeStorage vault, never in the UI, a log line or an error message.
 const {apiOrigin}=require('./config.cjs');
 const {apiFetch}=require('./security.cjs');
-const DEFAULT_TIMEOUT=10000;
+const DEFAULT_TIMEOUT=30000;
 class AccountError extends Error{
  constructor(code,message){super(message);this.name='AccountError';this.code=code;}
 }
 // Error messages and codes from the frozen contract, mapped to one actionable line.
 const MESSAGES={
+ invalid_credentials:'The Company ID or password is incorrect.',
+ invalid_microsoft_token:'Your Microsoft sign-in needs to be renewed. Sign in again.',
+ identity_conflict:'That Microsoft account belongs to a different Easter Company account. Use the linked account or switch Company accounts.',
+ password_policy:'Use a password or passphrase of 15 to 128 characters. Avoid common passwords.',
+ reauthentication_required:'Sign in with your linked Microsoft account to set or reset your password.',
  invalid_minecraft_token:'Microsoft signed you in, but Minecraft did not accept that session. Sign in again.',
  invalid_session:'Your Easter Company session expired. Sign in again.',
  invalid_request:'The account service rejected the request. Update the launcher and try again.',
@@ -29,14 +34,16 @@ function serverMessage(status,body){
 function sanitizeAccount(account){
  if(!account||typeof account!=='object'||Array.isArray(account))throw new AccountError('invalid_response',FALLBACK);
  const id=Number(account.id),minecraftName=String(account.minecraftName||''),uuid=String(account.minecraftUuid||'');
- if(!Number.isInteger(id)||id<1||!/^\w{1,16}$/.test(minecraftName)||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid))throw new AccountError('invalid_response',FALLBACK);
+ if(!Number.isSafeInteger(id)||id<1||(minecraftName&&!/^\w{1,16}$/.test(minecraftName))||(uuid&&!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid)))throw new AccountError('invalid_response',FALLBACK);
  const displayName=typeof account.displayName==='string'&&account.displayName.trim()?account.displayName.trim().slice(0,64):null;
  const roles=Array.isArray(account.roles)?account.roles.filter(role=>typeof role==='string'&&role.length<=32).slice(0,16):[];
  const createdAt=typeof account.createdAt==='string'?account.createdAt:null;
- return {id,minecraftUuid:uuid.toLowerCase(),minecraftName,displayName,roles,createdAt};
+ const microsoftSubject=/^[a-f0-9]{64}$/.test(account.microsoftSubject||'')?account.microsoftSubject:null;
+ if(account.microsoftLinked===true&&!microsoftSubject)throw new AccountError('invalid_response',FALLBACK);
+ return {id,companyId:'EC-'+id,minecraftUuid:uuid?uuid.toLowerCase():null,minecraftName:minecraftName||null,displayName,roles,createdAt,passwordRequired:account.passwordRequired!==false,microsoftLinked:account.microsoftLinked===true,microsoftSubject};
 }
 // The renderer needs a name to show, nothing more. No UUID, no id, no token.
-function publicAccount(session){return session?.account?{name:session.account.displayName||session.account.minecraftName,roles:session.account.roles||[]}:null;}
+function publicAccount(session){return session?.account?{id:session.account.companyId,name:session.account.displayName||session.account.minecraftName||'Company member',roles:session.account.roles||[],passwordRequired:session.account.passwordRequired,microsoftLinked:session.account.microsoftLinked}:null;}
 class AccountClient{
  constructor({baseUrl=apiOrigin(),client='launcher/0.0.0',request=apiFetch,timeout=DEFAULT_TIMEOUT}={}){
   this.baseUrl=String(baseUrl).replace(/\/+$/,'');this.client=client;this.request=request;this.timeout=timeout;
@@ -63,9 +70,20 @@ class AccountClient{
   if(!response.ok)throw serverMessage(response.status,data);
   return data;
  }
- async login(minecraftAccessToken,signal){
-  if(typeof minecraftAccessToken!=='string'||!minecraftAccessToken)throw new AccountError('invalid_request',MESSAGES.invalid_request);
-  const created=await this.call('/v1/accounts/login',{method:'POST',body:{minecraftAccessToken,client:this.client},signal});
+ async login(xboxUserToken,signal,token){
+  if(typeof xboxUserToken!=='string'||!xboxUserToken)throw new AccountError('invalid_request',MESSAGES.invalid_request);
+  const created=await this.call('/v2/accounts/microsoft',{method:'POST',body:{xboxUserToken,client:this.client},signal,token});
+  return this.signed(created);
+ }
+ async loginPassword(companyId,password,signal){
+  const created=await this.call('/v2/accounts/password/login',{method:'POST',body:{companyId,password,client:this.client},signal});
+  return this.signed(created);
+ }
+ async setPassword(token,password,replace=false){
+  const created=await this.call('/v2/accounts/password',{method:'POST',token,body:{password,replace,client:this.client}});
+  return this.signed(created);
+ }
+ signed(created){
   const account=sanitizeAccount(created?.account);
   const token=created?.session?.token;
   if(typeof token!=='string'||!token)throw new AccountError('invalid_response',FALLBACK);
@@ -74,13 +92,13 @@ class AccountClient{
   return {created:created.created===true,account,session:{token,expiresAt}};
  }
  async me(token,signal){
-  const found=await this.call('/v1/accounts/me',{token,signal});
+  const found=await this.call('/v2/accounts/me',{token,signal});
   return sanitizeAccount(found?.account);
  }
  async logout(token,signal){
   // Revocation is best effort. A refusal or a dead network must still let the
   // launcher forget the session locally, so this resolves either way.
-  try{await this.call('/v1/accounts/logout',{method:'POST',token,signal:signal??undefined,timeout:Math.min(this.timeout,8000)});}catch{}
+  try{await this.call('/v2/accounts/logout',{method:'POST',token,signal:signal??undefined,timeout:Math.min(this.timeout,8000)});}catch{}
  }
 }
 // Vault session shape and its acceptance check. These live here, next to the

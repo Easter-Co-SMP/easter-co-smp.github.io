@@ -407,13 +407,11 @@ record yet; a pending entry is shown as unavailable rather than silently failing
 connect. An entry the player types is kept as their own choice and is never
 rewritten to an entry id.
 
-**Two accounts are never rendered as one.** The Microsoft account and the Easter
-Company account are separate systems, and the profile popover labels them separately. A
-signed-in Microsoft account must not be followed by "No Easter Company account on
-this device yet." as bare, unlabelled copy: the company line is labelled, and when
-nothing depends on a company account it is omitted rather than advertised. The
-memory control is an explained advanced setting, not a bare slider under a heading
-that says nothing about what it does.
+**Easter Company is the primary identity.** The profile popover leads with the
+Company name and ID, then names Microsoft/Xbox as its linked provider. Signed-out
+users get a sign-in chooser with Microsoft signup/sign-in and Company ID/password
+login. New and migrated accounts without a password must complete setup before
+Play. The memory control remains an explained advanced setting.
 
 **Automation is the player's choice, and it is stated in the settings.** Three
 preferences are persisted with the rest of the settings, default on, and are never
@@ -454,7 +452,7 @@ previous session until sign-in succeeds. Switch Account lists app-owned accounts
 and refreshes the selected session before activation. Logout removes the active
 account, including its saved session, without deleting other accounts. Account
 sessions persist only in an OS-backed encrypted vault, otherwise for this process.
-The state includes `accounts` (public profiles only) and an optional skin PNG data
+The state includes `accounts` (public Company IDs/names only) and an optional skin PNG data
 URL in each public profile. Tokens remain in the main process. Switching is refused
 while Minecraft or authentication is running.
 
@@ -515,3 +513,11 @@ Actions may include buy, setup-profile or check-access. The hero and utility-pag
 dock use Buy Now only for confirmed missing entitlement, never an outage.
 Fixed-destination IPC opens the official store/profile pages; recheckAccess
 reuses the Microsoft session and can return directly to Download or Play.
+
+## Company identity and password login
+
+This replaces the earlier separate-account presentation: Easter Company is the primary identity. State.account exposes Company ID/name, passwordRequired and microsoftLinked; companyReady and microsoftConnected are separate gates. Provider proofs, link subjects, passwords and session tokens never appear in state. Microsoft signup validates an Xbox user token on the server and copies only available public Minecraft profile data. Accounts without Java profiles can register. Existing account IDs are retained when verified Minecraft ownership migrates their Xbox link.
+
+The sign-in chooser offers Continue with Microsoft (automatic signup/sign-in) and Company ID/password login. Signup and existing accounts without a password must complete password setup. Company ID is displayed for subsequent direct login. Password setup/reset uses a recent Microsoft-authenticated Company session; reset revokes other sessions. Closing setup leaves Play blocked and a Create password action available. Passwords are never persisted on the client.
+
+Company login restores only a matching cached Microsoft session. Otherwise Sign in to Minecraft asks for the linked Microsoft identity. Wrong-provider login cannot replace the active Company identity. Play requires a complete Company account, a matching Microsoft link, current launcher/client and confirmed Java access. Revoked Java access retains the Company identity and shows Buy Now. Add/switch/cancel/failure retain the current account until a new login succeeds. Logout signs out the primary identity. Provider storage supports future Steam linking; no Steam button or unverified linking is shipped.

@@ -3,7 +3,7 @@
 // account test runs against this server or an address with nothing listening.
 const http=require('node:http');
 const {AccountClient}=require('../../desktop/accounts.cjs');
-const ACCOUNT={id:42,minecraftUuid:'12345678-90ab-cdef-1234-567890abcdef',minecraftName:'TestCaptain',displayName:'Captain Testbeard',roles:['crew'],createdAt:'2026-01-01T00:00:00Z'};
+const ACCOUNT={passwordRequired:false,microsoftLinked:true,microsoftSubject:'a'.repeat(64),id:42,minecraftUuid:'12345678-90ab-cdef-1234-567890abcdef',minecraftName:'TestCaptain',displayName:'Captain Testbeard',roles:['crew'],createdAt:'2026-01-01T00:00:00Z'};
 async function startStub(handler){
  const calls=[];
  const server=http.createServer((request,response)=>{
