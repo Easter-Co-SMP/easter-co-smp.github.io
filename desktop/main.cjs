@@ -36,7 +36,10 @@ const accountsFile=()=>path.join(configRoot(),'accounts.enc');
 const vaultFile=()=>path.join(configRoot(),'account.enc');
 const companyFile=()=>path.join(configRoot(),companyVaultName());
 const clientId=process.env.EASTER_MICROSOFT_CLIENT_ID||DEFAULT_CLIENT_ID;
-const auth=new MicrosoftAuth({clientId});
+// The sign-in log doc/launcher-states.md describes: one redacted line per step, in the
+// per-user directory beside the settings and the vaults, so a failure the owner reports
+// can be read back as which leg failed rather than guessed at. Nothing else writes it.
+const auth=new MicrosoftAuth({clientId,logPath:path.join(configRoot(),'signin.log'),version:APP_VERSION});
 const accounts=new AccountClient({baseUrl:apiOrigin(),client:'launcher/'+APP_VERSION});
 const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false,desktopShortcut:false,startMenuShortcut:false};
 // The launcher state contract in doc/launcher-states.md. `phase` and `progress`
@@ -110,7 +113,12 @@ function installInfo(){
 }
 function notify(patch={}){
  if(company&&company.expiresAt<=Date.now())company=null;
- if('message' in patch && !('error' in patch))patch={...patch,error:null};
+ // A failure is announced once, by the broadcast that settles the operation that failed,
+ // and every later broadcast drops it again. Anything else leaves a stale sentence in the
+ // state for any unrelated update to repaint — which is how a long-finished failure kept
+ // reappearing over a sign-in the player had just started. A new account action clears it
+ // as it begins, because that also starts with a broadcast that carries no error.
+ if(!('error' in patch))patch={...patch,error:null};
  if('progress' in patch)progress=patch.progress;
  if(typeof patch.phase==='string')phase=patch.phase;
  state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedCompanyAccounts()};
