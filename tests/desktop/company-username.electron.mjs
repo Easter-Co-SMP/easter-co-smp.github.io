@@ -100,8 +100,10 @@ try{
  const hero=page.locator('[data-desktop-play][data-action=signin]');
  await hero.waitFor();
  const heroText=await hero.textContent();
- assert.match(heroText,/Sign in with Microsoft/,'the signed-out Home action links the Microsoft account: '+heroText);
- assert(!/Sign in/.test(heroText),'the signed-out Home action no longer reads Sign in');
+ assert.match(heroText,/Sign in with Microsoft/,'the signed-out Home action starts the Microsoft sign-in: '+heroText);
+ // One verb for the Microsoft action, and it is never the chooser form's own bare "Sign in":
+ // the hero names where the account comes from rather than offering a second way in.
+ assert(!/^Sign in\b(?! with Microsoft)/.test(heroText.trim()),'the signed-out Home action is not the bare Sign in action: '+heroText);
  assert(!/Easter Company account/.test(heroText),'and carries no Easter Company account note');
  await hero.click();
  const chooser=page.locator('#desktop-company-signin');await chooser.waitFor();
