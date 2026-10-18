@@ -101,8 +101,7 @@
  <h2 id="desktop-title">Settings</h2><div class="desktop-status" role="alert" hidden></div>
  <form class="desktop-settings">
  <label>Server address<select name="serverSelect"></select><input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><p class="desktop-settings-note" hidden></p>
- <fieldset><legend>Launching</legend>
- <label class="desktop-preference"><span>Close launcher when the game starts</span><input type="checkbox" name="exitOnLaunch"></label></fieldset>
+ <label class="desktop-preference"><span>Close launcher when the game starts</span><input type="checkbox" name="exitOnLaunch"></label>
  <details class="desktop-advanced"><summary>Advanced settings</summary><p class="desktop-advanced-note">Memory is shared with other apps. Increase it only if Minecraft needs more. Changes apply the next time you launch.</p>
  <label>Memory allocated to the game<output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"><small class="desktop-memory-detail"></small></label>
  <label>Java executable<small>Leave empty to use the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label></details>

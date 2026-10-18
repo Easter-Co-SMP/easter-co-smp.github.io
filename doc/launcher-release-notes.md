@@ -1,7 +1,7 @@
-# Easter Company launcher 1.0.13
+# Easter Company launcher 1.0.14
 
-The launcher's top navigation now reads **Easter Co. Launcher**, including its accessible Home link label, on Home, Map and Wiki.
+Removed the redundant **Launching** heading from Settings. **Close launcher when the game starts** remains a standalone toggle, with clear spacing before Advanced settings.
 
-Validation: site validation, Node and Python checks, Electron UI interaction and visual review at 800×600 and 1360×920, browser/drawing checks and packaged-bundle verification. The website retains its SMP branding. No real Microsoft authentication or game launch was performed for this label change.
+Validation: Node/Python/site/browser/drawing checks, Electron launcher and UI interaction checks, visual review of the compact Settings modal and packaged-bundle verification. No real Microsoft authentication or game launch was performed for this presentation change.
 
 The required app-file updater delivers this release automatically to 1.0.11 and later. Users on 1.0.10 or earlier need the bootstrap installer once. Installers are unsigned; SHA256SUMS covers all installers and updater assets.
