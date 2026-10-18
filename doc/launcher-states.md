@@ -42,6 +42,7 @@ meaning. These are added or extended:
 | `actions` | array | Ordered remaining requirements, each `download` or `signin`. Empty means nothing is required |
 | `canPlay` | boolean | Exactly `install.installed && profile !== null` |
 | `bar` | object | `{visible}`: progress/action dock availability. The renderer omits an idle dock on Home because Home already provides the action; utility pages retain it. The minimised preference stays renderer-local. |
+| `settings` | object | The saved settings, exactly as `status()` already returned them, so the Settings dialog refreshes from a broadcast as well as from a read. |
 | `error` | string \| null | Safe operation failure text for a visible notice. Cleared by the next operation or a new ordinary message. Cancellation is not an error. Older states without this field still render. |
 
 `canPlay` is the single source of truth for the Play action. No view may compute
@@ -563,15 +564,85 @@ users get a sign-in chooser with Microsoft signup/sign-in and Company ID/passwor
 login. New and migrated accounts without a password must complete setup before
 Play. The memory control remains an explained advanced setting.
 
-**Automation is the player's choice, and it is stated in the settings.** Three
-preferences are persisted with the rest of the settings, default on, and are never
-re-decided behind the player:
+**The launch-time preferences are the player's choice, and the two of them are linked.**
+Both are persisted with the rest of the settings, both default off, and neither is ever
+re-decided behind the player. The two update preferences are pinned on by *Mandatory
+update gate*:
 
-| Setting | Meaning |
-|---|---|
-| `autoUpdateLauncher` | Keep the launcher itself current. Applying an update in place is not built yet, so this governs the version check and the notice in the settings dialog; nothing is installed by it. |
-| `autoUpdateGame` | Keep the installed game client current. When off, no update starts on its own and a launch never begins a transfer the player did not ask for. |
-| `exitOnLaunch` | Close the launcher after it starts the game, so the launcher is a doorway rather than a second window to manage. |
+| Setting | Default | Meaning |
+|---|---|---|
+| `autoUpdateLauncher` | on | Keep the launcher itself current. Applying an update in place is not built yet, so this governs the version check and the notice in the settings dialog; nothing is installed by it. |
+| `autoUpdateGame` | on | Keep the installed game client current. When off, no update starts on its own and a launch never begins a transfer the player did not ask for. |
+| `exitOnLaunch` | off | Close the launcher when the game starts. |
+| `trayOnLaunch` | off | Minimise the launcher to the system tray when the game starts, offering **Open launcher** and **Quit**, and bring the window back when the game ends. |
+
+**Starting the game moves the launcher exactly one way.** Owen's review of 2026-10-18: with
+neither preference on, the window is left exactly as the player had it; with `exitOnLaunch`
+the launcher quits behind the game as it always did; with `trayOnLaunch` it hides instead of
+closing. The decision is one pure function, `launchBehaviour` in `desktop/security.cjs`, so
+what the window does is testable without a window and without a tray.
+
+**The two settings are mutually exclusive, and the main process enforces it.**
+`cleanSettings` resolves the pair, so a payload that claims both is not left to the view:
+both are resolved **off**. Once the migration below has run, a file carrying both cannot
+even be a leftover from an older build — it is hand-edited or damaged — so neither
+do-anything-visible behaviour is inferred from it, and quitting behind the game, the more
+destructive of the two, is never read out of an ambiguous pair. The dialog enforces the
+same rule from the other side: ticking either switch unticks the other, and a state that
+somehow carried both never leaves the dialog showing both. A value that is not a boolean is
+not coerced; it falls back to the documented default of off.
+
+**The old default is migrated once, so the change actually reaches an existing install.**
+A settings file written before `trayOnLaunch` existed came from a build whose default was
+to close the launcher behind the game, and it cannot say whether that was ever chosen: both
+of this household's machines carry `"exitOnLaunch": true` verbatim from `cleanSettings` on
+that old default, in `/root/.config/Easter Company/settings.json` and
+`/home/owen/.config/Easter Company/settings.json` alike. On load, a saved file with no
+`trayOnLaunch` is therefore resolved to both off and **written back once** with the field
+present — the write is what makes it happen once. From then on the file is the player's own
+record: a file that already carries the field keeps whatever pair it holds, in both
+directions, and is never migrated again. The write keeps the rest of the saved file, the
+recorded graphics answer included. The cost, stated plainly: `true` that a player
+deliberately chose in the old build looks exactly like the old default and is reset once,
+after which their next choice sticks. A fresh install with no settings file migrates
+nothing, because there is no recorded choice to reset.
+
+**The tray is a game-start gesture, not a background mode.** With `trayOnLaunch` on, the
+launcher creates the tray icon when the game starts, hides its window, and offers exactly
+two actions: **Open launcher**, which shows the window again, and **Quit**, which exits the
+launcher. Quit does not kill the game: the client keeps running, exactly as it does today
+when the launcher quits behind a game with `exitOnLaunch`. The window comes back by itself
+when the game exits — success and failure alike — and the exit handlers keep settling the
+messages they always did ("Minecraft closed. Ready to play." and "Minecraft closed with code
+N. Its log is in the client folder."). A hidden window is not a closed one, so
+`window-all-closed` never fires while the launcher sits in the tray, and the existing
+quit-on-last-window rule is untouched.
+
+**Closing the window is still quitting, whatever the game is doing.** The tray belongs to
+the moment the game starts, so it is not a place the launcher retreats to when the player
+closes it. Closing the window ends the launcher and leaves a running game running, which is
+what `exitOnLaunch` already does; a player who wants the launcher back mid-game opens it
+from the tray where there is one, or starts the launcher again. The tray icon is destroyed
+when the game ends, so no launcher icon is left behind after the game.
+
+**A tray icon is only promised where one can be drawn, and the setting still works where it
+cannot.** Electron creates a `Tray` object even on a desktop where no panel will ever draw
+it, so on Linux the icon is only taken as real when a StatusNotifier host owns
+`org.kde.StatusNotifierWatcher` on the session bus: KDE, the GNOME appindicator extension and
+the XFCE and Cinnamon panels register it. A bare X server, a headless seat, a compositor with
+no panel and Owen's own i3/polybar session — whose tray module is XEmbed — do not, so no
+Electron tray icon would ever appear there. The answer is one `dbus-send` query with every
+failure — missing binary, no session bus, timeout — treated as "no host"; Windows and macOS
+need no probe because they always give the application a tray.
+
+Where there is no host the launcher still steps aside, because the setting is not allowed to
+be a silent no-op: the window hides and one sentence says why and how to come back — "This
+desktop has no system tray, so start Easter Co. Launcher again to bring the window back."
+Starting the launcher again is the way back: the second-instance handler shows, restores and
+focuses the existing window instead of starting a second launcher, and it is the same path
+the game shortcut uses. The game ending brings the window back by itself in both cases.
+`EASTER_TEST_TRAY=0|1` overrides the probe in an unpackaged run, so a test seat with no panel
+can prove both paths.
 
 **The launcher Home carries no marketing title.** Owen's decision of 2026-10-17: the
 crest and the small "Easter Co. SMP" eyebrow stay, and the large "The Ultimate
@@ -637,7 +708,7 @@ launch. Graphics changes remain disabled while the game is running.
 This supersedes the optional update preferences and notification-only launcher check above.
 `autoUpdateLauncher` and `autoUpdateGame` are always true, including when loading old
 settings or accepting IPC input. Their switches and release-link notice are removed.
-`exitOnLaunch` remains a preference.
+`exitOnLaunch` and `trayOnLaunch` remain preferences; both default off.
 
 State adds `startupReady`. Packaged startup begins false. `launcherUpdate.phase` is
 `checking`, `downloading`, `verifying`, `restarting`, `current` or `blocked`,

@@ -145,7 +145,14 @@ await fs.writeFile(path.join(clientRoot,'installed.json'),JSON.stringify({
  },
  files:['mods/easter-navy.jar','shaderpacks/graphics.zip'],includeGraphics:true,updatedAt:'2026-10-15T00:00:00.000Z'
 }));
-await fs.writeFile(path.join(temp,'settings.json'),JSON.stringify({memoryMB:4096,server:'',javaPath:'',location:clientRoot,includeGraphics:true}));
+// The settings file this run is given is the shape both household machines actually carry
+// today: written by cleanSettings when true was the default, so exitOnLaunch is true and
+// the new trayOnLaunch field does not exist yet. Owen's own file and root's are this,
+// graphicsChosen included, which is why the migration's write-back is checked for keeping
+// that flag as well as the rest of the file.
+const settingsPath=path.join(temp,'settings.json');
+await fs.writeFile(settingsPath,JSON.stringify({memoryMB:4096,javaPath:'',server:'100.100.1.0:25565',location:clientRoot,includeGraphics:true,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:true,graphicsChosen:true}));
+const oldSettingsBytes=await fs.readFile(settingsPath,'utf8');
 // The display-default seam: the tree is installed and current before the app starts,
 // which is the state a returning player is in. options.txt does not exist yet, and the
 // install marker is copied byte for byte so a settings write can be shown not to have
@@ -198,6 +205,29 @@ try{
  check(started.canPlay===false,'an installed client with no account is not playable');
  // The renderer also pulls map data through the same origin; no client content is fetched.
  check(requests.every(entry=>entry.path.startsWith('/data/')),'the launch check fetched no client content: '+JSON.stringify(requests.map(r=>r.path)));
+
+ console.log('\n1b. the old default is migrated once on load, and the pair is resolved by the real main process');
+ // This is the path Owen's own settings file takes: exitOnLaunch:true with no
+ // trayOnLaunch, written by the old default rather than by anyone ticking a box.
+ check(started.settings.exitOnLaunch===false,'an old settings file carrying exitOnLaunch:true loads with the launcher staying open: '+JSON.stringify(started.settings.exitOnLaunch));
+ check(started.settings.trayOnLaunch===false,'and with the tray preference off: '+JSON.stringify(started.settings.trayOnLaunch));
+ const migratedFile=JSON.parse(await fs.readFile(settingsPath,'utf8'));
+ check(migratedFile.exitOnLaunch===false&&migratedFile.trayOnLaunch===false,'the file was written back once with both off: '+JSON.stringify({exitOnLaunch:migratedFile.exitOnLaunch,trayOnLaunch:migratedFile.trayOnLaunch}));
+ check(typeof migratedFile.trayOnLaunch==='boolean','with the new field present, which is what stops the migration running again');
+ check(migratedFile.graphicsChosen===true,'and the saved graphics answer is kept by that write rather than dropped');
+ check(migratedFile.memoryMB===4096&&migratedFile.location===clientRoot,'the rest of the saved file is untouched: '+JSON.stringify({memoryMB:migratedFile.memoryMB,location:migratedFile.location}));
+ console.log('  info settings.json was '+JSON.stringify(oldSettingsBytes)+'\n  info and now reads '+JSON.stringify(await fs.readFile(settingsPath,'utf8')));
+ const both=await page.evaluate(async()=>{const state=await window.easterDesktop.status();return window.easterDesktop.saveSettings({...state.settings,exitOnLaunch:true,trayOnLaunch:true});});
+ check(both.exitOnLaunch===false&&both.trayOnLaunch===false,'a payload claiming both is resolved to both off, the documented rule: '+JSON.stringify({exitOnLaunch:both.exitOnLaunch,trayOnLaunch:both.trayOnLaunch}));
+ const inFile=JSON.parse(await fs.readFile(settingsPath,'utf8'));
+ check(inFile.exitOnLaunch===false&&inFile.trayOnLaunch===false,'and only that resolved pair is written to settings.json: '+JSON.stringify({exitOnLaunch:inFile.exitOnLaunch,trayOnLaunch:inFile.trayOnLaunch}));
+ const tray=await page.evaluate(async()=>{const state=await window.easterDesktop.status();return window.easterDesktop.saveSettings({...state.settings,exitOnLaunch:false,trayOnLaunch:true});});
+ check(tray.trayOnLaunch===true&&tray.exitOnLaunch===false,'choosing the tray turns the close-on-launch behaviour off in the other direction');
+ const published=await page.evaluate(()=>window.easterDesktop.status());
+ check(published.settings.trayOnLaunch===true&&published.settings.exitOnLaunch===false,'status() — what the Settings dialog reads — publishes the saved pair');
+ // A malformed value falls back to the documented default rather than throwing.
+ const malformed=await page.evaluate(async()=>{const state=await window.easterDesktop.status();return window.easterDesktop.saveSettings({...state.settings,exitOnLaunch:'yes',trayOnLaunch:1});});
+ check(malformed.exitOnLaunch===false&&malformed.trayOnLaunch===false,'a malformed pair falls back to both off: '+JSON.stringify({exitOnLaunch:malformed.exitOnLaunch,trayOnLaunch:malformed.trayOnLaunch}));
 
  console.log('\n1a. the display defaults are seeded from the startup path of an installed, up-to-date tree');
  // Nothing above installed anything: the tree was current before the app started, so
@@ -354,6 +384,12 @@ try{
 // A fresh run of the app keeps the player's choice rather than re-deciding it. The
 // first instance has to be gone first: the launcher holds a single-instance lock.
 console.log('\n6. a fresh run keeps the player\'s own choice');
+// A file that already carries the field is the player's own record: this is the choice a
+// build with the setting could have saved, so it must survive the load as it was saved.
+// The pair is compared as values rather than bytes, because the launcher's existing
+// startup path may rewrite the file for its own graphics bookkeeping regardless.
+const chosenExit={...JSON.parse(await fs.readFile(settingsPath,'utf8')),exitOnLaunch:true,trayOnLaunch:false};
+await fs.writeFile(settingsPath,JSON.stringify(chosenExit));
 try{
  const relaunch=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'desktop/main.cjs')],env:launchEnv});
  try{
@@ -363,6 +399,9 @@ try{
   await sleep(500);
   const restarted=await relaunchPage.evaluate(()=>window.easterDesktop.status());
   check(restarted.graphics.enabled===true,'the player\'s own choice survives a restart');
+  check(restarted.settings.exitOnLaunch===true&&restarted.settings.trayOnLaunch===false,'a settings file that already carries the fields is not migrated again: '+JSON.stringify({exitOnLaunch:restarted.settings.exitOnLaunch,trayOnLaunch:restarted.settings.trayOnLaunch}));
+  const chosenExitAfter=JSON.parse(await fs.readFile(settingsPath,'utf8'));
+  check(chosenExitAfter.exitOnLaunch===true&&chosenExitAfter.trayOnLaunch===false,'and the saved pair is unchanged in the file, so the migration did not run twice: '+JSON.stringify({exitOnLaunch:chosenExitAfter.exitOnLaunch,trayOnLaunch:chosenExitAfter.trayOnLaunch}));
   check(restarted.install.installed===true,'the client tree is still recognised');
   check(restarted.graphics.tuned&&restarted.graphics.tuned.renderDistance===tunedDistance,'the tuned record is read back from the client: '+JSON.stringify(restarted.graphics.tuned));
   check(restarted.hardware.tier==='capable','and the hardware answer is unchanged: '+JSON.stringify({tier:restarted.hardware.tier,vramMB:restarted.hardware.vramMB}));
@@ -383,6 +422,9 @@ try{
  const beforeUpgrade=['version:4903','fullscreen:false','guiScale:1',...bindLines(SEVEN_KEYS),DEFERRED_VANILLA,'fov:0.5'].join('\n')+'\n';
  await fs.writeFile(optionsPath,beforeUpgrade);
  await fs.writeFile(displayRecordPath,JSON.stringify({schema:2,values:{guiScale:String(expectedScale),fullscreen:'true',...SEVEN_KEYS},appliedAt},null,2)+'\n',{mode:0o600});
+ // The other saved direction: a tray choice made in this build stays put across a load.
+ const chosenTray={...JSON.parse(await fs.readFile(settingsPath,'utf8')),exitOnLaunch:false,trayOnLaunch:true};
+ await fs.writeFile(settingsPath,JSON.stringify(chosenTray));
  let upgraded=null,upgradedRecord=null,upgradeOptionsStat=null,upgradeRecordStat=null;
  const upgrade=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'desktop/main.cjs')],env:launchEnv});
  try{
@@ -390,6 +432,10 @@ try{
   upgradePage.setDefaultTimeout(20000);
   await upgradePage.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
   await sleep(2000);
+   const trayLoaded=await upgradePage.evaluate(()=>window.easterDesktop.status());
+   check(trayLoaded.settings.trayOnLaunch===true&&trayLoaded.settings.exitOnLaunch===false,'a saved tray choice is not reset by a later load: '+JSON.stringify({exitOnLaunch:trayLoaded.settings.exitOnLaunch,trayOnLaunch:trayLoaded.settings.trayOnLaunch}));
+   const chosenTrayAfter=JSON.parse(await fs.readFile(settingsPath,'utf8'));
+   check(chosenTrayAfter.trayOnLaunch===true&&chosenTrayAfter.exitOnLaunch===false,'and the saved pair is unchanged in its file too: '+JSON.stringify({exitOnLaunch:chosenTrayAfter.exitOnLaunch,trayOnLaunch:chosenTrayAfter.trayOnLaunch}));
   upgraded=await fs.readFile(optionsPath,'utf8');
   console.log('  info options.txt now reads: '+JSON.stringify(upgraded));
   upgradedRecord=JSON.parse(await fs.readFile(displayRecordPath,'utf8'));
@@ -421,5 +467,5 @@ try{
  await fs.rm(temp,{recursive:true,force:true});
 }
 
-console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the whole approved control set: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key, third person on R, chat on enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift, the 22 vanilla debug keys unbound and the mod-provided Shippy hotkey left for the client to register, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-2 tree with exactly the keys its record did not cover — the Shippy hotkey moved off Left Ctrl in the same pass, inventory and the player list together so no two actions share tab — and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, and applied the enhanced graphics toggle in both directions by writing the client\'s own quality files':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
+console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the whole approved control set: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key, third person on R, chat on enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift, the 22 vanilla debug keys unbound and the mod-provided Shippy hotkey left for the client to register, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-2 tree with exactly the keys its record did not cover — the Shippy hotkey moved off Left Ctrl in the same pass, inventory and the player list together so no two actions share tab — and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, applied the enhanced graphics toggle in both directions by writing the client\'s own quality files, and migrated the old default this box actually carries — exitOnLaunch:true with no trayOnLaunch — to both off once while keeping the saved graphics answer, leaving a player\'s own later choice unchanged on the next load':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
 process.exitCode=failures===0?0:1;
