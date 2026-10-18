@@ -6,7 +6,11 @@ auth.MicrosoftAuth=class extends Original{
  constructor(options){super({...options,request:async url=>{
   const uhs=process.env.EASTER_IDENTITY_FIXTURE_SEED+global.companyUser;
   if(url.endsWith('/devicecode'))return json({device_code:'fixture-private-device',user_code:'COMPANY-TEST',verification_uri:'https://microsoft.com/link',expires_in:600});
-  if(url.endsWith('/token'))return json({access_token:'fixture-private-ms',refresh_token:'fixture-private-refresh'});
+  // The access token is derived from the identity, because the backend now stores a
+  // Microsoft-verified email as a second login key and the fixture derives that address
+  // from this token: one fixed token for every identity would give two synthetic players
+  // the same address and the second signup would be an identity_conflict.
+  if(url.endsWith('/token'))return json({access_token:'fixture-private-ms-'+uhs,refresh_token:'fixture-private-refresh-'+uhs});
   if(url.includes('/user/authenticate'))return json({Token:'fixture-xbox:'+uhs+':'+global.companyMode,NotAfter:new Date(Date.now()+86400000).toISOString()});
   if(url.includes('/xsts/authorize'))return json({Token:'fixture-private-xsts',DisplayClaims:{xui:[{uhs}]}});
   if(url.includes('/authentication/login_with_xbox'))return json({access_token:'fixture-private-minecraft',expires_in:86400});
