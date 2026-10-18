@@ -921,3 +921,70 @@ else. It is optional in the contract, so a build that cannot obtain one signs in
 rather than blocking the player.
 
 Company login restores only a matching cached Microsoft session. Otherwise Sign in to Minecraft asks for the linked Microsoft identity. Wrong-provider login cannot replace the active Company identity. Play requires a complete Company account, a matching Microsoft link, current launcher/client and confirmed Java access. Revoked Java access retains the Company identity and shows Buy Now. Add/switch/cancel/failure retain the current account until a new login succeeds. Logout signs out the primary identity. Provider storage supports future Steam linking; no Steam button or unverified linking is shipped.
+
+## Verified emails and the login email (2026-10-18)
+
+The profile lists the addresses the account service has verified for the player's own
+account and lets them choose which one is the login email. An account can hold several:
+one per linked provider, so a second provider (Steam, Discord) needs no launcher change
+here beyond the provider's own name. The launcher renders whatever the server reports and
+groups no provider specially.
+
+**No address enters the state contract.** `launcher:state`, `status()` and every other
+broadcast carry no email: the account list, account switching, the skin cache, the profile
+heading and every other renderer path keep using the account id, the username and the
+display name. An address is asked for on demand, only for the profile section, through the
+two account actions below; it is never written to the settings file or the vault, never
+logged, never part of an error message, and never sent anywhere except the selection call.
+
+**The routes are owner-only and are the only place an address comes back.**
+
+- `GET /v2/accounts/emails` (Bearer Company session) →
+  `{emails: [{email, provider, verifiedAt, login}], loginEmail}`. `login` marks the address
+  the account service currently uses as the login email; `loginEmail` is that same address,
+  or null when none is selected.
+- `POST /v2/accounts/emails/login` (Bearer Company session) with `{email}` selects one of
+  the player's own verified addresses; `{email:null}` clears the selection. Anything that is
+  not one of the player's own verified addresses is refused with `400 email_not_yours`.
+
+The launcher sends the chosen address and the session and nothing else. There is no route
+by which a renderer names an account, and no other call returns an address.
+
+**Only the selected address is a sign-in key.** The selected address plus the password
+signs in; the other verified addresses stay recorded on the account and cannot be used to
+sign in, so two accounts can never claim the same login address. An account whose verified
+addresses are all unavailable signs in with Microsoft or with its username instead, which
+is exactly what the empty state says.
+
+**The profile section.** The account popover shows the login email in one line (or the
+sentence for the state it is in) and offers **Verified emails**, which opens the section: a
+one-at-a-time choice of the reported addresses, the current choice marked "signs you in",
+the others marked "recorded, not a login key", one **Save selection** action and one
+**Clear login email** action while a selection exists. The section says, in its own words,
+that only the selected address is a login key. The saved choice is the server's record, not
+a launcher preference: it is re-read from `GET /v2/accounts/emails` every time the section
+opens, so it survives a restart by being asked for again rather than by being cached.
+
+The four states are distinct and each is stated rather than implied:
+
+- verified addresses, one selected → the list, with that address marked as the sign-in key;
+- verified addresses, none selected → the list plus "No login email is selected. Sign in
+  with Microsoft or with your username.";
+- no verified address → no list and the sentence "No verified email is recorded for this
+  account. Sign in with Microsoft or with your username.";
+- the list could not be read → the failure sentence only. Nothing claims an address exists,
+  and nothing claims the account has none, when the answer is unknown.
+
+**Refusals are reported as what they are.** A selection the service refuses
+(`email_not_yours`) is one sentence naming the address as unavailable — it is not verified
+for this account, or another account already uses it as its login email — and the
+selection the server already has is left in place, still marked. A refused selection is
+never described as a sign-in failure, and the previous choice stays visible and current.
+
+**The account actions are `emails()` and `login-email(email)`.** Both are owner-only, both
+take their session from the main process and neither takes an account handle from the
+renderer. `emails()` reads the list; `login-email(email)` selects (`email` is one of the
+addresses the server just reported) or clears (`null`), re-reads the list and answers with
+it. Both are refused while there is no live Company session, with the ordinary
+`invalid_session` sentence. There is no new privileged surface beyond these two account
+actions: no renderer-supplied path, no file access, no token and no other account handle.

@@ -317,3 +317,163 @@ test('a rejected username and a wrong identifier read as plain sentences',async(
   }finally{await stub.close();}
  }
 });
+
+// ---- Verified emails ---------------------------------------------------------
+// The one place an address crosses the launcher, and the shape it must have. The routes
+// are owner-only: they take the Company session and no account handle, and the launcher
+// posts nothing but the address the player chose.
+const EMAIL_ONE='captain@example.test',EMAIL_TWO='crew@example.test',EMAIL_LOST='lost@example.test';
+function emailList(loginEmail){
+ return {emails:[
+  {email:EMAIL_ONE,provider:'microsoft',verifiedAt:'2026-01-01T00:00:00Z',login:loginEmail===EMAIL_ONE},
+  {email:EMAIL_TWO,provider:'microsoft',verifiedAt:'2026-01-02T00:00:00Z',login:loginEmail===EMAIL_TWO}
+ ],loginEmail};
+}
+
+test('the verified emails are read from the owner-only route and carry only the four fields',async()=>{
+ const stub=await startStub(({response})=>send(response,200,{
+  emails:[
+   {email:EMAIL_ONE,provider:'microsoft',verifiedAt:'2026-01-01T00:00:00Z',login:true,id:7,accountId:'EC-7',token:'should-never-surface'},
+   {email:EMAIL_TWO,provider:'microsoft',verifiedAt:'2026-01-02T00:00:00Z',login:false}
+  ],
+  loginEmail:EMAIL_ONE,
+  account:{id:7,email:EMAIL_ONE}
+ }));
+ let listed;
+ try{listed=await client(stub.origin).emails(SESSION);}finally{await stub.close();}
+ assert.deepEqual(listed,{emails:[
+  {email:EMAIL_ONE,provider:'microsoft',verifiedAt:'2026-01-01T00:00:00Z',login:true},
+  {email:EMAIL_TWO,provider:'microsoft',verifiedAt:'2026-01-02T00:00:00Z',login:false}
+ ],loginEmail:EMAIL_ONE},'nothing but the four fields and the login address leaves the client');
+ assert.equal(stub.calls.length,1);
+ assert.equal(stub.calls[0].url,'/v2/accounts/emails');
+ assert.equal(stub.calls[0].method,'GET');
+ assert.equal(stub.calls[0].headers.authorization,'Bearer '+SESSION,'the route is asked for with the Company session');
+ assert(!JSON.stringify(listed).includes('should-never-surface'));
+ assert(!JSON.stringify(listed).includes('EC-7'),'no account handle is carried in a list of addresses');
+});
+
+test('the login address the service names is the only one marked, and a phantom one marks nothing',()=>{
+ const {verifiedEmails}=require('../../desktop/accounts.cjs');
+ // The top-level answer wins over a per-entry flag that disagrees with it.
+ let listed=verifiedEmails({emails:[{email:EMAIL_ONE,provider:'microsoft',login:false},{email:EMAIL_TWO,provider:'microsoft',login:true}],loginEmail:EMAIL_ONE});
+ assert.equal(listed.loginEmail,EMAIL_ONE);
+ assert.deepEqual(listed.emails.map(entry=>entry.login),[true,false]);
+ // No top-level address: the entry flag is what the answer says, and it is honoured.
+ listed=verifiedEmails({emails:[{email:EMAIL_ONE,provider:'microsoft',login:false},{email:EMAIL_TWO,provider:'microsoft',login:true}]});
+ assert.equal(listed.loginEmail,EMAIL_TWO);
+ assert.deepEqual(listed.emails.map(entry=>entry.login),[false,true]);
+ // An address named as the login one but absent from the list is not invented: nothing is
+ // selected rather than a row that is not there.
+ listed=verifiedEmails({emails:[{email:EMAIL_ONE,provider:'microsoft',login:true}],loginEmail:'elsewhere@example.test'});
+ assert.equal(listed.loginEmail,null);
+ assert.deepEqual(listed.emails.map(entry=>entry.login),[false]);
+ // No addresses at all is the empty state, not a failure.
+ assert.deepEqual(verifiedEmails({emails:[],loginEmail:null}),{emails:[],loginEmail:null});
+ assert.deepEqual(verifiedEmails({}),{emails:[],loginEmail:null});
+});
+
+test('an address the launcher could not show is dropped rather than displayed',()=>{
+ const {verifiedEmails}=require('../../desktop/accounts.cjs');
+ const listed=verifiedEmails({emails:[
+  {email:'not-an-address',provider:'microsoft'},
+  {email:'',provider:'microsoft'},
+  {email:'   ',provider:'microsoft'},
+  null,
+  'captain@example.test',
+  {email:5,provider:'microsoft'},
+  {email:EMAIL_ONE,provider:5,verifiedAt:7},
+  {email:'CAPTAIN@example.test',provider:'microsoft'},
+  {email:EMAIL_TWO}
+ ],loginEmail:EMAIL_ONE});
+ // Only renderable, unique addresses survive, and an unknown provider or date is named as
+ // unknown rather than guessed.
+ assert.deepEqual(listed.emails,[
+  {email:EMAIL_ONE,provider:null,verifiedAt:null,login:true},
+  {email:EMAIL_TWO,provider:null,verifiedAt:null,login:false}
+ ]);
+ assert.equal(listed.loginEmail,EMAIL_ONE);
+ // A payload that is not an object at all is a broken answer, not an empty account.
+ const {AccountError}=require('../../desktop/accounts.cjs');
+ for(const bad of [null,undefined,'emails',42,[{email:EMAIL_ONE}]])assert.throws(()=>verifiedEmails(bad),(error)=>error instanceof AccountError&&error.code==='invalid_response');
+ // A list longer than the profile could ever show is capped rather than rendered whole.
+ const many=verifiedEmails({emails:Array.from({length:25},(_,index)=>({email:'crew'+index+'@example.test',provider:'microsoft'}))});
+ assert.equal(many.emails.length,20);
+});
+
+test('selecting a login email posts the chosen address and re-reads the list',async()=>{
+ let loginEmail=EMAIL_ONE;
+ const stub=await startStub(({request,response,body})=>{
+  if(request.url==='/v2/accounts/emails/login'&&request.method==='POST'){
+   const chosen=JSON.parse(body).email;
+   if(chosen===EMAIL_LOST)return send(response,400,{error:'email_not_yours',detail:'refused for '+chosen});
+   loginEmail=chosen;
+   return send(response,200,{ok:true});
+  }
+  if(request.url==='/v2/accounts/emails'&&request.method==='GET')return send(response,200,emailList(loginEmail));
+  send(response,404,{error:'not_found'});
+ });
+ const api=client(stub.origin);
+ try{
+  const second=await api.selectLoginEmail(SESSION,EMAIL_TWO);
+  assert.equal(second.loginEmail,EMAIL_TWO,'the answer is the record the service now holds');
+  assert.deepEqual(second.emails.map(entry=>entry.login),[false,true]);
+  const cleared=await api.selectLoginEmail(SESSION,null);
+  assert.equal(cleared.loginEmail,null,'clearing leaves no selection');
+  assert.deepEqual(cleared.emails.map(entry=>entry.login),[false,false]);
+ }finally{await stub.close();}
+ // The exact bodies: the chosen address, then an explicit null to clear, both with the
+ // Company session and neither naming an account.
+ const writes=stub.calls.filter(call=>call.url==='/v2/accounts/emails/login');
+ assert.deepEqual(writes.map(call=>JSON.parse(call.body)),[{email:EMAIL_TWO},{email:null}]);
+ assert(writes.every(call=>call.method==='POST'&&call.headers.authorization==='Bearer '+SESSION));
+ assert(writes.every(call=>!('accountId' in JSON.parse(call.body))&&!('companyId' in JSON.parse(call.body))),'no account handle is posted');
+ // Each write is followed by a read, which is where the profile's list comes from.
+ assert.deepEqual(stub.calls.map(call=>call.method+' '+call.url),[
+  'POST /v2/accounts/emails/login','GET /v2/accounts/emails',
+  'POST /v2/accounts/emails/login','GET /v2/accounts/emails'
+ ]);
+});
+
+test('a refused address is one honest sentence about that address',async()=>{
+ const {MESSAGES}=require('../../desktop/accounts.cjs');
+ assert.match(MESSAGES.email_not_yours,/cannot be your login email/);
+ assert.match(MESSAGES.email_not_yours,/another Easter Company account/);
+ assert(!MESSAGES.email_not_yours.includes('@'),'the refusal names no address');
+ assert(!/sign-in failed|Sign in again|password/i.test(MESSAGES.email_not_yours),'a refused address is not a failed sign-in');
+ const stub=await startStub(({response})=>send(response,400,{error:'email_not_yours',detail:'another account holds '+EMAIL_LOST}));
+ try{
+  const error=await rejects(assert,client(stub.origin).selectLoginEmail(SESSION,EMAIL_LOST),'email_not_yours');
+  assert.equal(error.message,MESSAGES.email_not_yours);
+  const surface=JSON.stringify({message:error.message,code:error.code,stack:String(error.stack)});
+  assert(!surface.includes(EMAIL_LOST),'neither the address nor the response body reaches an error');
+  assert(!surface.includes('another account holds'));
+ }finally{await stub.close();}
+ // An address the launcher cannot even post never becomes a request, and it is not
+ // reported as a refusal by the service.
+ const quiet=await startStub(({response})=>send(response,200,emailList(EMAIL_ONE)));
+ try{
+  const api=client(quiet.origin);
+  for(const bad of ['',`  `,'not-an-address',undefined,null+'x',42])await rejects(assert,api.selectLoginEmail(SESSION,bad),'invalid_request');
+  assert.equal(quiet.calls.length,0,'nothing is sent for an address that is not one');
+ }finally{await quiet.close();}
+});
+
+test('a malformed list is refused rather than half-rendered',async()=>{
+ for(const status of [200]){
+  const stub=await startStub(({response})=>send(response,status,'{"emails":'));
+  try{await rejects(assert,client(stub.origin).emails(SESSION),'invalid_response');}finally{await stub.close();}
+ }
+ // An expired session is the same sentence the rest of the account surface uses.
+ const expired=await startStub(({response})=>send(response,401,{error:'invalid_session'}));
+ try{
+  const error=await rejects(assert,client(expired.origin).emails(SESSION),'invalid_session');
+  assert.match(error.message,/session expired/);
+ }finally{await expired.close();}
+ // An unreachable service is still bounded and still says nothing about the cause.
+ const gone=await startStub(()=>{});
+ const origin=gone.origin;await gone.close();
+ const error=await rejects(assert,client(origin,{timeout:1500}).emails(SESSION),'unreachable');
+ assert.equal(error.message,'The Easter Company account service could not be reached.');
+ assert(!error.message.includes(EMAIL_ONE));
+});

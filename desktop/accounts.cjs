@@ -30,6 +30,10 @@ const MESSAGES={
  invalid_session:'Your Easter Company session expired. Sign in again.',
  invalid_request:'The account service rejected the request. Update the launcher and try again.',
  identity_provider_unavailable:'Minecraft sign-in is unavailable right now. Try again in a moment.',
+ // The address the player chose is not one this account may sign in with: it is either
+ // not verified for this account or another Easter Company account already uses it. It is
+ // reported as an unavailable address, never as a failure to sign in.
+ email_not_yours:'That address cannot be your login email. It is not verified for this account, or another Easter Company account already uses it to sign in.',
  rate_limited:'Too many account requests just now. Wait a moment and try again.'
 };
 const FALLBACK='The Easter Company account service could not complete that request.';
@@ -65,6 +69,40 @@ function sanitizeAccount(account){
 // ID travels only as the opaque account handle the account menu switches on: it is
 // never a label the player reads.
 function publicAccount(session){return session?.account?{id:session.account.companyId,username:session.account.username,name:session.account.displayName||session.account.minecraftName||session.account.username||'Company member',roles:session.account.roles||[],passwordRequired:session.account.passwordRequired,microsoftLinked:session.account.microsoftLinked}:null;}
+
+// The verified-address list is the one payload that carries an email, and it is handed
+// straight to the profile section and nowhere else. Nothing here is stored: the shape is
+// checked, the address the account service reports as its login email is the only one
+// flagged, and every other field of the response is dropped. An address the launcher could
+// not render (empty, whitespace, no @) is dropped from the list rather than shown, so the
+// UI can never display something that is not an address, and the login address is only
+// ever one the list agrees with.
+const EMAIL_MAX=254,EMAILS_MAX=20;
+function sanitizeEmail(value){
+ if(typeof value!=='string')return null;
+ const email=value.trim();
+ if(!email||email.length>EMAIL_MAX||!/^[^\s@]+@[^\s@]+$/.test(email))return null;
+ return email;
+}
+function verifiedEmails(payload){
+ if(!payload||typeof payload!=='object'||Array.isArray(payload))throw new AccountError('invalid_response',FALLBACK);
+ const list=Array.isArray(payload.emails)?payload.emails:[];
+ const emails=[],seen=new Set();
+ for(const entry of list.slice(0,EMAILS_MAX)){
+  if(!entry||typeof entry!=='object'||Array.isArray(entry))continue;
+  const email=sanitizeEmail(entry.email);
+  if(!email||seen.has(email.toLowerCase()))continue;
+  seen.add(email.toLowerCase());
+  emails.push({email,provider:typeof entry.provider==='string'&&entry.provider?entry.provider.trim().slice(0,32):null,verifiedAt:typeof entry.verifiedAt==='string'?entry.verifiedAt:null,login:entry.login===true});
+ }
+ // The top-level loginEmail is the account service's own answer, so it wins over the
+ // per-entry flag and is the only address the list marks; when it names an address the
+ // list does not carry, nothing is selected rather than a phantom.
+ const named=sanitizeEmail(payload.loginEmail);
+ const loginEmail=named?emails.find(entry=>entry.email.toLowerCase()===named.toLowerCase())?.email||null:emails.find(entry=>entry.login)?.email||null;
+ for(const entry of emails)entry.login=Boolean(loginEmail)&&entry.email===loginEmail;
+ return {emails,loginEmail};
+}
 class AccountClient{
  constructor({baseUrl=apiOrigin(),client='launcher/0.0.0',request=apiFetch,timeout=DEFAULT_TIMEOUT}={}){
   this.baseUrl=String(baseUrl).replace(/\/+$/,'');this.client=client;this.request=request;this.timeout=timeout;
@@ -142,6 +180,25 @@ class AccountClient{
   const found=await this.call('/v2/accounts/me',{token,signal});
   return sanitizeAccount(found?.account);
  }
+ // The player's own verified addresses, and the one the account service signs them in
+ // with. Owner-only: the call carries the Company session and no account handle, and its
+ // answer is checked into the shape the profile section renders. Nothing here caches it.
+ async emails(token,signal){
+  const found=await this.call('/v2/accounts/emails',{token,signal,timeout:Math.min(this.timeout,10000)});
+  return verifiedEmails(found);
+ }
+ // Select one of those addresses as the login email, or clear the selection with null.
+ // The body is exactly `{email}` (or `{email:null}`): no account handle, no token in a
+ // field, nothing the renderer could use to name someone else's account.
+ async selectLoginEmail(token,email,signal){
+  if(email!==null&&(typeof email!=='string'||!sanitizeEmail(email)))throw new AccountError('invalid_request',MESSAGES.invalid_request);
+  const body={email:email===null?null:sanitizeEmail(email)};
+  await this.call('/v2/accounts/emails/login',{method:'POST',token,body,signal,timeout:Math.min(this.timeout,15000)});
+  // The list is re-read rather than trusted from the write's own answer, so what the
+  // profile shows is always the record the account service holds. It is also what makes
+  // the choice survive a restart: it is asked for, never remembered.
+  return this.emails(token,signal);
+ }
  async logout(token,signal){
   // Revocation is best effort. A refusal or a dead network must still let the
   // launcher forget the session locally, so this resolves either way.
@@ -163,4 +220,4 @@ function storedSession(value){
  if(!value||typeof value.token!=='string'||!value.token||!Number.isFinite(value.expiresAt))return null;
  try{return {token:value.token,expiresAt:value.expiresAt,account:sanitizeAccount(value.account)};}catch{return null;}
 }
-module.exports={AccountClient,AccountError,sanitizeAccount,publicAccount,MESSAGES,USERNAME_PATTERN,companySession,storedSession,companyVaultName};
+module.exports={AccountClient,AccountError,sanitizeAccount,publicAccount,verifiedEmails,MESSAGES,USERNAME_PATTERN,companySession,storedSession,companyVaultName};

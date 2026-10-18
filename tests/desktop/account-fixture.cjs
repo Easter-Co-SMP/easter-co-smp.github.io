@@ -5,6 +5,18 @@ function proof(id,name){
  profiles.set(id,name);
  return {xboxUserToken:'fixture-xbox:'+id,xboxExpiresAt:Date.now()+86400000,companySubject:createHash('sha256').update(id).digest('hex')};
 }
+// The verified addresses the fixture account service reports, in the frozen shape:
+// two provider-verified addresses for the account, the first one its login email. It is a
+// record the fixture owns, not a renderer preference, so selecting one changes what the
+// next read answers — exactly like the real route.
+const emails={list:[
+ {email:'captain@example.test',provider:'microsoft',verifiedAt:'2026-01-01T00:00:00Z',login:true},
+ {email:'crew@example.test',provider:'microsoft',verifiedAt:'2026-01-02T00:00:00Z',login:false}
+ ],loginEmail:'captain@example.test'};
+function emailPayload(){
+ const list=emails.list.map(entry=>({...entry,login:entry.email===emails.loginEmail}));
+ return {emails:list,loginEmail:emails.loginEmail};
+}
 function install(){
  if(process.env.EASTER_API_BASE_URL)return;
  const accounts=require('../../desktop/accounts.cjs');
@@ -15,6 +27,14 @@ function install(){
    return {created:false,account,session:{token:'fixture-company-session',expiresAt:Date.now()+86400000}};
   }
   async logout(){}
+  // The owner-only verified email pair, answering the contract shape. A test that wants
+  // the empty state or a refusal sets it on this fixture rather than on the UI.
+  async emails(){return emailPayload();}
+  async selectLoginEmail(_token,email){
+   if(email!==null&&!emails.list.some(entry=>entry.email===email))throw new accounts.AccountError('email_not_yours',accounts.MESSAGES.email_not_yours);
+   emails.loginEmail=email;
+   return emailPayload();
+  }
  };
 }
-module.exports={proof,install};
+module.exports={proof,install,emails};

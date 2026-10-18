@@ -459,7 +459,10 @@ try{
    // The nested objects are the ones the renderer reads every field of, so the carried
    // copy must be its own rather than aliasing the recipe the run was built from.
    for(const key of ['settings','install','graphics','hardware','bar'])if(merge[key]&&typeof merge[key]==='object')merge[key]=Object.assign({},merge[key]);
-   window.easterRenderer={state:merge,nextLocation:null,refuse:null,calls:[],errors:[]};
+   // The profile's verified addresses, as the owner-only read answers them. The stub keeps
+   // the same record the route does, so a saved choice is read back rather than remembered.
+   window.easterRenderer={state:merge,nextLocation:null,refuse:null,calls:[],errors:[],
+    emails:{emails:[{email:'captain@example.test',provider:'microsoft',verifiedAt:'2026-01-01T00:00:00Z',login:true},{email:'crew@example.test',provider:'microsoft',verifiedAt:'2026-01-02T00:00:00Z',login:false}],loginEmail:'captain@example.test'}};
    window.addEventListener('pageerror',event=>window.easterRenderer.errors.push(event.message));
    const renderer=window.easterRenderer;
    const log=(name,payload)=>{renderer.calls.push(payload===undefined?{name}:{name,payload});try{localStorage.setItem('easter-renderer-calls',JSON.stringify(renderer.calls));}catch{}};
@@ -480,6 +483,13 @@ try{
     setGraphics:async enabled=>{log('setGraphics',enabled);renderer.state.graphics=Object.assign({},renderer.state.graphics,{enabled:Boolean(enabled)});mirror();renderer.emit?.(renderer.state);},
     cancelSignIn:async()=>{log('cancelSignIn');},
     refreshAccount:async()=>{log('refreshAccount');},
+    profileEmails:async()=>{log('profileEmails');return renderer.emails;},
+    selectLoginEmail:async email=>{
+     log('selectLoginEmail',email);
+     if(email!==null&&!renderer.emails.emails.some(entry=>entry.email===email))return {ok:false,code:'email_not_yours',error:'That address cannot be your login email. It is not verified for this account, or another Easter Company account already uses it to sign in.'};
+     renderer.emails={emails:renderer.emails.emails.map(entry=>({...entry,login:entry.email===email})),loginEmail:email};
+     return {ok:true,value:renderer.emails};
+    },
     signOut:async()=>{log('signOut');},
     signOutAccount:async()=>{log('signOutAccount');},
     openFolder:async()=>{},
@@ -799,6 +809,43 @@ try{
    assert(!headed.includes('EC-'),'and no Company ID is shown to the player');
    assert((await profileMenu.locator('.desktop-company').textContent()).includes('Microsoft / Xbox linked'),'Microsoft is shown as a linked provider');
    assert.equal(await profileMenu.getByRole('button',{name:'Sign out of Easter Company',exact:true}).count(),0,'one primary Logout action');
+   // The verified emails: the profile names the address that signs the account in, the
+   // section lists what the account service reports, and the choice reaches main as the
+   // chosen address and nothing else. No address is ever part of the state that is pushed.
+   const emailLine=profileMenu.locator('.desktop-profile-heading.desktop-email');
+   await emailLine.filter({hasText:'Login email: captain@example.test'}).waitFor();
+   assert.equal((await emailLine.textContent()).trim(),'Login email: captain@example.test');
+   assert(!JSON.stringify(await launcherPage.evaluate(()=>window.easterRenderer.state)).includes('@example.test'),'the launcher state carries no address');
+   await profileMenu.getByRole('button',{name:'Verified emails',exact:true}).click();
+   const emailsDialog=launcherPage.locator('#desktop-company-emails');
+   await emailsDialog.locator('input[name=email]').first().waitFor();
+   assert.equal(await emailsDialog.locator('input[name=email]').count(),2,'both verified addresses are listed');
+   assert.equal(await emailsDialog.locator('input[name=email]').first().isChecked(),true,'the login address is the marked one');
+   assert.deepEqual(await emailsDialog.locator('.company-email-meta').allInnerTexts(),['Microsoft · signs you in','Microsoft · recorded, not a login key'],'only the selected address is a login key');
+   for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+    await launcherPage.setViewportSize({width,height});
+    assert.equal(await emailsDialog.evaluate(el=>el.scrollWidth<=el.clientWidth),true,'the verified emails section has no horizontal overflow at '+width+'px');
+    const box=await emailsDialog.boundingBox();
+    assert(box.x>=0&&box.x+box.width<=width+1&&box.y>=0&&box.y+box.height<=height+1,'the verified emails section fits '+width+'px');
+   }
+   await launcherPage.setViewportSize({width:1440,height:900});
+   await emailsDialog.locator('input[name=email]').nth(1).check();
+   await emailsDialog.getByRole('button',{name:'Save selection',exact:true}).click();
+   await launcherPage.waitForFunction(()=>window.easterRenderer.calls.some(call=>call.name==='selectLoginEmail'));
+   assert.equal((await callsNamed('selectLoginEmail')).at(-1).payload,'crew@example.test','the chosen address is what reaches main');
+   await emailsDialog.locator('.company-status').filter({hasText:'Your login email is saved.'}).waitFor();
+   assert.equal(await emailsDialog.locator('input[name=email]').nth(1).isChecked(),true,'the saved choice is the marked one');
+   assert.equal((await emailLine.textContent()).trim(),'Login email: crew@example.test','the profile line follows the saved choice');
+   await emailsDialog.getByRole('button',{name:'Clear login email',exact:true}).click();
+   await emailsDialog.locator('.company-status').filter({hasText:'cleared'}).waitFor();
+   assert.equal((await callsNamed('selectLoginEmail')).at(-1).payload,null,'clearing sends an explicit null');
+   assert.equal(await emailsDialog.locator('.company-emails-unset').isVisible(),true,'with no selection the section says which sign-in works');
+   assert.equal((await emailLine.textContent()).trim(),'No login email is selected. Sign in with Microsoft or with your username.','and the profile line says the same thing');
+   await emailsDialog.locator('input[name=email]').nth(1).check();
+   await emailsDialog.getByRole('button',{name:'Save selection',exact:true}).click();
+   await emailsDialog.locator('.company-status').filter({hasText:'Your login email is saved.'}).waitFor();
+   await launcherPage.keyboard.press('Escape');
+   await emailsDialog.waitFor({state:'hidden'});
    await launcherPage.keyboard.press('Escape');
 
    // The themed graphics toggle sits below the hero's primary action, at the Play Now
@@ -903,6 +950,6 @@ try{
    assert.deepEqual(await launcherPage.evaluate(()=>window.easterRenderer.errors),[],'the fixture saw no page error on its last load');
    await launcherContext.close();
   }finally{await launcherContext.close().catch(()=>{});}
-  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage with a published server choice and an explained memory setting; the themed enhanced graphics toggle driving setGraphics; refusals shown; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
+  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage with a published server choice and an explained memory setting; the themed enhanced graphics toggle driving setGraphics; the profile's verified emails listed and chosen through the owner-only actions with no address in the state; refusals shown; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
  }
 }finally{await browser.close();}

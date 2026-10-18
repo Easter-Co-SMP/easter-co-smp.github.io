@@ -34,7 +34,42 @@ try{
  await setup.getByLabel('New password',{exact:true}).fill('fixture secret passphrase');await setup.getByLabel('Confirm password',{exact:true}).fill('different fixture passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();
  await setup.locator('.company-error').filter({hasText:'do not match'}).waitFor();await setup.getByLabel('Confirm password',{exact:true}).fill('fixture secret passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();
  await hero('play').waitFor();state=await status();assert.equal(state.account.username,username);assert.equal(state.companyReady,true);assert.equal(state.microsoftConnected,true);assert.equal(state.accounts.length,1);
- await page.locator('.desktop-account-nav').click();const menu=await page.locator('.desktop-profile-menu').textContent();assert(menu.includes(username),'the account view names the username');assert(!menu.includes('EC-'),'and shows no Company ID');await page.keyboard.press('Escape');
+ await page.locator('.desktop-account-nav').click();const menu=await page.locator('.desktop-profile-menu').textContent();assert(menu.includes(username),'the account view names the username');assert(!menu.includes('EC-'),'and shows no Company ID');
+ // The verified email the account service read from Microsoft, and the choice of which
+ // address signs this account in. Everything here is the real handler's answer: the list,
+ // the marked address and the two writes that clear and restore it.
+ await page.getByRole('button',{name:'Verified emails',exact:true}).click();
+ const emailsPanel=page.locator('#desktop-company-emails');
+ await emailsPanel.locator('input[name=email]').first().waitFor();
+ const verifiedAddress=await emailsPanel.locator('input[name=email]').first().inputValue();
+ assert.match(verifiedAddress,/^fixture-[a-f0-9]{16}@example\.com$/,'the account service reports the address it verified with Microsoft: '+verifiedAddress);
+ assert.equal(await emailsPanel.locator('input[name=email]').count(),1,'one Microsoft address is verified until a second provider is linked');
+ assert.equal(await emailsPanel.locator('input[name=email]').first().isChecked(),true,'and it is the login email');
+ assert.equal((await emailsPanel.locator('.company-email-meta').first().textContent()).trim(),'Microsoft · signs you in');
+ assert.equal(await emailsPanel.locator('.company-emails-empty').isVisible(),false,'no empty-state sentence beside a real address');
+ await page.screenshot({path:'/tmp/company-verified-emails.png',animations:'disabled'});
+ // Clearing the selection, then choosing the same address again.
+ await emailsPanel.getByRole('button',{name:'Clear login email',exact:true}).click();
+ await emailsPanel.locator('.company-status').filter({hasText:'cleared'}).waitFor();
+ assert.equal(await emailsPanel.locator('input[name=email]').first().isChecked(),false);
+ assert.equal(await emailsPanel.locator('.company-emails-unset').isVisible(),true,'an account with no selection is told which sign-in works');
+ await emailsPanel.locator('input[name=email]').first().check();
+ await emailsPanel.getByRole('button',{name:'Save selection',exact:true}).click();
+ await emailsPanel.locator('.company-status').filter({hasText:'Your login email is saved.'}).waitFor();
+ assert.equal(await emailsPanel.locator('input[name=email]').first().isChecked(),true);
+ // Closed and reopened: the section asks the service again rather than remembering, and the
+ // address it marked is the one the previous write left behind.
+ await page.keyboard.press('Escape');await emailsPanel.waitFor({state:'hidden'});
+ await page.locator('.desktop-account-nav').click();
+ await page.getByRole('button',{name:'Verified emails',exact:true}).click();
+ await emailsPanel.locator('input[name=email]').first().waitFor();
+ await page.waitForFunction(()=>document.querySelector('#desktop-company-emails input[name=email]')?.checked===true);
+ assert.equal(await emailsPanel.locator('input[name=email]').first().isChecked(),true,'the saved choice is read back from the account service');
+ assert.equal(await page.locator('.desktop-profile-heading.desktop-email').textContent(),'Login email: '+verifiedAddress);
+ await page.keyboard.press('Escape');await emailsPanel.waitFor({state:'hidden'});
+ // No address appears in the launcher state: the account list, the switch and the skin keep
+ // using the account id.
+ assert(!JSON.stringify(await status()).includes('@example.com'),'the launcher state carries no email');
  await page.getByRole('link',{name:'Wiki',exact:true}).click();await page.locator('.wiki-card').first().waitFor();assert.equal((await status()).account.username,username);await page.getByRole('link',{name:'Home',exact:true}).click();await page.keyboard.press('Escape');
  await page.evaluate(()=>window.easterDesktop.signOut());await hero('signin').waitFor();
  async function passwordLogin(secret){await hero('signin').click();const dialog=page.locator('#desktop-company-signin');await dialog.getByLabel('Username or Email',{exact:true}).fill(username);await dialog.getByLabel('Password',{exact:true}).fill(secret);await dialog.getByRole('button',{name:'Sign in',exact:true}).click();}
