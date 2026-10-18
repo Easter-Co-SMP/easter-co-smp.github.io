@@ -901,6 +901,16 @@ The account actions are `company-login(identifier, password)`,
 `switch-account(id)`. `identifier` is posted as-is; `username` travels only on the call that
 claims it; `company-username-check` posts the name and returns `{available, reason}`.
 
+**The availability answer has exactly two refusals, and neither advances the flow.** The
+deployed service answers `{available, reason}` with `reason` null, `"taken"` or `"policy"`;
+the frozen contract named the same two answers after its error codes (`username_taken`,
+`username_policy`) and the launcher accepts either spelling, always reporting its own code
+so the wording stays in one table. A reserved word passes every rule the renderer can see
+(`easter`, `admin`, `minecraft`…) and comes back as a policy refusal: it is reported as a
+rule the player can fix, never as a name someone else holds. A refusal with no reason, or a
+reason word the launcher does not know, is a refusal — the password step opens only on a
+plain yes, so a taken name is never discovered after the password has been typed.
+
 **The Microsoft account's email is read on the server, never carried by the launcher.** The
 same interactive Microsoft sign-in also asks for `https://graph.microsoft.com/User.Read`, so
 the account service can read the email the account was created with. The Graph token is

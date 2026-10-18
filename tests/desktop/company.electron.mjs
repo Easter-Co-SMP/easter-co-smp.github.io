@@ -16,7 +16,13 @@ try{
  const usernameStep=page.locator('#desktop-company-username'),setup=page.locator('#desktop-company-password');
  await usernameStep.waitFor();let state=await status();assert.equal(state.account.username,null);assert(state.account.passwordRequired);assert.equal(state.canPlay,false);
  assert.equal(await setup.isVisible(),false,'the password step is not offered before the username');
- const username='fixture_captain';
+ // The fixture keeps one database for the life of the process, so this journey must not
+ // claim a name an earlier run of itself already holds: the second run would be refused by
+ // the availability probe - correctly - and stall on step 1. One token per run keeps the
+ // gate repeatable while every rule (3-20 chars of a-z 0-9 _ -) still applies.
+ const runToken=Date.now().toString(36).slice(-6);
+ const username='fixture_'+runToken,nonowner='nonowner_'+runToken;
+ assert.match(username,/^[a-z0-9_-]{3,20}$/);assert.match(nonowner,/^[a-z0-9_-]{3,20}$/);
  await usernameStep.getByLabel('Username',{exact:true}).fill(username);
  await usernameStep.getByRole('button',{name:'Continue',exact:true}).click();
  await setup.waitFor();
@@ -46,7 +52,7 @@ try{
  await app.evaluate(()=>{global.companyUser='3';global.companyMode='missing';});
  await hero('signin').click();await page.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();await approve();await usernameStep.waitFor();
  assert.equal((await status()).profile,null);assert((await status()).account.passwordRequired);
- await usernameStep.getByLabel('Username',{exact:true}).fill('fixture_nonowner');await usernameStep.getByRole('button',{name:'Continue',exact:true}).click();await setup.waitFor();
+ await usernameStep.getByLabel('Username',{exact:true}).fill(nonowner);await usernameStep.getByRole('button',{name:'Continue',exact:true}).click();await setup.waitFor();
  await setup.getByLabel('New password',{exact:true}).fill('nonowner fixture passphrase');await setup.getByLabel('Confirm password',{exact:true}).fill('nonowner fixture passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();await hero('buy').waitFor();
  assert.equal((await status()).companyReady,true);assert.equal((await status()).canPlay,false);await page.screenshot({path:'/tmp/company-nonowner.png',animations:'disabled'});
  assert.deepEqual(errors,[]);

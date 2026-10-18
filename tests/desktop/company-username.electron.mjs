@@ -23,7 +23,10 @@ const SECRET='fixture secret passphrase';
 const calls=[];
 // Accounts the server owns. A brand new Microsoft signup has no username yet.
 const account={id:7,username:null,minecraftUuid:'12345678-90ab-cdef-1234-567890abcdef',minecraftName:'TestCaptain',displayName:'Captain Testbeard',roles:['crew'],createdAt:'2026-01-01T00:00:00Z',passwordRequired:true,microsoftLinked:true,microsoftSubject:SUBJECT};
-const PROBE_TAKEN='taken_captain',PROBE_FREE='captain_test',RACE_LOST='racer';
+// The two refusals, in the vocabulary the deployed probe actually uses
+// (api/identity_routes.py sends reason 'taken' or 'policy'), so the stub cannot agree
+// with a client that only knows the contract's error-code spelling.
+const PROBE_TAKEN='taken_captain',PROBE_RESERVED='easter',PROBE_FREE='captain_test',RACE_LOST='racer';
 const document=()=>({...account,email:EMAIL});
 const stub=http.createServer((request,response)=>{
  const chunks=[];request.on('data',chunk=>chunks.push(chunk));request.on('end',()=>{
@@ -34,7 +37,8 @@ const stub=http.createServer((request,response)=>{
   const signed=created=>json({created,account:document(),session:{token:SESSION,expiresAt:new Date(Date.now()+86400000).toISOString()}});
   if(request.url==='/v2/accounts/microsoft')return signed(true);
   if(request.url==='/v2/accounts/username/available'){
-   if(body.username===PROBE_TAKEN)return json({available:false,reason:'username_taken',email:EMAIL});
+   if(body.username===PROBE_TAKEN)return json({available:false,reason:'taken',email:EMAIL});
+   if(body.username===PROBE_RESERVED)return json({available:false,reason:'policy',email:EMAIL});
    return json({available:true,reason:null,email:EMAIL});
   }
   if(request.url==='/v2/accounts/password'){
@@ -110,13 +114,25 @@ try{
  let state=await status();assert.equal(state.account.username,null);assert.equal(state.account.passwordRequired,true);assert.equal(state.canPlay,false);
  await page.screenshot({path:'/tmp/company-username-step1.png',animations:'disabled'});
  await fits(usernameStep,'step1');
- // 3. A taken username is a plain sentence on step 1, and the player stays there.
- await usernameStep.getByLabel('Username',{exact:true}).fill(PROBE_TAKEN);
- await usernameStep.getByRole('button',{name:'Continue',exact:true}).click();
- await usernameStep.locator('.company-error').filter({hasText:'already taken'}).waitFor();
- assert.equal((await usernameStep.locator('.company-error').textContent()).trim(),'That username is already taken. Try another.');
- assert.equal(await passwordStep.isVisible(),false,'a taken username does not advance to the password');
- assert.equal(await usernameStep.isVisible(),true);
+ // 3. A taken username is a plain sentence on step 1, and the player stays there. The
+ // refusals are the only answers the probe can give, and none of them may advance: a
+ // name that is not claimed must never reach the password step on a maybe.
+ const refusals=calls.filter(call=>call.path==='/v2/accounts/password');
+ assert.equal(refusals.length,0,'nothing is written before the username is answered');
+ const refuse=async(name,message)=>{
+  await usernameStep.getByLabel('Username',{exact:true}).fill(name);
+  await usernameStep.getByRole('button',{name:'Continue',exact:true}).click();
+  await usernameStep.locator('.company-error').filter({hasText:message}).waitFor();
+  assert.equal((await usernameStep.locator('.company-error').textContent()).trim(),message);
+  assert.equal(await passwordStep.isVisible(),false,'a refused username does not advance to the password');
+  assert.equal(await usernameStep.isVisible(),true);
+  assert.equal(await usernameStep.getByLabel('Username',{exact:true}).inputValue(),name,'the typed name is kept');
+  assert.equal(calls.filter(call=>call.path==='/v2/accounts/password').length,0,'a refusal writes nothing');
+ };
+ await refuse(PROBE_TAKEN,'That username is already taken. Try another.');
+ // A reserved word passes every rule the client can see and is refused by the server as a
+ // policy answer, which must not be reported as a name someone else holds.
+ await refuse(PROBE_RESERVED,'Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.');
  // 4. A username the probe allows is taken to step 2, which names it.
  await usernameStep.getByLabel('Username',{exact:true}).fill(RACE_LOST);
  await usernameStep.getByRole('button',{name:'Continue',exact:true}).click();
@@ -153,7 +169,7 @@ try{
  assert.equal(state.companyReady,true);
  // 7. The exact bodies, in order, as the fixture backend received them.
  const probeBodies=calls.filter(call=>call.path==='/v2/accounts/username/available').map(call=>call.body);
- assert.deepEqual(probeBodies,[{username:PROBE_TAKEN},{username:RACE_LOST},{username:PROBE_FREE}]);
+ assert.deepEqual(probeBodies,[{username:PROBE_TAKEN},{username:PROBE_RESERVED},{username:RACE_LOST},{username:PROBE_FREE}]);
  assert(calls.filter(call=>call.path==='/v2/accounts/username/available').every(call=>call.method==='POST'&&call.authorization===undefined),'the probe is unauthenticated and carries no session');
  const passwordCalls=calls.filter(call=>call.path==='/v2/accounts/password');
  assert.equal(passwordCalls.length,2,'the lost race and the successful claim are the only account writes');
@@ -219,5 +235,5 @@ try{
  assert(logins.every(call=>call.authorization===undefined));
  assert(!JSON.stringify(calls).includes('"companyId"'));
  assert.deepEqual(errors,[]);
- console.log('Company username flow PASS: Link Microsoft Account on signed-out Home, Login with Microsoft Account copy, Username or Email identifier login, username chosen before the password with taken-name messages, exact request bodies, username displayed with no Company ID and no email.');
+ console.log('Company username flow PASS: Link Microsoft Account on signed-out Home, Login with Microsoft Account copy, Username or Email identifier login, username chosen before the password with the probe\'s taken and policy refusals each keeping the player on step 1 and writing nothing, exact request bodies, username displayed with no Company ID and no email.');
 }finally{await app.close();await new Promise(resolve=>stub.close(resolve));await fs.rm(home,{recursive:true,force:true});}

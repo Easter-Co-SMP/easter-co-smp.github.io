@@ -233,24 +233,61 @@ test('direct login posts the typed identifier, never a Company ID',async()=>{
  assert(stub.calls.every(call=>!('companyId' in JSON.parse(call.body))),'no Company ID is ever posted');
 });
 
-test('the availability probe answers one boolean and a reason code',async()=>{
+test('the availability probe answers one boolean and a reason the launcher understands',async()=>{
+ // The deployed probe says 'taken'/'policy' (api/identity_routes.py); the frozen contract
+ // named the same two answers after their error codes. Both spellings must land on the
+ // launcher's codes, because the message the player reads is chosen from them.
  const stub=await startStub(({response,body})=>{
   const {username}=JSON.parse(body);
-  if(username==='taken')return send(response,200,{available:false,reason:'username_taken',account:{id:9,email:'leak@example.test'}});
-  if(username==='bad')return send(response,200,{available:false,reason:'username_policy'});
-  send(response,200,{available:true,reason:null,email:'leak@example.test'});
+  const answers={
+   free:{available:true,reason:null,email:'leak@example.test'},
+   taken:{available:false,reason:'taken',account:{id:9,email:'leak@example.test'}},
+   policy:{available:false,reason:'policy'},
+   contract_taken:{available:false,reason:'username_taken'},
+   contract_policy:{available:false,reason:'username_policy'},
+   silent:{available:false},
+   unknown:{available:false,reason:'something_new'}
+  };
+  send(response,200,answers[username]||answers.free);
  });
  try{
   const api=client(stub.origin);
-  assert.deepEqual(await api.usernameAvailable('captain'),{available:true,reason:null});
-  assert.deepEqual(await api.usernameAvailable('taken'),{available:false,reason:'username_taken'});
-  assert.deepEqual(await api.usernameAvailable('bad'),{available:false,reason:'username_policy'});
+  assert.deepEqual(await api.usernameAvailable('free'),{available:true,reason:null});
+  assert.deepEqual(await api.usernameAvailable('taken'),{available:false,reason:'username_taken'},'the deployed service says taken');
+  assert.deepEqual(await api.usernameAvailable('policy'),{available:false,reason:'username_policy'},'and policy for a reserved word');
+  assert.deepEqual(await api.usernameAvailable('contract_taken'),{available:false,reason:'username_taken'});
+  assert.deepEqual(await api.usernameAvailable('contract_policy'),{available:false,reason:'username_policy'});
+  // A refusal with no reason and a reason nobody has learned yet are both refusals, never
+  // availability: the player is never advanced on a maybe.
+  assert.deepEqual(await api.usernameAvailable('silent'),{available:false,reason:'username_taken'});
+  assert.deepEqual(await api.usernameAvailable('unknown'),{available:false,reason:'username_taken'});
   // A name that fails the rules never becomes a request at all.
   assert.deepEqual(await api.usernameAvailable('Bad Name'),{available:false,reason:'username_policy'});
  }finally{await stub.close();}
- assert.deepEqual(stub.calls.map(call=>JSON.parse(call.body)),[{username:'captain'},{username:'taken'},{username:'bad'}]);
+ assert.deepEqual(stub.calls.map(call=>JSON.parse(call.body)),[{username:'free'},{username:'taken'},{username:'policy'},{username:'contract_taken'},{username:'contract_policy'},{username:'silent'},{username:'unknown'}]);
  assert(stub.calls.every(call=>call.url==='/v2/accounts/username/available'&&call.method==='POST'));
  assert(stub.calls.every(call=>call.headers.authorization===undefined),'the probe carries no session');
+ assert(!JSON.stringify(stub.calls).includes('leak@example.test'),'nothing in the probe answer is forwarded');
+});
+
+test('a reserved or malformed username reads as policy, not as a name someone holds',async()=>{
+ // End to end through the main-process handler, because the wording lives in its table.
+ const {MESSAGES}=require('../../desktop/accounts.cjs');
+ assert.equal(MESSAGES.username_policy,'Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.');
+ assert.equal(MESSAGES.username_taken,'That username is already taken. Try another.');
+ assert.notEqual(MESSAGES.username_policy,MESSAGES.username_taken);
+ const stub=await startStub(({response,body})=>{
+  const {username}=JSON.parse(body);
+  send(response,200,username==='easter'?{available:false,reason:'policy'}:{available:false,reason:'taken'});
+ });
+ try{
+  const api=client(stub.origin);
+  for(const name of ['easter','taken']){
+   const answer=await api.usernameAvailable(name);
+   assert.equal(answer.available,false);
+   assert.equal(MESSAGES[answer.reason],name==='easter'?MESSAGES.username_policy:MESSAGES.username_taken);
+  }
+ }finally{await stub.close();}
 });
 
 test('the username is posted once, with the first password, and the reset posts none',async()=>{

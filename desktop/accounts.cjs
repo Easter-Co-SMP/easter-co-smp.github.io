@@ -13,6 +13,10 @@ class AccountError extends Error{
 // [a-z0-9_-], chosen once and immutable afterwards. The server owns the rule; this
 // copy of it refuses a payload the UI could not render and saves a round trip.
 const USERNAME_PATTERN=/^[a-z0-9_-]{3,20}$/;
+// The availability probe's reason words, mapped to the launcher's own codes. The deployed
+// service sends 'taken'/'policy'; the contract named the same answers 'username_taken'/
+// 'username_policy'. Either spelling lands on one message.
+const PROBE_REASONS={taken:'username_taken',username_taken:'username_taken',policy:'username_policy',username_policy:'username_policy'};
 // Error messages and codes from the frozen contract, mapped to one actionable line.
 const MESSAGES={
  invalid_credentials:'The username or email, or the password, is incorrect.',
@@ -105,12 +109,19 @@ class AccountClient{
   return this.signed(created);
  }
  // Whether a username can still be claimed, asked before the player types a password.
- // The answer is one boolean and a reason code: no account, no email, no hint.
+ // The answer is one boolean and a reason word: no account, no email, no hint.
+ // The deployed probe says 'taken' or 'policy'; the frozen contract named the same two
+ // answers after its error codes ('username_taken', 'username_policy'). Both spellings
+ // are accepted here and always leave as the launcher's own codes, so the wording that
+ // the player reads stays in one table and a reserved word is never reported as a name
+ // someone else holds.
  async usernameAvailable(username,signal){
   if(typeof username!=='string'||!USERNAME_PATTERN.test(username))return {available:false,reason:'username_policy'};
   const found=await this.call('/v2/accounts/username/available',{method:'POST',body:{username},signal,timeout:Math.min(this.timeout,10000)});
-  const reason=['username_taken','username_policy'].includes(found?.reason)?found.reason:null;
-  return {available:found?.available===true&&!reason,reason};
+  // Anything that is not a plain yes is a refusal; an unknown reason word is reported as
+  // a taken name rather than being read as availability.
+  if(found?.available===true)return {available:true,reason:null};
+  return {available:false,reason:PROBE_REASONS[found?.reason]||'username_taken'};
  }
  // The username travels only on the call that claims it, together with the first
  // password. It is never sent again once the account has one.
