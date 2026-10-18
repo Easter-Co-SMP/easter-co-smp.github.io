@@ -445,6 +445,38 @@ test('the seeded bindings are the household layout, not vanilla’s',async()=>{
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
+test('the seed writes Owen’s seven keys and none of the settings he did not ask for',async()=>{
+ // Owen's own client carries settings he did not ask the launcher to seed (chat on enter,
+ // toggleGui on F10, socialInteractions on I, smoothCamera on right shift, unbound debug
+ // keys). A tree that already has them keeps them, and a fresh tree never gets them.
+ const dir=await tempDir('easter-display-unrequested-');
+ try{
+  const hisExtras=[
+   'key_key.chat:key.keyboard.enter',
+   'key_key.toggleGui:key.keyboard.f10',
+   'key_key.socialInteractions:key.keyboard.i',
+   'key_key.smoothCamera:key.keyboard.right.shift',
+   'key_key.debugOverlay:key.keyboard.',
+   'key_key.swapOffhand:key.keyboard.f'
+  ];
+  const SEVEN=['fullscreen','guiScale','key_key.inventory','key_key.playerlist','key_key.sneak','key_key.sprint','key_key.togglePerspective'];
+  assert.deepEqual(Object.keys(DISPLAY_DEFAULTS).sort(),SEVEN,'exactly the seven keys Owen asked for, nothing else');
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  await fs.writeFile(path.join(root,'options.txt'),hisExtras.join('\n')+'\n');
+  await applyDisplayDefaults(root);
+  const after=await optionsText(root);
+  for(const line of hisExtras)assert(shown(after).includes(line),'kept exactly as the player had it: '+line);
+  // A fresh tree gets the seven seeded keys and none of his extras.
+  const fresh=path.join(dir,'fresh');
+  await fs.mkdir(fresh,{recursive:true});
+  await fs.writeFile(path.join(fresh,'.easter-client'),'');
+  await applyDisplayDefaults(fresh);
+  assert.deepEqual([...parseProperties(await optionsText(fresh)).keys()].sort(),SEVEN,'the seed invents nothing beyond the seven');
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
 test('a tree that has already been played is seeded once, and a key the player changed later is never rewritten',async()=>{
  const dir=await tempDir('easter-display-played-');
  try{

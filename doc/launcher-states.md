@@ -438,13 +438,16 @@ the player is already carrying is only written when its present value is exactly
 a sibling is taking, so a player-chosen player-list key of their own survives a repair.
 After any seed, no two of the five seeded actions share a key.
 
-One consequence to keep in mind when reading a bug report: the client mod set includes
+Two consequences to keep in mind when reading a bug report. The client mod set includes
 Shippy Ships, whose own `key.shippy-ships.isPressingCtrl` ("Quick Build (Use Stack)")
 hotkey also defaults to Left Ctrl, so crouch and that hotkey now share a key — Owen
 plays that way already, and the launcher seeds bindings rather than mod hotkeys, so the
-collision is the player's to rebind if it ever bites. Nothing else in the client writes
-`options.txt`: the vanilla client owns that file and persists whatever it finds there on
-exit, which is why seeding it is neither redundant nor fighting a mod.
+collision is the player's to rebind if it ever bites. And moving the player list moves
+the Easter Navy crew menu with it: the mod registers no key of its own, it opens while
+vanilla's player-list key is held (`client.options.keyPlayerList` in `TabMenu`), so after
+a seed that menu follows the player list to the grave key and `tab` is inventory. No mod
+writes `options.txt`: the vanilla client owns that file and persists whatever it finds
+there on exit, which is why seeding it is neither redundant nor fighting a mod.
 
 **The record is versioned, so a tree seeded by an earlier schema is upgraded once.** The
 schema says which keys the record has already taken responsibility for: schema 1 covered
