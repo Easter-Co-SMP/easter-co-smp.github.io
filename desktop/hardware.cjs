@@ -455,9 +455,12 @@ function mergeProperties(text,values){
   seen.add(match[1]);
   return match[1]+match[2]+values[match[1]];
  });
- for(const [key,value] of Object.entries(values))if(!seen.has(key))output.push(key+':'+value);
+ // A file that ends with a newline splits into a trailing empty line; it is dropped
+ // before the keys still to be added go on, so appending cannot leave a blank line in
+ // the middle of the file. Every other line, blank lines included, is kept.
  while(output.length&&output[0]==='')output.shift();
  while(output.length&&output[output.length-1]==='')output.pop();
+ for(const [key,value] of Object.entries(values))if(!seen.has(key))output.push(key+':'+value);
  return output.join('\n')+'\n';
 }
 async function readText(file){
@@ -486,6 +489,51 @@ async function applyQualitySettings(root,quality,{marker='.easter-client'}={}){
  await fs.writeFile(optionsFile,options,{mode:0o600});
  await fs.writeFile(irisFile,iris,{mode:0o600});
  return {optionsFile,irisFile,tuned:tunedDigest(quality)};
+}
+// ---- the client's display defaults -------------------------------------------
+// Owen's goal: a new player's first launch is already fullscreen at a GUI scale of 2.
+// Two keys in the vanilla client's own options.txt carry that, and they are seeded
+// once per client tree. The first seed writes both values whether or not the game has
+// written options.txt before, because the game writes every key on its first exit and
+// a tree that has already been played would otherwise never see them. A small record
+// inside the same app-owned tree remembers that the seed happened, so after it exists
+// a key that is still there belongs to the player and is never rewritten; the only
+// thing ever written again is a recorded key that has gone missing (options.txt
+// deleted or truncated). The record is its own dotfile and never `installed.json`,
+// which the install pipeline rewrites from a record it read earlier: a separate file
+// cannot race that write. Like the quality files, this refuses a tree without the
+// launcher's marker.
+const DISPLAY_DEFAULTS={guiScale:'2',fullscreen:'true'};
+const DISPLAY_RECORD='.easter-client-display';
+async function readDisplayRecord(file){
+ try{
+  const record=JSON.parse(await fs.readFile(file,'utf8'));
+  if(!record||typeof record!=='object'||!record.values||typeof record.values!=='object')return null;
+  return record;
+ }catch{return null;}
+}
+async function applyDisplayDefaults(root,{marker='.easter-client',record=DISPLAY_RECORD,now=()=>new Date().toISOString()}={}){
+ const base=path.resolve(String(root||''));
+ if(!root)throw Error('There is no client folder to write display settings into.');
+ try{await fs.stat(path.join(base,marker));}
+ catch{throw Error('That folder is not the launcher’s client tree, so its settings were not touched.');}
+ const optionsFile=path.join(base,'options.txt');
+ const recordFile=path.join(base,record);
+ // No record, or one that cannot be read, means this tree has not been seeded yet.
+ const remembered=await readDisplayRecord(recordFile);
+ const text=await readText(optionsFile);
+ const existing=parseProperties(text??'');
+ const wanted={};
+ for(const [key,fallback] of Object.entries(DISPLAY_DEFAULTS)){
+  const value=typeof remembered?.values?.[key]==='string'&&remembered.values[key]!==''?remembered.values[key]:fallback;
+  if(!remembered||!existing.has(key))wanted[key]=value;
+ }
+ if(!Object.keys(wanted).length)return {optionsFile,recordFile,written:false,firstSeed:false,keys:[]};
+ await fs.writeFile(optionsFile,mergeProperties(text??'',wanted),{mode:0o600});
+ // Written once, on the first seed. A repair leaves the record as it was, so a repeat
+ // run touches neither file's mtime.
+ if(!remembered)await fs.writeFile(recordFile,JSON.stringify({schema:1,values:{...DISPLAY_DEFAULTS},appliedAt:now()},null,2)+'\n',{mode:0o600});
+ return {optionsFile,recordFile,written:true,firstSeed:!remembered,keys:Object.keys(wanted)};
 }
 // The installed marker records what was written, so status() can report it without
 // re-reading the client on every broadcast. The record is only updated when it
@@ -520,4 +568,4 @@ async function installedQuality(root){
  const shadowDistance=Number(iris.get('shadowDistance'));
  return {renderDistance:Number.isFinite(renderDistance)?renderDistance:null,shadowDistance:Number.isFinite(shadowDistance)?shadowDistance:null,shaders:iris.get('enableShaders')==='true'};
 }
-module.exports={hex16,videoMemoryMB,busId,distinctAdapters,isDiscreteAdapter,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,gpuAdapters,drmCards,sessionDisplay,targetAdapter,pciForDriPrime,renderOffload,reportedDevices,reportedAdapter,chooseDevice,matchAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,SHADER_PACK_NAME,QUALITY_LADDER,qualitySettings,parseProperties,readProperty,mergeProperties,applyQualitySettings,recordQuality,installedQuality,tunedDigest};
+module.exports={hex16,videoMemoryMB,busId,distinctAdapters,isDiscreteAdapter,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,gpuAdapters,drmCards,sessionDisplay,targetAdapter,pciForDriPrime,renderOffload,reportedDevices,reportedAdapter,chooseDevice,matchAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,SHADER_PACK_NAME,QUALITY_LADDER,qualitySettings,parseProperties,readProperty,mergeProperties,applyQualitySettings,recordQuality,installedQuality,tunedDigest,DISPLAY_DEFAULTS,DISPLAY_RECORD,applyDisplayDefaults};
