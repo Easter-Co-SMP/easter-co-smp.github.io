@@ -1,191 +1,131 @@
-/* Desktop mode shares the website's harbour, typography and navigation. */
-.desktop-mode .site-header{width:calc(100% - 48px)}
-.desktop-mode .launcher-control .launcher-button{border-radius:9px;border-right:1px solid #ffe5a9}
-.desktop-mode .site-header nav .desktop-account-nav{color:#e8d2a1;border:1px solid #cfb88b40;margin-left:12px;max-width:170px;overflow:hidden;text-overflow:ellipsis}
-#desktop-launcher{width:min(540px,calc(100vw - 48px));max-height:calc(100dvh - 48px);padding:38px;border:1px solid #cfb88b50;border-radius:18px;background:linear-gradient(145deg,#19343e,#0d2029);color:#e9e0cd;box-shadow:0 30px 120px #0009;overflow:auto}
-#desktop-launcher::backdrop{background:#07151bd9;backdrop-filter:blur(12px)}
-#desktop-launcher h2{font:38px Georgia,serif;letter-spacing:-.04em;margin:12px 0}
-.desktop-account{color:#a9c0b7;font-size:12px;line-height:1.7}
-.desktop-status{font-size:13px;line-height:1.6;min-height:42px;margin:24px 0 12px;color:#dfcfad;overflow-wrap:anywhere}
-.desktop-progress{width:100%;height:7px;accent-color:#d7b879;margin-bottom:22px}
-.desktop-play{width:100%;margin:16px 0 24px;text-align:center}
-.desktop-play:disabled{cursor:progress;background:#a39673;border-color:#b7a981;box-shadow:none}
-.desktop-device{text-align:center}
-.desktop-device-instruction{font-size:14px;line-height:1.65;margin:0 0 24px;color:#c4d0c6}
-.desktop-code{display:block;font:600 clamp(24px,7vw,34px)/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.14em;color:#f5dda7;user-select:all;margin:0}
-.desktop-device-action{display:flex;width:100%;min-width:0;max-width:none;justify-content:center;gap:12px;margin:28px 0 0;text-align:center;min-height:58px;padding:16px 20px}
-.desktop-device-action svg{width:20px;height:20px}
-.desktop-device-foot{display:flex;flex-direction:column;align-items:center;gap:14px;margin:18px 0 0}
-.desktop-provider{display:block;font-size:11px;line-height:1.6;color:#a9bbb3}
-.desktop-device-foot .text-link{font-size:11px;padding:7px 10px}
-#desktop-launcher.is-signing-in{width:min(440px,calc(100vw - 32px));padding:56px 32px 24px}
-#desktop-launcher.is-signing-in>*:not(.dialog-close):not(.desktop-device):not(.desktop-status){display:none!important}
-#desktop-launcher.is-signing-in>.desktop-status{display:none}
-#desktop-launcher.is-signing-in>.desktop-status.is-error{display:block;min-height:0;margin:0 0 20px;font-size:12px;color:#f0c3b4}
-@media(max-width:360px){#desktop-launcher.is-signing-in{padding:52px 24px 20px}.desktop-device-instruction{font-size:13px}.desktop-device-action{font-size:14px}}
-.desktop-settings{border-top:1px solid #cfb88b30;padding-top:20px;font-size:12px}
-.desktop-settings-heading{text-transform:uppercase;letter-spacing:.16em;font-size:10px;color:#c9b58c;margin:0 0 18px}
-.desktop-settings label{display:block;margin:22px 0;color:#c4d0c6}
-.desktop-settings label small{display:block;font-size:10px;color:#91aaa1;margin:6px 0 10px}
-.desktop-settings input:not([type=range]),.desktop-settings select{display:block;width:100%;padding:12px;background:#071b2460;color:#e7decb;border:1px solid #cfb88b35;border-radius:7px;font:12px system-ui;margin-top:9px}
-.desktop-settings select{cursor:pointer;appearance:none;background-image:linear-gradient(45deg,transparent 50%,#cfb88b90 50%),linear-gradient(135deg,#cfb88b90 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:34px}
-.desktop-settings select option{background:#10232b;color:#e7decb}
-.desktop-settings select option:disabled{color:#7b928a}
-.desktop-settings input[type=range]{display:block;width:100%;accent-color:#d7b879;margin:12px 0}
-.desktop-settings output{float:right;color:#ecd6a4}
-.desktop-settings-note{margin:0 0 18px;padding:10px 12px;border:1px solid #cfb88b40;border-radius:8px;background:#122b3566;color:#dfcfad;font-size:10px;line-height:1.7}
-.desktop-advanced{border-top:1px solid #cfb88b30;margin-top:22px;padding-top:16px}
-.desktop-advanced summary{cursor:pointer;color:#c9b58c;font-size:11px}
-/* The collapsed Advanced row and the next section heading sit flush without this. */
-.desktop-advanced + .desktop-settings-heading{margin-top:26px}
-.desktop-advanced-note{font-size:11px;line-height:1.8;color:#9fb3aa;margin:16px 0 0}
-.desktop-advanced label{margin:20px 0 0}
-.java-field{display:flex;gap:8px}.java-field button{border:1px solid #cfb88b35;border-radius:7px;padding:0 12px;font-size:11px}
-.desktop-settings .desktop-settings-result{float:none;display:block;margin:10px 0;font-size:11px}
-.desktop-utilities{display:flex;flex-wrap:wrap;align-items:center;gap:20px;margin-top:26px;padding-top:20px;border-top:1px solid #cfb88b20}
-.desktop-utilities .text-link{font-size:11px}.desktop-version{display:block;width:100%;font-size:9px;letter-spacing:.1em;color:#7d9990}
-#desktop-launcher [hidden]{display:none!important}
-
-/* First-run collection: its own card in the hero, opened by the hero's own
-   Download the game action. The folder is a real button, and the default is
-   supporting text rather than a bare line. */
-/* The details under the hero action: where the client will install and what this machine
-   will do about graphics. Quiet supporting text, not a second panel, and with no action
-   of its own: the hero's Download the game is the only way to start it. */
-.desktop-install-details{margin:14px 0 0;max-width:520px;display:grid;gap:10px}
-.desktop-folder{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
-/* The label sits beside the path in the launcher, so the detail reads as one line:
-   "Installs to <path> [Choose folder…]". */
-.desktop-mode .desktop-folder>span{width:auto}
-.desktop-folder>span{font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9fb3aa;width:100%}
-.desktop-folder strong{font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;color:#e7decb;overflow-wrap:anywhere;max-width:100%}
-.desktop-folder-button{border:1px solid #d7ba7d65;border-radius:8px;background:#122b35;color:#e8d2a1;padding:11px 15px;font-size:11px;font-weight:650;cursor:pointer}
-.desktop-folder-button:hover{background:#1a3a45;color:#ffe6ae}
-.desktop-folder-button:focus-visible{outline:2px solid #f2d99d;outline-offset:3px}
-.desktop-folder-button[hidden]{display:none}
-.desktop-install-default{width:100%;font-size:10px;line-height:1.6;color:#8fa79e;overflow-wrap:anywhere}
-.desktop-install-graphics{margin:0 0 16px;font-size:11px;line-height:1.7;color:#a9bbb3;border-left:1px solid #d0ae695c;padding-left:14px}
-.desktop-install-graphics[hidden]{display:none!important}
-.desktop-install-error{margin:10px 0 0;padding:10px 12px;border:1px solid #e0806a55;border-radius:8px;background:#3a1c1480;color:#f0c3b4;font-size:11px;line-height:1.6}
-
-/* The enhanced graphics choice: a themed switch under the hero's primary action,
-   and the only graphics control in the launcher. */
-.hero-graphics{flex:1 0 100%;margin-top:4px;max-width:560px}
-.hero-graphics[hidden]{display:none!important}
-.hero-graphics-switch{display:flex;align-items:flex-start;gap:14px;padding:14px 17px;border:1px solid #ffffff20;border-radius:11px;background:#0b202b70;box-shadow:0 6px 22px #0003;cursor:pointer;transition:border-color .2s,background .2s}
-.hero-graphics-switch:hover{background:#132c35b0;border-color:#d7ba7d55}
-.hero-graphics-switch:focus-within{outline:2px solid var(--gold);outline-offset:3px}
-.hero-graphics-switch input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
-.hero-graphics-track{flex:none;position:relative;width:40px;height:22px;border-radius:12px;border:1px solid #cfb88b40;background:#071b2460;transition:background .2s,border-color .2s}
-.hero-graphics-track i{position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#9fb3aa;transition:transform .2s,background .2s}
-.hero-graphics-switch input:checked+.hero-graphics-track{background:#d7b879;border-color:#ffe5a9}
-.hero-graphics-switch input:checked+.hero-graphics-track i{transform:translateX(18px);background:#152a30}
+/* Desktop-only application shell. The website keeps its own presentation. */
+.desktop-mode {--app-panel:#11252d;--app-border:#ffffff24;--app-muted:#a8b9b4;--app-gold:#e4c486}
+.desktop-mode [hidden]{display:none!important}
+.desktop-mode button:focus-visible,.desktop-mode a:focus-visible,.desktop-mode summary:focus-visible,.desktop-mode input:focus-visible,.desktop-mode select:focus-visible{outline:2px solid var(--app-gold);outline-offset:3px}
+.desktop-mode button:disabled{cursor:default;opacity:.55}
+.desktop-mode .site-header{width:100%;height:64px;padding:0 32px;background:#0e222bea;border-bottom:1px solid var(--app-border)}
+.desktop-mode .site-header nav .desktop-account-nav{margin-left:16px;padding:6px 8px 6px 12px;gap:12px;max-width:240px}
+.desktop-account-nav span{overflow:hidden;text-overflow:ellipsis}
+.desktop-account-nav canvas{width:32px;height:32px;image-rendering:pixelated;border-radius:4px;flex:none}
+.desktop-mode body.home{height:100dvh;min-height:0;overflow:hidden}
+.desktop-mode body.home>.home-content{flex:1;min-height:0;display:grid;align-items:center;width:100%;padding:24px 48px 90px;margin:0}
+.desktop-mode .home .home-hero{display:block;min-height:0;width:min(520px,100%);margin:0}
+.desktop-mode .hero-copy{max-height:calc(100dvh - 208px);overflow:auto;animation:none;text-align:left;padding:28px;background:#11252df2;border:1px solid var(--app-border);border-radius:14px;box-shadow:0 12px 40px #0003}
+.desktop-home-heading{display:flex;align-items:center;gap:18px;margin-bottom:28px}
+.desktop-mode .crest-frame{width:68px;flex:none;transform:none;animation:none;padding:0;border:1px solid var(--app-border);border-radius:10px;box-shadow:none;background:none}
+.desktop-mode .crest-frame img{border-radius:9px}.desktop-mode .crest-frame::after{display:none}
+.desktop-mode .hero-copy .eyebrow{display:block;margin:0;font:600 19px/1.4 Inter,system-ui,sans-serif;letter-spacing:0;text-transform:none;color:#f1e6ce}
+.desktop-mode .hero-copy .eyebrow span{display:none}
+.desktop-edition{margin:4px 0 0;color:var(--app-muted);font-size:12px}
+.desktop-mode .hero-actions{gap:12px;flex-wrap:nowrap;align-items:stretch}
+.desktop-mode .launcher-control{flex:1;min-width:0;box-shadow:none}
+.desktop-mode .launcher-control .launcher-button{width:100%;min-width:0;max-width:none;min-height:64px;padding:13px 18px;border:1px solid #e4c486;border-radius:8px;box-shadow:none;background:#e4c486;font-size:14px;gap:12px}
+.desktop-mode .launcher-button:hover{background:#f0d69f;box-shadow:none}
+.desktop-mode .launcher-button>span{white-space:normal}
+.desktop-mode .launcher-button small{letter-spacing:0;text-transform:none;font-size:10px}
+.desktop-mode .hero-actions .desktop-settings-button{padding:12px 16px;border:1px solid var(--app-border);border-radius:8px;background:transparent;box-shadow:none;color:#e2e8e1;font:500 12px/1.3 system-ui;cursor:pointer}
+.desktop-mode .hero-actions .desktop-settings-button:hover{background:#ffffff09;box-shadow:none}
+.desktop-mode .home-footer{flex:none;width:100%;padding:16px 32px;font-size:11px;letter-spacing:0;color:#afbfba}
+.desktop-mode .home-footer>span:last-child{font:inherit;letter-spacing:0}
+.desktop-install-details{display:grid;gap:12px;margin-top:24px;padding-top:18px;border-top:1px solid var(--app-border)}
+.desktop-folder{display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 12px}
+.desktop-folder>span{color:var(--app-muted);font-size:11px}
+.desktop-folder strong{grid-column:1;min-width:0;font:11px/1.5 ui-monospace,monospace;color:#d3ded5;overflow-wrap:anywhere}
+.desktop-folder-button{grid-column:2;grid-row:1/3;border:1px solid var(--app-border);border-radius:6px;padding:9px 11px;color:#dfe8e2;background:transparent;font-size:11px;cursor:pointer}
+.desktop-install-default:empty{display:none}.desktop-install-default{grid-column:1/-1;color:var(--app-muted);font-size:10px;overflow-wrap:anywhere}
+.desktop-install-graphics{margin:0;color:var(--app-muted);font-size:11px;line-height:1.6}
+.hero-graphics{margin-top:24px;padding-top:18px;border-top:1px solid var(--app-border)}
+.hero-graphics-switch{display:flex;align-items:center;justify-content:space-between;gap:18px;position:relative;cursor:pointer}
+.hero-graphics-text{min-width:0}.hero-graphics-text strong{font-size:12px;font-weight:500;color:#dbe4db}
+.hero-graphics-switch input{position:absolute;right:0;opacity:0;width:38px;height:22px;margin:0}
+.hero-graphics-track{pointer-events:none;flex:none;position:relative;width:38px;height:22px;border-radius:12px;background:#0a1b22;border:1px solid #71857d}
+.hero-graphics-track i{position:absolute;left:3px;top:3px;width:14px;height:14px;background:#a8b9b4;border-radius:50%}
+.hero-graphics-switch input:checked+.hero-graphics-track{background:var(--app-gold);border-color:var(--app-gold)}
+.hero-graphics-switch input:checked+.hero-graphics-track i{transform:translateX(16px);background:#17313a}
+.hero-graphics-switch input:focus-visible+.hero-graphics-track{outline:2px solid var(--app-gold);outline-offset:3px}
 .hero-graphics-switch input:disabled+.hero-graphics-track{opacity:.5}
-.hero-graphics-text{display:block;min-width:0}
-.hero-graphics-text strong{display:block;font-size:13px;font-weight:650;color:#e7d8b9}
-.hero-graphics-text small{display:block;margin-top:6px;font-size:10px;line-height:1.7;color:#9fb3aa;max-width:390px}
-.hero-graphics.is-on .hero-graphics-text strong{color:#f2d99d}
-.desktop-graphics-error{margin:10px 0 0;padding:10px 12px;border:1px solid #e0806a55;border-radius:8px;background:#3a1c1480;color:#f0c3b4;font-size:11px;line-height:1.6}
-.desktop-graphics-error[hidden]{display:none!important}
-/* Settings is the hero's secondary action: the hero's own control, not a header item. */
-.desktop-settings-button{background:#0b202b70;border:1px solid #d7ba7d65;color:#e1d4b5;font:500 12px/1 Inter,system-ui,sans-serif;padding:17px 20px;border-radius:9px;display:inline-flex;align-items:center;gap:30px;box-shadow:0 6px 22px #0003}
-.desktop-settings-button:hover{background:#132c35b0;box-shadow:0 10px 25px #0005}
-.desktop-settings-button[hidden]{display:none!important}
-/* Reduced motion: the switch states still read, they simply stop animating. */
-@media(prefers-reduced-motion:reduce){
- .hero-graphics-switch,.hero-graphics-track,.hero-graphics-track i{transition:none}
-}
-
-/* The sticky download bar. Bottom centre, contents left aligned, in the launcher's
-   own visual language rather than a raw OS progress bar. */
-.launcher-bar{position:fixed;left:0;right:0;bottom:var(--launcher-bar-offset,16px);z-index:60;width:min(760px,calc(100vw - 32px));margin:0 auto;border:1px solid #cfb88b50;border-radius:14px;background:linear-gradient(145deg,#173039f2,#0c1e27f7);color:#e9e0cd;box-shadow:0 20px 60px #000a,0 0 0 1px #ffe7b410 inset;backdrop-filter:blur(10px);font-size:12px}
-.launcher-bar[hidden]{display:none!important}
-.launcher-bar-body{display:flex;align-items:center;gap:22px;padding:13px 44px 15px 18px}
-.launcher-bar-info{flex:1 1 auto;min-width:0;text-align:left}
-.launcher-bar-label{margin:0;font-size:12px;font-weight:650;color:#f0e2c4;overflow-wrap:anywhere}
-.launcher-bar-meta{margin:5px 0 0;font-size:10px;letter-spacing:.02em;color:#9fb3aa;overflow-wrap:anywhere}
-.launcher-bar-meta[hidden]{display:none}
-.launcher-bar-track[hidden]{display:none}
-.launcher-bar-track{flex:0 0 clamp(140px,32%,260px);position:relative;height:9px;border-radius:6px;background:#061a2260;border:1px solid #cfb88b30;overflow:hidden}
-.launcher-bar-track i{display:block;height:100%;width:0;border-radius:6px;background:linear-gradient(90deg,#c8a565,#f2d99d);box-shadow:0 0 14px #e6c98f45;transition:width .3s ease-out}
+.desktop-graphics-details{margin-top:12px;color:var(--app-muted);font-size:11px}
+.desktop-graphics-details summary{cursor:pointer;width:fit-content}
+.desktop-graphics-note{font-size:11px;line-height:1.7;margin:10px 0 0}
+.desktop-install-error,.desktop-graphics-error,.desktop-page-notice,.desktop-status,.desktop-auth-error{padding:12px 14px;border:1px solid #e39a8055;border-radius:7px;background:#382924;color:#f6c6b4;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
+.desktop-page-notice button{flex:none;width:28px;height:28px;margin-left:16px;border-radius:4px;font-size:20px;color:inherit}.desktop-page-notice{display:flex;align-items:center;justify-content:space-between;position:fixed;z-index:80;top:80px;left:50%;transform:translateX(-50%);width:min(600px,calc(100% - 32px));box-shadow:0 8px 24px #0004}
+#desktop-launcher,#desktop-signin{width:min(500px,calc(100vw - 32px));max-height:calc(100dvh - 32px);padding:28px;border:1px solid #ffffff30;border-radius:12px;background:var(--app-panel);color:#e5e9df;box-shadow:0 18px 65px #0007}
+#desktop-launcher::backdrop,#desktop-signin::backdrop{background:#06131bc9;backdrop-filter:blur(5px)}
+#desktop-launcher h2,#desktop-signin h2{margin:0 40px 24px 0;font:600 22px/1.3 Inter,system-ui,sans-serif;letter-spacing:-.02em}
+.desktop-mode .dialog-close{right:14px;top:14px;border-radius:6px}
+.desktop-mode .dialog-close:hover{background:#ffffff0b}
+.desktop-settings{font-size:12px}
+.desktop-settings label:not(.desktop-preference){display:block;margin:0 0 18px;color:#d1ded5;line-height:1.5}
+.desktop-settings input:not([type=range]):not([type=checkbox]),.desktop-settings select{display:block;width:100%;min-width:0;padding:10px 12px;background:#0b1d25;color:#e5e9df;border:1px solid #ffffff28;border-radius:6px;font:12px/1.5 system-ui;margin-top:8px}
+.desktop-settings select option{background:#11252d}
+.desktop-settings small{display:block;color:var(--app-muted);font-size:11px;margin-top:6px;line-height:1.6}
+.desktop-settings fieldset{margin:24px 0;padding:0;border:0}
+.desktop-settings legend{padding:0;margin-bottom:12px;color:var(--app-muted);font-size:11px}
+.desktop-settings .desktop-preference{display:flex;align-items:center;justify-content:space-between;gap:20px;margin:0;padding:10px 0;cursor:pointer;line-height:1.4}
+.desktop-preference input[type=checkbox]{appearance:none;flex:none;width:38px;height:22px;border-radius:12px;border:1px solid #71857d;background:#0b1d25;position:relative;margin:0;cursor:pointer}
+.desktop-preference input::after{content:'';position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#a8b9b4}
+.desktop-preference input:checked{background:var(--app-gold);border-color:var(--app-gold)}
+.desktop-preference input:checked::after{left:19px;background:#17313a}
+.desktop-advanced{border-top:1px solid var(--app-border);border-bottom:1px solid var(--app-border);padding:14px 0;margin:0 0 20px}
+.desktop-advanced summary{cursor:pointer;color:#c7d4cb}
+.desktop-advanced-note{font-size:11px;margin:14px 0!important}
+.desktop-settings output#memory-value{float:right;color:var(--app-gold)}
+.desktop-settings input[type=range]{width:100%;accent-color:var(--app-gold);margin:12px 0 0}
+.java-field{display:flex;gap:8px;align-items:stretch}
+.java-field button{margin-top:8px;padding:0 12px;border:1px solid var(--app-border);border-radius:6px;font-size:11px}
+.desktop-save-row{display:flex;align-items:center;gap:16px}
+.desktop-save-row button{padding:11px 16px;background:var(--app-gold);border:0;border-radius:6px;color:#14262e;font-size:12px;font-weight:600;cursor:pointer}
+.desktop-settings-result{color:#c6d8c4;font-size:12px}
+.desktop-settings-note,.desktop-launcher-update{font-size:11px;line-height:1.6;color:var(--app-muted)}
+.desktop-launcher-update a{color:var(--app-gold)}
+.desktop-utilities{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid var(--app-border);padding-top:16px;margin-top:24px}
+.desktop-utilities .text-link{font-size:11px;padding:0}.desktop-version{font-size:10px;color:var(--app-muted)}
+#desktop-signin{width:min(440px,calc(100vw - 32px));text-align:center;padding:32px}
+#desktop-signin h2{margin:8px 16px 24px;font-size:21px}
+.desktop-auth-wait{padding:24px 0}.desktop-device-instruction{font-size:13px;margin:0 0 18px}
+.desktop-code{display:block;font:600 32px/1.4 ui-monospace,monospace;letter-spacing:.12em;color:#f0d69f;user-select:all}
+.desktop-mode .desktop-device-action{width:100%;min-width:0;min-height:48px;margin:24px 0 12px;padding:12px;background:var(--app-gold);box-shadow:none;font-size:13px}
+#desktop-signin .desktop-provider{font-size:11px;line-height:1.6;margin:0 0 16px}
+#desktop-signin [data-cancel]{font-size:12px}
+.desktop-profile-menu{position:fixed;inset:auto;margin:0;width:min(280px,calc(100vw - 24px));max-height:calc(100dvh - 90px);overflow:auto;padding:8px;border:1px solid #ffffff30;border-radius:9px;background:var(--app-panel);color:#e5e9df;box-shadow:0 12px 32px #0005}
+.desktop-profile-heading{padding:10px 12px;margin:0;font-size:11px;line-height:1.5;color:var(--app-muted);overflow-wrap:anywhere}
+.desktop-profile-menu button{display:block;width:100%;text-align:left;padding:11px 12px;border:0;border-radius:5px;background:transparent;color:inherit;font-size:12px;cursor:pointer}
+.desktop-profile-menu button:hover,.desktop-profile-menu button:focus-visible{background:#ffffff0a}
+.desktop-account-list{border-top:1px solid var(--app-border);margin-top:6px;padding-top:6px;font-size:12px}
+.launcher-bar{position:fixed;left:0;right:0;bottom:var(--launcher-bar-offset,16px);z-index:60;width:min(760px,calc(100vw - 32px));margin:0 auto;border:1px solid #ffffff30;border-radius:10px;background:#11252dfc;color:#e5e9df;box-shadow:0 10px 30px #0005;font-size:12px}
+.launcher-bar-body{display:flex;align-items:center;gap:20px;padding:16px 50px 16px 18px}
+.launcher-bar-info{flex:1;min-width:0}.launcher-bar-label{margin:0;font-size:12px;font-weight:600;overflow-wrap:anywhere}
+.launcher-bar-meta{margin:5px 0 0;font-size:10px;color:var(--app-muted);overflow-wrap:anywhere}
+.launcher-bar-track{flex:0 0 30%;height:6px;border-radius:4px;background:#ffffff18;overflow:hidden}
+.launcher-bar-track i{display:block;height:100%;width:0;background:var(--app-gold)}
 .launcher-bar.is-indeterminate .launcher-bar-track i{width:34%;animation:launcher-bar-sweep 1.6s ease-in-out infinite}
-.launcher-bar-actions{flex:0 0 auto;display:flex;align-items:center;gap:10px}
-.launcher-bar-button{min-height:32px;padding:0 14px;border:1px solid #cfb88b50;border-radius:8px;background:#122b35;color:#e8d2a1;font:11px/1 system-ui;font-weight:650;cursor:pointer}
-.launcher-bar-button:hover{background:#1a3a45;color:#ffe6ae}
-.launcher-bar-tab:focus-visible,.launcher-bar-button:focus-visible{outline:2px solid #f2d99d;outline-offset:2px}
-.launcher-bar-button[hidden]{display:none}
-.desktop-play[hidden]{display:none}
-/* The switch: a marker on the bar while it is open, the whole side tab once minimised. */
-.launcher-bar-tab{position:absolute;top:8px;right:10px;display:grid;place-items:center;width:26px;height:26px;padding:0;border:1px solid #cfb88b35;border-radius:8px;background:#0d232ca0;color:#e8d2a1;font:13px/1 system-ui;cursor:pointer}
-.launcher-bar-tab:hover{background:#1a3a45;color:#ffe6ae}
-.launcher-bar-tab-icon{transform:rotate(0deg)}
+.launcher-bar-actions{display:flex;gap:10px;flex:none}
+.launcher-bar-button{min-height:34px;padding:0 14px;border:1px solid var(--app-border);border-radius:6px;background:transparent;color:#ead5ab;font-size:11px;font-weight:600;cursor:pointer}
+.launcher-bar-button:hover{background:#ffffff09}
+.launcher-bar-tab{position:absolute;top:10px;right:10px;display:grid;place-items:center;width:26px;height:26px;padding:0;border:1px solid var(--app-border);border-radius:6px;background:transparent;color:#ead5ab;font-size:13px;cursor:pointer}
 .launcher-bar-tab-text{display:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .launcher-bar.is-minimised{width:auto;max-width:min(340px,calc(100vw - 32px));left:auto;right:24px;margin:0}
 .launcher-bar.is-minimised .launcher-bar-body{display:none}
-.launcher-bar.is-minimised .launcher-bar-tab{position:static;display:flex;align-items:center;gap:10px;width:auto;height:auto;max-width:100%;padding:11px 16px;border-radius:12px;background:transparent;font-size:11px;font-weight:650}
-.launcher-bar.is-minimised .launcher-bar-tab:hover{background:#ffffff0a}
+.launcher-bar.is-minimised .launcher-bar-tab{position:static;display:flex;align-items:center;gap:10px;width:auto;height:auto;max-width:100%;padding:11px 16px;border:0;font-size:11px}
 .launcher-bar.is-minimised .launcher-bar-tab-icon{transform:rotate(180deg)}
 .launcher-bar.is-minimised .launcher-bar-tab-text{display:block}
-@keyframes launcher-bar-sweep{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}
-@media(prefers-reduced-motion:reduce){
- .launcher-bar-track i{transition:none}
- .launcher-bar.is-indeterminate .launcher-bar-track i{width:34%;transform:none;animation:launcher-bar-pulse 2.4s ease-in-out infinite}
- @keyframes launcher-bar-pulse{0%,100%{opacity:.45}50%{opacity:1}}
-}
-@media(max-width:700px){
- .launcher-bar{width:calc(100vw - 24px)}
- .launcher-bar-body{flex-direction:column;align-items:stretch;gap:12px;padding:12px 44px 14px 14px}
- .launcher-bar-track{flex:0 0 auto;width:100%}
- .launcher-bar-actions{justify-content:flex-start;flex-wrap:wrap}
- .launcher-bar.is-minimised{right:12px}
-}
-@media(max-width:600px){
- /* The hero stacks: the toggle and the install card follow the primary action. */
- .hero-graphics{max-width:none;margin-top:2px}
- .hero-graphics-switch{text-align:left}
- .desktop-install-details{max-width:none}
- .desktop-folder{align-items:flex-start}
- .desktop-settings-button{padding:15px 18px;gap:20px}
-}
-
-.desktop-account-nav{display:inline-flex;align-items:center;justify-content:center;gap:10px}.desktop-account-nav[hidden]{display:none!important}.desktop-account-nav canvas{width:32px;height:32px;image-rendering:pixelated;border-radius:4px;flex:none}.desktop-settings-button{background:none;border:0;cursor:pointer;font:inherit}.desktop-profile-menu{position:fixed;inset:auto;margin:0;min-width:190px;padding:8px;border:1px solid #cfb88b50;border-radius:10px;background:#142e38;color:#e9e0cd;box-shadow:0 14px 40px #0008}.desktop-profile-menu button{display:block;width:100%;text-align:left;padding:12px;border:0;border-radius:5px;background:none;color:inherit;cursor:pointer}.desktop-profile-menu button:hover,.desktop-profile-menu button:focus-visible{background:#cfb88b20}.desktop-profile-menu button:disabled{opacity:.5;cursor:default}.desktop-account-list{border-top:1px solid #cfb88b40;margin-top:6px;padding-top:6px}
-
-/* Preferences in the settings dialog: a labelled row each, never a bare checkbox. */
-.desktop-preference{display:flex;align-items:center;gap:.6rem;margin:.45rem 0;font-size:.95rem;line-height:1.35;cursor:pointer}
-.desktop-preference input[type=checkbox]{appearance:none;-webkit-appearance:none;flex:0 0 auto;width:2.4rem;height:1.3rem;margin:0;border-radius:999px;border:1px solid var(--line,#2c4a4a);background:rgba(0,0,0,.35);position:relative;transition:background .18s ease,border-color .18s ease;cursor:pointer}
-.desktop-preference input[type=checkbox]::after{content:'';position:absolute;top:50%;left:.18rem;width:.9rem;height:.9rem;border-radius:50%;background:var(--muted,#8fa8a0);transform:translateY(-50%);transition:left .18s ease,background .18s ease}
-.desktop-preference input[type=checkbox]:checked{background:rgba(212,175,96,.28);border-color:var(--gold,#d4af60)}
-.desktop-preference input[type=checkbox]:checked::after{left:calc(100% - 1.08rem);background:var(--gold,#d4af60)}
-.desktop-preference input[type=checkbox]:focus-visible{outline:2px solid var(--gold,#d4af60);outline-offset:2px}
-.desktop-launcher-update{margin:.6rem 0 0;font-size:.9rem;color:var(--muted,#8fa8a0)}
-.desktop-launcher-update a{color:var(--gold,#d4af60)}
-
-/* ---- The launcher is an application window, not a scrolling page --------------------
-   Home fits the window exactly: the shell is the viewport height, the hero takes what the
-   header and footer leave over, and nothing overflows in either direction. Pages that
-   really are documents (the map today, the coming wiki) keep their own scrolling, so every
-   rule here is scoped to body.home. */
-.desktop-mode body.home{height:100dvh;min-height:0;overflow:hidden}
-.desktop-mode body.home>.home-content{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:center;width:min(1120px,calc(100% - 72px));padding:clamp(10px,3vh,42px) 0 clamp(4px,1.4vh,18px)}
-.desktop-mode .home .home-hero{min-height:0;grid-template-columns:clamp(92px,20vh,250px) minmax(0,1fr);gap:clamp(16px,4vh,80px)}
-.desktop-mode .hero-copy{min-width:0}
-.desktop-mode .hero-actions{gap:clamp(8px,1.4vh,14px)}
-.desktop-mode .home-footer{flex:none;padding:0 0 clamp(5px,1.4vh,22px);width:min(1120px,calc(100% - 72px))}
-@media(max-width:600px){.desktop-mode body.home>.home-content,.desktop-mode .home-footer{width:calc(100% - 40px)}}
-@media(max-height:700px){
- /* A short window is still the whole app: the first-run details stay on screen with the
-    hero, without turning the page into a scroller. */
- .desktop-mode .hero-actions .launcher-button{min-height:56px;padding:12px 20px}
- .desktop-mode .desktop-install-graphics{font-size:10px;line-height:1.55;padding-left:12px}
-}
-/* The launcher window cannot be narrower than 800px, but desktop mode is also exercised in a
-   browser, so narrow widths keep the website's stacked fallback instead of forcing two columns
-   into 320px. Below that width the shell may scroll again rather than clip the hero. */
+@keyframes launcher-bar-sweep{from{transform:translateX(-110%)}to{transform:translateX(320%)}}
+@media(prefers-reduced-motion:reduce){.launcher-bar.is-indeterminate .launcher-bar-track i{animation:none}}
+@media(max-height:700px){.desktop-mode body.home>.home-content{padding-top:16px;padding-bottom:76px}.desktop-mode .hero-copy{padding:22px}.desktop-home-heading{margin-bottom:20px}.desktop-install-details,.hero-graphics{margin-top:18px;padding-top:14px}}
 @media(max-width:720px){
- .desktop-mode body.home{overflow-y:auto}
- .desktop-mode .home .home-hero{grid-template-columns:minmax(0,1fr);gap:14px}
- .desktop-mode .crest-frame{width:96px;justify-self:center}
- .desktop-mode .hero-actions{justify-content:center}
- .desktop-mode .hero-actions .launcher-button{min-width:0;max-width:100%}
- .desktop-mode .hero-copy .eyebrow{justify-content:center}
+ .desktop-mode .site-header{padding:0 16px}.desktop-mode .site-header nav .desktop-account-nav{margin-left:4px;max-width:160px}
+ .desktop-mode .hero-copy{max-height:none;overflow:visible}
+ .desktop-mode body.home{overflow-y:auto}.desktop-mode body.home>.home-content{padding:24px 20px 100px}
+ .desktop-mode .home .home-hero{margin:auto}.desktop-mode .home-footer{padding:16px 20px}
+ .launcher-bar-body{flex-wrap:wrap;gap:12px;padding:14px 46px 14px 14px}.launcher-bar-track{flex-basis:100%;order:3}
+}
+@media(max-width:420px){
+ .desktop-mode .site-header nav>a,.desktop-mode .site-header nav>button{padding:10px 8px;font-size:11px}
+ .desktop-mode .site-header nav .desktop-account-nav{gap:6px;max-width:140px;padding:6px}
+ .desktop-account-nav canvas{width:24px;height:24px}
+ .desktop-mode .hero-copy{padding:20px}.desktop-mode .hero-actions{flex-wrap:wrap}
+ .desktop-mode .hero-copy .eyebrow{font-size:16px}.desktop-mode .crest-frame{width:56px}
+ .desktop-folder{grid-template-columns:1fr}.desktop-folder-button{grid-column:1;grid-row:auto;justify-self:start;margin-top:4px}
+ #desktop-launcher,#desktop-signin{padding:24px}
+ .desktop-utilities{align-items:flex-start;flex-direction:column;gap:12px}
 }

@@ -51,7 +51,7 @@ try{
 	await page.locator('[data-desktop-play][data-action=play]').click();
 	// Play opens no dialog now, so the running status is read where it lives: attached,
 	// not visible.
-	await page.locator('.desktop-status').filter({hasText:'Minecraft is running'}).waitFor({state:'attached'});
+	await page.locator('[data-desktop-play][data-action=running]').waitFor();
 	assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.open),false,'Play launches without opening a dialog');
 	// The account lines are settings content: they render into the dialog, which is closed
 	// while the game runs, so they are read attached rather than visible.
@@ -88,12 +88,8 @@ try{
 	// The company account survives the game lifecycle: the enrolled session is still the
 	// one published, which is what "second sign-in is a login, not a duplicate" means here.
 	await page.waitForFunction(()=>window.easterDesktop.status().then(s=>s.account?.name==='Captain Testbeard'));
-	// The account lines live in the settings dialog; open it if it is closed.
-	await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open===false,{timeout:1000}).catch(()=>{});
-	if(await page.locator('#desktop-launcher').evaluate(el=>!el.open).catch(()=>true)){
-		await page.locator('.desktop-settings-button').click();
-		await page.waitForFunction(()=>document.querySelector('#desktop-launcher')?.open===true);
-	}
+	// Account management lives in the header's profile menu.
+	await page.locator('.desktop-account-nav').click();
 	await page.evaluate(()=>window.easterDesktop.refreshAccount());
 	assert.equal(calls.filter(c=>c.url==='/v1/accounts/login').length,3,'Refresh account re-issues from the Mojang token');
 	await page.getByRole('button',{name:'Sign out of Easter Company',exact:true}).click();
