@@ -213,8 +213,10 @@
 .desktop-mode .atlas-stage>.map-navigation,
 .desktop-mode .atlas-stage>.map-drawing,
 .desktop-mode .atlas-stage>.map-location{margin-top:var(--launcher-notice-space,0px)}
-/* With the strip moved down, an open key would otherwise grow under the chart's own footer. The
-   room left between them is measured and published as --launcher-notice-key-space, so the legend
-   scrolls inside the key rather than sliding behind the footer's panel. Unset (or generous) means
-   the key is laid out exactly as it always was. */
+/* With the strip moved down, an open key would otherwise grow under whatever is docked at the bottom
+   of the chart: its own footer, and the launcher's sticky bar, which floats on that footer's offset
+   and so has a top edge 76 to 94px above the footer's. The room left above the first of those edges
+   is measured and published as --launcher-notice-key-space, so the legend scrolls inside the key
+   rather than sliding behind either of them. Unset — no sentence on screen, or a key whose content
+   already fits above every edge — leaves the key laid out exactly as it always was. */
 .desktop-mode .atlas .key-content{max-height:var(--launcher-notice-key-space,none);overflow:auto;overscroll-behavior:contain}
