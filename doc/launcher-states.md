@@ -43,11 +43,54 @@ meaning. These are added or extended:
 | `canPlay` | boolean | Exactly `install.installed && profile !== null` |
 | `bar` | object | `{visible}`: progress/action dock availability. The renderer omits an idle dock on Home because Home already provides the action; utility pages retain it. The minimised preference stays renderer-local. |
 | `settings` | object | The saved settings, exactly as `status()` already returned them, so the Settings dialog refreshes from a broadcast as well as from a read. |
-| `error` | string \| null | Safe operation failure text for a visible notice. Cleared by the next operation or a new ordinary message. Cancellation is not an error. Older states without this field still render. |
+| `error` | string \| null | Safe operation failure text, announced in the one broadcast that carries it and dropped from the next. **It has exactly one home, and the UI decides it, not the state:** while the sign-in dialog is on screen the failure belongs to that dialog's own error area and to nothing else; otherwise it belongs to the page notice, with its dismiss control. The Settings dialog is never an error surface. The renderer owns the sentence once delivered — it keeps it without re-reading this field, and only a dismissal or a new action (sign-in, Play, download, save settings) takes it away. A failure already given a home is never shown again by a later broadcast, a re-open or a close. Cancellation is not an error. Older states without this field still render. |
 
 `canPlay` is the single source of truth for the Play action. No view may compute
 its own version of the gate, and no view may enable Play on install completion
 alone.
+
+## One failure, one visible home (2026-10-18)
+
+A single failed operation is announced by the main process **twice**: `exclusively()`
+settles a state carrying `error` (which every other broadcast then repeats, because
+`error` stays set until the next ordinary message clears it) and it also rejects the
+account IPC promise. The UI must not turn that into two failures, two places, or a
+failure that returns.
+
+- **One home.** While the sign-in dialog is on screen, a failure belongs to that
+  dialog's own error area (`.desktop-auth-error`) and to nothing else, because a
+  failed sign-in is the sign-in dialog's news. With no sign-in dialog on screen the
+  failure belongs to the page notice, once, with its dismiss control.
+- **Settings is never an error surface.** The settings dialog carries the server,
+  the preferences and the shortcuts, and no status or failure area of any kind. A
+  failure is never moved into it because it happened to be open, and opening or
+  closing it never shows, repeats or brings back a failure.
+- **Delivered once, then owned by the UI.** A failure is delivered when `error`
+  becomes a sentence that has not been delivered yet, and the renderer keeps it from
+  then on: it never re-reads `error` to decide whether the notice is still valid,
+  because main drops the sentence from the next broadcast and a notice that depended
+  on it would flash and vanish. Repeated broadcasts of the same sentence deliver
+  nothing. Dismissing a failure, or starting a new action (sign-in, Play, download,
+  save settings), clears what is on screen without making that sentence deliverable
+  again — a stale repaint stays stale.
+- **A running sign-in is never presented as failed.** While the sign-in dialog is
+  showing its device code and browser action, or while a sign-in call is still
+  outstanding, a sentence arriving from the state channel is not painted over them.
+  A failure that really ends the flow arrives through the call that rejected, after
+  which the dialog closes and the sentence takes its one home.
+- **A closed dialog does not take its failure with it.** When the sign-in dialog
+  closes while it was showing a failure, that sentence moves to the page notice. It
+  does not vanish, and no other dialog inherits it.
+- **Nothing is hard-coded.** The UI renders whatever sentence the state or the
+  rejected call supplies; it does not compose or re-word failures.
+
+**Microsoft's email answer is a notice, not a failure.** The sign-in answer may carry
+`emailStatus` (`'stored'`, `'unavailable'`, `'none'`) at its own top level. Only
+`'unavailable'` says anything: the sign-in dialog holds the sentence "We could not
+read your Microsoft email address. You can sign in, and choose a login email later
+from your profile." until the player closes the dialog, and `'stored'` and `'none'`
+say nothing at all. No address is printed anywhere, and a build that answers without
+the field renders exactly as before.
 
 ## Bar behaviour
 
@@ -828,6 +871,11 @@ Errors appear in the active dialog or a visible page notice; a failed launch doe
 not open Settings. Save can be submitted by keyboard and cannot submit twice while
 pending. Client settings may be opened during gameplay; changes apply on a later
 launch. Graphics changes remain disabled while the game is running.
+
+**Update 2026-10-18: one failure, one surface.** The line above used to allow both a
+dialog and the notice at once, and nothing said which failure belonged where. The
+rule is now the one under *One failure, one visible home*: a failure has one home,
+delivered once, and it is never reproduced by reopening or closing a dialog.
 
 ## Mandatory update gate (2026-10-17)
 
