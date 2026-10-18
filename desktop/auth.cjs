@@ -30,21 +30,30 @@ class AuthError extends Error{constructor(message,code,step){super(message);this
 // ---- The six steps of a sign-in -------------------------------------------------
 // One step, one sentence, one log line. The sentence names the step so a screenshot says
 // which leg failed; the log says the same thing in one line for the owner to read later.
-// A provider code (HTTP status, XErr number, AAD error string) is carried because it is
-// safe to carry; a token, a refresh token, a device code, a user code, an email address
-// and the response body never are, which is why nothing below interpolates a value it
-// has not whitelisted first. Every sentence is free of the word "token" on purpose:
-// main.cjs's safeError() replaces any message that contains it with a generic refusal.
+// The two are written for two different readers, and that is the whole point of this
+// block: the sentence goes to a player who cannot act on a provider code, so it carries
+// no HTTP status, no AAD error string, no XErr number and no internal step name. The log
+// carries all of those, which is where an owner diagnoses from. A token, a refresh token,
+// a device code, a user code, an email address and the response body never appear in
+// either, which is why nothing below interpolates a value it has not whitelisted first.
+// Every sentence is free of the word "token" on purpose: main.cjs's safeError() replaces
+// any message that contains it with a generic refusal.
+//
+// `while` is how the step reads in a sentence about a connection that never arrived,
+// because "Xbox Live did not accept the sign-in: the connection failed" would claim a
+// refusal that never happened. Both wordings name the same step in plain words.
 const STEPS={
- 'device-code':{title:'Microsoft sign-in (device code)',verb:'could not start',advice:'Try again.'},
- 'code-completion':{title:'Microsoft sign-in (code completion)',verb:'failed',advice:'Start sign-in again.'},
- 'xbox-live':{title:'Xbox Live',verb:'did not accept the Microsoft sign-in',advice:'Try again.'},
- xsts:{title:'Xbox Live authorisation (XSTS)',verb:'did not accept the sign-in',advice:'Try again.'},
- minecraft:{title:'Minecraft sign-in',verb:'failed',advice:'Try again.'},
- 'java-profile':{title:'The Java profile',verb:'could not be read',advice:'Try again.'}
+ 'device-code':{title:'Microsoft sign-in',verb:'could not start',advice:'Try again.',while:'asking Microsoft for a sign-in code'},
+ 'code-completion':{title:'Microsoft sign-in',verb:'did not finish',advice:'Start sign-in again.',while:'completing the Microsoft sign-in'},
+ 'xbox-live':{title:'Xbox Live',verb:'did not accept the Microsoft sign-in',advice:'Try again.',while:'signing in to Xbox Live'},
+ xsts:{title:'Xbox Live authorisation',verb:'did not accept the sign-in',advice:'Try again.',while:'authorising with Xbox Live'},
+ minecraft:{title:'Minecraft sign-in',verb:'failed',advice:'Try again.',while:'signing in to Minecraft'},
+ 'java-profile':{title:'The Java profile',verb:'could not be read',advice:'Try again.',while:'reading your Java profile'}
 };
 // Kept for a step the launcher does not know, and for that alone.
 const GENERIC='Sign-in could not finish. Please try again.';
+// An Xbox Live refusal that has a cause the player can act on: the cause is what the
+// sentence says, and the number it arrived as stays on the log line for the owner.
 const XERR={
  2148916233:'create an Xbox profile for this Microsoft account, then sign in again',
  2148916235:'Xbox Live is unavailable for this account’s country',
@@ -54,41 +63,46 @@ const XERR={
 };
 // Only these characters may reach a sentence or the log. A provider code is a short
 // identifier (invalid_grant, UNAUTHORIZED, XErr2148916238); anything else is dropped
-// rather than echoed, so a value derived from a credential cannot be written out.
+// rather than echoed, so a value derived from a credential cannot be written out. A code
+// is kept for the log, never for the sentence: the service's own answers are named below
+// in words a player can use.
 function clean(value,limit=48){
  const text=typeof value==='string'?value.trim():'';
  return /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(text)&&text.length<=limit?text:'';
 }
+// What the player is told, and never how the provider labelled it. The five answers a
+// person can tell apart stay apart: a sign-in that has expired, a refusal with an
+// explanation, a refusal without one, a service in trouble, and no answer at all.
 function reason({status,code,xerr,unreadable,step}={}){
- if(Number.isInteger(xerr))return (XERR[xerr]?XERR[xerr]:'Xbox Live refused this sign-in')+' (XErr '+xerr+')';
+ if(Number.isInteger(xerr))return XERR[xerr]||'Xbox Live refused this sign-in';
  const provider=clean(code);
  // A refused refresh grant is a saved sign-in that has expired; the same answer on the
  // device-code step is not, because a fresh sign-in has nothing saved behind it.
- if(provider==='invalid_grant'&&step!=='device-code')return 'your saved sign-in has expired (invalid_grant)';
- if(provider&&Number.isInteger(status))return 'the provider answered '+provider+' (HTTP '+status+')';
- if(provider)return 'the provider answered '+provider;
- if(Number.isInteger(status))return 'the provider answered HTTP '+status+(unreadable?' with no readable detail':'');
- return 'the provider gave no readable answer';
+ if(provider==='invalid_grant'&&step!=='device-code')return 'your saved sign-in has expired';
+ if(Number.isInteger(status)&&status>=500)return 'the sign-in service is having trouble right now';
+ if(unreadable)return 'the sign-in service refused it without saying why';
+ if(provider||Number.isInteger(status))return 'the sign-in service refused it';
+ return 'no readable answer came back';
 }
 function sentence(step,detail){
  const name=STEPS[step];
  if(!name)return GENERIC;
  return name.title+' '+name.verb+': '+detail+'. '+name.advice;
 }
+// A failure to reach anything is not a refusal: nothing was asked, so nothing refused it.
 function reachedSentence(step){
  const name=STEPS[step];
- return name?name.title+' could not be reached: the connection failed. Check your network and try again.':GENERIC;
+ return name?'Sign-in stopped while '+name.while+': the connection failed. Check your network and try again.':GENERIC;
 }
 // Minecraft's own refusals are worth telling apart: an unauthenticated Xbox Live session,
-// an account that may not sign in, and an outage are three different answers.
-function minecraftSentence({status,code}={}){
- const provider=clean(code);
- const suffix=provider?' '+provider:'';
- if(status===401)return 'Minecraft sign-in failed: the Xbox Live session was refused (HTTP 401'+suffix+'). Try again.';
- if(status===403)return 'Minecraft sign-in failed: this account is not allowed to sign in to Minecraft (HTTP 403'+suffix+'). Check that it owns Minecraft: Java Edition.';
- if(status===429)return 'Minecraft sign-in failed: sign-in is being rate limited (HTTP 429'+suffix+'). Wait a moment and try again.';
- if(Number.isInteger(status)&&status>=500)return 'Minecraft sign-in is temporarily unavailable (HTTP '+status+suffix+'). Try again shortly.';
- return sentence('minecraft',reason({status,code}));
+// an account that may not play, an outage and rate limiting are four different answers
+// with four different things to do about them.
+function minecraftSentence({status}={}){
+ if(status===401)return 'Minecraft sign-in failed: Minecraft would not accept the Xbox Live session. Sign in again.';
+ if(status===403)return 'Minecraft sign-in failed: this account is not allowed to play Minecraft: Java Edition. Check that this account owns the game.';
+ if(status===429)return 'Minecraft sign-in failed: Minecraft is receiving too many sign-in attempts right now. Wait a few minutes and try again.';
+ if(Number.isInteger(status)&&status>=500)return 'Minecraft sign-in is temporarily unavailable: Minecraft is not answering right now. Try again in a few minutes.';
+ return sentence('minecraft',reason({status}));
 }
 
 // ---- The redacted sign-in log ---------------------------------------------------
@@ -170,7 +184,7 @@ class MicrosoftAuth{
    // The provider's own code, and the HTTP status when it gave none: an empty-bodied 401
    // is a status-only failure and is recorded as one rather than as a blank.
    if(log&&!(ignoreCodes&&code&&ignoreCodes.includes(code)))this.record(step,'failed',{status:response.status,code:Number.isInteger(xerr)?'XErr'+xerr:(clean(code)||String(response.status))});
-   const error=new AuthError(step==='minecraft'?minecraftSentence({status:response.status,code}):sentence(step,reason({status:response.status,code,xerr,unreadable:!readable,step})),clean(code)||String(xerr||response.status),step);
+   const error=new AuthError(step==='minecraft'?minecraftSentence({status:response.status}):sentence(step,reason({status:response.status,code,xerr,unreadable:!readable,step})),clean(code)||String(xerr||response.status),step);
    error.status=response.status;
    if(Number.isInteger(xerr))error.xerr=xerr;
    throw error;
@@ -244,13 +258,13 @@ class MicrosoftAuth{
    catch(error){
     if(error.name==='AbortError'||signal?.aborted||error.code==='network')throw error;
     // The step's own line has been written by the leg above; the sentence says what the
-    // player needs to know, which is that this Microsoft sign-in could not become an Xbox
-    // Live session. The refused session itself is never quoted.
-    throw new AuthError(sentence('xbox-live','this Microsoft sign-in could not be exchanged for Xbox Live ('+reason({status:error.status,code:error.code,step:'xbox-live'})+')'),'xbox_scope','xbox-live');
+    // player needs to know, which is why this Microsoft sign-in did not become an Xbox
+    // Live session. The refused session itself is never quoted, and neither is the code.
+    throw new AuthError(sentence('xbox-live',reason({status:error.status,code:error.code,step:'xbox-live'})),'xbox_scope','xbox-live');
    }
    if(!scoped||typeof scoped.access_token!=='string'||!scoped.access_token){
     this.record('xbox-live','failed',{status:200,code:'response'});
-    throw new AuthError(sentence('xbox-live','the Xbox Live scope answered without a session'),'response','xbox-live');
+    throw new AuthError(sentence('xbox-live','Microsoft answered without an Xbox Live session'),'response','xbox-live');
    }
    access=scoped.access_token;reissued=true;
    if(typeof scoped.refresh_token==='string'&&scoped.refresh_token)refresh=scoped.refresh_token;
@@ -316,7 +330,7 @@ class MicrosoftAuth{
  async javaAccess(session,signal){
   const headers={Authorization:'Bearer '+session.accessToken};
   const license=await this.json('https://api.minecraftservices.com/entitlements/license?requestId='+randomUUID(),{headers,cache:'no-store'},signal,'java-profile',{log:false});
-  if(!Array.isArray(license.items)||!license.items.every(item=>item&&typeof item.name==='string'))throw new AuthError(sentence('java-profile','the access answer carried no entitlement list'),'response','java-profile');
+  if(!Array.isArray(license.items)||!license.items.every(item=>item&&typeof item.name==='string'))throw new AuthError(sentence('java-profile','the answer did not say which games this account owns'),'response','java-profile');
   const entitled=license.items.some(item=>['game_minecraft','product_minecraft'].includes(item.name));
   if(!entitled)return {...session,minecraftAccess:'missing'};
   let profile;

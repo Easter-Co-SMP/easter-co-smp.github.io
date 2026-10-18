@@ -22,11 +22,19 @@ function scanFile(file,secrets=SECRETS){
 // The sentence is scanned as well as the file: an address, a credential or the word
 // "token" in a message would be scrubbed by main.cjs's safeError() before the player saw
 // it, and the point of naming the step is that the player does see it.
+// A provider code is not for the player either. The HTTP status, the AAD error string, the
+// XErr number and the internal step name belong in userData/signin.log, where the owner
+// diagnoses from; in the sentence they are jargon the player cannot act on. Every sentence
+// this file asserts goes through here, so no test can quietly reintroduce one.
+const JARGON=/HTTP \d|invalid_[a-z]|unauthorized_[a-z]|XErr|\b[45]\d\d\b/;
+const INTERNALS=/(device code|code completion|XSTS|entitlement|provider|scope)/i;
 function scanMessage(message,secrets=SECRETS){
  const text=String(message);
  for(const secret of secrets)assert(!text.includes(secret),'the sentence carries '+secret+': '+text);
  assert(!text.includes('@'),'the sentence carries no address: '+text);
  assert(!/token|Bearer/i.test(text),'the sentence survives safeError(): '+text);
+ assert(!JARGON.test(text),'the sentence carries a status or a provider code: '+text);
+ assert(!INTERNALS.test(text),'the sentence carries an internal step name: '+text);
  return text;
 }
 const refused=async(promise,pattern)=>{
@@ -87,10 +95,10 @@ test('a full sign-in writes one line per step and carries nothing secret into ei
  scanFile(file);
 });
 
-test('the Microsoft sign-in steps name themselves and keep the provider code',async()=>{
+test('the Microsoft sign-in steps name themselves and keep the provider code in the log',async()=>{
  // Device code.
  const startRefused=fixture([{status:400,data:{error:'invalid_scope'}}]);
- await refused(startRefused.auth.signIn(()=>{}),/^Microsoft sign-in \(device code\) could not start: the provider answered invalid_scope \(HTTP 400\)\. Try again\.$/);
+ await refused(startRefused.auth.signIn(()=>{}),/^Microsoft sign-in could not start: the sign-in service refused it\. Try again\.$/);
  assert.equal(lines(startRefused.file).length,1,'a failure is exactly one line');
  assert.deepEqual(steps(startRefused.file),['device-code']);
  assert.match(lines(startRefused.file)[0],/outcome=failed http=400 code=invalid_scope$/);
@@ -100,56 +108,58 @@ test('the Microsoft sign-in steps name themselves and keep the provider code',as
   {data:{device_code:'device-secret',user_code:'TEST-CODE',verification_uri:'https://microsoft.com/link',expires_in:900,interval:1}},
   {status:400,data:{error:'invalid_grant'}}
  ]);
- await refused(completion.auth.signIn(()=>{}),/Microsoft sign-in \(code completion\) failed: your saved sign-in has expired \(invalid_grant\)\. Start sign-in again\./);
+ await refused(completion.auth.signIn(()=>{}),/Microsoft sign-in did not finish: your saved sign-in has expired\. Start sign-in again\./);
  assert.deepEqual(steps(completion.file),['device-code','code-completion']);
  assert.equal(failed(completion.file).length,1);
  scanFile(completion.file);
- // An unreadable body still names the step and the status, which is what a refusal with
- // an empty body looks like.
+ // An unreadable body still names the step, and says the service would not explain itself;
+ // the status it no longer shows is on the line.
  const unreadable=fixture([{status:400,unreadable:true}]);
- await refused(unreadable.auth.signIn(()=>{}),/Microsoft sign-in \(device code\) could not start: the provider answered HTTP 400 with no readable detail\. Try again\./);
+ await refused(unreadable.auth.signIn(()=>{}),/Microsoft sign-in could not start: the sign-in service refused it without saying why\. Try again\./);
+ assert.match(lines(unreadable.file)[0],/outcome=failed http=400 code=400$/);
  scanFile(unreadable.file);
 });
 
 test('the Xbox Live step names itself, including the empty 401 body a refused ticket returns',async()=>{
  const {auth,file}=fixture([{status:401,unreadable:true}]);
- await refused(auth.exchange({access_token:forXbox}),/^Xbox Live did not accept the Microsoft sign-in: the provider answered HTTP 401 with no readable detail\. Try again\.$/);
+ await refused(auth.exchange({access_token:forXbox}),/^Xbox Live did not accept the Microsoft sign-in: the sign-in service refused it without saying why\. Try again\.$/);
  assert.deepEqual(steps(file),['xbox-live']);
  assert.match(lines(file)[0],/outcome=failed http=401 code=401$/);
  scanFile(file);
 });
 
-test('the XSTS step names itself and carries XErr',async()=>{
+test('the XSTS step names itself and carries XErr in the log, not in the sentence',async()=>{
  const {auth,file}=fixture([xboxToken(),{status:401,data:{XErr:2148916238,Token:'xsts-secret'}}]);
- await refused(auth.exchange({access_token:forXbox}),/Xbox Live authorisation \(XSTS\) did not accept the sign-in: this account needs Microsoft Family approval before Minecraft can connect \(XErr 2148916238\)\. Try again\./);
+ await refused(auth.exchange({access_token:forXbox}),/Xbox Live authorisation did not accept the sign-in: this account needs Microsoft Family approval before Minecraft can connect\. Try again\./);
  assert.deepEqual(steps(file),['xbox-live','xsts']);
  assert.equal(failed(file).length,1);
  assert.match(lines(file)[1],/outcome=failed http=401 code=XErr2148916238$/);
  scanFile(file);
 });
 
-test('Minecraft refusals are one sentence each and keep 401, 403 and 5xx apart',async()=>{
+test('Minecraft refusals are one sentence each and keep 401, 403, 429 and 5xx apart',async()=>{
  const sentences={};
  for(const [status,data,expected] of [
-  [401,{error:'UNAUTHORIZED'},/Minecraft sign-in failed: the Xbox Live session was refused \(HTTP 401 UNAUTHORIZED\)\. Try again\./],
-  [403,{error:'FORBIDDEN'},/Minecraft sign-in failed: this account is not allowed to sign in to Minecraft \(HTTP 403 FORBIDDEN\)\. Check that it owns Minecraft: Java Edition\./],
-  [503,{error:'UNAVAILABLE'},/Minecraft sign-in is temporarily unavailable \(HTTP 503 UNAVAILABLE\)\. Try again shortly\./]
+  [401,{error:'UNAUTHORIZED'},/^Minecraft sign-in failed: Minecraft would not accept the Xbox Live session\. Sign in again\.$/],
+  [403,{error:'FORBIDDEN'},/^Minecraft sign-in failed: this account is not allowed to play Minecraft: Java Edition\. Check that this account owns the game\.$/],
+  [429,{error:'TOO_MANY_REQUESTS'},/^Minecraft sign-in failed: Minecraft is receiving too many sign-in attempts right now\. Wait a few minutes and try again\.$/],
+  [503,{error:'UNAVAILABLE'},/^Minecraft sign-in is temporarily unavailable: Minecraft is not answering right now\. Try again in a few minutes\.$/]
  ]){
   const {auth,file}=fixture([xboxToken(),xstsToken(),{status,data}]);
   await refused(auth.exchange({access_token:forXbox}),expected);
   assert.deepEqual(steps(file),['xbox-live','xsts','minecraft']);
   assert.equal(failed(file).length,1);
-  assert.match(lines(file)[2],new RegExp('outcome=failed http='+status));
+  assert.match(lines(file)[2],new RegExp('outcome=failed http='+status+' code='+data.error+'$'));
   sentences[status]=read(file);
   scanFile(file);
  }
- // Three statuses, three different sentences: the distinction is not flattened.
- assert.equal(new Set(Object.keys(sentences)).size,3);
+ // Four statuses, four different sentences: the distinction is not flattened.
+ assert.equal(new Set(Object.values(sentences)).size,4);
 });
 
 test('the Java profile step names itself and the state still never claims a purchase',async()=>{
  const outage=fixture([{status:503,data:{}},{status:503,data:{}}]);
- await refused(outage.auth.javaAccess({accessToken:'minecraft-secret'}),/^The Java profile could not be read: the provider answered HTTP 503\. Try again\.$/);
+ await refused(outage.auth.javaAccess({accessToken:'minecraft-secret'}),/^The Java profile could not be read: the sign-in service is having trouble right now\. Try again\.$/);
  // The state contract is unchanged: an outage is `unknown`, and the log still names the step.
  assert.equal((await outage.auth.checkAccess({accessToken:'minecraft-secret'})).minecraftAccess,'unknown');
  assert.deepEqual(steps(outage.file),['java-profile']);
@@ -158,7 +168,7 @@ test('the Java profile step names itself and the state still never claims a purc
  scanFile(outage.file);
  for(const response of [{data:{}},{data:{items:'bad'}},{data:{items:[null]}}]){
   const {auth}=fixture([response]);
-  await refused(auth.javaAccess({accessToken:'minecraft-secret'}),/The Java profile could not be read: the access answer carried no entitlement list/);
+  await refused(auth.javaAccess({accessToken:'minecraft-secret'}),/The Java profile could not be read: the answer did not say which games this account owns/);
   assert.equal((await auth.checkAccess({accessToken:'minecraft-secret'})).minecraftAccess,'unknown');
  }
  const noProfile=fixture([licence(),{status:404,data:{error:'NOT_FOUND'}}]);
@@ -180,7 +190,7 @@ test('the saved-session refresh route is instrumented and never quotes the store
   xboxToken(),xstsToken(),
   {status:401,data:{path:'/authentication/login_with_xbox',error:'UNAUTHORIZED'}}
  ]);
- await refused(auth.refresh(stored,undefined,false,true),/Minecraft sign-in failed: the Xbox Live session was refused \(HTTP 401 UNAUTHORIZED\)\. Try again\./);
+ await refused(auth.refresh(stored,undefined,false,true),/Minecraft sign-in failed: Minecraft would not accept the Xbox Live session\. Sign in again\./);
  assert.deepEqual(steps(file),['code-completion','xbox-live','xsts','minecraft']);
  assert.equal(failed(file).length,1,'the failing step writes exactly one line');
  assert.match(lines(file)[1],/step=xbox-live outcome=ok http=200 code=ok note=reissued$/);
@@ -218,7 +228,7 @@ test('a token for another audience is exchanged for XboxLive.signin before it is
 
 test('a refused exchange for the Xbox Live scope is one step failure, not a silent retry',async()=>{
  const {auth,calls,file}=fixture([{status:400,data:{error:'invalid_grant'}}]);
- await refused(auth.exchange({access_token:forGraph,refresh_token:'refresh-secret'}),/^Xbox Live did not accept the Microsoft sign-in: this Microsoft sign-in could not be exchanged for Xbox Live/);
+ await refused(auth.exchange({access_token:forGraph,refresh_token:'refresh-secret'}),/^Xbox Live did not accept the Microsoft sign-in: your saved sign-in has expired\. Try again\.$/);
  // The old path swallowed the exchange failure, retried the same leg and rethrew the
  // original: Xbox Live was never even asked this time.
  assert.equal(calls.length,1);
@@ -331,10 +341,80 @@ test('the generic sentence is kept for a step the launcher does not know, and on
 test('a network failure names the step it happened at',async()=>{
  const {auth,file}=fixture([]);
  auth.request=async()=>{throw new TypeError('fetch failed');};
- await refused(auth.exchange({access_token:forXbox}),/^Xbox Live could not be reached: the connection failed\. Check your network and try again\.$/);
+ await refused(auth.exchange({access_token:forXbox}),/^Sign-in stopped while signing in to Xbox Live: the connection failed\. Check your network and try again\.$/);
  assert.deepEqual(steps(file),['xbox-live']);
  assert.match(lines(file)[0],/outcome=failed http=- code=network$/);
  scanFile(file);
+});
+
+// ---- What the player reads carries no code, and the log still carries it ----------
+// Every failure the launcher can word, for the same reason: the sentence is what a player
+// sees and the line is what the owner reads. The status and the provider's code are moved,
+// never lost.
+const sentenceOf=async(responses,run)=>{
+ const {auth,file}=fixture(responses.map(response=>({...response})));
+ let caught;
+ await assert.rejects(run(auth),error=>{caught=error;return true;});
+ scanMessage(caught.message);
+ return {message:caught.message,line:lines(file).at(-1)||''};
+};
+test('no sentence carries a status or a provider code, and the log for that failure still does',async()=>{
+ const device={data:{device_code:'device-secret',user_code:'TEST-CODE',verification_uri:'https://microsoft.com/link',expires_in:900,interval:1}};
+ const failures=[
+  ['a refused device code',[{status:400,data:{error:'invalid_scope'}}],auth=>auth.signIn(()=>{}),/outcome=failed http=400 code=invalid_scope$/],
+  ['a refused completion',[device,{status:400,data:{error:'invalid_grant'}}],auth=>auth.signIn(()=>{}),/outcome=failed http=400 code=invalid_grant$/],
+  ['a refused Xbox Live ticket',[{status:401,unreadable:true}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=401$/],
+  ['a refusal with a provider code',[{status:401,data:{error:'UNAUTHORIZED'}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=UNAUTHORIZED$/],
+  ['a Microsoft Family refusal',[xboxToken(),{status:401,data:{XErr:2148916238}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=XErr2148916238$/],
+  ['a refused Minecraft session',[xboxToken(),xstsToken(),{status:401,data:{error:'UNAUTHORIZED'}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=UNAUTHORIZED$/],
+  ['an account that may not play',[xboxToken(),xstsToken(),{status:403,data:{error:'FORBIDDEN'}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=403 code=FORBIDDEN$/],
+  ['rate limiting',[xboxToken(),xstsToken(),{status:429,data:{error:'TOO_MANY_REQUESTS'}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=429 code=TOO_MANY_REQUESTS$/],
+  ['an unavailable Minecraft',[xboxToken(),xstsToken(),{status:503,data:{error:'UNAVAILABLE'}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=503 code=UNAVAILABLE$/],
+  // The Java legs word the sentence themselves but checkAccess writes their one line, and
+  // it turns the failure into `unknown` rather than rethrowing: the log is read after it.
+  ['an unreadable Java profile',[{status:503,data:{}},{status:503,data:{}}],async auth=>{try{await auth.javaAccess({accessToken:'minecraft-secret'});}catch(error){assert.equal((await auth.checkAccess({accessToken:'minecraft-secret'})).minecraftAccess,'unknown');throw error;}},/outcome=failed http=503 code=503$/],
+  ['a refused Xbox Live scope',[{status:400,data:{error:'invalid_grant'}}],auth=>auth.exchange({access_token:forGraph,refresh_token:'refresh-secret'}),/outcome=failed http=400 code=invalid_grant$/]
+ ];
+ const seen=new Map();
+ for(const [name,responses,run,logged] of failures){
+  const {message,line}=await sentenceOf(responses,run);
+  assert.doesNotMatch(message,JARGON,name+': '+message);
+  assert.doesNotMatch(message,INTERNALS,name+': '+message);
+  assert.match(line,logged,name+' kept its status and code in the log: '+line);
+  assert.match(line,/http=(\d{3}|-) code=\S+$/,name+': the line still carries both fields: '+line);
+  assert(!seen.has(message),name+' reads the same as '+seen.get(message)+': '+message);
+  seen.set(message,name);
+ }
+ assert.equal(seen.size,failures.length,'every failure in the table has its own sentence');
+});
+
+test('the five causes a player can tell apart still read differently, and each says what to do',async()=>{
+ const refusedSession=await sentenceOf([xboxToken(),xstsToken(),{status:401,data:{error:'UNAUTHORIZED'}}],auth=>auth.exchange({access_token:forXbox}));
+ const mayNotPlay=await sentenceOf([xboxToken(),xstsToken(),{status:403,data:{error:'FORBIDDEN'}}],auth=>auth.exchange({access_token:forXbox}));
+ const unavailable=await sentenceOf([xboxToken(),xstsToken(),{status:503,data:{error:'UNAVAILABLE'}}],auth=>auth.exchange({access_token:forXbox}));
+ const limited=await sentenceOf([xboxToken(),xstsToken(),{status:429,data:{error:'TOO_MANY_REQUESTS'}}],auth=>auth.exchange({access_token:forXbox}));
+ const offline=await (async()=>{
+  const {auth,file}=fixture([]);
+  auth.request=async()=>{throw new TypeError('fetch failed');};
+  let caught;
+  await assert.rejects(auth.exchange({access_token:forXbox}),error=>{caught=error;return true;});
+  scanMessage(caught.message);
+  return {message:caught.message,line:lines(file).at(-1)};
+ })();
+ const causes={refusedSession,mayNotPlay,unavailable,limited,offline};
+ assert.equal(new Set(Object.values(causes).map(cause=>cause.message)).size,5,'five causes, five sentences');
+ // And every one of them tells the player something they can act on.
+ assert.match(refusedSession.message,/Sign in again\.$/);
+ assert.match(mayNotPlay.message,/Check that this account owns the game\.$/);
+ assert.match(unavailable.message,/Try again in a few minutes\.$/);
+ assert.match(limited.message,/Wait a few minutes and try again\.$/);
+ assert.match(offline.message,/Check your network and try again\.$/);
+ // The log is where the four answers are still told apart, for whoever diagnoses later.
+ assert.match(refusedSession.line,/http=401 code=UNAUTHORIZED$/);
+ assert.match(mayNotPlay.line,/http=403 code=FORBIDDEN$/);
+ assert.match(unavailable.line,/http=503 code=UNAVAILABLE$/);
+ assert.match(limited.line,/http=429 code=TOO_MANY_REQUESTS$/);
+ assert.match(offline.line,/http=- code=network$/);
 });
 
 test('the log is bounded by one rotation however often it is written',async()=>{
