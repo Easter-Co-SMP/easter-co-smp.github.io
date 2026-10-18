@@ -65,7 +65,10 @@ try {
   for (const [id, heading] of [['money-and-banking','Money & banking'], ['law-and-bounties','Law & bounties'], ['crews-and-property','Crews & property']]) {
     await page.goto(origin+'/wiki/#/'+id);
     await page.getByRole('heading',{name:heading,exact:true,level:1}).waitFor();
-    assert(await page.locator('.wiki-table').count() >= 1);
+    if (id === 'money-and-banking') {
+      assert(await page.locator('.wiki-note').count() >= 1);
+      assert(await page.locator('.wiki-steps li').count() >= 3);
+    } else assert(await page.locator('.wiki-table').count() >= 1);
     assert.equal(await page.locator('.wiki-demo').count(),0);
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
     await page.locator('.wiki-section-links a').first().click();

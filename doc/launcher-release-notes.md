@@ -1,4 +1,4 @@
-# Easter Company launcher 1.0.18
+# Easter Company launcher 1.0.19
 
 The wiki now contains twelve complete guides to the custom rules of Easter Co. SMP.
 
