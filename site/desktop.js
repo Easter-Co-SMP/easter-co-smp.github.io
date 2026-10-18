@@ -14,6 +14,8 @@
  const desktop=window.easterDesktop;
  if(!desktop||desktop.mode!=='desktop')return;
  document.documentElement.classList.add('desktop-mode');
+ const wordmark=document.querySelector('.site-wordmark');
+ if(wordmark){wordmark.textContent='Easter Co. Launcher';wordmark.setAttribute('aria-label','Easter Co. Launcher home');}
  // The skip control is a website affordance. Desktop mode removes it from the DOM entirely,
  // so it never reaches assistive technology; Escape and the bounded timer still end the arrival.
  document.querySelector('.skip-arrival')?.remove();
