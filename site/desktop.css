@@ -182,6 +182,16 @@
    dialog reads as one answer and each part is separately scannable. */
 .desktop-company-dialog .company-error p{margin:0;color:inherit}
 .desktop-company-dialog .company-error p+p{margin-top:9px}
+/* The launcher's own minimum window is 800x600, and there the three-line refusal makes the
+   chooser exactly as tall as the window has room for: the box is capped, every element fits
+   inside it, and the 28px bottom inset is then 12px more than the cap can show — a scrollbar
+   with twelve pixels of travel over space that is already off screen. On a short window, the
+   same breakpoint the settings dialog closes its own spacing up at, the dialog carrying a
+   refusal keeps the 16px inset it was showing rather than the 28 it cannot: at 800x600 the
+   box, the three lines and both controls then stay at exactly the pixels they were drawn at
+   and the dead scroll is gone. A chooser with no refusal has room to spare and is left alone,
+   and at a window tall enough to hold the dialog nothing changes at all. */
+@media(max-height:700px){.desktop-company-dialog:has(.company-error:not([hidden])){padding-bottom:16px}}
 
 
 /* Verified emails. One address per row, the selected one marked, and the copy that says

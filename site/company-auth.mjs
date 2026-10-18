@@ -31,6 +31,24 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  emails.setAttribute('aria-labelledby','company-emails-title');
  emails.innerHTML='<button class="dialog-close" type="button" aria-label="Close verified emails">×</button><h2 id="company-emails-title">Verified emails</h2><p class="company-intro">Choose the address that signs you in to Easter Company. Only the selected address is a login key; the other addresses are recorded on your account and cannot be used to sign in.</p><div class="company-emails" role="radiogroup" aria-label="Verified emails"></div><p class="company-emails-loading" role="status">Reading your verified emails…</p><p class="company-emails-empty" hidden></p><p class="company-emails-unset" hidden></p><p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p><div class="company-email-actions"><button type="button" class="company-submit">Save selection</button><button type="button" class="company-clear text-link" hidden>Clear login email</button></div>';
  document.body.append(chooser,username,password,emails);
+ // A refusal painted into a dialog that is already open is painted where the player is not
+ // looking. The chooser is taller than a phone's window, so at 390 the third line of the
+ // identity conflict landed under the dialog's own bottom edge while the dialog sat at
+ // scrollTop 0, and nothing on screen says the box scrolls: the way out read as a sentence cut
+ // off mid-word. The refusal stays above the form, where it is read before the controls, and
+ // the dialog scrolls to it instead — the least it can scroll for the whole refusal to be
+ // inside the box. At 390 that is the three lines read in full with the heading still above
+ // them, and Sign in and Forgot your password below the fold, which is the order a refusal is
+ // read in. A refusal taller than the box is read from its first line. A dialog that already
+ // shows its refusal in whole — every size the launcher itself can take — is not scrolled at
+ // all, and a dialog with no refusal opens at the top.
+ const reveal=(dialog,node)=>{
+  const box=dialog.getBoundingClientRect(),rect=node.getBoundingClientRect();
+  const top=box.top+dialog.clientTop,bottom=top+dialog.clientHeight;
+  if(rect.height>=dialog.clientHeight)dialog.scrollTop-=top-rect.top;
+  else if(rect.bottom>bottom)dialog.scrollTop+=rect.bottom-bottom;
+  else if(rect.top<top)dialog.scrollTop-=top-rect.top;
+ };
  // A sentence in one of these dialogs is that failure's only home: the page notice gives up
  // its copy rather than showing the same failure twice. A closed dialog holds no text the
  // player can see, so it never takes the failure away from the notice.
@@ -47,6 +65,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   if(shown.length===1)node.textContent=shown[0];
   else node.replaceChildren(...shown.map(line=>{const paragraph=document.createElement('p');paragraph.textContent=line;return paragraph;}));
   node.hidden=!shown.length;
+  if(shown.length&&dialog.open)reveal(dialog,node);
  };
  const lock=value=>{busy=value;for(const dialog of [chooser,username,password,emails]){dialog.setAttribute('aria-busy',String(value));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}chooser.querySelector('.company-submit').textContent=value?'Signing in…':'Sign in';username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';emails.querySelector('.company-submit').textContent=value?'Saving…':'Save selection';};
  // A username the server rejects is a plain sentence beside the field, never a hint
