@@ -427,3 +427,85 @@ test('the location guard is what the main process uses, not a second copy',async
  for(const channel of ['choose-location','set-location','start-install','pause-install','resume-install','cancel-install','check-updates'])
   assert.match(source,new RegExp("handle\\('"+channel+"'"),channel+' handler must exist');
 });
+
+// ---- launch behaviour -------------------------------------------------------
+// The three launch-time behaviours are one decision, and it is a pure function, so what
+// the window does can be tested without a window and without a tray.
+test('starting the game moves the launcher by exactly one rule, and never hides it without a tray',()=>{
+ const {launchBehaviour}=require('../../desktop/security.cjs');
+ // Neither preference: the window stays where it is, and says nothing.
+ assert.deepEqual(launchBehaviour({}),{action:'stay',message:null});
+ assert.deepEqual(launchBehaviour({exitOnLaunch:false,trayOnLaunch:false}),{action:'stay',message:null});
+ // Close on launch: the existing behaviour, unchanged.
+ assert.deepEqual(launchBehaviour({exitOnLaunch:true}),{action:'quit',message:null});
+ // Tray on launch: hidden rather than closed — behind a tray icon when one can be drawn.
+ assert.deepEqual(launchBehaviour({trayOnLaunch:true},{trayAvailable:true}),{action:'tray',message:null});
+ // Where no tray icon can be drawn the launcher still steps aside, and the sentence says
+ // how to bring it back: starting the launcher again. The setting is never a silent no-op.
+ const noHost=launchBehaviour({trayOnLaunch:true},{trayAvailable:false});
+ assert.equal(noHost.action,'hide','without a tray host the launcher still steps aside');
+ assert.equal(noHost.message,'This desktop has no system tray, so start Easter Co. Launcher again to bring the window back.');
+ // A payload claiming both does neither: after the one-time migration a both-true file can
+ // only be hand-edited, so the launcher stays where it is rather than guessing between
+ // quitting and hiding.
+ assert.deepEqual(launchBehaviour({exitOnLaunch:true,trayOnLaunch:true},{trayAvailable:true}),{action:'stay',message:null});
+ assert.equal(launchBehaviour({trayOnLaunch:'yes'},{trayAvailable:true}).action,'stay');
+ assert.equal(launchBehaviour({exitOnLaunch:'yes',trayOnLaunch:true},{trayAvailable:true}).action,'tray','a malformed close value leaves the tray choice alone');
+ assert.equal(launchBehaviour(null,{trayAvailable:true}).action,'stay');
+});
+
+// What the main process does with that decision. These are wiring assertions on the real
+// entry point rather than a tray on a panel: a status-notifier host is not part of the test
+// seat, and the point here is that the window steps aside only behind a tray that was
+// created first (or with the sentence that says how to return), that starting the launcher
+// again brings a hidden window back, and that the game ending does so by itself.
+test('the window steps aside with a tray or a way back, and returns when the game ends',async()=>{
+ const source=await fs.readFile(path.join(__dirname,'../../desktop/main.cjs'),'utf8');
+ // Tray and its menu, with Open launcher and Quit.
+ assert.match(source,/const \{[^}]*\bTray\b[^}]*\}=require\('electron'\)/);
+ assert.match(source,/new Tray\(/);
+ assert.match(source,/\{label:'Open launcher',click:\(\)=>showLauncher\(\)\}/);
+ // Quit exits the launcher and does not touch the game process: no kill anywhere.
+ assert.match(source,/\{label:'Quit',click:\(\)=>app\.quit\(\)\}/);
+ assert.equal(/game\.kill|child\.kill|kill\(['"]SIG/.test(source),false,'quitting from the tray must not kill a running game');
+ // The order that makes each path honest: ask the desktop, create the icon when it says
+ // one can be drawn, and only then hide.
+ const hide=source.indexOf('window.hide()');
+ assert(hide>0,'the player\'s window can step aside');
+ assert(source.lastIndexOf('trayHostAvailable()',hide)>0,'only after the desktop was asked whether a tray exists');
+ assert(source.lastIndexOf('ensureTray()',hide)>0,'and only after the tray icon was created where one can be');
+ assert.match(source,/const decision=launchBehaviour\(settings,\{trayAvailable:available&&ensureTray\(\)\}\)/,'the tray is only created when the desktop says one can be drawn');
+ // The old default is migrated once on load, so the update reaches an existing install
+ // instead of silently keeping the behaviour the feature was asked to change.
+ assert.match(source,/const migration=migrateLaunchPreferences\(savedFile\?stored:null\)/,'the saved file is migrated on load');
+ assert.match(source,/if\(migration\.migrated\)\{[\s\S]{0,200}?await atomicJSON\(settingsFile\(\),/,'and written back once, which is what makes it once');
+ // Without a tray icon the window still hides, and the sentence says how to come back.
+ assert.match(source,/if\(decision\.message\)notify\(\{message:decision\.message,error:decision\.message\}\)/,'the no-tray case is not silent');
+ // Starting the launcher again is the way back, and it is the game shortcut's path too.
+ assert.match(source,/app\.on\('second-instance',\(\)=>\{[\s\S]{0,400}?window\.show\(\);window\.focus\(\);/,'a second instance shows and focuses the existing window');
+ assert.match(source,/if\(!window\|\|window\.isDestroyed\(\)\)\{createWindow\(\);return;\}/,'and creates one if the window is gone');
+ // Both game handlers put the window back, and keep the messages they settled before.
+ const exitHandler=/child\.once\('exit',code=>\{game=null;returnToLauncher\(\);const message=code===0\?'Minecraft closed\. Ready to play\.':'Minecraft closed with code '\+code\+'\. Its log is in the client folder\.';settle\(message,\{error:code===0\?null:message\}\);\}\)/.exec(source);
+ assert(exitHandler,'the exit handler restores the window and settles the same message');
+ const errorHandler=/child\.once\('error',\(\)=>\{game=null;returnToLauncher\(\);const message='Minecraft could not start\. Check Java and try again\.';settle\(message,\{error:message\}\);\}\)/.exec(source);
+ assert(errorHandler,'the failure handler restores the window too');
+ // The behaviours are mutually exclusive at the call site as well: one branch each.
+ assert.match(source,/if\(settings\.exitOnLaunch===true\)setTimeout\(\(\)=>\{ if\(game\)\{ app\.quit\(\); \} \},800\);/);
+ assert.match(source,/else if\(settings\.trayOnLaunch===true\)setTimeout\(\(\)=>\{ if\(game\)void leaveTheWay\(\); \},800\);/);
+ // A hidden window is not a closed one, so the existing quit-on-last-window rule is
+ // untouched and does not fire while the launcher is in the tray.
+ assert.match(source,/app\.on\('window-all-closed',\(\)=>\{if\(process\.platform!=='darwin'\)app\.quit\(\);\}\);/);
+ // Linux detection asks the session bus for a StatusNotifier host and treats every
+ // failure as "no host", so a missing dbus-send is a kept window, not a hidden one.
+ assert.match(source,/org\.kde\.StatusNotifierWatcher/);
+ assert.match(source,/if\(!process\.env\.DBUS_SESSION_BUS_ADDRESS\)return Promise\.resolve\(false\)/);
+ assert.match(source,/if\(process\.platform!=='linux'\)return Promise\.resolve\(true\)/);
+ assert.match(source,/resolve\(!error&&\/\\btrue\\b\/\.test\(String\(stdout\)\)\)/);
+ // The Settings dialog reads the pair from the broadcast, which now carries it.
+ assert.match(source,/servers:serversState\(\),settings,launcherUpdate/,'the state broadcast publishes settings');
+ assert.match(source,/accounts:savedCompanyAccounts\(\),settings,totalMemoryMB/,'and so does the status the dialog reads on open');
+ // No new privileged surface: the preferences ride on the existing settings channel.
+ const preload=await fs.readFile(path.join(__dirname,'../../desktop/preload.cjs'),'utf8');
+ assert.match(preload,/saveSettings:invoke\('settings'\)/);
+ assert.equal(/tray/i.test(preload),false,'the renderer gets no tray channel of its own');
+});

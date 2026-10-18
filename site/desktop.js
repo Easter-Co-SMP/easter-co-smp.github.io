@@ -108,6 +108,7 @@
  <form class="desktop-settings">
  <label>Server address<select name="serverSelect"></select><input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><p class="desktop-settings-note" hidden></p>
  <label class="desktop-preference"><span>Close launcher when the game starts</span><input type="checkbox" name="exitOnLaunch"></label>
+ <label class="desktop-preference"><span>Minimise launcher to the system tray when the game starts</span><input type="checkbox" name="trayOnLaunch"></label>
  <details class="desktop-advanced"><summary>Advanced settings</summary><p class="desktop-advanced-note">Memory is shared with other apps. Increase it only if Minecraft needs more. Changes apply the next time you launch.</p>
  <label>Memory allocated to the game<output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"><small class="desktop-memory-detail"></small></label>
  <label>Java executable<small>Leave empty to use the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label></details>
@@ -406,8 +407,14 @@
    $('.desktop-memory-detail').textContent=memoryLabel(memory.value)+' of '+memoryLabel(memory.max)+' this machine can give the game.';
   }
   if(!settingsDirty&&typeof settings?.javaPath==='string')settingsForm.elements.javaPath.value=settings.javaPath;
-  if(!settingsDirty)for(const name of ['exitOnLaunch'])
-   settingsForm.elements[name].checked=settings?.[name]!==false;
+  if(!settingsDirty){
+   // The two launch behaviours are linked: the launcher closes, minimises to the tray
+   // or stays, and exactly one of the pair can be on. A state that somehow carried both
+   // never leaves the dialog showing both.
+   const exitOnLaunch=settings?.exitOnLaunch===true;
+   settingsForm.elements.exitOnLaunch.checked=exitOnLaunch;
+   settingsForm.elements.trayOnLaunch.checked=!exitOnLaunch&&settings?.trayOnLaunch===true;
+  }
   renderStartup(current);
   renderProfile(current);
   companyAuth?.render(current);
@@ -625,6 +632,14 @@
   else{serverField.hidden=true;serverField.value=serverSelect.value;showServerNote(publishedServers(current||{}).find(server=>server.address===serverSelect.value));}
  };
  settingsForm.addEventListener('input',()=>{settingsDirty=true;settingsResult.textContent='';});
+ // Linked launch behaviours: ticking one unticks the other here, so the dialog can never
+ // leave both on. The main process enforces the same rule, and it is the one that decides.
+ const launchToggles={exitOnLaunch:settingsForm.elements.exitOnLaunch,trayOnLaunch:settingsForm.elements.trayOnLaunch};
+ for(const [name,toggle] of Object.entries(launchToggles))toggle.onchange=()=>{
+  settingsDirty=true;settingsResult.textContent='';
+  if(!toggle.checked)return;
+  for(const [other,input] of Object.entries(launchToggles))if(other!==name)input.checked=false;
+ };
  memory.oninput=()=>{$('#memory-value').textContent=memoryLabel(memory.value);
   $('.desktop-memory-detail').textContent=memoryLabel(memory.value)+' of '+memoryLabel(memory.max)+' this machine can give the game.';};
  let savingSettings=false;
@@ -635,7 +650,10 @@
   savingSettings=true;$('[data-save-settings]').disabled=true;
   try{
    settings=await desktop.saveSettings({memoryMB:Number(memory.value),server,javaPath:settingsForm.elements.javaPath.value,
-    exitOnLaunch:settingsForm.elements.exitOnLaunch.checked});
+    exitOnLaunch:settingsForm.elements.exitOnLaunch.checked,trayOnLaunch:settingsForm.elements.trayOnLaunch.checked});
+   // The save is the newest word on the settings, ahead of the state on screen, so the
+   // dialog reads back what the main process stored rather than the broadcast before it.
+   if(current)current={...current,settings};
    settingsDirty=false;settingsResult.textContent='Saved.';
   }catch(error){settingsResult.textContent=error&&error.message?error.message:String(error);}
   finally{savingSettings=false;$('[data-save-settings]').disabled=false;}

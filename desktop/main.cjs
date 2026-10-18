@@ -1,12 +1,12 @@
 'use strict';
-const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog,screen}=require('electron');
-const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{pathToFileURL}=require('node:url');
+const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog,screen,Tray,Menu}=require('electron');
+const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{pathToFileURL}=require('node:url'),{execFile}=require('node:child_process');
 const {MicrosoftAuth,DEFAULT_CLIENT_ID}=require('./auth.cjs');
 const {AccountClient,AccountError,publicAccount,companySession,storedSession,companyVaultName}=require('./accounts.cjs');
 const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation,serverList}=require('./config.cjs');
 const vault=require('./vault.cjs');
 const identity=require('./identity.cjs');
-const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,includeGraphicsValue}=require('./security.cjs');
+const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,migrateLaunchPreferences,launchBehaviour,includeGraphicsValue}=require('./security.cjs');
 const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
 const {renderOffload}=require('./hardware.cjs');
 const {detectHardware,installedQuality,applyDisplayDefaults,displayGuiScale,displayPhysicalPixels}=require('./hardware.cjs');
@@ -33,7 +33,7 @@ const companyFile=()=>path.join(configRoot(),companyVaultName());
 const clientId=process.env.EASTER_MICROSOFT_CLIENT_ID||DEFAULT_CLIENT_ID;
 const auth=new MicrosoftAuth({clientId});
 const accounts=new AccountClient({baseUrl:apiOrigin(),client:'launcher/'+APP_VERSION});
-const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:true};
+const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false};
 // The launcher state contract in doc/launcher-states.md. `phase` and `progress`
 // are the live pipeline's; everything else is derived from the installed client,
 // the account session and the saved settings on every broadcast, so no view has to
@@ -97,7 +97,7 @@ function notify(patch={}){
  else if(identity.access(session)==='profile-required')actions.push('setup-profile');
  else if(identity.access(session)==='unknown')actions.push('check-access');
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:!accountWorking&&companyReady()&&microsoftConnected()&&!accessChecking&&identity.access(session)==='owned'&&startupReady&&!backgroundUpdate&&!['downloading','paused','verifying','installing','updating','checking-client'].includes(phase)&&canPlay(install,profile),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:!accountWorking&&companyReady()&&microsoftConnected()&&!accessChecking&&identity.access(session)==='owned'&&startupReady&&!backgroundUpdate&&!['downloading','paused','verifying','installing','updating','checking-client'].includes(phase)&&canPlay(install,profile),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),settings,launcherUpdate}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
@@ -321,6 +321,82 @@ async function ensureClient(){
  const checked=await runUpdate();
  return checked?.result||null;
 }
+// ---- System tray ------------------------------------------------------------
+// The tray is not a second way to run the launcher: it exists for one moment, the one
+// where the launcher has started the game and has stepped aside instead of closing.
+// It is created when that happens, kept while the game runs, and destroyed when the
+// window comes back, so the launcher never leaves an icon behind after the game.
+let tray=null,trayHidden=false;
+function destroyTray(){
+ if(!tray)return;
+ try{tray.destroy();}catch{}
+ tray=null;
+}
+function showLauncher(){
+ if(!window||window.isDestroyed()){createWindow();return;}
+ if(window.isMinimized())window.restore();
+ window.show();window.focus();
+}
+function ensureTray(){
+ if(tray)return true;
+ try{
+  tray=new Tray(path.join(__dirname,'launcher-icon.png'));
+  tray.setToolTip('Easter Co. Launcher');
+  // Quit closes the launcher and nothing else. The game it started keeps running,
+  // exactly as the launcher quitting behind a game does with exitOnLaunch.
+  tray.setContextMenu(Menu.buildFromTemplate([
+   {label:'Open launcher',click:()=>showLauncher()},
+   {type:'separator'},
+   {label:'Quit',click:()=>app.quit()}
+  ]));
+  tray.on('click',()=>showLauncher());
+  return true;
+ }catch{try{tray?.destroy();}catch{}tray=null;return false;}
+}
+// Whether a tray icon would actually reach a panel. Electron creates the Tray object
+// even where nothing will ever draw it, so on Linux the icon is only taken as real when
+// a StatusNotifier host owns the watcher name: KDE, the GNOME appindicator extension and
+// the XFCE/Cinnamon panels register it. A bare X server, a headless seat, a compositor
+// with no panel, and the XEmbed tray Owen's i3/polybar session uses, do not — there the
+// launcher steps aside without an icon and says how to come back. Windows and macOS
+// always give the application a tray, so they need no probe. dbus-send is asked once, on
+// the session bus, with every failure treated as "no host" rather than assumed.
+function trayHostAvailable(){
+ if(!app.isPackaged&&process.env.EASTER_TEST_TRAY==='0')return Promise.resolve(false);
+ if(!app.isPackaged&&process.env.EASTER_TEST_TRAY==='1')return Promise.resolve(true);
+ if(process.platform!=='linux')return Promise.resolve(true);
+ if(!process.env.DBUS_SESSION_BUS_ADDRESS)return Promise.resolve(false);
+ return new Promise(resolve=>{
+  execFile('dbus-send',['--session','--print-reply','--dest=org.freedesktop.DBus','/org/freedesktop/DBus','org.freedesktop.DBus.NameHasOwner','string:org.kde.StatusNotifierWatcher'],{timeout:2000},(error,stdout)=>{
+   resolve(!error&&/\btrue\b/.test(String(stdout)));
+  });
+ });
+}
+// The one place the launch-time preference is carried out. The decision itself is in
+// security.cjs; this only does what it says. The launcher always steps aside when the
+// setting is on: with a tray icon it offers Open launcher and Quit, and where no icon can
+// be drawn it says, in one sentence, that starting the launcher again is the way back —
+// which is the second-instance handler below, so the window is never lost.
+async function leaveTheWay(){
+ const planned=launchBehaviour(settings,{trayAvailable:true});
+ if(planned.action==='quit'){if(game)app.quit();return;}
+ if(planned.action!=='tray')return;
+ const available=await trayHostAvailable();
+ // The probe is not instant: if the game ended while the desktop was being asked, there
+ // is nothing left to step aside for, and no icon is left behind.
+ if(!game)return;
+ const decision=launchBehaviour(settings,{trayAvailable:available&&ensureTray()});
+ trayHidden=true;
+ if(decision.message)notify({message:decision.message,error:decision.message});
+ if(window&&!window.isDestroyed())window.hide();
+}
+// The game has ended, or never started: the launcher comes back and the tray goes away.
+function returnToLauncher(){
+ destroyTray();
+ if(!trayHidden)return;
+ trayHidden=false;
+ showLauncher();
+}
 async function play(){
  if(!companyReady()){settle(company?'Create your Easter Company password to finish setup.':'Sign in to your Easter Company account first.');return {requiresAccount:true};}
  if(!microsoftConnected()){settle('Sign in with the Microsoft account linked to '+company.account.companyId+'.');return {requiresMicrosoft:true};}
@@ -347,11 +423,14 @@ async function play(){
  game=child;
  // Do not store launch arguments or raw stdout; Minecraft writes its own latest.log.
  child.stdout?.on('data',()=>{});child.stderr?.on('data',()=>{});
- child.once('error',()=>{game=null;const message='Minecraft could not start. Check Java and try again.';settle(message,{error:message});});
- child.once('exit',code=>{game=null;const message=code===0?'Minecraft closed. Ready to play.':'Minecraft closed with code '+code+'. Its log is in the client folder.';settle(message,{error:code===0?null:message});});
+ child.once('error',()=>{game=null;returnToLauncher();const message='Minecraft could not start. Check Java and try again.';settle(message,{error:message});});
+ child.once('exit',code=>{game=null;returnToLauncher();const message=code===0?'Minecraft closed. Ready to play.':'Minecraft closed with code '+code+'. Its log is in the client folder.';settle(message,{error:code===0?null:message});});
  notify({phase:'running',message:'Minecraft is running. Your map stays right here.',progress:null});
  // Owen's setting: the launcher is a doorway, so it closes behind the game it started.
- if(settings.exitOnLaunch!==false)setTimeout(()=>{ if(game){ app.quit(); } },800);
+ if(settings.exitOnLaunch===true)setTimeout(()=>{ if(game){ app.quit(); } },800);
+ // The linked alternative: it steps into the system tray instead of closing, and comes
+ // back when the game ends. Never both — cleanSettings has already resolved the pair.
+ else if(settings.trayOnLaunch===true)setTimeout(()=>{ if(game)void leaveTheWay(); },800);
 }
 function registerIPC(){
  const handle=(name,fn)=>ipcMain.handle('launcher:'+name,async(event,...args)=>{
@@ -594,18 +673,37 @@ async function detectGraphicsHardware(){
  return hardware;
 }
 if(instance){
- app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.focus();}});
+ app.on('second-instance',()=>{
+  // Starting the launcher again is the way back to a window that stepped aside,
+  // whether it is behind a tray icon or hidden on a desktop that has none. The game
+  // shortcut uses this same path.
+  if(!window||window.isDestroyed()){createWindow();return;}
+  if(window.isMinimized())window.restore();
+  window.show();window.focus();
+ });
  app.whenReady().then(async()=>{
   await fs.mkdir(configRoot(),{recursive:true});
   // The machine's answer is needed before anything reads the saved settings, and
   // before the first state is broadcast, so no view ever sees a missing default.
   await detectGraphicsHardware();
-  let stored={};
-  try{stored=JSON.parse(await fs.readFile(settingsFile(),'utf8'));}catch{}
+  let stored={},savedFile=false;
+  try{stored=JSON.parse(await fs.readFile(settingsFile(),'utf8'));savedFile=true;}catch{}
   try{settings={...defaultSettings,...cleanSettings(stored,Math.floor(os.totalmem()/1024/1024))};}catch{settings={...defaultSettings};}
   // The saved location is a path this launcher wrote itself after the picker
   // validated it. It is never taken from anywhere else.
   if(typeof stored.location==='string'&&path.isAbsolute(stored.location))settings.location=path.resolve(stored.location);
+  // Owen's one-time launch-behaviour migration, and the only rewrite of a saved settings
+  // file this launcher does on its own. A file written before trayOnLaunch existed came
+  // from a build whose default was to close the launcher behind the game, so it cannot say
+  // whether that was ever chosen — both household machines carry the old default
+  // verbatim. The pair resolves to today's defaults, both off, and the file is written
+  // back once with the field present: that write is what makes this happen once. After
+  // it, the file is the player's own record and is never rewritten here again.
+  const migration=migrateLaunchPreferences(savedFile?stored:null);
+  if(migration.migrated){
+   settings={...settings,exitOnLaunch:migration.exitOnLaunch,trayOnLaunch:migration.trayOnLaunch};
+   await atomicJSON(settingsFile(),stored&&stored.graphicsChosen===true?{...settings,graphicsChosen:true}:settings);
+  }
   // First run: the machine decides, and the decision is persisted immediately.
   // Afterwards the saved choice is the player's and is never re-decided — not even
   // on a machine where the GPU has changed since.
@@ -641,5 +739,5 @@ if(instance){
  });
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
  app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
- app.on('before-quit',()=>{controller?.abort();control?.cancel();});
+ app.on('before-quit',()=>{controller?.abort();control?.cancel();destroyTray();});
 }

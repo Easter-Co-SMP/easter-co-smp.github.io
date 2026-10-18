@@ -22,7 +22,7 @@ test('only safe app paths and HTTPS external links are accepted',()=>{
  const main={url:'easter://easter/'};assert(trustedFrame({senderFrame:main,sender:{mainFrame:main}}));assert(!trustedFrame({senderFrame:{url:'easter://easter/'},sender:{mainFrame:main}}));
 });
 test('settings reject command strings; public account view omits all tokens',()=>{
- assert.deepEqual(cleanSettings({memoryMB:4096,server:'play.example.com:25565',javaPath:''}),{memoryMB:4096,server:'play.example.com:25565',javaPath:'',autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:true});
+ assert.deepEqual(cleanSettings({memoryMB:4096,server:'play.example.com:25565',javaPath:''}),{memoryMB:4096,server:'play.example.com:25565',javaPath:'',autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false});
  // Update opt-outs, including legacy false values, cannot disable mandatory updates.
  assert.deepEqual(
   (({autoUpdateLauncher,autoUpdateGame,exitOnLaunch})=>({autoUpdateLauncher,autoUpdateGame,exitOnLaunch}))(
@@ -31,7 +31,7 @@ test('settings reject command strings; public account view omits all tokens',()=
  assert.deepEqual(
   (({autoUpdateLauncher,autoUpdateGame,exitOnLaunch})=>({autoUpdateLauncher,autoUpdateGame,exitOnLaunch}))(
    cleanSettings({memoryMB:4096,server:'',autoUpdateLauncher:'yes',autoUpdateGame:0,exitOnLaunch:null})),
-  {autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:true});
+  {autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false});
  for(const server of ['host;rm -rf /','$(command)','server:65536','--argument'])assert.throws(()=>cleanSettings({memoryMB:4096,server}));
  assert.throws(()=>cleanSettings({memoryMB:90000,server:''}));assert.throws(()=>cleanSettings({memoryMB:4096,server:'',javaPath:'/bin/bash'}));
  const profile=publicProfile({profile:{id:'test',name:'Captain',accessToken:'private'},accessToken:'secret'});assert.deepEqual(profile,{id:'test',name:'Captain',skin:null});
