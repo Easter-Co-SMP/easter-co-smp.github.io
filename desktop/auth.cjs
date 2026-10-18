@@ -39,27 +39,36 @@ class AuthError extends Error{constructor(message,code,step){super(message);this
 // Every sentence is free of the word "token" on purpose: main.cjs's safeError() replaces
 // any message that contains it with a generic refusal.
 //
-// `while` is how the step reads in a sentence about a connection that never arrived,
+// `reach` is how the step reads in a sentence about a connection that never arrived,
 // because "Xbox Live did not accept the sign-in: the connection failed" would claim a
-// refusal that never happened. Both wordings name the same step in plain words.
+// refusal that never happened. That sentence also leads the way every other sentence does
+// and names what could not be reached, so it never repeats the verb the way "sign-in
+// stopped while signing in to Xbox Live" did. It is still the same step in plain words,
+// and still one sentence per step.
 const STEPS={
- 'device-code':{title:'Microsoft sign-in',verb:'could not start',advice:'Try again.',while:'asking Microsoft for a sign-in code'},
- 'code-completion':{title:'Microsoft sign-in',verb:'did not finish',advice:'Start sign-in again.',while:'completing the Microsoft sign-in'},
- 'xbox-live':{title:'Xbox Live',verb:'did not accept the Microsoft sign-in',advice:'Try again.',while:'signing in to Xbox Live'},
- xsts:{title:'Xbox Live authorisation',verb:'did not accept the sign-in',advice:'Try again.',while:'authorising with Xbox Live'},
- minecraft:{title:'Minecraft sign-in',verb:'failed',advice:'Try again.',while:'signing in to Minecraft'},
- 'java-profile':{title:'The Java profile',verb:'could not be read',advice:'Try again.',while:'reading your Java profile'}
+ 'device-code':{title:'Microsoft sign-in',verb:'could not start',advice:'Try again.',reach:'Microsoft to ask for a sign-in code'},
+ 'code-completion':{title:'Microsoft sign-in',verb:'did not finish',advice:'Start sign-in again.',reach:'Microsoft to finish the sign-in'},
+ 'xbox-live':{title:'Xbox Live',verb:'did not accept the Microsoft sign-in',advice:'Try again.',reach:'Xbox Live'},
+ xsts:{title:'Xbox Live authorisation',verb:'did not accept the sign-in',advice:'Try again.',reach:'Xbox Live to authorise the sign-in'},
+ minecraft:{title:'Minecraft sign-in',verb:'failed',advice:'Try again.',reach:'the Minecraft service'},
+ 'java-profile':{title:'The Java profile',verb:'could not be read',advice:'Try again.',reach:'the Java profile service'}
 };
 // Kept for a step the launcher does not know, and for that alone.
 const GENERIC='Sign-in could not finish. Please try again.';
 // An Xbox Live refusal that has a cause the player can act on: the cause is what the
-// sentence says, and the number it arrived as stays on the log line for the owner.
+// sentence says, and the number it arrived as stays on the log line for the owner. Each
+// cause carries its own instruction rather than the step's shared "Try again.", because
+// retrying is the one thing that does not help with any of them: an account with no Xbox
+// profile, one in a country Xbox Live does not serve, one that has not verified its age
+// and one waiting for Microsoft Family approval all fail again the same way. Two numbers
+// word one cause, because age verification is one thing to go and finish.
+const AGE_UNVERIFIED={detail:'this Microsoft account has not completed its age verification',advice:'Finish the age verification at xbox.com, then sign in again.'};
 const XERR={
- 2148916233:'create an Xbox profile for this Microsoft account, then sign in again',
- 2148916235:'Xbox Live is unavailable for this account’s country',
- 2148916236:'complete the age verification on your Microsoft account',
- 2148916237:'complete the age verification on your Microsoft account',
- 2148916238:'this account needs Microsoft Family approval before Minecraft can connect'
+ 2148916233:{detail:'this Microsoft account does not have an Xbox profile yet',advice:'Create an Xbox profile for this account at xbox.com, then sign in again.'},
+ 2148916235:{detail:'Xbox Live is not available in this account’s country',advice:'Sign in with a Microsoft account from a country where Xbox Live is available.'},
+ 2148916236:AGE_UNVERIFIED,
+ 2148916237:AGE_UNVERIFIED,
+ 2148916238:{detail:'this account is waiting for Microsoft Family approval',advice:'Ask your Microsoft Family organiser to approve Minecraft for this account, then sign in again.'}
 };
 // Only these characters may reach a sentence or the log. A provider code is a short
 // identifier (invalid_grant, UNAUTHORIZED, XErr2148916238); anything else is dropped
@@ -72,34 +81,44 @@ function clean(value,limit=48){
 }
 // What the player is told, and never how the provider labelled it. The five answers a
 // person can tell apart stay apart: a sign-in that has expired, a refusal with an
-// explanation, a refusal without one, a service in trouble, and no answer at all.
+// explanation, a refusal without one, a service in trouble, and no answer at all. An
+// answer with a cause the player can act on also carries that cause's own instruction;
+// every other answer returns a cause only and takes the step's advice.
 function reason({status,code,xerr,unreadable,step}={}){
- if(Number.isInteger(xerr))return XERR[xerr]||'Xbox Live refused this sign-in';
+ if(Number.isInteger(xerr))return XERR[xerr]||{detail:'Xbox Live refused this sign-in'};
  const provider=clean(code);
  // A refused refresh grant is a saved sign-in that has expired; the same answer on the
  // device-code step is not, because a fresh sign-in has nothing saved behind it.
- if(provider==='invalid_grant'&&step!=='device-code')return 'your saved sign-in has expired';
- if(Number.isInteger(status)&&status>=500)return 'the sign-in service is having trouble right now';
- if(unreadable)return 'the sign-in service refused it without saying why';
- if(provider||Number.isInteger(status))return 'the sign-in service refused it';
- return 'no readable answer came back';
+ if(provider==='invalid_grant'&&step!=='device-code')return {detail:'your saved sign-in has expired'};
+ if(Number.isInteger(status)&&status>=500)return {detail:'the sign-in service is having trouble right now'};
+ if(unreadable)return {detail:'the sign-in service refused it without saying why'};
+ if(provider||Number.isInteger(status))return {detail:'the sign-in service refused it'};
+ return {detail:'no readable answer came back'};
 }
+// One sentence from a cause and, when it has one, that cause's own instruction: "Try
+// again." is advice for a refusal with no known cause, not for a cause that says what to
+// do. A plain string is still accepted as the cause alone.
 function sentence(step,detail){
  const name=STEPS[step];
  if(!name)return GENERIC;
- return name.title+' '+name.verb+': '+detail+'. '+name.advice;
+ const cause=detail&&typeof detail==='object'?detail:{detail};
+ return name.title+' '+name.verb+': '+cause.detail+'. '+(cause.advice||name.advice);
 }
 // A failure to reach anything is not a refusal: nothing was asked, so nothing refused it.
 function reachedSentence(step){
  const name=STEPS[step];
- return name?'Sign-in stopped while '+name.while+': the connection failed. Check your network and try again.':GENERIC;
+ return name?'Minecraft sign-in failed: the launcher could not reach '+name.reach+'. Check your connection and try again.':GENERIC;
 }
 // Minecraft's own refusals are worth telling apart: an unauthenticated Xbox Live session,
 // an account that may not play, an outage and rate limiting are four different answers
-// with four different things to do about them.
+// with four different things to do about them. The commonest cause of "may not play" is
+// the wrong Microsoft account signed in — an account that does not own the game says the
+// same thing as an account that cannot play it — so the sentence points at the account
+// and tells the player that owning the game on another account is the case to switch for,
+// which is something they can do, rather than telling them to check something.
 function minecraftSentence({status}={}){
  if(status===401)return 'Minecraft sign-in failed: the Xbox Live session was not accepted. Sign in again.';
- if(status===403)return 'Minecraft sign-in failed: this account may not play Minecraft: Java Edition. Check that it owns the game.';
+ if(status===403)return 'Minecraft sign-in failed: this Microsoft account may not play Minecraft: Java Edition. If you do own the game, sign in with the Microsoft account you play it with.';
  if(status===429)return 'Minecraft sign-in failed: there have been too many sign-in attempts in a short time. Wait a few minutes and try again.';
  if(Number.isInteger(status)&&status>=500)return 'Minecraft sign-in is temporarily unavailable: the service is not answering right now. Try again in a few minutes.';
  return sentence('minecraft',reason({status}));
