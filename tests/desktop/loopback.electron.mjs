@@ -21,8 +21,36 @@ const temp=await fs.mkdtemp(path.join(os.tmpdir(),'easter-loopback-test-'));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const sha256=buffer=>crypto.createHash('sha256').update(buffer).digest('hex');
 let failures=0;
-let tunedDistance=null,optionsAtRest=null;
+let tunedDistance=null,optionsAtRest=null,expectedScale=null;
 function check(condition,message){if(condition)console.log('  ok   '+message);else{failures++;console.log('  FAIL '+message);}}
+// The household's five key bindings, and vanilla's, as read off the real clients.
+const SEEDED_BINDINGS=['key_key.sneak','key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective'];
+const WANTED_BINDS={
+ 'key_key.sneak':'key.keyboard.left.control',
+ 'key_key.sprint':'key.keyboard.left.shift',
+ 'key_key.inventory':'key.keyboard.tab',
+ 'key_key.playerlist':'key.keyboard.grave.accent',
+ 'key_key.togglePerspective':'key.keyboard.r'
+};
+const VANILLA_BINDS={
+ 'key_key.sneak':'key.keyboard.left.shift',
+ 'key_key.sprint':'key.keyboard.left.control',
+ 'key_key.inventory':'key.keyboard.e',
+ 'key_key.playerlist':'key.keyboard.tab',
+ 'key_key.togglePerspective':'key.keyboard.f5'
+};
+const bindLines=binds=>Object.entries(binds).map(([key,value])=>key+':'+value);
+const boundValues=text=>{
+ const map=new Map();
+ for(const line of text.split('\n')){const index=line.indexOf(':');if(index>0)map.set(line.slice(0,index),line.slice(index+1));}
+ return map;
+};
+function checkDistinctBindings(text,label){
+ const map=boundValues(text);
+ const bound=SEEDED_BINDINGS.map(key=>[key,map.get(key)??null]);
+ const values=bound.map(([,value])=>value);
+ check(bound.every(([,value])=>typeof value==='string')&&new Set(values).size===values.length,label+': no two of the seeded actions share a key: '+JSON.stringify(bound));
+}
 
 // ---- the published fixture --------------------------------------------------
 const baseJar=Buffer.from('easter-navy-base-jar');
@@ -143,16 +171,26 @@ try{
  // that exactly as the main process applied it before the window existed.
  const seen=await page.evaluate(()=>({width:window.screen.width,height:window.screen.height,devicePixelRatio:window.devicePixelRatio,widthPx:Math.round(window.screen.width*window.devicePixelRatio),heightPx:Math.round(window.screen.height*window.devicePixelRatio)}));
  const inMain=await app.evaluate(({screen})=>{const display=screen.getPrimaryDisplay();return {width:display.size.width,height:display.size.height,scaleFactor:display.scaleFactor,widthPx:Math.round(display.size.width*display.scaleFactor),heightPx:Math.round(display.size.height*display.scaleFactor)};});
- const expectedScale=displayGuiScale(seen);
+ expectedScale=displayGuiScale(seen);
  console.log('  info the renderer read window.screen '+seen.width+'x'+seen.height+' CSS px at devicePixelRatio '+seen.devicePixelRatio+' = '+seen.widthPx+'x'+seen.heightPx+' physical; the main process read the primary display as '+inMain.width+'x'+inMain.height+' at scaleFactor '+inMain.scaleFactor+' = '+inMain.widthPx+'x'+inMain.heightPx+' physical; the rule says guiScale '+expectedScale);
  check(inMain.widthPx===seen.widthPx&&inMain.heightPx===seen.heightPx,'the physical display the main process resolved is the one the renderer is drawn on: '+JSON.stringify({main:inMain,renderer:seen}));
  check(displayGuiScale(inMain)===expectedScale,'so the launch-time answer and the renderer’s own screen agree on the rule’s result: '+expectedScale);
  check(new RegExp('^guiScale:'+expectedScale+'$','m').test(seeded),'starting the launcher seeded guiScale:'+expectedScale+', the rule applied to this display ('+seen.widthPx+'x'+seen.heightPx+' physical), into the client options.txt: '+JSON.stringify(seeded));
  check(/^fullscreen:true$/m.test(seeded),'and fullscreen:true, read back from the file');
- const expectedLines=new RegExp('^(guiScale:'+expectedScale+'|fullscreen:true)$');
+ check(/^key_key\.sneak:key\.keyboard\.left\.control$/m.test(seeded),'and crouch on Left Ctrl, the vanilla sneak key swapped with sprint');
+ check(/^key_key\.sprint:key\.keyboard\.left\.shift$/m.test(seeded),'and sprint on Left Shift, the other half of that swap');
+ check(/^key_key\.inventory:key\.keyboard\.tab$/m.test(seeded),'and inventory on tab');
+ check(/^key_key\.playerlist:key\.keyboard\.grave\.accent$/m.test(seeded),'and the player list on the grave key that frees');
+ check(/^key_key\.togglePerspective:key\.keyboard\.r$/m.test(seeded),'and third person on R');
+ console.log('  info options.txt now reads: '+JSON.stringify(seeded));
+ const expectedLines=new RegExp('^(guiScale:'+expectedScale+'|fullscreen:true|'+SEEDED_BINDINGS.map(key=>key.replace(/\./g,'\\.')+':'+WANTED_BINDS[key].replace(/\./g,'\\.')).join('|')+')$');
  check(seeded.split('\n').filter(Boolean).every(line=>expectedLines.test(line)),'and nothing else was written into it: '+JSON.stringify(seeded));
+ checkDistinctBindings(seeded,'the startup seed');
  const seedRecord=JSON.parse(await fs.readFile(displayRecordPath,'utf8'));
- check(seedRecord.schema===1&&seedRecord.values?.guiScale===String(expectedScale)&&seedRecord.values?.fullscreen==='true','the seed is remembered by its own record in the tree, with the value that was applied: '+JSON.stringify(seedRecord));
+ console.log('  info the seed record now reads: '+JSON.stringify(seedRecord));
+ check(seedRecord.schema===2,'the seed is remembered by its own record, at the schema that covers the bindings');
+ check(seedRecord.values?.guiScale===String(expectedScale)&&seedRecord.values?.fullscreen==='true','with the display values that were applied: '+JSON.stringify(seedRecord.values));
+ check(SEEDED_BINDINGS.every(key=>seedRecord.values?.[key]===WANTED_BINDS[key]),'and the five bindings that were applied: '+JSON.stringify(Object.fromEntries(SEEDED_BINDINGS.map(key=>[key,seedRecord.values?.[key]]))));
  check(await fs.readFile(path.join(clientRoot,'installed.json'),'utf8')===installedBefore,'the install marker is byte-identical: the seed did not create or race it');
  check(await fs.stat(path.join(clientRoot,'config','iris.properties')).then(()=>'present',()=>'absent')==='absent','the seed is not the graphics step: no iris.properties was written');
  check(requests.every(entry=>entry.path.startsWith('/data/')),'and the seed fetched nothing');
@@ -248,6 +286,7 @@ try{
  check(/^graphicsMode:(fancy|fast)$/m.test(options),'the client options carry a graphics mode: '+options.trim().split('\n').join(' '));
  check(new RegExp('^renderDistance:'+onState.graphics.tuned.renderDistance+'$','m').test(options),'and the render distance that was reported');
  check(new RegExp('^guiScale:'+expectedScale+'$','m').test(options)&&/^fullscreen:true$/m.test(options),'the display defaults are still there after the graphics write: guiScale:'+expectedScale);
+ check(SEEDED_BINDINGS.every(key=>new RegExp('^'+key.replace(/\./g,'\\.')+':'+WANTED_BINDS[key].replace(/\./g,'\\.')+'$','m').test(options)),'and so are the five bindings');
  check(/^enableShaders:true$/m.test(iris),'the shader loader is switched on');
  check(/^shaderPack:ComplementaryUnbound_r5\.9\.3\.zip$/m.test(iris),'and names the pack Owen chose');
  check(onState.graphics.tuned.shaders===true||onState.graphics.tuned.shaders===false,'shaders are reported as written');
@@ -288,10 +327,50 @@ try{
   check((await fs.stat(displayRecordPath)).mtimeMs===optionsAtRest.recordMtimeMs,'the seed record is written once, never again');
   check((await marker()).chunks.graphics.version==='sha256:'+sha256(graphicsV3),'and the install marker still records the chunks it had before the restart');
  }finally{await relaunch.close();}
+
+ // A tree the earlier (unreleased) build had already seeded carries a schema-1 record,
+ // which only ever promised the display pair. That tree must get exactly the two
+ // bindings added once, with the display values the player has since chosen untouched.
+ console.log('\n7. a schema-1 tree gets exactly the five bindings added, once');
+ const appliedAt='2026-10-17T09:00:00.000Z';
+ const beforeUpgrade='version:4903\nfullscreen:false\nguiScale:1\n'+bindLines(VANILLA_BINDS).join('\n')+'\n';
+ await fs.writeFile(optionsPath,beforeUpgrade);
+ await fs.writeFile(displayRecordPath,JSON.stringify({schema:1,values:{guiScale:String(expectedScale),fullscreen:'true'},appliedAt},null,2)+'\n',{mode:0o600});
+ let upgraded=null,upgradedRecord=null,upgradeOptionsStat=null,upgradeRecordStat=null;
+ const upgrade=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'desktop/main.cjs')],env:launchEnv});
+ try{
+  const upgradePage=await upgrade.firstWindow();
+  upgradePage.setDefaultTimeout(20000);
+  await upgradePage.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
+  await sleep(2000);
+  upgraded=await fs.readFile(optionsPath,'utf8');
+  console.log('  info options.txt now reads: '+JSON.stringify(upgraded));
+  upgradedRecord=JSON.parse(await fs.readFile(displayRecordPath,'utf8'));
+  console.log('  info the seed record now reads: '+JSON.stringify(upgradedRecord));
+  upgradeOptionsStat=await fs.stat(optionsPath);
+  upgradeRecordStat=await fs.stat(displayRecordPath);
+ }finally{await upgrade.close();}
+ check(upgraded===SEEDED_BINDINGS.reduce((text,key)=>text.replace(key+':'+VANILLA_BINDS[key],key+':'+WANTED_BINDS[key]),beforeUpgrade),'exactly the five bindings moved and every other line is unchanged, the player’s own guiScale:1 and fullscreen:false included');
+ checkDistinctBindings(upgraded,'the schema-1 upgrade');
+ check(upgradedRecord.schema===2,'the record is raised to the schema that covers the bindings');
+ check(upgradedRecord.appliedAt===appliedAt,'and keeps the time of the seed that first wrote it');
+ check(typeof upgradedRecord.upgradedAt==='string','recording when it was raised');
+ check(SEEDED_BINDINGS.every(key=>upgradedRecord.values?.[key]===WANTED_BINDS[key]),'with the five bindings it applied added to its values');
+ // One more start of the real app: the upgrade happened once and writes nothing again.
+ const settle=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'desktop/main.cjs')],env:launchEnv});
+ try{
+  const settlePage=await settle.firstWindow();
+  settlePage.setDefaultTimeout(20000);
+  await settlePage.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
+  await sleep(2000);
+  check(await fs.readFile(optionsPath,'utf8')===upgraded,'a further launch leaves the upgraded options.txt byte-identical');
+  check((await fs.stat(optionsPath)).mtimeMs===upgradeOptionsStat.mtimeMs,'and does not touch it');
+  check((await fs.stat(displayRecordPath)).mtimeMs===upgradeRecordStat.mtimeMs,'nor the record it raised');
+ }finally{await settle.close();}
 }finally{
  server.close();
  await fs.rm(temp,{recursive:true,force:true});
 }
 
-console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for, from its startup path on an already-installed tree and wrote nothing on the second run, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, and applied the enhanced graphics toggle in both directions by writing the client\'s own quality files':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
+console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the household bindings: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key and third person on R, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-1 tree with exactly the five bindings (inventory and the player list together, so no two actions share tab) and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, and applied the enhanced graphics toggle in both directions by writing the client\'s own quality files':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
 process.exitCode=failures===0?0:1;

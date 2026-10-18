@@ -552,23 +552,56 @@ function displayPhysicalPixels(display){
 // Owen's goal: a new player's first launch is already fullscreen at a GUI scale of 2.
 // Two keys in the vanilla client's own options.txt carry that — the GUI scale the
 // display asked for above, and fullscreen — and they are seeded once per client tree.
-// The first seed writes both values whether or not the game has
-// written options.txt before, because the game writes every key on its first exit and
-// a tree that has already been played would otherwise never see them. A small record
-// inside the same app-owned tree remembers that the seed happened, so after it exists
-// a key that is still there belongs to the player and is never rewritten; the only
-// thing ever written again is a recorded key that has gone missing (options.txt
-// deleted or truncated). The record is its own dotfile and never `installed.json`,
-// which the install pipeline rewrites from a record it read earlier: a separate file
-// cannot race that write. Like the quality files, this refuses a tree without the
-// launcher's marker.
-const DISPLAY_DEFAULTS={guiScale:'2',fullscreen:'true'};
+// The same seed also carries the household's key bindings: sprint on Left Shift and
+// crouch on Left Ctrl, which is the vanilla pair SWAPPED on purpose (see below).
+// The first seed writes every value whether or not the game has written options.txt
+// before, because the game writes every key on its first exit and a tree that has
+// already been played would otherwise never see them. A small record inside the same
+// app-owned tree remembers that the seed happened, so after it exists a key that is
+// still there belongs to the player and is never rewritten; the only thing ever
+// written again is a recorded key that has gone missing (options.txt deleted or
+// truncated), or a key a newer schema of the record took responsibility for. The
+// record is its own dotfile and never `installed.json`, which the install pipeline
+// rewrites from a record it read earlier: a separate file cannot race that write.
+// Like the quality files, this refuses a tree without the launcher's marker.
+//
+// The key bindings are the swap Owen asked for on 2026-10-18 after the display pair
+// shipped, so they are a second schema of the same record rather than a new mechanism:
+// schema 1 covered the display pair alone, schema 2 adds the two bindings, and a
+// record's schema says which keys the launcher has already had its say over. A tree
+// still holding a schema-1 record gets exactly the two bindings written once — its
+// bindings on disk are the vanilla ones the game wrote, never a decision about the
+// launcher's defaults, while its guiScale and fullscreen, player-changed or not, are
+// left exactly as they are. From schema 2 on, a present key is the player's.
+const DISPLAY_DEFAULTS={
+ guiScale:'2',
+ fullscreen:'true',
+ // Vanilla binds sneak to Left Shift and sprint to Left Ctrl. The household plays the
+ // other way round, as most other games do, so the launcher seeds this pair swapped.
+ 'key_key.sneak':'key.keyboard.left.control',
+ 'key_key.sprint':'key.keyboard.left.shift',
+ // Owen's own controls, read off his client: inventory on tab, the player list on the
+ // grave/accent key it displaces, and third person on R instead of vanilla's F5.
+ 'key_key.inventory':'key.keyboard.tab',
+ 'key_key.playerlist':'key.keyboard.grave.accent',
+ 'key_key.togglePerspective':'key.keyboard.r'
+};
 const DISPLAY_RECORD='.easter-client-display';
+// Bindings that have to land together. Inventory takes tab, which is vanilla's player
+// list key, so applying one without the other would leave two actions on one key. A
+// group is written whenever one of its members is: a member the player is already
+// carrying is only written when its present value is the one a sibling is taking.
+const DISPLAY_KEY_GROUPS=[['key_key.inventory','key_key.playerlist']];
+// What each schema of the record added: the display pair Owen asked for first, then the
+// five key bindings he added afterwards. A record at schema N has had its say over
+// everything up to N, and never over a later one.
+const DISPLAY_SCHEMA_KEYS={1:['guiScale','fullscreen'],2:['key_key.sneak','key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective']};
+const DISPLAY_RECORD_SCHEMA=2;
 // The range this launcher is willing to seed: 1 to 4, the ladder's bottom and its own
 // ceiling. Anything outside it is not a scale the launcher decided, so the documented
 // ordinary-display default is written instead of passing the value through.
 const GUI_SCALE_RANGE={min:1,max:4};
-// What the first seed writes: Owen's two defaults with the scale this display asked
+// What the first seed writes: Owen's four defaults with the scale this display asked
 // for. An answer that is not a usable scale is not invented into the file - the
 // documented fallback of 2 is written instead, so a broken screen probe costs the
 // ordinary-display default and nothing else.
@@ -576,6 +609,22 @@ function displayDefaultValues(guiScale){
  const number=Number(guiScale);
  const fit=Number.isInteger(number)&&number>=GUI_SCALE_RANGE.min&&number<=GUI_SCALE_RANGE.max?String(number):DISPLAY_DEFAULTS.guiScale;
  return {...DISPLAY_DEFAULTS,guiScale:fit};
+}
+// A record with no schema, or one that cannot be read as a positive integer, is read
+// as the first schema: the oldest meaning this launcher ever wrote. A schema this
+// build does not know is left alone rather than pulled back down to its own.
+function displayRecordSchema(record){
+ const schema=Number(record?.schema);
+ return Number.isInteger(schema)&&schema>0?schema:1;
+}
+// The keys a record of this schema never took responsibility for: what a newer schema
+// added. Those are the only keys an upgrade may write over, because nothing the
+// launcher decided is on disk for them yet.
+function displayKeysUncovered(record){
+ const schema=displayRecordSchema(record);
+ const keys=[];
+ for(const [added,names] of Object.entries(DISPLAY_SCHEMA_KEYS))if(Number(added)>schema)keys.push(...names);
+ return keys;
 }
 async function readDisplayRecord(file){
  try{
@@ -600,18 +649,39 @@ async function applyDisplayDefaults(root,{marker='.easter-client',record=DISPLAY
  const remembered=await readDisplayRecord(recordFile);
  const text=await readText(optionsFile);
  const existing=parseProperties(text??'');
+ const uncovered=new Set(remembered?displayKeysUncovered(remembered):[]);
+ // The value a key is written with: what this tree was actually seeded with, or the
+ // default when the record has never covered it.
+ const valueFor=key=>typeof remembered?.values?.[key]==='string'&&remembered.values[key]!==''?remembered.values[key]:defaults[key];
  const wanted={};
- for(const [key,fallback] of Object.entries(defaults)){
-  const value=typeof remembered?.values?.[key]==='string'&&remembered.values[key]!==''?remembered.values[key]:fallback;
-  if(!remembered||!existing.has(key))wanted[key]=value;
+ for(const key of Object.keys(defaults)){
+  // A first seed writes everything; an upgrade writes only the keys its schema never
+  // covered; after that the only write left is repairing a recorded key that is gone.
+  if(!remembered||uncovered.has(key)||!existing.has(key))wanted[key]=valueFor(key);
  }
- if(!Object.keys(wanted).length)return {optionsFile,recordFile,written:false,firstSeed:false,keys:[]};
+ // Two actions may never end up on one key because only half of a group was applied.
+ // A sibling the player is carrying stays theirs unless its present value is exactly
+ // the one a member is taking, which is the collision the group exists to prevent.
+ for(const group of DISPLAY_KEY_GROUPS){
+  const moving=new Set(group.filter(key=>key in wanted));
+  if(!moving.size)continue;
+  const taken=new Set([...moving].map(key=>wanted[key]));
+  for(const key of group){
+   if(key in wanted||!existing.has(key)||!taken.has(existing.get(key)))continue;
+   wanted[key]=valueFor(key);
+  }
+ }
+ if(!Object.keys(wanted).length)return {optionsFile,recordFile,written:false,firstSeed:false,upgraded:false,keys:[]};
  await fs.writeFile(optionsFile,mergeProperties(text??'',wanted),{mode:0o600});
  // Written once, on the first seed, and it stores the values that were applied rather
  // than the defaults, so a repair restores what this tree was actually seeded with. A
  // repair leaves the record as it was, so a repeat run touches neither file's mtime.
- if(!remembered)await fs.writeFile(recordFile,JSON.stringify({schema:1,values:{...wanted},appliedAt:now()},null,2)+'\n',{mode:0o600});
- return {optionsFile,recordFile,written:true,firstSeed:!remembered,keys:Object.keys(wanted)};
+ if(!remembered)await fs.writeFile(recordFile,JSON.stringify({schema:DISPLAY_RECORD_SCHEMA,values:{...wanted},appliedAt:now()},null,2)+'\n',{mode:0o600});
+ // An older record is raised to this schema exactly once, keeping the values it already
+ // carries and the time of the seed that first wrote them. The tree is still seeded
+ // once; this only fills in the keys the older schema did not know about.
+ else if(uncovered.size)await fs.writeFile(recordFile,JSON.stringify({...remembered,schema:DISPLAY_RECORD_SCHEMA,values:{...remembered.values,...wanted},upgradedAt:now()},null,2)+'\n',{mode:0o600});
+ return {optionsFile,recordFile,written:true,firstSeed:!remembered,upgraded:Boolean(remembered)&&uncovered.size>0,keys:Object.keys(wanted)};
 }
 // The installed marker records what was written, so status() can report it without
 // re-reading the client on every broadcast. The record is only updated when it
@@ -646,4 +716,4 @@ async function installedQuality(root){
  const shadowDistance=Number(iris.get('shadowDistance'));
  return {renderDistance:Number.isFinite(renderDistance)?renderDistance:null,shadowDistance:Number.isFinite(shadowDistance)?shadowDistance:null,shaders:iris.get('enableShaders')==='true'};
 }
-module.exports={hex16,videoMemoryMB,busId,distinctAdapters,isDiscreteAdapter,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,gpuAdapters,drmCards,sessionDisplay,targetAdapter,pciForDriPrime,renderOffload,reportedDevices,reportedAdapter,chooseDevice,matchAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,SHADER_PACK_NAME,QUALITY_LADDER,qualitySettings,parseProperties,readProperty,mergeProperties,applyQualitySettings,recordQuality,installedQuality,tunedDigest,GUI_SCALE_LADDER,GUI_SCALE_DEFAULT,displayGuiScale,displayPhysicalPixels,displayDefaultValues,DISPLAY_DEFAULTS,DISPLAY_RECORD,applyDisplayDefaults};
+module.exports={hex16,videoMemoryMB,busId,distinctAdapters,isDiscreteAdapter,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,gpuAdapters,drmCards,sessionDisplay,targetAdapter,pciForDriPrime,renderOffload,reportedDevices,reportedAdapter,chooseDevice,matchAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,SHADER_PACK_NAME,QUALITY_LADDER,qualitySettings,parseProperties,readProperty,mergeProperties,applyQualitySettings,recordQuality,installedQuality,tunedDigest,GUI_SCALE_LADDER,GUI_SCALE_DEFAULT,displayGuiScale,displayPhysicalPixels,displayDefaultValues,DISPLAY_DEFAULTS,DISPLAY_RECORD,DISPLAY_RECORD_SCHEMA,DISPLAY_SCHEMA_KEYS,applyDisplayDefaults};

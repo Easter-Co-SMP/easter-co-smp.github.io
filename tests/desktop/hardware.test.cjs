@@ -4,7 +4,7 @@
 // network, and nothing writes outside a temporary directory.
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
-const {hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,gpuAdapters,drmCards,sessionDisplay,targetAdapter,renderOffload,pciForDriPrime,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,matchAdapter,chooseDevice,reportedDevices,reportedAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hex16,videoMemoryMB,busId,qualitySettings,parseProperties,mergeProperties,applyQualitySettings,recordQuality,installedQuality,applyDisplayDefaults,displayGuiScale,displayPhysicalPixels,displayDefaultValues,GUI_SCALE_LADDER,GUI_SCALE_DEFAULT,DISPLAY_DEFAULTS,DISPLAY_RECORD,SHADER_PACK_NAME}=require('../../desktop/hardware.cjs');
+const {hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,gpuAdapters,drmCards,sessionDisplay,targetAdapter,renderOffload,pciForDriPrime,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,matchAdapter,chooseDevice,reportedDevices,reportedAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hex16,videoMemoryMB,busId,qualitySettings,parseProperties,mergeProperties,applyQualitySettings,recordQuality,installedQuality,applyDisplayDefaults,displayGuiScale,displayPhysicalPixels,displayDefaultValues,GUI_SCALE_LADDER,GUI_SCALE_DEFAULT,DISPLAY_DEFAULTS,DISPLAY_RECORD,DISPLAY_RECORD_SCHEMA,DISPLAY_SCHEMA_KEYS,SHADER_PACK_NAME}=require('../../desktop/hardware.cjs');
 const {deriveQuality}=require('../../desktop/install.cjs');
 async function tempDir(prefix){return fs.mkdtemp(path.join(os.tmpdir(),prefix));}
 
@@ -343,35 +343,105 @@ test('a quality setting write does not create the installed marker it may not ow
 });
 
 // ---- the client's display defaults -------------------------------------------
-// Owen asked for a first launch that is already fullscreen at GUI scale 2. The two
-// keys live in options.txt, are seeded once per client tree, and are then never
-// rewritten unless a recorded key has gone missing.
+// Owen asked for a first launch that is already fullscreen at GUI scale 2, and then for
+// five key bindings set the way the household plays: sprint and crouch swapped from
+// vanilla, inventory on tab, the player list on the grave key that frees, and third
+// person on R. The seven keys live in options.txt, are seeded once per client tree, and
+// are then never rewritten unless a recorded key has gone missing or an older record
+// schema never covered it.
+const SEEDED_BINDINGS=['key_key.sneak','key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective'];
+// The values Owen verified in the real clients. Vanilla's are below them, and the two
+// differ on purpose: this is the layout the seed exists to produce.
+const WANTED_BINDS={
+ 'key_key.sneak':'key.keyboard.left.control',
+ 'key_key.sprint':'key.keyboard.left.shift',
+ 'key_key.inventory':'key.keyboard.tab',
+ 'key_key.playerlist':'key.keyboard.grave.accent',
+ 'key_key.togglePerspective':'key.keyboard.r'
+};
+const VANILLA_BINDS={
+ 'key_key.sneak':'key.keyboard.left.shift',
+ 'key_key.sprint':'key.keyboard.left.control',
+ 'key_key.inventory':'key.keyboard.e',
+ 'key_key.playerlist':'key.keyboard.tab',
+ 'key_key.togglePerspective':'key.keyboard.f5'
+};
+const bindLines=binds=>Object.entries(binds).map(([key,value])=>key+':'+value);
+const seededLines=(guiScale='2')=>['guiScale:'+guiScale,'fullscreen:true',...bindLines(WANTED_BINDS)];
+const shown=text=>text.split('\n').filter(Boolean);
+const optionsText=root=>fs.readFile(path.join(root,'options.txt'),'utf8');
+const recordText=root=>fs.readFile(path.join(root,DISPLAY_RECORD),'utf8');
+// The seven seeded actions as options.txt ended up carrying them, read from the file.
+const boundKeys=text=>{
+ const options=parseProperties(text);
+ return [...SEEDED_BINDINGS.map(key=>[key,options.get(key)??null])];
+};
+// No two actions may end up on one key: inventory takes tab, which vanilla gives the
+// player list, so the seed has to move both or neither.
+function assertDistinctBindings(text,label){
+ const bound=boundKeys(text);
+ assert.deepEqual(bound.filter(([,value])=>value===null),[],label+': every seeded action has a binding: '+JSON.stringify(bound));
+ const values=bound.map(([,value])=>value);
+ assert.equal(new Set(values).size,values.length,label+': no two seeded actions share a key: '+JSON.stringify(bound));
+}
+
 test('the display defaults are seeded once into the launcher’s client tree',async()=>{
  const dir=await tempDir('easter-display-');
  try{
   const root=path.join(dir,'minecraft');
   await fs.mkdir(root,{recursive:true});
   await fs.writeFile(path.join(root,'.easter-client'),'');
-  assert.deepEqual(DISPLAY_DEFAULTS,{guiScale:'2',fullscreen:'true'},'the values are Owen’s, exactly');
+  assert.deepEqual(DISPLAY_DEFAULTS,{guiScale:'2',fullscreen:'true',...WANTED_BINDS},'the values are Owen’s, exactly');
   assert.equal(DISPLAY_RECORD,'.easter-client-display');
+  assert.equal(DISPLAY_RECORD_SCHEMA,2,'the record covers the key bindings, not only the display pair');
   const seeded=await applyDisplayDefaults(root);
   assert.equal(seeded.written,true);
   assert.equal(seeded.firstSeed,true,'the first seed records itself');
-  assert.deepEqual(seeded.keys.sort(),['fullscreen','guiScale']);
+  assert.equal(seeded.upgraded,false,'a fresh tree is not an upgrade of anything');
+  assert.deepEqual(seeded.keys,[...new Set(seededLines().map(line=>line.split(':')[0]))],'all seven keys in one seed');
   // Read the file itself, not the intent.
-  const options=await fs.readFile(path.join(root,'options.txt'),'utf8');
-  assert.deepEqual(options.split('\n').filter(Boolean),['guiScale:2','fullscreen:true']);
+  const options=await optionsText(root);
+  assert.deepEqual(shown(options),seededLines());
   assert.equal(options.includes('\r'),false,'LF line endings');
   assert.equal((await fs.stat(path.join(root,'options.txt'))).mode&0o777,0o600,'the same mode the quality writer uses');
-  const record=JSON.parse(await fs.readFile(path.join(root,DISPLAY_RECORD),'utf8'));
-  assert.equal(record.schema,1);
-  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true'});
+  assertDistinctBindings(options,'the first seed');
+  const record=JSON.parse(await recordText(root));
+  assert.equal(record.schema,DISPLAY_RECORD_SCHEMA);
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS});
   assert.equal(typeof record.appliedAt,'string');
   assert.match(record.appliedAt,/^\d{4}-\d\d-\d\dT/);
   assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mode&0o777,0o600);
   // The install pipeline owns installed.json; a settings write never creates it.
   assert.equal(await fs.stat(path.join(root,'installed.json')).then(()=>'present',()=>'absent'),'absent');
   assert.equal(await fs.stat(path.join(root,'config','iris.properties')).then(()=>'present',()=>'absent'),'absent','display defaults are not the graphics step');
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('the seeded bindings are the household layout, not vanilla’s',async()=>{
+ // The swap is the feature, so it is asserted against the literals read off the real
+ // clients rather than against the constants that produce them.
+ assert.equal(DISPLAY_DEFAULTS['key_key.sneak'],'key.keyboard.left.control');
+ assert.equal(DISPLAY_DEFAULTS['key_key.sprint'],'key.keyboard.left.shift');
+ assert.equal(WANTED_BINDS['key_key.sneak'],VANILLA_BINDS['key_key.sprint'],'crouch takes sprint’s vanilla key');
+ assert.equal(WANTED_BINDS['key_key.sprint'],VANILLA_BINDS['key_key.sneak'],'and sprint takes crouch’s');
+ assert.equal(WANTED_BINDS['key_key.inventory'],'key.keyboard.tab','inventory takes the player list’s vanilla key');
+ assert.equal(VANILLA_BINDS['key_key.playerlist'],'key.keyboard.tab','which is exactly why the player list has to move with it');
+ assert.equal(WANTED_BINDS['key_key.playerlist'],'key.keyboard.grave.accent');
+ assert.equal(WANTED_BINDS['key_key.togglePerspective'],'key.keyboard.r','third person moves off vanilla’s F5');
+ for(const [key,value] of Object.entries(WANTED_BINDS))assert.equal(DISPLAY_DEFAULTS[key],value,key+' is seeded as Owen’s client has it');
+ const dir=await tempDir('easter-display-swap-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  await applyDisplayDefaults(root);
+  const options=parseProperties(await optionsText(root));
+  assert.equal(options.get('key_key.sneak'),'key.keyboard.left.control','crouch is on Left Ctrl');
+  assert.equal(options.get('key_key.sprint'),'key.keyboard.left.shift','sprint is on Left Shift');
+  assert.equal(options.get('key_key.inventory'),'key.keyboard.tab');
+  assert.equal(options.get('key_key.playerlist'),'key.keyboard.grave.accent');
+  assert.equal(options.get('key_key.togglePerspective'),'key.keyboard.r');
+  assertDistinctBindings(await optionsText(root),'the swap');
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
@@ -385,74 +455,197 @@ test('a tree that has already been played is seeded once, and a key the player c
   await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\nguiScale:4\nfov:0.5\nrenderDistance:12\n');
   const first=await applyDisplayDefaults(root);
   assert.equal(first.firstSeed,true,'an already-played tree still takes the defaults once');
-  const seeded=await fs.readFile(path.join(root,'options.txt'),'utf8');
-  assert.deepEqual(seeded.split('\n').filter(Boolean),['fullscreen:true','guiScale:2','fov:0.5','renderDistance:12'],'the two defaults win on the first seed and every other line is kept');
+  assert.deepEqual(shown(await optionsText(root)),['fullscreen:true','guiScale:2','fov:0.5','renderDistance:12',...bindLines(WANTED_BINDS)],'the seven defaults win on the first seed and every other line is kept');
   const optionsBefore=await fs.readFile(path.join(root,'options.txt'));
-  const recordBefore=await fs.readFile(path.join(root,DISPLAY_RECORD));
+  const recordBefore=await recordText(root);
   const optionsStat=await fs.stat(path.join(root,'options.txt'));
   const recordStat=await fs.stat(path.join(root,DISPLAY_RECORD));
   // A second run has nothing to do and must touch neither file.
   const second=await applyDisplayDefaults(root);
   assert.equal(second.written,false);
   assert.equal(second.firstSeed,false);
+  assert.equal(second.upgraded,false);
   assert.deepEqual(second.keys,[]);
   assert.deepEqual(await fs.readFile(path.join(root,'options.txt')),optionsBefore,'the file is byte-identical');
   assert.equal((await fs.stat(path.join(root,'options.txt'))).mtimeMs,optionsStat.mtimeMs,'and its mtime is unchanged');
-  assert.deepEqual(await fs.readFile(path.join(root,DISPLAY_RECORD)),recordBefore);
+  assert.equal(await recordText(root),recordBefore);
   assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mtimeMs,recordStat.mtimeMs,'the record is written once and never again');
   // The player plays again and turns fullscreen off in the game's own settings.
-  await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\nguiScale:2\nfov:0.75\n');
+  const playerChose='fullscreen:false\nguiScale:2\nfov:0.75\n'+bindLines(WANTED_BINDS).join('\n')+'\n';
+  await fs.writeFile(path.join(root,'options.txt'),playerChose);
   const playerStat=await fs.stat(path.join(root,'options.txt'));
   const third=await applyDisplayDefaults(root);
   assert.equal(third.written,false,'a present key is the player’s own from now on');
-  assert.equal(await fs.readFile(path.join(root,'options.txt'),'utf8'),'fullscreen:false\nguiScale:2\nfov:0.75\n','the launcher never re-decides a player’s choice');
+  assert.equal(await optionsText(root),playerChose,'the launcher never re-decides a player’s choice');
   assert.equal((await fs.stat(path.join(root,'options.txt'))).mtimeMs,playerStat.mtimeMs);
+  // The player rebinds, in the game's own controls screen, sprint back to Ctrl and the
+  // player list onto a key of their choosing. Both are theirs now.
+  const reboundText=playerChose.replace('key_key.sprint:key.keyboard.left.shift','key_key.sprint:key.keyboard.left.control').replace('key_key.playerlist:key.keyboard.grave.accent','key_key.playerlist:key.keyboard.p');
+  await fs.writeFile(path.join(root,'options.txt'),reboundText);
+  const reboundStat=await fs.stat(path.join(root,'options.txt'));
+  const rebound=await applyDisplayDefaults(root);
+  assert.equal(rebound.written,false);
+  assert.equal(await optionsText(root),reboundText,'a rebound key survives every later run');
+  assert.equal((await fs.stat(path.join(root,'options.txt'))).mtimeMs,reboundStat.mtimeMs);
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
-test('the only later seed is repair: a recorded key that went missing is written again',async()=>{
+test('the only later seed is repair: a recorded key that went missing is written again, bindings included',async()=>{
  const dir=await tempDir('easter-display-repair-');
  try{
   const root=path.join(dir,'minecraft');
   await fs.mkdir(root,{recursive:true});
   await fs.writeFile(path.join(root,'.easter-client'),'');
   await applyDisplayDefaults(root);
-  const recordBefore=await fs.readFile(path.join(root,DISPLAY_RECORD));
+  const recordBefore=await recordText(root);
   const recordStat=await fs.stat(path.join(root,DISPLAY_RECORD));
   // A truncated options.txt: the record still says this tree was seeded.
   await fs.writeFile(path.join(root,'options.txt'),'renderDistance:12\n');
   const repaired=await applyDisplayDefaults(root);
   assert.equal(repaired.written,true);
   assert.equal(repaired.firstSeed,false,'a repair is not a fresh seed');
-  assert.deepEqual(repaired.keys.sort(),['fullscreen','guiScale']);
-  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['renderDistance:12','guiScale:2','fullscreen:true'],'the missing keys are re-added and the rest is kept');
-  assert.deepEqual(await fs.readFile(path.join(root,DISPLAY_RECORD)),recordBefore,'the record describes the seed, so a repair leaves it alone');
+  assert.equal(repaired.upgraded,false,'and it is not a schema upgrade either');
+  assert.deepEqual(shown(await optionsText(root)),['renderDistance:12',...seededLines()],'the missing keys are re-added and the rest is kept');
+  assertDistinctBindings(await optionsText(root),'a full repair');
+  assert.equal(await recordText(root),recordBefore,'the record describes the seed, so a repair leaves it alone');
   assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mtimeMs,recordStat.mtimeMs);
   // One key missing, one present and player-chosen: only the missing one comes back.
   await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\n');
   const single=await applyDisplayDefaults(root);
-  assert.deepEqual(single.keys,['guiScale']);
-  assert.equal(await fs.readFile(path.join(root,'options.txt'),'utf8'),'fullscreen:false\nguiScale:2\n','the present key is untouched');
-  // options.txt deleted entirely, as a fresh profile or a botched reset would: both
-  // recorded keys come back, from the record.
+  assert.deepEqual(single.keys,['guiScale','key_key.sneak','key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective']);
+  assert.equal(await optionsText(root),'fullscreen:false\n'+seededLines().slice(0,1).join('\n')+'\n'+bindLines(WANTED_BINDS).join('\n')+'\n','the present key is untouched');
+  // A binding that goes missing is repaired from the record exactly like a display key,
+  // and a binding the player rebound meanwhile is left where they put it.
+  await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\nguiScale:2\nkey_key.sneak:key.keyboard.left.control\n');
+  const missingBind=await applyDisplayDefaults(root);
+  assert.deepEqual(missingBind.keys,['key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective']);
+  assert.match(await optionsText(root),/^key_key\.playerlist:key\.keyboard\.grave\.accent$/m,'the recorded binding came back');
+  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(WANTED_BINDS).join('\n').replace('key_key.togglePerspective:key.keyboard.r','key_key.togglePerspective:key.keyboard.f5')+'\n');
+  const reboundRepair=await applyDisplayDefaults(root);
+  assert.equal(reboundRepair.written,false,'a player’s own third-person key is not "missing", so nothing is repaired over it');
+  // options.txt deleted entirely, as a fresh profile or a botched reset would: every
+  // recorded key comes back, from the record.
   await fs.rm(path.join(root,'options.txt'));
   const recreated=await applyDisplayDefaults(root);
-  assert.deepEqual(recreated.keys.sort(),['fullscreen','guiScale']);
-  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['guiScale:2','fullscreen:true']);
+  assert.deepEqual(shown(await optionsText(root)),seededLines());
+  assertDistinctBindings(await optionsText(root),'a recreated options.txt');
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
-test('a tree without the launcher’s marker is refused and nothing is created',async()=>{
- const dir=await tempDir('easter-display-foreign-');
+test('the inventory and player list keys land together, so no two actions share tab',async()=>{
+ const dir=await tempDir('easter-display-group-');
  try{
-  // An existing ~/.minecraft, another launcher's tree: no marker, so no write.
-  const foreign=path.join(dir,'.minecraft');
-  await fs.mkdir(foreign,{recursive:true});
-  await fs.writeFile(path.join(foreign,'options.txt'),'fullscreen:false\nguiScale:4\n');
-  await assert.rejects(applyDisplayDefaults(foreign),/not the launcher/);
-  assert.equal(await fs.readFile(path.join(foreign,'options.txt'),'utf8'),'fullscreen:false\nguiScale:4\n','the file is untouched');
-  assert.deepEqual(await fs.readdir(foreign),['options.txt'],'not even the record is created');
-  await assert.rejects(applyDisplayDefaults(''),/no client folder/);
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  await applyDisplayDefaults(root);
+  // The inventory line goes missing while the player has since moved the player list to
+  // a key of their own: the repair writes inventory back on tab and leaves their key be,
+  // because nothing collides.
+  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(WANTED_BINDS).filter(line=>!line.startsWith('key_key.inventory:')).join('\n').replace('key_key.playerlist:key.keyboard.grave.accent','key_key.playerlist:key.keyboard.p')+'\n');
+  const inventoryOnly=await applyDisplayDefaults(root);
+  assert.deepEqual(inventoryOnly.keys,['key_key.inventory'],'only the missing member of the group is written');
+  assert.match(await optionsText(root),/^key_key\.playerlist:key\.keyboard\.p$/m,'the player’s own player list key is not overwritten');
+  assertDistinctBindings(await optionsText(root),'a group repair against a player-chosen sibling');
+  // The player list line goes missing and its present value is tab, which is the key the
+  // seed takes for inventory: both members are written together.
+  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(WANTED_BINDS).join('\n').replace('key_key.playerlist:key.keyboard.grave.accent','key_key.playerlist:key.keyboard.tab')+'\n');
+  const together=await applyDisplayDefaults(root);
+  assert.deepEqual(together.written,false,'both members are present and nothing is missing, so no repair runs');
+  // Now the collision that matters: inventory is missing, and the player list still sits
+  // on tab, the key inventory is about to take.
+  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\nkey_key.sneak:key.keyboard.left.control\nkey_key.sprint:key.keyboard.left.shift\nkey_key.playerlist:key.keyboard.tab\nkey_key.togglePerspective:key.keyboard.r\n');
+  const paired=await applyDisplayDefaults(root);
+  assert.deepEqual(paired.keys,['key_key.inventory','key_key.playerlist'],'inventory and the player list move together');
+  const pairedOptions=await optionsText(root);
+  assert.match(pairedOptions,/^key_key\.inventory:key\.keyboard\.tab$/m);
+  assert.match(pairedOptions,/^key_key\.playerlist:key\.keyboard\.grave\.accent$/m,'the player list was moved off the key inventory takes');
+  assertDistinctBindings(pairedOptions,'a group repair that had to break a collision');
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+// The bindings were added after the display pair had already shipped, so a tree the
+// (unreleased) earlier build had seeded carries a schema-1 record. That record only ever
+// promised the display pair, so the upgrade writes exactly the five bindings once and
+// leaves the display values, player-changed or not, where they are.
+test('a schema-1 record gets exactly the five bindings added once, and its display values left alone',async()=>{
+ const dir=await tempDir('easter-display-schema1-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  // The tree as the earlier build left it: a schema-1 record from the display-only seed,
+  // and options.txt as the game writes it, with the player's own guiScale and fullscreen
+  // and the vanilla key bindings.
+  const appliedAt='2026-10-17T09:00:00.000Z';
+  await fs.writeFile(path.join(root,DISPLAY_RECORD),JSON.stringify({schema:1,values:{guiScale:'2',fullscreen:'true'},appliedAt},null,2)+'\n',{mode:0o600});
+  const before='version:4903\nfullscreen:false\nguiScale:4\n'+bindLines(VANILLA_BINDS).join('\n')+'\nfov:0.5\n';
+  await fs.writeFile(path.join(root,'options.txt'),before);
+  const upgraded=await applyDisplayDefaults(root,{guiScale:3});
+  assert.equal(upgraded.written,true);
+  assert.equal(upgraded.firstSeed,false,'the tree was already seeded by the older schema');
+  assert.equal(upgraded.upgraded,true,'a schema-1 record is raised to this schema');
+  assert.deepEqual(upgraded.keys,SEEDED_BINDINGS,'only the keys schema 1 never covered are written');
+  const expected=before.replace('key_key.sneak:key.keyboard.left.shift','key_key.sneak:key.keyboard.left.control').replace('key_key.sprint:key.keyboard.left.control','key_key.sprint:key.keyboard.left.shift').replace('key_key.inventory:key.keyboard.e','key_key.inventory:key.keyboard.tab').replace('key_key.playerlist:key.keyboard.tab','key_key.playerlist:key.keyboard.grave.accent').replace('key_key.togglePerspective:key.keyboard.f5','key_key.togglePerspective:key.keyboard.r');
+  assert.equal(await optionsText(root),expected,'exactly the five bindings moved, in place, and every other line is byte for byte where it was');
+  assertDistinctBindings(await optionsText(root),'a schema-1 upgrade');
+  const record=JSON.parse(await recordText(root));
+  assert.equal(record.schema,2);
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS},'the values it already carried are kept, and the ones applied now are added');
+  assert.equal(record.appliedAt,appliedAt,'the original seed time is still the seed time');
+  assert.match(String(record.upgradedAt),/^\d{4}-\d\d-\d\dT/);
+  assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mode&0o777,0o600);
+  // Once only: the next run finds a schema-2 record and touches neither file.
+  const optionsStat=await fs.stat(path.join(root,'options.txt'));
+  const recordStat=await fs.stat(path.join(root,DISPLAY_RECORD));
+  const optionsAfter=await fs.readFile(path.join(root,'options.txt'));
+  const again=await applyDisplayDefaults(root,{guiScale:3});
+  assert.equal(again.written,false);
+  assert.equal(again.upgraded,false);
+  assert.deepEqual(again.keys,[]);
+  assert.deepEqual(await fs.readFile(path.join(root,'options.txt')),optionsAfter);
+  assert.equal((await fs.stat(path.join(root,'options.txt'))).mtimeMs,optionsStat.mtimeMs);
+  assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mtimeMs,recordStat.mtimeMs);
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('a schema-1 tree whose display values the player changed keeps those values through the upgrade',async()=>{
+ const dir=await tempDir('easter-display-schema1-changed-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  await fs.writeFile(path.join(root,DISPLAY_RECORD),JSON.stringify({schema:1,values:{guiScale:'2',fullscreen:'true'},appliedAt:'2026-10-17T09:00:00.000Z'},null,2)+'\n',{mode:0o600});
+  // The player moved the scale, plays windowed, and has not touched the bindings.
+  const before='fullscreen:false\nguiScale:1\n'+bindLines(VANILLA_BINDS).join('\n')+'\n';
+  await fs.writeFile(path.join(root,'options.txt'),before);
+  const upgraded=await applyDisplayDefaults(root,{guiScale:4});
+  assert.deepEqual(upgraded.keys,SEEDED_BINDINGS,'the display pair is not re-applied, however far the player moved it');
+  assert.equal(await optionsText(root),'fullscreen:false\nguiScale:1\n'+bindLines(WANTED_BINDS).join('\n')+'\n');
+  assertDistinctBindings(await optionsText(root),'a schema-1 upgrade over player-chosen display values');
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('a record from a schema this build does not know is left alone, never pulled back down',async()=>{
+ const dir=await tempDir('easter-display-schema-future-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  assert.deepEqual(DISPLAY_SCHEMA_KEYS,{1:['guiScale','fullscreen'],2:SEEDED_BINDINGS},'the documented schema table: what each version took responsibility for');
+  const future=JSON.stringify({schema:9,values:{guiScale:'2',fullscreen:'true',...WANTED_BINDS},appliedAt:'2026-10-17T09:00:00.000Z'},null,2)+'\n';
+  await fs.writeFile(path.join(root,DISPLAY_RECORD),future,{mode:0o600});
+  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(VANILLA_BINDS).join('\n')+'\n');
+  const result=await applyDisplayDefaults(root);
+  assert.equal(result.written,false,'a newer schema has already had its say over every key this build knows');
+  assert.deepEqual(result.keys,[]);
+  assert.equal(await recordText(root),future,'and the newer record is not downgraded');
+  // A record with no schema at all is the oldest meaning: the display pair only.
+  await fs.writeFile(path.join(root,DISPLAY_RECORD),JSON.stringify({values:{guiScale:'2',fullscreen:'true'}})+'\n');
+  const legacy=await applyDisplayDefaults(root);
+  assert.deepEqual(legacy.keys,SEEDED_BINDINGS,'an unversioned record is treated as schema 1');
+  assert.equal(JSON.parse(await recordText(root)).schema,2,'and is brought up to the current schema');
+  assertDistinctBindings(await optionsText(root),'an unversioned-record upgrade');
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
@@ -512,20 +705,21 @@ test('the first seed writes the GUI scale its display asked for, and the record 
   await fs.writeFile(path.join(root,'.easter-client'),'');
   const seeded=await applyDisplayDefaults(root,{guiScale:3});
   assert.equal(seeded.firstSeed,true);
-  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['guiScale:3','fullscreen:true'],'the display’s answer is what a fresh tree gets');
-  const record=JSON.parse(await fs.readFile(path.join(root,DISPLAY_RECORD),'utf8'));
-  assert.deepEqual(record.values,{guiScale:'3',fullscreen:'true'},'the record stores the value that was applied, not the fallback');
+  assert.deepEqual(shown(await optionsText(root)),seededLines('3'),'the display’s answer is what a fresh tree gets, with the same five bindings');
+  const record=JSON.parse(await recordText(root));
+  assert.deepEqual(record.values,{guiScale:'3',fullscreen:'true',...WANTED_BINDS},'the record stores the value that was applied, not the fallback');
   // A repair reuses the record, so the launcher moving to another screen cannot
   // re-decide a tree that has already been seeded.
   await fs.writeFile(path.join(root,'options.txt'),'renderDistance:12\n');
   const repaired=await applyDisplayDefaults(root,{guiScale:4});
   assert.equal(repaired.firstSeed,false);
-  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['renderDistance:12','guiScale:3','fullscreen:true'],'the recorded 3 comes back, not this display’s 4');
+  assert.deepEqual(shown(await optionsText(root)),['renderDistance:12',...seededLines('3')],'the recorded 3 comes back, not this display’s 4');
   // And a key the player moved themselves is still never rewritten.
-  await fs.writeFile(path.join(root,'options.txt'),'guiScale:1\nfullscreen:false\n');
+  const playerChose='guiScale:1\nfullscreen:false\n'+bindLines(WANTED_BINDS).join('\n')+'\n';
+  await fs.writeFile(path.join(root,'options.txt'),playerChose);
   const kept=await applyDisplayDefaults(root,{guiScale:4});
   assert.equal(kept.written,false);
-  assert.equal(await fs.readFile(path.join(root,'options.txt'),'utf8'),'guiScale:1\nfullscreen:false\n','a player’s own scale outranks every rung');
+  assert.equal(await optionsText(root),playerChose,'a player’s own scale outranks every rung');
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
@@ -541,8 +735,10 @@ test('an unusable GUI scale is never invented into the client',async()=>{
   assert.equal(displayDefaultValues(3).guiScale,'3');
   assert.equal(displayDefaultValues('4').guiScale,'4','the rule’s answer may arrive as a number or a string');
   assert.equal(displayDefaultValues(4).fullscreen,'true','fullscreen does not depend on the scale at all');
+  for(const [key,value] of Object.entries(WANTED_BINDS))assert.equal(displayDefaultValues(4)[key],value,'and neither do the bindings: '+key);
   const seeded=await applyDisplayDefaults(root,{guiScale:'nonsense'});
-  assert.deepEqual((await fs.readFile(path.join(root,'options.txt'),'utf8')).split('\n').filter(Boolean),['guiScale:2','fullscreen:true']);
-  assert.deepEqual(JSON.parse(await fs.readFile(path.join(root,DISPLAY_RECORD),'utf8')).values,{guiScale:'2',fullscreen:'true'});
+  assert.deepEqual(shown(await optionsText(root)),seededLines());
+  assert.deepEqual(JSON.parse(await recordText(root)).values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS});
+  assertDistinctBindings(await optionsText(root),'the fallback seed');
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
