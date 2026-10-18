@@ -600,6 +600,127 @@ try{
  const restored=await waitStatus(status=>status.message==='Minecraft closed. Ready to play.','the exit to settle after the tray');
  assert.equal(restored.error,null,'the exit message is the same one, with the launcher back on screen');
  await shot('tray-restored');
+ // ---- The account chooser on small windows (round-three review) -----------------------------
+ // Two findings about the same box, measured here at the three sizes this review uses.
+ //
+ // At 390 the three-line conflict refusal is painted into a chooser taller than the window: its
+ // third line — the way out — landed under the dialog's own bottom edge while the dialog sat at
+ // scrollTop 0 (a line box 521-579 against a dialog ending at 551), so it read as a sentence cut
+ // off mid-word, and nothing on screen said the box scrolls. The refusal is painted where it
+ // was — above the form, before the controls — and the dialog now scrolls to it, which leaves
+ // Sign in and Forgot your password below the fold: the order a refusal is read in.
+ //
+ // At 800x600, the launcher's own minimum window, the same refusal made the dialog exactly as
+ // tall as the window has room for, so its 28px bottom inset was 12px more than the capped box
+ // could show — scrollHeight 578 against clientHeight 566, twelve pixels of scrollbar over
+ // space nobody can see, while every element fitted inside the box.
+ //
+ // The conflict driven here is the product's own, through the real preload and the real main
+ // process: the saved-session shortcut is answered by an account service that names a different
+ // Easter Company account, which is exactly the comparison desktop/main.cjs stops on. The
+ // renderer is not stubbed, and the sentence is the account service's own.
+ const smallConflictCopy=[
+  'Sign in with the Microsoft account linked to this Easter Company account, or switch Easter Company accounts.',
+  'Nothing on your Easter Company account has changed.',
+  'Close this window first. Then open your profile at the top of the page and choose Switch Account, or Add account.'
+ ];
+ // One enrolment that answers with a different Easter Company account, armed for a single call
+ // and disarmed by it so nothing else in the suite sees a changed account service.
+ const armSmallConflict=armed=>app.evaluate(flag=>{
+  const accounts=process.mainModule&&process.mainModule.require(process.cwd()+'/desktop/accounts.cjs');
+  if(!accounts)throw Error('the account client is not reachable from the main process');
+  const client=accounts.AccountClient.prototype;
+  if(!global.__reviewConflictLogin){
+   global.__reviewConflictLogin=client.login;
+   client.login=async function(...args){
+    const signed=await global.__reviewConflictLogin.apply(this,args);
+    if(!global.__reviewConflictArmed)return signed;
+    global.__reviewConflictArmed=false;
+    return {...signed,account:{...signed.account,id:signed.account.id+1}};
+   };
+  }
+  global.__reviewConflictArmed=flag;
+  return flag;
+ },armed);
+ const smallChooser=()=>page.evaluate(()=>{
+  const dialog=document.querySelector('#desktop-company-signin');
+  const field=dialog.getBoundingClientRect();
+  const port={top:field.top+dialog.clientTop,bottom:field.top+dialog.clientTop+dialog.clientHeight};
+  const box=node=>{const rect=node.getBoundingClientRect();return {top:Math.round(rect.top),bottom:Math.round(rect.bottom)};};
+  const inside=node=>{const rect=node.getBoundingClientRect();return rect.top>=port.top-1&&rect.bottom<=port.bottom+1;};
+  // The refusal's own lines, not its box: the finding was a line cut mid-sentence at the
+  // dialog's edge, so each painted line has to be inside the box that scrolls.
+  const lines=[...dialog.querySelectorAll('.company-error p')];
+  return {dialog:{top:Math.round(field.top),bottom:Math.round(field.bottom),left:Math.round(field.left),right:Math.round(field.right)},
+   scrollport:{top:Math.round(port.top),bottom:Math.round(port.bottom)},
+   scrollTop:Math.round(dialog.scrollTop),scrollHeight:Math.round(dialog.scrollHeight),clientHeight:Math.round(dialog.clientHeight),
+   refusal:{hidden:dialog.querySelector('.company-error').hidden,lines:lines.length,boxes:lines.map(box),inside:lines.length>0&&lines.every(inside)},
+   controls:{submit:inside(dialog.querySelector('.company-submit')),recover:inside(dialog.querySelector('.company-recover'))}};
+ });
+ // Layout settles on the frame after the paint, so measure it twice in a row rather than once.
+ const settledChooser=async where=>{
+  let previous=null;
+  for(let attempt=0;attempt<200;attempt++){
+   const probe=await smallChooser();
+   if(previous&&JSON.stringify(previous)===JSON.stringify(probe))return probe;
+   previous=probe;
+   await new Promise(resolve=>setTimeout(resolve,25));
+  }
+  throw Error('the chooser never settled '+where+': '+JSON.stringify(previous));
+ };
+ const chooserDialog=page.locator('#desktop-company-signin');
+ await armSmallConflict(false);
+ const signedOut=await page.evaluate(()=>window.easterDesktop.status());
+ assert.equal(Boolean(signedOut.microsoftAccount),true,'the saved Microsoft session the chooser\'s shortcut needs is on record: '+JSON.stringify(signedOut.microsoftAccount));
+ // The one state a real main publishes while its account view is empty, which is how the hero
+ // offers Sign in again on a launcher that is already signed in. Main's own account is
+ // untouched by publishing it; the assertions below read it back through the real handler.
+ const offeredSignIn={...signedOut,account:null,companyReady:false,canPlay:false,actions:['signin'],phase:'ready',error:null,message:''};
+ const openSmallChooser=async()=>{
+  await send(offeredSignIn);
+  await page.locator('[data-desktop-play][data-action=signin]').click();
+  await chooserDialog.waitFor({state:'visible'});
+  return settledChooser('after opening it');
+ };
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  const opening=await openSmallChooser();
+  assert.equal(opening.refusal.hidden,true,'the chooser opens with no refusal at '+width+'px');
+  assert.equal(opening.scrollTop,0,'and at the top of itself at '+width+'px: '+JSON.stringify(opening.scrollTop));
+  assert(opening.scrollHeight<=opening.clientHeight+1,'a chooser with no refusal shows no scrollbar it does not need at '+width+'px: '+JSON.stringify({scrollHeight:opening.scrollHeight,clientHeight:opening.clientHeight}));
+  await shot('chooser-small-opens-at-top-'+width);
+  await armSmallConflict(true);
+  await chooserDialog.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
+  await chooserDialog.locator('.company-error').filter({hasText:smallConflictCopy[1]}).waitFor();
+  const painted=await settledChooser('after the refusal at '+width+'px');
+  assert.deepEqual(await chooserDialog.locator('.company-error p').allInnerTexts(),smallConflictCopy,'the refusal is the same three sentences, word for word, at '+width+'px');
+  assert.equal(painted.refusal.lines,3,'all three lines are painted at '+width+'px');
+  assert.equal(painted.refusal.inside,true,'and every one of them is inside the box that scrolls at '+width+'px: '+JSON.stringify(painted));
+  if(width===390){
+   assert(painted.scrollTop>0,'the dialog scrolls the refusal into view instead of leaving its last line under its own edge at '+width+'px: '+JSON.stringify(painted));
+  }else{
+   assert.equal(painted.scrollTop,0,'a chooser that already shows the whole refusal is not scrolled at '+width+'px');
+   assert.equal(painted.controls.submit,true,'Sign in stays on screen with the refusal at '+width+'px');
+   assert.equal(painted.controls.recover,true,'and so does Forgot your password at '+width+'px');
+   assert(painted.scrollHeight<=painted.clientHeight+1,'and the dialog shows no scrollbar it does not need at '+width+'px: '+JSON.stringify({scrollHeight:painted.scrollHeight,clientHeight:painted.clientHeight}));
+  }
+  await shot('chooser-small-refusal-'+width);
+  await page.keyboard.press('Escape');
+  await chooserDialog.waitFor({state:'hidden'});
+ }
+ // The position a refusal scrolls to does not stick: the next chooser opens at the top, with
+ // no refusal in it, at the width that needed the scroll.
+ await page.setViewportSize({width:390,height:568});
+ const reopened=await openSmallChooser();
+ assert.equal(reopened.refusal.hidden,true,'the chooser reopens with no refusal');
+ assert.equal(reopened.scrollTop,0,'and at the top of itself at 390px: '+JSON.stringify(reopened.scrollTop));
+ await shot('chooser-small-reopened-at-top-390');
+ await page.keyboard.press('Escape');
+ await chooserDialog.waitFor({state:'hidden'});
+ await armSmallConflict(false);
+ await app.evaluate(()=>{const accounts=process.mainModule&&process.mainModule.require(process.cwd()+'/desktop/accounts.cjs');if(accounts&&global.__reviewConflictLogin)accounts.AccountClient.prototype.login=global.__reviewConflictLogin;});
+ await page.setViewportSize({width:1360,height:920});
+ await send(await page.evaluate(()=>window.easterDesktop.status()));
  assert.deepEqual(errors,[]);
- console.log('Launcher UI state review PASS: first run, transfer, failure, sign-in, ready, settings, one failure on one surface (no page notice painted while any modal dialog is open, the last one to close handing the same sentence back once with its dismiss control keyboard reachable, the notice reading above the hero crest and heading at 1440, 800 and 390 wide, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed), both linked launch behaviours, the no-tray hide and its way back, the tray path, profile, wiki, wiki guide pages whose notice band reserves its own height so nothing sits under it, and the map whose docked key, legend, zoom controls, compass and drawing palette all move clear of the band with the key still opening by a real click, and the sticky bar the launcher itself floats, which the open key now clears at 390 — its last line scrolled to and read by elementFromPoint inside the key, never on #launcher-bar-body — while the key at 800 and 1440 is left at its natural size with no cap and no scrollbar.');
+ console.log('Launcher UI state review PASS: first run, transfer, failure, sign-in, ready, settings, one failure on one surface (no page notice painted while any modal dialog is open, the last one to close handing the same sentence back once with its dismiss control keyboard reachable, the notice reading above the hero crest and heading at 1440, 800 and 390 wide, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed), both linked launch behaviours, the no-tray hide and its way back, the tray path, profile, wiki, wiki guide pages whose notice band reserves its own height so nothing sits under it, and the map whose docked key, legend, zoom controls, compass and drawing palette all move clear of the band with the key still opening by a real click, and the sticky bar the launcher itself floats, which the open key now clears at 390 — its last line scrolled to and read by elementFromPoint inside the key, never on #launcher-bar-body — while the key at 800 and 1440 is left at its natural size with no cap and no scrollbar, and the account chooser on small windows, whose three-line conflict refusal is scrolled into view at 390 — every line inside the box that scrolls, with Sign in and Forgot your password below the fold in the order a refusal is read — while at 800x600 the same refusal leaves no scrollbar over space nobody can see and both controls stay on screen, and a chooser with no refusal still opens at the top at every width.');
 }finally{await app.close();await fs.rm(home,{recursive:true,force:true});}
