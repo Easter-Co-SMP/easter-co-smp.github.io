@@ -51,11 +51,13 @@ alone.
 
 ## One failure, one visible home (2026-10-18)
 
-A single failed operation is announced by the main process **twice**: `exclusively()`
-settles a state carrying `error` (which every other broadcast then repeats, because
-`error` stays set until the next ordinary message clears it) and it also rejects the
-account IPC promise. The UI must not turn that into two failures, two places, or a
-failure that returns.
+A single failed operation reaches the UI through two channels: `exclusively()` settles
+one state carrying `error` and then rejects the account IPC promise with the same
+sentence. The `error` field lives for that one broadcast — `notify()` drops an error a
+broadcast does not itself carry, so a later unrelated broadcast can no longer repaint an
+old failure — and the renderer dedupes by delivery, because the rejection carries the
+same sentence. The UI must not turn that into two failures, two places, or a failure
+that returns.
 
 - **One home.** While the sign-in dialog is on screen, a failure belongs to that
   dialog's own error area (`.desktop-auth-error`) and to nothing else, because a
@@ -110,6 +112,22 @@ failure that returns.
   instead of covering the crest or the heading.
 - **Nothing is hard-coded.** The UI renders whatever sentence the state or the
   rejected call supplies; it does not compose or re-word failures.
+
+**The identity conflict is the one refusal that stops the sign-in (measured 2026-10-18).**
+`continue-microsoft` is an account action too, and it answers with the same whole result
+(`{ok, value}`, or `{ok:false, error, code}`) instead of rejecting, because an Error
+crossing the isolated preload arrives as its name and message only and a refusal decided
+on its code must not be thrown. The refusal that stops the flow is `identity_conflict`:
+the Microsoft account the service answered with belongs to a different Easter Company
+account, so the sign-in dialog comes back carrying the account service's own sentence
+plus a line saying nothing on the player's account changed and where Company accounts are
+switched (the profile popover's Switch Account, or Add account). No device code opens, no
+second sign-in starts, the signed-in account id is unchanged, and the failure is not
+announced on the state channel at all — `state.error` stays null on that path, so the page
+notice never paints the sentence, not even for one frame. Every other failure of the saved
+session still falls through to the interactive sign-in with its device code. The account
+id comparison stays server-driven, and no account identifier, token or address appears in
+the sentence, the state or a log.
 
 **Microsoft's email answer is a notice, not a failure.** The sign-in answer may carry
 `emailStatus` (`'stored'`, `'unavailable'`, `'none'`) at its own top level. Only
