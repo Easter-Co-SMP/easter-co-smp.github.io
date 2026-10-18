@@ -6,7 +6,7 @@ a release that reaches players and one that ships a stale or broken app.
 
 ## What a release is
 
-The four installers plus `SHA256SUMS` are published as assets on a GitHub Release
+The four installers, platform-specific app-file payloads/manifests, and `SHA256SUMS` are published as assets on a GitHub Release
 tagged `launcher-v<package.json version>`, and `site/downloads.js` requests them by
 name from `/releases/latest/download/`. The launcher job is
 `.github/workflows/launcher.yml`, which runs on `workflow_dispatch` only.
@@ -92,8 +92,8 @@ dependencies already listed still resolve.
 
 Then confirm, rather than assume:
 
-- The release is not a draft and not a prerelease, and its assets are the four expected
-  installer names plus `SHA256SUMS`, with plausible sizes.
+- The release is not a draft and not a prerelease. It carries four installers, Linux/Windows
+  x64 `.asar` payloads and matching `.json` manifests, plus `SHA256SUMS`, with plausible sizes.
 - Each of the four `/releases/latest/download/` URLs resolves. Use a ranged GET, not
   `HEAD`: the redirect chain behaves differently for HEAD and a 404 there is a false alarm.
 - `sha256sum -c SHA256SUMS` passes against freshly downloaded files, and the bytes match

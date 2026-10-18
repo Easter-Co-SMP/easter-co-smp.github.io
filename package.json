@@ -1,8 +1,8 @@
 {
   "name": "easter-company-launcher",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Easter Company Minecraft launcher, world map and crew companion",
-  "main": "desktop/main.cjs",
+  "main": "desktop/bootstrap.cjs",
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/desktop/*.test.cjs tests/wiki.test.mjs",
