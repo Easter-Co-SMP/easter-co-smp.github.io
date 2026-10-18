@@ -558,12 +558,14 @@ async function applyQuality(root,hardware,notify,{shaders}={}){
  return {quality,tuned:quality?{renderDistance:quality.renderDistance,shadowDistance:quality.shadowDistance,shaders:Boolean(quality.shaders)}:null,message:null};
 }
 // The display defaults are not a graphics choice: a player's first launch is already
-// fullscreen at GUI scale 2 whether enhanced graphics are on or off, so every install
-// path seeds them and the optional graphics chunk is never required for them. A write
-// that fails never fails an install that has already succeeded, exactly like the
-// quality step; nothing is added to the status contract for it.
-async function seedDisplayDefaults(root,notify){
- try{return await applyDisplayDefaults(root);}
+// fullscreen at the GUI scale their own display asks for whether enhanced graphics are
+// on or off, so every install path seeds them and the optional graphics chunk is never
+// required for them. `guiScale` is that display's answer, resolved by the caller in the
+// main process and passed straight through; the seed itself decides whether it writes
+// anything. A write that fails never fails an install that has already succeeded,
+// exactly like the quality step; nothing is added to the status contract for it.
+async function seedDisplayDefaults(root,notify,guiScale=null){
+ try{return await applyDisplayDefaults(root,{guiScale});}
  catch(error){
   if(notify)notify({message:'The client’s display settings could not be written into the client folder.'});
   return null;
@@ -612,7 +614,7 @@ async function installChunkFiles(chunk,{root,notify,control,step}){
 // `only` restricts the run to named chunks. The graphics toggle uses it, so
 // switching enhanced graphics on or off never re-fetches or re-verifies the frozen
 // game even when the base chunk is not installed from this run.
-async function installChunked({root,client,chunks,record,settings,notify,control,includeGraphics,mode,origin,only=null,hardware=null}){
+async function installChunked({root,client,chunks,record,settings,notify,control,includeGraphics,mode,origin,only=null,hardware=null,guiScale=null}){
  const updating=mode==='update',step=kind=>updating?'updating':kind;
  const scope=only&&only.size?new Set(only):null;
  const selection=graphicsSelection(chunks,includeGraphics);
@@ -629,7 +631,7 @@ async function installChunked({root,client,chunks,record,settings,notify,control
  // when the manifest has no graphics chunk and the toggle is on.
  if(!pending.length&&gameCurrent){
   const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
-  await seedDisplayDefaults(root,notify);
+  await seedDisplayDefaults(root,notify,guiScale);
   const installedGraphics=record.chunks?.graphics||null;
   return {version:record.version,javaPath:record.java,updatedAt:record.updatedAt,includeGraphics,graphics:installedGraphics?.version||null,message:updating?'Client is up to date.':'Client ready.',unchanged:true,graphicsMessage,graphicsApplied:Boolean(installedGraphics),quality:quality.tuned,qualityMessage:quality.message,qualitySettings:quality.quality};
  }
@@ -655,7 +657,7 @@ async function installChunked({root,client,chunks,record,settings,notify,control
  const files=[...new Set(Object.values(records).flatMap(chunk=>chunk.files||[]))];
  const updatedAt=new Date().toISOString();
  const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
- await seedDisplayDefaults(root,notify);
+ await seedDisplayDefaults(root,notify,guiScale);
  await atomicJSON(path.join(root,'installed.json'),{
   version,minecraft:client.minecraft,fabric,mod:client.mod?.version,modSha256:client.mod?.sha256,
   dependencies:(client.dependencies||[]).map(entry=>({id:entry.id,version:entry.version})),
@@ -669,7 +671,7 @@ async function installChunked({root,client,chunks,record,settings,notify,control
 }
 // The flat manifest: no chunk list, so every pinned release is resolved from its
 // publisher on each run, exactly as the launcher has always done.
-async function installFlat({root,client,settings,notify,control,includeGraphics,mode,origin,hardware=null}){
+async function installFlat({root,client,settings,notify,control,includeGraphics,mode,origin,hardware=null,guiScale=null}){
  const updating=mode==='update',step=kind=>updating?'updating':kind;
  const game=await installGame({root,settings,client,chunks:null,notify,control,mode});
  const mods=[{name:'Easter Co. client',url:modFile(client,origin),hash:client.mod.sha256,algorithm:'sha256',filename:'easter-navy.jar'}];
@@ -708,13 +710,13 @@ async function installFlat({root,client,settings,notify,control,includeGraphics,
  // are written when the toggle is on, and the payload's own absence is reported
  // rather than papered over by turning shaders on with no shader pack to load.
  const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
- await seedDisplayDefaults(root,notify);
+ await seedDisplayDefaults(root,notify,guiScale);
  await atomicJSON(path.join(root,'installed.json'),{version:game.version,minecraft:client.minecraft,fabric:game.fabric,mod:client.mod.version,modSha256:client.mod.sha256,dependencies:client.dependencies.map(d=>({id:d.id,version:d.version})),files:[...mods.map(m=>'mods/'+m.filename),...(graphicsFile?[graphicsFile]:[])],game:{minecraft:client.minecraft,fabric:game.fabric,verified:true},graphics:graphics==='not-published'?null:graphics,includeGraphics,java:game.javaPath,updatedAt,...(quality.quality?{quality:{...quality.tuned,graphicsMode:quality.quality.graphicsMode,shaderPack:quality.quality.shaders?quality.quality.shaderPack:null,updatedAt}}:{})});
  const message=[(updating?'Client updated.':'Client ready.'),graphicsMessage,quality.message].filter(Boolean).join(' ');
  notify({phase:'ready',message,progress:countProgress('Client ready',100)});
  return {version:game.version,javaPath:game.javaPath,updatedAt,includeGraphics,graphics,message,graphicsMessage,quality:quality.tuned,qualityMessage:quality.message,qualitySettings:quality.quality};
 }
-async function installClient({root,settings={},notify=()=>{},control=null,includeGraphics=false,mode='install',published=null,origin=clientOrigin(),only=null,hardware=null,fetchManifest=publishedManifest}={}){
+async function installClient({root,settings={},notify=()=>{},control=null,includeGraphics=false,mode='install',published=null,origin=clientOrigin(),only=null,hardware=null,guiScale=null,fetchManifest=publishedManifest}={}){
  origin=originBase(origin);
  const problem=locationProblem(root,{});
  if(problem)throw Error(problem);
@@ -731,14 +733,14 @@ async function installClient({root,settings={},notify=()=>{},control=null,includ
  await fs.mkdir(root,{recursive:true});
  await writeMarker(root);
  const record=await readInstalled(root);
- const options={root,client,chunks,record,settings,notify,control,includeGraphics,mode,origin,updating,only,hardware};
+ const options={root,client,chunks,record,settings,notify,control,includeGraphics,mode,origin,updating,only,hardware,guiScale};
  return chunks?installChunked(options):installFlat(options);
 }
 // The graphics toggle's own entry point: the optional chunk is fetched and applied
 // through the checksum-verified pipeline, and nothing else in the client is
 // downloaded, re-hashed or invalidated by switching it on or off. The installed
 // client is required, because there is no settings file to tune without it.
-async function applyGraphics({root,settings={},notify=()=>{},control=null,includeGraphics=false,enabled=includeGraphics,hardware=null,origin=clientOrigin(),fetchManifest=publishedManifest,published=null}={}){
+async function applyGraphics({root,settings={},notify=()=>{},control=null,includeGraphics=false,enabled=includeGraphics,hardware=null,guiScale=null,origin=clientOrigin(),fetchManifest=publishedManifest,published=null}={}){
  const record=await readInstalled(root);
  if(!record)throw Error('Download the game before changing its graphics settings.');
  const manifest=published||await fetchManifest(originBase(origin));
@@ -762,7 +764,7 @@ async function applyGraphics({root,settings={},notify=()=>{},control=null,includ
  // Switching the toggle off stops nothing that is already installed: no chunk is
  // selected, so nothing is fetched, and the quality files simply stay as they are.
  if(!enabled)return {unchanged:true,applied:false,includeGraphics:false,graphicsAvailable:Boolean(graphicsChunk),graphics:record.chunks?.graphics?.version||null,message:'Enhanced graphics are off. Nothing already installed was removed.',graphicsMessage:null,quality:null,qualitySettings:null};
- const result=await installClient({root,settings,notify,control,includeGraphics:true,mode:'update',published:manifest,origin,only:new Set(['graphics']),hardware,fetchManifest});
+ const result=await installClient({root,settings,notify,control,includeGraphics:true,mode:'update',published:manifest,origin,only:new Set(['graphics']),hardware,guiScale,fetchManifest});
  return {...result,applied:!result.unchanged||Boolean(result.quality),graphicsAvailable:true};
 }
 // Backwards-compatible entry point used by the launch path.
@@ -771,14 +773,14 @@ async function prepare(root,settings,notify){return installClient({root,settings
 // every published field already matches, it returns without notifying anything at
 // all: no phase change and no progress bar, so the UI never flashes work that is
 // not happening.
-async function checkForUpdates({root,settings={},notify=()=>{},control=null,includeGraphics=false,fetchManifest=publishedManifest,install=installClient,origin=clientOrigin(),hardware=null}={}){
+async function checkForUpdates({root,settings={},notify=()=>{},control=null,includeGraphics=false,fetchManifest=publishedManifest,install=installClient,origin=clientOrigin(),hardware=null,guiScale=null}={}){
  origin=originBase(origin);
  const record=await readInstalled(root);
  if(!record)return {checked:false,changed:true,applied:false,changes:['missing'],result:null};
  const published=await fetchManifest(origin);
  const diff=installDiff(published,record,{includeGraphics,origin});
  if(!diff.changed)return {checked:true,changed:false,applied:false,changes:[],result:null};
- const result=await install({root,settings,notify,control,includeGraphics,mode:'update',published,origin,hardware});
+ const result=await install({root,settings,notify,control,includeGraphics,mode:'update',published,origin,hardware,guiScale});
  return {checked:true,changed:true,applied:true,changes:diff.changes,result};
 }
 // The Play gate, computed here in the main process and nowhere else.
