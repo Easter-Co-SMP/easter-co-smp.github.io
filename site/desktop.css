@@ -8,7 +8,10 @@
 .desktop-account-nav span{overflow:hidden;text-overflow:ellipsis}
 .desktop-account-nav canvas{width:32px;height:32px;image-rendering:pixelated;border-radius:4px;flex:none}
 .desktop-mode body.home{height:100dvh;min-height:0;overflow:hidden}
-.desktop-mode body.home>.home-content{flex:1;min-height:0;display:grid;align-items:center;width:100%;padding:24px 48px 90px;margin:0}
+/* The top padding carries the room the fixed failure notice needs. site/desktop.js measures it
+   and publishes it as --launcher-notice-space (0 while no notice is showing), so the notice
+   always reads above the hero card instead of covering its crest and heading. */
+.desktop-mode body.home>.home-content{flex:1;min-height:0;display:grid;align-items:center;width:100%;padding:calc(24px + var(--launcher-notice-space,0px)) 48px 90px;margin:0}
 .desktop-mode .home .home-hero{display:block;min-height:0;width:min(520px,100%);margin:0}
 .desktop-mode .hero-copy{max-height:calc(100dvh - 208px);overflow:auto;animation:none;text-align:left;padding:28px;background:#11252df2;border:1px solid var(--app-border);border-radius:14px;box-shadow:0 12px 40px #0003}
 .desktop-home-heading{display:flex;align-items:center;gap:18px;margin-bottom:28px}
@@ -118,7 +121,7 @@
 .launcher-bar.is-minimised .launcher-bar-tab-text{display:block}
 @keyframes launcher-bar-sweep{from{transform:translateX(-110%)}to{transform:translateX(320%)}}
 @media(prefers-reduced-motion:reduce){.launcher-bar.is-indeterminate .launcher-bar-track i{animation:none}}
-@media(max-height:700px){.desktop-mode body.home>.home-content{padding-top:16px;padding-bottom:76px}.desktop-mode .hero-copy{padding:22px}.desktop-home-heading{margin-bottom:20px}.desktop-install-details,.hero-graphics{margin-top:18px;padding-top:14px}
+@media(max-height:700px){.desktop-mode body.home>.home-content{padding-top:calc(16px + var(--launcher-notice-space,0px));padding-bottom:76px}.desktop-mode .hero-copy{padding:22px}.desktop-home-heading{margin-bottom:20px}.desktop-install-details,.hero-graphics{margin-top:18px;padding-top:14px}
  /* The settings dialog carries four preferences and the shortcut state now, so on a short
     window it closes up its own spacing rather than scrolling. */
  #desktop-launcher{padding:22px}#desktop-launcher h2{margin-bottom:18px}
@@ -130,7 +133,8 @@
 @media(max-width:720px){
  .desktop-mode .site-header{padding:0 16px}.desktop-mode .site-header nav .desktop-account-nav{margin-left:4px;max-width:160px}
  .desktop-mode .hero-copy{max-height:none;overflow:visible}
- .desktop-mode body.home{overflow-y:auto}.desktop-mode body.home>.home-content{padding:24px 20px 100px}
+ .desktop-mode body.home{overflow-y:auto}
+ .desktop-mode body.home>.home-content{padding:calc(24px + var(--launcher-notice-space,0px)) 20px 100px}
  .desktop-mode .home .home-hero{margin:auto}.desktop-mode .home-footer{padding:16px 20px}
  .launcher-bar-body{flex-wrap:wrap;gap:12px;padding:14px 46px 14px 14px}.launcher-bar-track{flex-basis:100%;order:3}
 }

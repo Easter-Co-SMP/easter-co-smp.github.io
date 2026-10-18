@@ -69,9 +69,25 @@ try{
  // settled broadcast carrying `error`, and the rejected call), so this is the exact shape Owen
  // reported: one sentence that used to be painted on the page notice and inside Settings, and
  // that came back whenever a dialog opened or closed.
- const visibleErrorNodes=()=>page.evaluate(()=>[...document.querySelectorAll('.desktop-page-notice,.desktop-auth-error,.desktop-status')]
+ // Every surface that carries a failure or a notice in this app, so "none visible" means none
+ // anywhere in the document rather than none in the three places the last check looked.
+ const errorSurfaces=['desktop-page-notice','desktop-auth-error','desktop-auth-notice','desktop-status','desktop-graphics-error','desktop-install-error','company-error'];
+ const visibleErrorNodes=()=>page.evaluate(surfaces=>[...document.querySelectorAll(surfaces.map(name=>'.'+name).join(','))]
   .filter(node=>!node.hidden&&node.getClientRects().length>0&&node.textContent.trim())
-  .map(node=>node.classList.contains('desktop-page-notice')?'desktop-page-notice':node.classList.contains('desktop-auth-error')?'desktop-auth-error':'desktop-status'));
+  .map(node=>surfaces.find(name=>node.classList.contains(name))),errorSurfaces);
+ // The notice is a fixed band. It must not be laid out over the hero card's crest and heading,
+ // which is what it did at 390 wide before the page reserved the room it needs.
+ const noticeGeometry=()=>page.evaluate(()=>{
+  const box=node=>{const r=node.getBoundingClientRect();return {left:Math.round(r.left),right:Math.round(r.right),top:Math.round(r.top),bottom:Math.round(r.bottom)};};
+  const notice=document.querySelector('.desktop-page-notice');
+  return {notice:box(notice),laidOut:Boolean(notice.getClientRects().length),crest:box(document.querySelector('.crest-frame')),heading:box(document.querySelector('.desktop-home-heading')),viewport:innerWidth};
+ });
+ // The reserved room is layout, so it is re-measured on the frame after the window changes.
+ const settledNotice=async()=>{
+  await page.waitForFunction(()=>{const notice=document.querySelector('.desktop-page-notice'),crest=document.querySelector('.crest-frame');
+   return !notice||!crest||notice.getBoundingClientRect().bottom<=crest.getBoundingClientRect().top+1;},{timeout:4000}).catch(()=>{});
+  return noticeGeometry();
+ };
  const status=()=>page.evaluate(()=>window.easterDesktop.status());
  await app.evaluate(()=>global.easterTestFailPlay=true);
  await page.locator('[data-desktop-play][data-action=play]').click();
@@ -81,25 +97,48 @@ try{
   await page.setViewportSize({width,height});
   const notice=await page.locator('.desktop-page-notice').boundingBox();
   assert(notice.x>=0&&notice.x+notice.width<=width+1,'the failure notice fits '+width+'px');
+  const geometry=await settledNotice();
+  assert.equal(geometry.laidOut,true,'the failure notice is laid out at '+width+'px');
+  assert(geometry.notice.bottom<=geometry.crest.top+1,'the failure notice reads above the hero crest at '+width+'px: '+JSON.stringify(geometry));
+  assert(geometry.notice.bottom<=geometry.heading.top+1,'the failure notice reads above the hero heading at '+width+'px: '+JSON.stringify(geometry));
   await shot('one-failure-notice-'+width);
  }
  await page.setViewportSize({width:1360,height:920});
- // Settings opens over it and inherits nothing from it.
+ // Settings opens over it. A modal <dialog> paints in the document's top layer and makes the
+ // rest of the page inert, so a page notice under it is a message the player can neither read
+ // (dimmed at 1440 and 800, covered outright at 390) nor dismiss: the notice is taken away
+ // entirely while any modal dialog is open, and the last one to close gives it back once.
  await page.getByRole('button',{name:'Settings',exact:true}).click();
  await page.locator('#desktop-launcher').waitFor({state:'visible'});
- assert.deepEqual(await visibleErrorNodes(),['desktop-page-notice'],'the settings dialog is never an error surface');
+ assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.open),true,'Settings is the open modal dialog');
+ assert.deepEqual(await visibleErrorNodes(),[],'the settings dialog is never an error surface, and no page notice is painted behind it');
  assert.equal(await page.evaluate(()=>document.querySelectorAll('#desktop-launcher .desktop-status').length),0,'the settings dialog carries no error area at all');
  assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.innerText.includes('Unable to start Minecraft')),false,'no failure text is copied into settings');
  for(const [width,height] of [[1440,900],[800,600],[390,568]]){
   await page.setViewportSize({width,height});
-  const notice=await page.locator('.desktop-page-notice').boundingBox();
-  assert(notice.x>=0&&notice.x+notice.width<=width+1,'the failure notice fits '+width+'px');
+  assert.deepEqual(await visibleErrorNodes(),[],'no visible failure surface anywhere in the document at '+width+'px with Settings open');
+  const geometry=await noticeGeometry();
+  assert.equal(geometry.laidOut,false,'the page notice is not laid out behind the settings dialog at '+width+'px');
+  assert.equal(await page.getByRole('button',{name:'Dismiss message'}).count(),0,'and its dismiss control is not left behind the modal at '+width+'px');
   await shot('one-failure-settings-open-'+width);
  }
  await page.setViewportSize({width:1360,height:920});
  await page.keyboard.press('Escape');
  await page.locator('#desktop-launcher').waitFor({state:'hidden'});
- assert.deepEqual(await visibleErrorNodes(),['desktop-page-notice'],'closing settings neither repeats the failure nor moves it');
+ // The last modal closed: the same sentence comes back, once, with a dismiss control the
+ // keyboard can reach now that the page is no longer inert.
+ await page.locator('.desktop-page-notice').filter({hasText:'Unable to start Minecraft. Try again.'}).waitFor();
+ assert.deepEqual(await visibleErrorNodes(),['desktop-page-notice'],'closing the last modal gives the failure back, once');
+ assert.equal(await page.getByRole('button',{name:'Dismiss message'}).count(),1,'with exactly one dismiss control');
+ assert.equal(await page.getByRole('button',{name:'Dismiss message'}).evaluate(button=>{button.focus();return document.activeElement===button;}),true,'and it is keyboard reachable');
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  const geometry=await settledNotice();
+  assert.equal(geometry.laidOut,true,'the returned notice is laid out at '+width+'px');
+  assert(geometry.notice.bottom<=geometry.crest.top+1,'and still reads above the hero crest at '+width+'px: '+JSON.stringify(geometry));
+  await shot('one-failure-returned-'+width);
+ }
+ await page.setViewportSize({width:1360,height:920});
  // Main keeps `error` set until the next ordinary message, so later broadcasts repeat the same
  // sentence; a delivered failure is not delivered again, and a dismissed one stays dismissed.
  const repeated={...await status(),error:'Unable to start Minecraft. Try again.'};
@@ -266,5 +305,5 @@ try{
  assert.equal(restored.error,null,'the exit message is the same one, with the launcher back on screen');
  await shot('tray-restored');
  assert.deepEqual(errors,[]);
- console.log('Launcher UI state review PASS: first run, transfer, failure, sign-in, ready, settings, one failure on one surface (Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed), both linked launch behaviours, the no-tray hide and its way back, the tray path, profile, wiki.');
+ console.log('Launcher UI state review PASS: first run, transfer, failure, sign-in, ready, settings, one failure on one surface (no page notice painted while any modal dialog is open, the last one to close handing the same sentence back once with its dismiss control keyboard reachable, the notice reading above the hero crest and heading at 1440, 800 and 390 wide, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed), both linked launch behaviours, the no-tray hide and its way back, the tray path, profile, wiki.');
 }finally{await app.close();await fs.rm(home,{recursive:true,force:true});}

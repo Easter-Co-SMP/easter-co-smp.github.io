@@ -43,7 +43,7 @@ meaning. These are added or extended:
 | `canPlay` | boolean | Exactly `install.installed && profile !== null` |
 | `bar` | object | `{visible}`: progress/action dock availability. The renderer omits an idle dock on Home because Home already provides the action; utility pages retain it. The minimised preference stays renderer-local. |
 | `settings` | object | The saved settings, exactly as `status()` already returned them, so the Settings dialog refreshes from a broadcast as well as from a read. |
-| `error` | string \| null | Safe operation failure text, announced in the one broadcast that carries it and dropped from the next, so no later unrelated broadcast can repaint an old failure; a new account action clears it as it starts. A sign-in failure names its step (see *Sign-in steps, sentences and the redacted log*). **It has exactly one home, and the UI decides it, not the state:** while the sign-in dialog is on screen the failure belongs to that dialog's own error area and to nothing else; otherwise it belongs to the page notice, with its dismiss control. The Settings dialog is never an error surface. The renderer owns the sentence once delivered — it keeps it without re-reading this field, and only a dismissal or a new action (sign-in, Play, download, save settings) takes it away. A failure already given a home is never shown again by a later broadcast, a re-open or a close. Cancellation is not an error. Older states without this field still render. |
+| `error` | string \| null | Safe operation failure text, announced in the one broadcast that carries it and dropped from the next, so no later unrelated broadcast can repaint an old failure; a new account action clears it as it starts. A sign-in failure names its step (see *Sign-in steps, sentences and the redacted log*). **It has exactly one home, and the UI decides it, not the state:** while the sign-in dialog is on screen the failure belongs to that dialog's own error area and to nothing else; otherwise it belongs to the page notice, with its dismiss control — but **not while any modal dialog is open**, because a notice under a modal is a message the player can neither read nor dismiss. For that time the sentence is held with no surface at all, and the last modal to close gives it back once. The Settings dialog is never an error surface. The renderer owns the sentence once delivered — it keeps it without re-reading this field, and only a dismissal or a new action (sign-in, Play, download, save settings) takes it away. A failure already given a home is never shown again by a later broadcast, a re-open or a close. Cancellation is not an error. Older states without this field still render. |
 
 `canPlay` is the single source of truth for the Play action. No view may compute
 its own version of the gate, and no view may enable Play on install completion
@@ -61,10 +61,31 @@ failure that returns.
   dialog's own error area (`.desktop-auth-error`) and to nothing else, because a
   failed sign-in is the sign-in dialog's news. With no sign-in dialog on screen the
   failure belongs to the page notice, once, with its dismiss control.
+- **No page notice while any modal dialog is open (measured 2026-10-18).** A modal
+  `<dialog>` — Settings, the mandatory update gate, the sign-in dialog, and the
+  Easter Company account chooser, username and password dialogs — paints in the
+  document's top layer and makes the rest of the page inert. A page notice under one
+  is a message the player can neither read nor dismiss: dimmed by the modal's own
+  backdrop at 1440 and 800 wide, completely covered at 390, with its Dismiss control
+  behind the dialog box so that the click and the keyboard both go to the dialog. The
+  earlier claim in this section — that the page notice keeps the sentence while
+  Settings is open — was therefore false in the launcher, and it is withdrawn. The
+  rule is: while **any** modal dialog is open, **no page notice is painted at all**
+  and the held failure is drawn on no surface anywhere. The page notice is not dimmed,
+  not covered and not made inert behind anything, because it is not there.
+- **The last modal closing brings it back, once.** When the last modal dialog closes,
+  the held failure returns on the page notice: the same sentence, exactly one surface,
+  with its dismiss control, and keyboard reachable again now that the page is not
+  inert. It then stays — through later broadcasts, re-renders, and other dialogs
+  opening and closing — until the player dismisses it or starts a new action. A
+  dismissed failure never comes back, and a modal opening again never duplicates it.
+  The rule holds for every modal, not only Settings, and it is decided by the
+  document's own open dialogs rather than by any one dialog's bookkeeping.
 - **Settings is never an error surface.** The settings dialog carries the server,
   the preferences and the shortcuts, and no status or failure area of any kind. A
   failure is never moved into it because it happened to be open, and opening or
-  closing it never shows, repeats or brings back a failure.
+  closing it never shows, repeats or brings back a failure — it takes the page notice
+  away while it is open, and gives the same sentence back once when it closes.
 - **Delivered once, then owned by the UI.** A failure is delivered when `error`
   becomes a sentence that has not been delivered yet, and the renderer keeps it from
   then on: it never re-reads `error` to decide whether the notice is still valid,
@@ -79,8 +100,14 @@ failure that returns.
   A failure that really ends the flow arrives through the call that rejected, after
   which the dialog closes and the sentence takes its one home.
 - **A closed dialog does not take its failure with it.** When the sign-in dialog
-  closes while it was showing a failure, that sentence moves to the page notice. It
-  does not vanish, and no other dialog inherits it.
+  closes while it was showing a failure, that sentence moves to the page notice as the
+  last modal to close. It does not vanish, and no other dialog inherits it. If another
+  modal dialog is still open at that moment the sentence stays held until the last one
+  closes, exactly as the bullet above says.
+- **The notice never sits on the copy.** The notice is a floating band above the sheet.
+  Where the window is too narrow for the empty band above the hero card, the page
+  reserves the height the notice needs, so at every width it reads above the hero card
+  instead of covering the crest or the heading.
 - **Nothing is hard-coded.** The UI renders whatever sentence the state or the
   rejected call supplies; it does not compose or re-word failures.
 
@@ -95,6 +122,17 @@ sign-in answer: `desktop/accounts.cjs` accepts only those three values and drops
 anything else (including an address sent in that field), `enrolAccount()` carries it
 on the sign-in result, and `desktop/main.cjs` returns it from the `sign-in` action —
 it is deliberately not part of `launcher:state`, so no broadcast ever carries it.
+
+It is a notice and never a failure, so **no failure paint clears it**. An unrelated
+failure landing in the sign-in dialog's own error area leaves the email sentence where
+it is, and the dialog never ends up an empty box with only its close control; only
+closing the dialog ends the notice.
+
+**Two smaller rules from the same review.** A failure raised by the enhanced graphics
+toggle has one surface, beside the toggle, exactly as a refused install location is
+shown beside the download action that tried it — main settles the sentence in state and
+rejects the call as well, and the page notice gives up its copy of it. And a failure
+raised by an install or a graphics change is never a second surface on the page notice.
 
 ## Bar behaviour
 
@@ -880,6 +918,16 @@ launch. Graphics changes remain disabled while the game is running.
 dialog and the notice at once, and nothing said which failure belonged where. The
 rule is now the one under *One failure, one visible home*: a failure has one home,
 delivered once, and it is never reproduced by reopening or closing a dialog.
+
+**Update 2026-10-18, from the measured defect: no notice behind a modal.** "Errors
+appear in the active dialog or a visible page notice" was only half true: a page
+notice is in the page's own stacking order, so with Settings open it was dimmed at
+1440 and 800 wide and completely covered at 390, and its Dismiss control was behind
+the modal's box and unreachable by mouse or keyboard, because a modal dialog makes the
+rest of the page inert. While any modal dialog is open the launcher now paints no page
+notice at all; the last one to close gives the same sentence back once, with its
+dismiss control and keyboard reachable, and it stays until dismissed or a new action
+starts. See *One failure, one visible home* for the full rule.
 
 ## Mandatory update gate (2026-10-17)
 

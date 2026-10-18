@@ -187,7 +187,7 @@
  // A failure is delivered once and then has exactly one surface: the sign-in dialog's own
  // error area while that dialog is on screen, and the page notice everywhere else. Settings
  // is never a home, so a failure can no longer be dragged into whichever dialog happens to
- // be open, and nothing replays a failure when a dialog opens or closes.
+ // be open.
  //
  // `deliveredError` is the sentence the state channel has already been given. Main keeps
  // `error` set until the next ordinary message clears it, so every later broadcast repeats
@@ -195,19 +195,61 @@
  // which is why a single failed sign-in looked permanent. Dedupe is therefore by delivery:
  // the visible failure is cleared by a dismissal or a new action, the marker is not.
  let failure='',failureHome='',deliveredError=null;
- const failureNodes=()=>[notice,auth('.desktop-auth-error'),auth('.desktop-auth-notice')];
+ // A failure has one home, and a modal dialog is never one of them. A modal <dialog> paints in
+ // the document's top layer and makes every other element inert, so a page notice under one is
+ // a sentence the player can neither read (dimmed at 1440 and 800, covered outright at 390) nor
+ // dismiss — its Dismiss control sits behind the dialog box. The rule of 2026-10-18 is therefore
+ // the one in doc/launcher-states.md: while ANY modal dialog is open, no page notice is painted
+ // at all and the sentence is held; the last modal to close gives it back once.
+ //
+ // Open modals are read from the document rather than bookkept per dialog, so the dialogs that
+ // site/company-auth.mjs owns, and the update gate, are covered without this file creating them.
+ // Every dialog the launcher has is opened with showModal(), so an open one is a modal one.
+ const modalOpen=()=>Boolean(document.querySelector('dialog[open]'));
+ // The email notice is not a failure node: it is Microsoft's own answer about the address it
+ // could not give, and no failure paint may blank it while its dialog stays open.
+ const failureNodes=()=>[notice,auth('.desktop-auth-error')];
+ const emailNoticeNode=()=>auth('.desktop-auth-notice');
  // The notice carries a dismiss control as its last child; replacing the text drops it.
- function clearFailureNodes(){for(const node of failureNodes()){node.hidden=true;node.textContent='';node.classList.remove('is-error','is-notice');}}
- // Where a sentence goes is decided by what is on screen, never by who asked for it.
- const failureHomeNow=()=>signin.open?'dialog':'notice';
+ function clearFailureNodes(){for(const node of failureNodes()){node.hidden=true;node.textContent='';node.classList.remove('is-error','is-notice');}reserveNoticeSpace();}
+ function clearEmailNotice(){const node=emailNoticeNode();node.hidden=true;node.textContent='';node.classList.remove('is-notice');}
+ // The notice is a fixed band above the sheet, and the hero card keeps its place below it. Where
+ // the band would reach into the card the page reserves the room the notice needs, so it never
+ // sits on the crest or the heading. How far the card moves for one pixel of reserved space
+ // depends on how the window centres it, so the reservation is measured instead of assumed: one
+ // pass finds the card's response, the second gives exactly the room the notice asks for.
+ function reserveNoticeSpace(){
+  const root=document.documentElement;
+  const set=value=>root.style.setProperty('--launcher-notice-space',Math.max(0,Math.round(value))+'px');
+  const shown=!notice.hidden&&Boolean(notice.textContent.trim());
+  const card=document.querySelector('.hero-copy');
+  if(!shown||!card){if(root.style.getPropertyValue('--launcher-notice-space')!=='0px')set(0);return;}
+  set(0);
+  const bottom=notice.getBoundingClientRect().bottom,gap=16;
+  const start=card.getBoundingClientRect().top;
+  const deficit=Math.ceil(bottom+gap-start);
+  // The band above the card is already clear: nothing to reserve.
+  if(deficit<=0)return;
+  const probe=Math.max(deficit,80);
+  set(probe);
+  const moved=card.getBoundingClientRect().top-start;
+  const response=moved>0?moved/probe:0.5;
+  // Capped so a short window is never eaten by the reservation.
+  set(Math.min(deficit/Math.max(response,0.2),Math.max(120,innerHeight*0.6)));
+ }
+ // Where a sentence goes is decided by what is on screen, never by who asked for it. `held` is
+ // a modal dialog that is not the sign-in dialog: the sentence keeps no surface until the last
+ // modal closes.
+ const failureHomeNow=()=>signin.open?'dialog':modalOpen()?'held':'notice';
  function paintFailure(text,home){
   clearFailureNodes();failure=text||'';failureHome=failure?home:'';
-  if(!failure)return;
+  if(!failure||home==='held')return;
   const target=home==='dialog'?auth('.desktop-auth-error'):notice;
   target.textContent=failure;target.hidden=false;target.classList.add('is-error');
   if(target===notice){
    const dismiss=document.createElement('button');dismiss.type='button';dismiss.textContent='×';dismiss.setAttribute('aria-label','Dismiss message');
    dismiss.onclick=()=>dismissFailure();target.append(dismiss);
+   reserveNoticeSpace();
   }
  }
  const showFailure=text=>{if(text)paintFailure(text,failureHomeNow());};
@@ -216,12 +258,15 @@
  // one. `deliveredError` is left alone, so the stale broadcast of that old sentence cannot
  // bring it back while the action runs.
  const clearFailure=()=>{if(failure)dismissFailure();};
- // The dialog that was showing a failure has gone, so the sentence moves to the page notice
- // rather than disappearing with it. A failure the page already owns is left exactly where it
- // is: the dialog's close event arrives after the call that failed has already reported.
- function moveFailureOutOfDialog(){
-  if(!failure)clearFailureNodes();
-  else if(failureHome==='dialog')paintFailure(failure,'notice');
+ // A dialog opening or closing changes where the held sentence belongs: a modal takes the page
+ // notice away, and the last modal to close gives it back exactly once. A failure the page
+ // already owns is left where it is, so a re-render never duplicates it.
+ function settleFailureSurface(){
+  if(!failure)return;
+  const home=failureHomeNow();
+  if(home===failureHome)return;
+  if(home==='held'){clearFailureNodes();failureHome='held';return;}
+  paintFailure(failure,home);
  }
  // A sign-in that is actually running owns the dialog. The device code and the browser action
  // are what the player is waiting for, so a sentence from the state channel is never painted
@@ -234,8 +279,25 @@
  };
  auth('.dialog-close').onclick=cancelSignIn;auth('[data-cancel]').onclick=cancelSignIn;
  signin.addEventListener('cancel',event=>{event.preventDefault();cancelSignIn();});
- signin.addEventListener('close',()=>{releaseSignInNotice();moveFailureOutOfDialog();(current?.profile?profileButton:heroButton)?.focus();});
+ signin.addEventListener('close',()=>{releaseSignInNotice();settleFailureSurface();(current?.profile?profileButton:heroButton)?.focus();});
  panel.addEventListener('close',()=>{settingsButton?.setAttribute('aria-expanded','false');});
+ // Every modal dialog in the launcher, including the ones this file did not create, changes
+ // where a held failure belongs. `open` is the attribute showModal()/close() write, so watching
+ // it on the document covers Settings, sign-in, the update gate and the account dialogs alike.
+ if(typeof MutationObserver==='function'){
+  const modalObserver=new MutationObserver(()=>settleFailureSurface());
+  modalObserver.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['open']});
+ }
+ // The notice's own height decides how much room the page reserves for it, so its size is
+ // watched rather than assumed: a longer sentence or a narrower window re-measures itself.
+ // The re-measure runs on the next frame, because a resize has not necessarily been laid out
+ // by the time the event arrives, and a burst of events collapses into one pass.
+ let noticeSpacePending=0;
+ function scheduleNoticeSpace(){
+  if(noticeSpacePending)return;
+  noticeSpacePending=requestAnimationFrame(()=>{noticeSpacePending=0;reserveNoticeSpace();});
+ }
+ if(typeof ResizeObserver==='function')new ResizeObserver(()=>scheduleNoticeSpace()).observe(notice);
 
  // ---- Sticky bottom bar -----------------------------------------------------
  // The minimised state is a renderer-local preference by contract, so it is kept here
@@ -584,9 +646,13 @@
  // line and the Cancel action go with it.
  function holdSignInNotice(){
   emailNoticeHeld=true;
-  clearFailureNodes();
+  // A successful sign-in is the newest word in this dialog, so a failure still sitting in it
+  // belongs to an older operation and goes with the waiting line. The email sentence is not a
+  // failure and is never a casualty of one: it is written below, and only closing the dialog
+  // takes it away.
+  dismissFailure();
   auth('.desktop-auth-wait').hidden=true;auth('.desktop-device').hidden=true;auth('[data-cancel]').hidden=true;
-  const node=auth('.desktop-auth-notice');
+  const node=emailNoticeNode();
   node.textContent=EMAIL_UNAVAILABLE;node.hidden=false;node.classList.add('is-notice');
   if(!signin.open)signin.showModal();
  }
@@ -595,7 +661,7 @@
  function releaseSignInNotice(){
   if(!emailNoticeHeld)return;
   emailNoticeHeld=false;auth('[data-cancel]').hidden=false;
-  clearFailureNodes();
+  clearEmailNotice();
  }
  function signInMicrosoft(options={}){
   if(signInPending)return;
@@ -689,6 +755,11 @@
    catch(error){
     graphicsError.hidden=false;graphicsError.textContent=error&&error.message?error.message:String(error);
     graphicsSwitch.checked=!wanted;
+    // Main settles the sentence in state and rejects the call as well, so the same failure
+    // would otherwise be painted twice. It has one home, beside the toggle that asked for it,
+    // exactly as a refused install location is shown beside the download action: the page
+    // notice gives up its copy.
+    dismissFailure();
    }finally{graphicsSwitch.disabled=false;if(current)render(current);}
   });
  }
@@ -828,7 +899,7 @@
  $('[data-choose-java]').onclick=()=>desktop.chooseJava().then(value=>{if(value){settingsForm.elements.javaPath.value=value;settingsDirty=true;settingsResult.textContent='';}}).catch(report);
  auth('[data-open-microsoft]').onclick=()=>desktop.openMicrosoft().catch(report);
  $('[data-open-folder]').onclick=()=>desktop.openFolder().catch(report);
- window.addEventListener('resize',()=>{if(current)renderBar(current);},{passive:true});
+ window.addEventListener('resize',()=>{if(current)renderBar(current);scheduleNoticeSpace();},{passive:true});
  window.addEventListener('storage',event=>{if(event.key!==BAR_KEY)return;minimised=readMinimised();if(current)renderBar(current);});
 
  desktop.onState(render);

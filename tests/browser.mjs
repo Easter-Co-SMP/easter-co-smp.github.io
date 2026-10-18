@@ -497,8 +497,12 @@ try{
     pause:async()=>{log('pause');},
     resume:async()=>{log('resume');},
     // The amended contract's graphics choice: main writes the client's own quality
-    // settings and reports the new state back, which the renderer then renders.
-    setGraphics:async enabled=>{log('setGraphics',enabled);renderer.state.graphics=Object.assign({},renderer.state.graphics,{enabled:Boolean(enabled)});mirror();renderer.emit?.(renderer.state);},
+    // settings and reports the new state back, which the renderer then renders. A refused
+    // change is settled in the state it broadcasts *and* rejects the call, exactly as
+    // desktop/main.cjs does, so the renderer has to keep that one failure on one surface.
+    setGraphics:async enabled=>{log('setGraphics',enabled);
+     if(renderer.graphicsError){renderer.state.error=renderer.graphicsError;mirror();renderer.emit?.(renderer.state);throw Error(renderer.graphicsError);}
+     renderer.state.graphics=Object.assign({},renderer.state.graphics,{enabled:Boolean(enabled)});mirror();renderer.emit?.(renderer.state);},
     cancelSignIn:async()=>{log('cancelSignIn');},
     refreshAccount:async()=>{log('refreshAccount');},
     profileEmails:async()=>{log('profileEmails');return renderer.emails;},
@@ -562,6 +566,9 @@ try{
    const barVisibleNow=()=>launcherPage.locator('#launcher-bar').isVisible();
    const calls=()=>launcherPage.evaluate(()=>window.easterRenderer.calls);
    const callsNamed=async name=>(await calls()).filter(call=>call.name===name);
+   const visibleErrors=()=>launcherPage.evaluate(()=>[...document.querySelectorAll('.desktop-page-notice,.desktop-auth-error,.desktop-status')]
+    .filter(node=>!node.hidden&&node.getClientRects().length>0&&node.textContent.trim())
+    .map(node=>node.classList.contains('desktop-page-notice')?'desktop-page-notice':node.classList.contains('desktop-auth-error')?'desktop-auth-error':'desktop-status'));
 
    // 1. Uninstalled: the hero asks for the game, and no bar exists yet.
    heroAction({name:'uninstalled',...await hero(),expect:'download'});
@@ -889,6 +896,20 @@ try{
    await graphicsToggle.uncheck();
    await launcherPage.waitForFunction(()=>window.easterRenderer.calls.filter(call=>call.name==='setGraphics').length>=2);
    assert.deepEqual((await callsNamed('setGraphics')).at(-1).payload,false,'flipping it off reaches main as setGraphics(false)');
+   // A refused graphics change has one surface, beside the toggle that asked for it, exactly as
+   // a refused install location is shown beside the download action. The stub answers the way
+   // desktop/main.cjs does — it settles the sentence in the state it broadcasts and rejects the
+   // call as well — so the page notice must give up its copy rather than painting it twice.
+   await launcherPage.evaluate(()=>{window.easterRenderer.graphicsError='The enhanced graphics files could not be downloaded. Try again.';});
+   await graphicsToggle.click();
+   await launcherPage.locator('.desktop-graphics-error').filter({hasText:'could not be downloaded'}).waitFor();
+   await launcherPage.waitForFunction(()=>window.easterRenderer.state.error==='The enhanced graphics files could not be downloaded. Try again.');
+   assert.deepEqual(await visibleErrors(),[],'a refused graphics change is not a second surface on the page notice');
+   assert.equal(await launcherPage.locator('.desktop-graphics-error').isVisible(),true,'it is stated beside the toggle that asked for it');
+   assert.equal(await graphicsToggle.isChecked(),false,'and the toggle goes back to what is saved');
+   await launcherPage.screenshot({path:'/tmp/easter-launcher-graphics-failure.png'});
+   await launcherPage.evaluate(()=>{window.easterRenderer.graphicsError=null;window.easterRenderer.state.error=null;});
+   await pushState({error:null});
    await launcherPage.screenshot({path:'/tmp/easter-desktop-playnow-graphics.png',fullPage:true});
    // Not at the Play Now stage the toggle is withdrawn entirely.
    await pushState({graphics:{enabled:false,recommended:true,tunable:true},canPlay:false,install:launcherState({}).install,phase:'uninstalled',actions:['download'],profile:null});
@@ -909,26 +930,24 @@ try{
    // driven here, in that order, exactly as main and the bridge do.
    const FAILURE='Sign-in could not finish. Please try again.';
    await pushState({phase:'ready',actions:['signin'],canPlay:false,install:INSTALLED,profile:{name:'Owen'},account:{id:'EC-7',username:'captain_owen',name:'Captain Owen',roles:['crew'],passwordRequired:false,microsoftLinked:true},companyReady:true,microsoftConnected:true,error:null});
-   const visibleErrors=()=>launcherPage.evaluate(()=>[...document.querySelectorAll('.desktop-page-notice,.desktop-auth-error,.desktop-status')]
-    .filter(node=>!node.hidden&&node.getClientRects().length>0&&node.textContent.trim())
-    .map(node=>node.classList.contains('desktop-page-notice')?'desktop-page-notice':node.classList.contains('desktop-auth-error')?'desktop-auth-error':'desktop-status'));
    assert.deepEqual(await visibleErrors(),[],'a settled launcher has no failure on screen');
    // A failure with no dialog open has exactly one home: the page notice.
    await pushState({error:FAILURE});
    assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'a failure has one visible home, the page notice');
    assert.equal(await launcherPage.locator('.desktop-page-notice').evaluate(el=>el.firstChild.textContent),FAILURE,'the sentence is the one main supplied');
    assert.equal(await launcherPage.getByRole('button',{name:'Dismiss message'}).count(),1,'the page notice carries its dismiss control');
-   // The same broadcast again, and opening and closing Settings, must change nothing: one
-   // visible failure, and never one inside the settings dialog.
+   // The same broadcast again, and opening and closing Settings, must not duplicate anything:
+   // opening it takes the notice away (the modal makes the page inert) and closing it gives the
+   // one sentence back, never a copy inside the settings dialog.
    await pushState({error:FAILURE});
    await settingsButton.click();
    await dialog.waitFor({state:'visible'});
-   assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'Settings is never an error surface, even when it is open');
+   assert.deepEqual(await visibleErrors(),[],'Settings is never an error surface, and no page notice is painted behind it');
    assert.equal(await dialog.locator('.desktop-status').count(),0,'the settings dialog carries no status or error area at all');
    assert.equal(await dialog.evaluate(el=>el.innerText.includes('Sign-in could not finish')),false,'no failure text is copied into Settings');
    await launcherPage.keyboard.press('Escape');
    await dialog.waitFor({state:'hidden'});
-   assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'closing Settings neither repeats nor moves the failure');
+   assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'closing Settings neither repeats nor moves the failure, and gives it back once');
    // A dismissed failure stays dismissed while the same broadcast repeats.
    await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
    assert.deepEqual(await visibleErrors(),[],'the notice can be dismissed');
@@ -946,6 +965,96 @@ try{
    assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'a new action replaces the previous failure rather than stacking one');
    await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
    await launcherPage.evaluate(()=>{window.easterRenderer.playError=null;});
+
+   // ---- No page notice behind a modal dialog -------------------------------
+   // A modal <dialog> paints in the document's top layer and makes the rest of the page
+   // inert, so a page notice under one is a message the player can neither read nor dismiss:
+   // that is what the review measured at 1440, 800 and 390 wide, where the notice was dimmed
+   // by the backdrop, covered outright, and its Dismiss control could not be clicked at all.
+   // The rule is that while any modal dialog is open no page notice is painted, and the last
+   // one to close gives the same sentence back exactly once.
+   const noticeIsLaidOut=()=>launcherPage.evaluate(()=>Boolean(document.querySelector('.desktop-page-notice')?.getClientRects().length));
+   // A fresh sentence, because an already-delivered one is not deliverable again.
+   const FAILURE_LATE='Unable to start Minecraft. Try again.';
+   await launcherPage.evaluate(message=>{window.easterRenderer.playError=message;},FAILURE_LATE);
+   await launcherPage.locator('[data-desktop-play][data-action=play]').click();
+   await launcherPage.locator('.desktop-page-notice').filter({hasText:FAILURE_LATE}).waitFor();
+   assert.equal(await noticeIsLaidOut(),true,'the failure is on the page notice with no dialog open');
+   await settingsButton.click();
+   await dialog.waitFor({state:'visible'});
+   assert.equal(await dialog.evaluate(el=>el.open),true,'Settings is the open modal');
+   assert.deepEqual(await visibleErrors(),[],'a modal dialog takes the page notice away entirely');
+   assert.equal(await noticeIsLaidOut(),false,'the notice is not laid out behind the dialog at all');
+   assert.equal(await launcherPage.getByRole('button',{name:'Dismiss message'}).count(),0,'and no unreachable dismiss control is left behind the modal');
+   assert.equal(await dialog.evaluate(el=>el.innerText.includes('Unable to start Minecraft')),false,'no failure text is copied into Settings either');
+   for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+    await launcherPage.setViewportSize({width,height});
+    assert.deepEqual(await visibleErrors(),[],'still no visible failure surface at '+width+'px with Settings open');
+    await launcherPage.screenshot({path:'/tmp/easter-launcher-settings-over-failure-'+width+'.png'});
+   }
+   await launcherPage.setViewportSize({width:1440,height:900});
+   await launcherPage.keyboard.press('Escape');
+   await dialog.waitFor({state:'hidden'});
+   // Closing the last modal gives the sentence back: the same one, once, with its dismiss
+   // control, and reachable again now that the page is no longer inert.
+   await launcherPage.locator('.desktop-page-notice').filter({hasText:FAILURE_LATE}).waitFor();
+   assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'closing the last modal gives the sentence back on the page notice');
+   assert.equal(await launcherPage.getByRole('button',{name:'Dismiss message'}).count(),1,'with exactly one dismiss control');
+   assert.equal(await launcherPage.getByRole('button',{name:'Dismiss message'}).evaluate(button=>{button.focus();return document.activeElement===button;}),true,'and it is keyboard reachable again');
+   // A second kind of modal, one this file never creates: the mandatory update gate.
+   await pushState({launcherUpdate:{phase:'checking'}});
+   await launcherPage.locator('#desktop-update').waitFor({state:'visible'});
+   assert.deepEqual(await visibleErrors(),[],'the update gate takes the notice away as well');
+   assert.equal(await noticeIsLaidOut(),false,'and the notice is not laid out behind it');
+   await pushState({launcherUpdate:{phase:'current'}});
+   await launcherPage.locator('#desktop-update').waitFor({state:'hidden'});
+   await launcherPage.locator('.desktop-page-notice').filter({hasText:FAILURE_LATE}).waitFor();
+   assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'the same sentence comes back once the gate closes');
+   assert.equal(await launcherPage.locator('.desktop-page-notice').count(),1,'never a second copy of it');
+   // The notice reads above the hero card at every width. Where the window has no empty band
+   // for it the page reserves the height it needs rather than letting it sit on the crest and
+   // the heading, which is exactly what it did at 390 wide.
+   const noticeGeometry=()=>launcherPage.evaluate(()=>{
+    const box=node=>{const r=node.getBoundingClientRect();return {left:Math.round(r.left),right:Math.round(r.right),top:Math.round(r.top),bottom:Math.round(r.bottom)};};
+    return {notice:box(document.querySelector('.desktop-page-notice')),crest:box(document.querySelector('.crest-frame')),heading:box(document.querySelector('.desktop-home-heading')),viewport:innerWidth};
+   });
+   for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+    await launcherPage.setViewportSize({width,height});
+    // The reserved room is layout, so it is re-measured on the frame after the window changes.
+    // The wait is only for that pass; the assertions below are the claim.
+    await launcherPage.waitForFunction(()=>{const notice=document.querySelector('.desktop-page-notice'),crest=document.querySelector('.crest-frame');
+     return !notice||!crest||notice.getBoundingClientRect().bottom<=crest.getBoundingClientRect().top+1;},{timeout:4000}).catch(()=>{});
+    const geometry=await noticeGeometry();
+    assert(geometry.notice.left>=0&&geometry.notice.right<=geometry.viewport+1,'the failure notice fits '+width+'px: '+JSON.stringify(geometry));
+    assert(geometry.notice.bottom<=geometry.crest.top+1,'the notice does not cover the crest at '+width+'px: '+JSON.stringify(geometry));
+    assert(geometry.notice.bottom<=geometry.heading.top+1,'the notice does not cover the heading at '+width+'px: '+JSON.stringify(geometry));
+    await launcherPage.screenshot({path:'/tmp/easter-launcher-one-failure-notice-'+width+'.png'});
+   }
+   await launcherPage.setViewportSize({width:1440,height:900});
+   // It stays until it is dismissed, and a dismissed failure never comes back — not even when
+   // a dialog opens and closes again over it.
+   await pushState({error:FAILURE_LATE});
+   assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'the returned sentence is still owned by the renderer');
+   await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
+   assert.deepEqual(await visibleErrors(),[],'and it dismisses like any other failure');
+   await settingsButton.click();
+   await dialog.waitFor({state:'visible'});
+   await launcherPage.keyboard.press('Escape');
+   await dialog.waitFor({state:'hidden'});
+   assert.deepEqual(await visibleErrors(),[],'a dismissed failure is not resurrected by opening and closing a dialog');
+   // A failure that ARRIVES while a modal dialog is open is held the same way: nothing is
+   // painted under the modal, and the sentence the player then reads is that one, once.
+   await settingsButton.click();
+   await dialog.waitFor({state:'visible'});
+   await pushState({error:'The account service could not be reached. Try again.'});
+   assert.deepEqual(await visibleErrors(),[],'a failure arriving behind a modal dialog is held rather than painted under it');
+   await launcherPage.keyboard.press('Escape');
+   await dialog.waitFor({state:'hidden'});
+   await launcherPage.locator('.desktop-page-notice').filter({hasText:'The account service could not be reached. Try again.'}).waitFor();
+   assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'and closing the modal hands it to the page notice once');
+   await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
+   assert.deepEqual(await visibleErrors(),[],'where it dismisses like any other');
+   await launcherPage.evaluate(()=>{window.easterRenderer.playError=null;window.easterRenderer.state.error=null;});
 
    // A sign-in that is still running is never presented as failed. The device code is what the
    // player is waiting on, so a stale sentence from a broadcast must not be painted over it.
@@ -997,8 +1106,10 @@ try{
    await launcherPage.waitForFunction(()=>!document.querySelector('.desktop-settings-button').disabled);
    await settingsButton.click();
    await dialog.waitFor({state:'visible'});
-   assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'opening Settings brings back no failure inside it');
+   assert.deepEqual(await visibleErrors(),[],'opening Settings brings back no failure, inside it or on the page behind it');
    await launcherPage.keyboard.press('Escape');
+   await dialog.waitFor({state:'hidden'});
+   assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'and closing it hands the one sentence back');
    await launcherPage.evaluate(()=>{window.easterRenderer.openMicrosoftError=null;});
    await pushState({device:null,error:null});
    if(await launcherPage.getByRole('button',{name:'Dismiss message'}).count())await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
@@ -1040,6 +1151,38 @@ try{
     assert.deepEqual(await visibleErrors(),[],'neither the notice nor a completed sign-in leaves a failure behind');
     await launcherPage.evaluate(()=>{window.easterRenderer.signInAnswer=undefined;});
    }
+
+   // The email notice is a notice, never a failure node. An unrelated failure arriving while it
+   // is on screen must not blank it: the dialog used to end up an empty body with only the close
+   // control, and a player waiting on one sentence was left with nothing to read.
+   const EMAIL_SENTENCE='We could not read your Microsoft email address. You can sign in, and choose a login email later from your profile.';
+   const emailNotice=launcherPage.locator('.desktop-auth-notice');
+   const unrelated='The launcher could not reach the account service.';
+   await pushState({phase:'ready',actions:['signin'],canPlay:false,install:INSTALLED,profile:null,account:null,companyReady:false,microsoftConnected:false,error:null});
+   await launcherPage.locator('[data-desktop-play][data-action=signin]').click();
+   await companyChooser.waitFor({state:'visible'});
+   await launcherPage.evaluate(()=>{window.easterRenderer.signInAnswer={emailStatus:'unavailable'};});
+   await companyChooser.getByRole('button',{name:'Login with Microsoft Account',exact:true}).click();
+   await emailNotice.filter({hasText:'We could not read your Microsoft email address'}).waitFor();
+   await pushState({error:unrelated});
+   await launcherPage.locator('.desktop-auth-error').filter({hasText:unrelated}).waitFor();
+   assert.equal(await emailNotice.isVisible(),true,'an unrelated failure does not blank the email notice');
+   assert.equal((await emailNotice.textContent()).trim(),EMAIL_SENTENCE,'the email sentence is still the whole of it');
+   const emailDialogText=(await signInDialog.innerText()).replace(/\s+/g,' ');
+   assert(emailDialogText.includes('We could not read your Microsoft email address'),'the dialog still carries the sentence the player is waiting on');
+   assert(emailDialogText.includes(unrelated),'beside the failure that arrived while it was open, in its own error area');
+   await signInDialog.screenshot({path:'/tmp/easter-launcher-email-notice-with-failure.png'});
+   // The email notice belongs to the sign-in it answered: closing the dialog ends it, and the
+   // failure that arrived meanwhile takes its one home on the page notice.
+   await launcherPage.keyboard.press('Escape');
+   await launcherPage.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
+   await launcherPage.locator('.desktop-page-notice').filter({hasText:unrelated}).waitFor();
+   assert.equal(await emailNotice.isVisible(),false,'closing the dialog ends the email notice');
+   assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'and the failure takes its one home on the page notice');
+   await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
+   await launcherPage.evaluate(()=>{window.easterRenderer.signInAnswer=undefined;});
+   await pushState({device:null,error:null});
+   assert.deepEqual(await visibleErrors(),[],'the email-notice check leaves nothing behind');
 
    // The saved-session branch is a shortcut, not a dead end: any failure other than a conflict
    // falls through to the fresh interactive sign-in that shows the device code.
@@ -1143,6 +1286,6 @@ try{
    assert.deepEqual(await launcherPage.evaluate(()=>window.easterRenderer.errors),[],'the fixture saw no page error on its last load');
    await launcherContext.close();
   }finally{await launcherContext.close().catch(()=>{});}
-  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage with a published server choice and an explained memory setting; the themed enhanced graphics toggle driving setGraphics; the profile\'s verified emails listed and chosen through the owner-only actions with no address in the state; refusals shown; one failure on one visible surface with Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed, the saved-session branch falling through to a fresh sign-in except on an identity conflict, and Microsoft\'s email-unavailable answer shown as a sign-in notice; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
+  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage with a published server choice and an explained memory setting; the themed enhanced graphics toggle driving setGraphics, a refused graphics change shown once beside the toggle rather than on the page notice as well; the profile\'s verified emails listed and chosen through the owner-only actions with no address in the state; refusals shown; one failure on one visible surface with no page notice painted while any modal dialog is open (Settings and the mandatory update gate) and the same sentence handed back once when the last one closes, repeated at 1440, 800 and 390 wide with the notice reading above the hero card\'s crest and heading, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed, Microsoft\'s email answer kept as a notice an unrelated failure cannot blank, the saved-session branch falling through to a fresh sign-in except on an identity conflict, and Microsoft\'s email-unavailable answer shown as a sign-in notice; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
  }
 }finally{await browser.close();}
