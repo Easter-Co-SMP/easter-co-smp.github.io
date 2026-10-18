@@ -5,6 +5,7 @@ const {MicrosoftAuth,DEFAULT_CLIENT_ID}=require('./auth.cjs');
 const {AccountClient,publicAccount,companySession,storedSession,companyVaultName}=require('./accounts.cjs');
 const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation,serverList}=require('./config.cjs');
 const vault=require('./vault.cjs');
+const identity=require('./identity.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,includeGraphicsValue}=require('./security.cjs');
 const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=require('./install.cjs');
 const {renderOffload}=require('./hardware.cjs');
@@ -19,7 +20,7 @@ protocol.registerSchemesAsPrivileged([{scheme:'easter',privileges:{standard:true
 if(!app.isPackaged&&process.env.EASTER_TEST_HOME)app.setPath('userData',process.env.EASTER_TEST_HOME);
 const instance=app.requestSingleInstanceLock();
 if(!instance)app.quit();
-let window,settings,session=null,working=false,game=null,controller,company=null;
+let window,settings,session=null,working=false,game=null,controller,company=null,accessChecking=false;
 const siteRoot=path.resolve(__dirname,'../site');
 const configRoot=()=>app.getPath('userData');
 const defaultLocation=()=>defaultInstallLocation(configRoot());
@@ -85,12 +86,15 @@ function notify(patch={}){
  if('message' in patch && !('error' in patch))patch={...patch,error:null};
  if('progress' in patch)progress=patch.progress;
  if(typeof patch.phase==='string')phase=patch.phase;
- state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(publicProfile)};
+ state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(identity.publicIdentity)};
  const install=installInfo(),profile=publicProfile(session),actions=[];
  if(!install.installed)actions.push('download');
- if(!profile)actions.push('signin');
+ if(!session)actions.push('signin');
+ else if(identity.access(session)==='missing')actions.push('buy');
+ else if(identity.access(session)==='profile-required')actions.push('setup-profile');
+ else if(identity.access(session)==='unknown')actions.push('check-access');
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,canPlay:startupReady&&!backgroundUpdate&&!['downloading','paused','verifying','installing','updating','checking-client'].includes(phase)&&canPlay(install,profile),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:!accessChecking&&identity.access(session)==='owned'&&startupReady&&!backgroundUpdate&&!['downloading','paused','verifying','installing','updating','checking-client'].includes(phase)&&canPlay(install,profile),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
@@ -100,8 +104,8 @@ async function refreshClient(){client=await clientStatus(gameRoot());await readQ
 function secureStorageAvailable(){return safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');}
 const vaultOptions=()=>({safeStorage,platform:process.platform});
 function saveSession(){
- if(session){savedAccounts=savedAccounts.filter(entry=>entry.profile.id!==session.profile.id);savedAccounts.push(session);}
- const payload={active:session?.profile.id||null,accounts:[...savedAccounts]};
+ if(session){savedAccounts=savedAccounts.filter(entry=>identity.id(entry)!==identity.id(session)&&!(session.microsoftId&&entry.microsoftId===session.microsoftId)&&!(session.xuid&&session.xuid!=='0'&&entry.xuid===session.xuid)&&!(session.profile&&entry.profile?.id===session.profile.id));savedAccounts.push(session);}
+ const payload={active:identity.id(session),accounts:[...savedAccounts]};
  // Skin loading and sign-in can finish together. Serialize atomic vault writes.
  sessionWrite=sessionWrite.catch(()=>{}).then(async()=>{
   const remember=await vault.writeEncrypted(accountsFile(),payload,vaultOptions());
@@ -112,6 +116,7 @@ function saveSession(){
  return sessionWrite;
 }
 async function loadSkin(target){
+ if(!target?.profile)return;
  try{
   let url=target.profile.skinURL;
   if(!url){
@@ -142,6 +147,7 @@ async function forgetCompany(){
 }
 // Enrol or sign in with the Mojang access token the launcher already holds.
 async function enrolAccount({announce=true,throwOnError=false}={}){
+ if(!session?.profile||identity.access(session)!=='owned')return;
  try{
   const signed=await accounts.login(session.accessToken);
   company=companySession(signed);
@@ -255,7 +261,7 @@ async function login(){
   session=signed;
   await loadSkin(session);
   await saveSession();await enrolAccount();
-  notify({device:null,message:'Signed in as '+session.profile.name+'.'});
+  notify({device:null,message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
  }finally{controller=undefined;}
 }
 // Install or update before launch. Returns the prepared release, or null when the
@@ -269,11 +275,14 @@ async function ensureClient(){
 async function play(){
  if(!session)await login();
  notify({phase:'launching',message:'Checking your Minecraft session…',device:null,progress:null});
- try{session=await auth.refresh(session);}catch(error){
+ try{session=await auth.refresh(session,undefined,true);}catch(error){
   if(!['invalid_grant','invalid_request','unauthorized_client'].includes(error.code))throw error;
   session=null;company=null;await fs.rm(vaultFile(),{force:true});await vault.remove(companyFile());await login();
  }
  await saveSession();
+ if(identity.access(session)!=='owned'||!session.profile){
+  await forgetCompany();settle('Minecraft Java Edition access is required to play.');return {requiresAccess:true};
+ }
  // The Mojang token is the enrolment credential: every sign-in re-posts it, so a
  // session the API has forgotten or revoked is reissued here instead of on launch.
  await enrolAccount({announce:false});
@@ -301,7 +310,7 @@ function registerIPC(){
    return {ok:true,value:await fn(...args)};
   }catch(error){return {ok:false,error:safeError(error)};}
  });
- handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(publicProfile),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
+ handle('status',()=>({...state,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(identity.publicIdentity),settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'}));
  handle('sign-in',async()=>{
   if(controller)throw Error('Microsoft sign-in is already running.');
   // Authentication can overlap the install pipeline, but never starts a second
@@ -313,18 +322,35 @@ function registerIPC(){
   return exclusively(login);
  });
  handle('switch-account',id=>exclusively(async()=>{
-  if(typeof id!=='string'||!/^[a-f0-9]{32}$/i.test(id))throw Error('Choose a saved account.');
-  const selected=savedAccounts.find(entry=>entry.profile.id===id);
+  if(typeof id!=='string'||!(/^[a-f0-9]{32}$/i.test(id)||/^xbox:\d{1,20}$/.test(id)||/^msa:[a-f0-9]{64}$/.test(id)))throw Error('Choose a saved account.');
+  const selected=savedAccounts.find(entry=>identity.id(entry)===id);
   if(!selected)throw Error('That account is no longer saved. Use Add account.');
   let refreshed;
-  try{refreshed=await auth.refresh(selected);}catch{throw Error('This account needs to sign in again. Use Add account.');}
+  try{refreshed=await auth.refresh(selected,undefined,true);}catch{throw Error('This account needs to sign in again. Use Add account.');}
   await forgetCompany();session=refreshed;
-  if(!session.profile.skin)await loadSkin(session);
+  if(session.profile&&!session.profile.skin)await loadSkin(session);
   await saveSession();await enrolAccount({announce:false});
-  notify({message:'Signed in as '+session.profile.name+'.'});
+  notify({message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
  }));
+ handle('open-minecraft-store',()=>shell.openExternal('https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc'));
+ handle('open-minecraft-profile',()=>shell.openExternal('https://www.minecraft.net/en-us/msaprofile'));
+ handle('recheck-access',async()=>{
+  if(!session)throw Error('Sign in with Microsoft first.');
+  if(controller||game||(working&&!control))throw Error('Wait for the current operation to finish.');
+  const run=async()=>{
+   accessChecking=true;controller=new AbortController();notify({message:'Checking Minecraft Java access…'});
+   try{
+    const refreshed=await auth.refresh(session,controller.signal,true);
+    await forgetCompany();session=refreshed;
+    await loadSkin(session);await saveSession();await enrolAccount({announce:false});
+    notify({message:'Minecraft Java access checked.'});
+   }catch(error){session={...session,minecraftAccess:'unknown'};notify({});throw error;}
+   finally{accessChecking=false;controller=undefined;notify({});}
+  };
+  return control?run():exclusively(run);
+ });
  handle('cancel-sign-in',()=>controller?.abort());
- handle('sign-out',async()=>{if(working||controller)throw Error('Wait for the current operation to finish.');const id=session?.profile.id;session=null;savedAccounts=savedAccounts.filter(entry=>entry.profile.id!==id);await forgetCompany();await saveSession();notify({remembered:false,device:null,message:'Logged out.'});});
+ handle('sign-out',async()=>{if(working||controller)throw Error('Wait for the current operation to finish.');const id=identity.id(session);session=null;savedAccounts=savedAccounts.filter(entry=>identity.id(entry)!==id);await forgetCompany();await saveSession();notify({remembered:false,device:null,message:'Logged out.'});});
  // Re-issues the account session from the Mojang token the launcher already has.
  handle('account-refresh',()=>exclusively(async()=>{if(!session)throw Error('Sign in first.');await enrolAccount({throwOnError:true});return publicAccount(company);}));
  // Company account only: the Microsoft session on this device is kept.
@@ -518,8 +544,8 @@ if(instance){
   }
   const saved=await vault.readEncrypted(accountsFile(),vaultOptions());
   if(saved&&Array.isArray(saved.accounts)){
-   savedAccounts=saved.accounts.filter(entry=>entry?.refreshToken&&/^[a-f0-9]{32}$/i.test(entry.profile?.id)&&/^\w{1,16}$/.test(entry.profile?.name));
-   session=savedAccounts.find(entry=>entry.profile.id===saved.active)||null;
+   savedAccounts=saved.accounts.filter(identity.valid);
+   session=savedAccounts.find(entry=>identity.id(entry)===saved.active)||null;
    state.remembered=Boolean(session);
   }else if(secureStorageAvailable())try{
    session=JSON.parse(safeStorage.decryptString(await fs.readFile(vaultFile())));
@@ -529,13 +555,13 @@ if(instance){
   // Restore the Easter Company session from the vault without a network call, so
   // launch never waits on the account API. Sign-in and play re-issue it.
   company=storedSession(await vault.readEncrypted(companyFile(),vaultOptions()));
-  if(company&&company.expiresAt<=Date.now())company=null;
+  if(company&&(company.expiresAt<=Date.now()||identity.access(session)!=='owned'))company=null;
   await refreshClient();
   protocol.handle('easter',resource);registerIPC();createWindow();
   notify({message:client.installed?'Client ready.':'Download the game to get started.'});
   if(app.isPackaged)void startupUpdates();
   else void updateOnLaunch()?.catch(()=>{});
-  if(session&&!session.profile.skin){const target=session;void loadSkin(target).then(async()=>{if(session===target)await saveSession();});}
+  if(session?.profile&&!session.profile.skin){const target=session;void loadSkin(target).then(async()=>{if(session===target)await saveSession();});}
  });
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
  app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});

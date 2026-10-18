@@ -1,0 +1,46 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+const home=await fs.mkdtemp(path.join(os.tmpdir(),'java-access-'));
+await fs.writeFile(path.join(home,'settings.json'),JSON.stringify({memoryMB:4096,server:'100.100.1.0:25565',exitOnLaunch:false}));
+const app=await electron.launch({executablePath:path.resolve('node_modules/electron/dist/electron'),args:['--no-sandbox',path.resolve('tests/desktop/ownership-harness.cjs')],env:{...process.env,EASTER_TEST_HOME:home}});
+try{
+ const page=await app.firstWindow();page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.keyboard.press('Escape');
+ const status=()=>page.evaluate(()=>window.easterDesktop.status());
+ const mode=value=>app.evaluate((_electron,value)=>global.ownershipMode=value,value);
+ const hero=kind=>page.locator('[data-desktop-play][data-action="'+kind+'"]');
+ await hero('signin').click();await page.locator('.desktop-code').filter({hasText:'TEST-JAVA'}).waitFor();await app.evaluate(()=>global.ownershipApprove());
+ await hero('buy').waitFor();assert.equal((await status()).minecraftAccess,'missing');assert.equal((await status()).canPlay,false);
+ assert.equal(await page.locator('#desktop-signin').isVisible(),false);assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'no generic sign-in error for non-owner');
+ assert.equal((await status()).accounts.length,1);assert.match((await status()).microsoftAccount.id,/^msa:[a-f0-9]{64}$/);assert.equal((await status()).profile,null);
+ assert.equal(await app.evaluate(()=>global.ownershipEnrols),0,'non-owners never enrol a company account');
+ await page.setViewportSize({width:800,height:600});await page.screenshot({path:'/tmp/java-buy-now.png',animations:'disabled'});
+ await hero('buy').click();assert.equal((await app.evaluate(()=>global.ownershipOpened)).at(-1),'https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc');
+ await page.evaluate(()=>window.easterDesktop.play());assert.equal(await app.evaluate(()=>global.ownershipLaunches),0,'direct Play IPC cannot bypass ownership');
+ await page.locator('[data-use-account]').click();await page.locator('.desktop-code').filter({hasText:'TEST-JAVA'}).waitFor();await page.keyboard.press('Escape');
+ await hero('buy').waitFor();assert.equal((await status()).accounts.length,1,'cancelled add retains the account');
+ await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Switch Account',exact:true}).click();
+ assert.equal(await page.locator('.desktop-account-list button').count(),1);assert.equal(await page.locator('.desktop-account-list button').isDisabled(),true);await page.keyboard.press('Escape');
+ await mode('profile-required');await page.locator('[data-recheck-access]').click();await hero('setup-profile').waitFor();
+ assert.equal((await status()).canPlay,false);await hero('setup-profile').click();assert.equal((await app.evaluate(()=>global.ownershipOpened)).at(-1),'https://www.minecraft.net/en-us/msaprofile');
+ await page.screenshot({path:'/tmp/java-profile-required.png',animations:'disabled'});
+ await mode('unknown');await page.locator('[data-recheck-access]').click();await hero('check-access').waitFor();
+ assert.equal(await hero('buy').count(),0,'service failures do not advertise another purchase');await page.screenshot({path:'/tmp/java-access-retry.png',animations:'disabled'});
+ await mode('owned');await hero('check-access').click();await hero('play').waitFor();
+ assert.equal((await status()).minecraftAccess,'owned');assert.equal((await status()).canPlay,true);assert.equal((await status()).accounts.length,1,'purchase/profile transition does not duplicate the account');
+ await mode('auth-failure');await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Add account',exact:true}).click();
+ await page.locator('.desktop-code').filter({hasText:'TEST-JAVA'}).waitFor();await app.evaluate(()=>global.ownershipApprove());await page.locator('.desktop-page-notice').waitFor();
+ assert.equal((await status()).profile.name,'JavaCaptain','failed add preserves active owning account');
+ await mode('missing');await page.evaluate(()=>window.easterDesktop.play());await hero('buy').waitFor();
+ assert.equal(await app.evaluate(()=>global.ownershipLaunches),0,'revoked subscription cannot launch using a cached profile');
+ await page.getByRole('link',{name:'Wiki',exact:true}).click();await page.locator('[data-bar-primary]').waitFor();assert.equal(await page.locator('[data-bar-primary]').textContent(),'Buy Now');
+ await page.locator('[data-bar-primary]').click();assert((await app.evaluate(()=>global.ownershipOpened)).at(-1).includes('/store/'));
+ assert(!(await page.locator('body').textContent()).includes('fixture-private'));assert(!JSON.stringify(await status()).includes('fixture-private'));
+ assert.deepEqual(errors,[]);
+ console.log('Java access journey PASS: sign-in without ownership, Buy Now official link, recheck, profile setup, outage retry, subscription access, cancellation/failed-add retention, account deduplication, revoked-access Play guard and Wiki dock.');
+}catch(error){
+ const page=await app.firstWindow();console.log(await page.evaluate(async()=>{const s=await window.easterDesktop.status();return {access:s.minecraftAccess,checking:s.accessChecking,phase:s.phase,error:s.error,hero:document.querySelector('[data-desktop-play]')?.textContent,notice:document.querySelector('.desktop-page-notice')?.textContent};}));throw error;
+}finally{await app.close();await fs.rm(home,{recursive:true,force:true});}

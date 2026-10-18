@@ -144,3 +144,9 @@
 .desktop-update-actions button{padding:11px 18px;background:#e4c486;color:#14262e;border:0;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer}
 @keyframes update-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.desktop-update-spinner{animation:none;border-color:#e4c486}}
+
+.desktop-access{margin:20px 0 0;padding-top:16px;border-top:1px solid var(--app-border)}
+.desktop-access p{margin:0;color:var(--app-muted);font-size:12px;line-height:1.7}
+.desktop-access>div{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px}
+.desktop-access button{border:1px solid var(--app-border);border-radius:6px;background:transparent;color:#e4d7b8;padding:9px 12px;font-size:11px;cursor:pointer}
+.desktop-access button:hover{background:#ffffff09}

@@ -503,3 +503,15 @@ startup succeeds. Before every Play, the launcher feed and game manifest are
 checked again; a failure never launches the old client.
 
 See [mandatory-updates.md](mandatory-updates.md) for the payload/bootstrap protocol.
+
+## Microsoft account without Java access
+
+See [minecraft-access.md](minecraft-access.md). State adds `minecraftAccess`
+(signed-out, owned, missing, profile-required, unknown), `microsoftAccount`
+(public identity only), and `accessChecking`. A successful Microsoft login need
+not supply a Java profile. Play additionally requires confirmed Java access;
+the authenticated session remains available for purchase/setup recovery.
+Actions may include buy, setup-profile or check-access. The hero and utility-page
+dock use Buy Now only for confirmed missing entitlement, never an outage.
+Fixed-destination IPC opens the official store/profile pages; recheckAccess
+reuses the Microsoft session and can return directly to Download or Play.

@@ -1,5 +1,6 @@
 'use strict';
 const {setTimeout:delay}=require('node:timers/promises');
+const {randomUUID,createHash}=require('node:crypto');
 const AUTHORITY='https://login.microsoftonline.com/consumers/oauth2/v2.0';
 const SCOPE='XboxLive.signin offline_access';
 // Same public client configuration as /opt/minecraft/launch/mc-auth.py.
@@ -15,7 +16,8 @@ class MicrosoftAuth{
   if(!response.ok){
    const xerr=Number(data.XErr);
    const messages={2148916233:'Create an Xbox profile for this Microsoft account, then sign in again.',2148916238:'This account needs Microsoft Family approval before Minecraft can connect.',2148916235:'Xbox Live is unavailable for this account’s country.',2148916236:'Complete the age verification on your Microsoft account.',2148916237:'Complete the age verification on your Microsoft account.'};
-   throw new AuthError(messages[xerr]||(data.error==='invalid_grant'?'Your saved sign-in has expired. Please sign in again.':response.status===404?'This account has no Minecraft Java profile. Check that it owns Minecraft Java Edition.':'Sign-in could not finish. Please try again.'),data.error||String(xerr||response.status));
+   const error=new AuthError(messages[xerr]||(data.error==='invalid_grant'?'Your saved sign-in has expired. Please sign in again.':'Sign-in could not finish. Please try again.'),data.error||String(xerr||response.status));
+   error.status=response.status;throw error;
   }
   return data;
  }
@@ -43,10 +45,10 @@ class MicrosoftAuth{
   }
   throw new AuthError('The sign-in code expired. Start sign-in again.','expired_token');
  }
- async refresh(session,signal){
-  if(session.expiresAt>Date.now()+300000)return session;
+ async refresh(session,signal,recheck=false){
+  if(session.expiresAt>Date.now()+300000)return recheck?this.checkAccess(session,signal):session;
   const msa=await this.form('/token',{grant_type:'refresh_token',client_id:this.clientId,refresh_token:session.refreshToken,scope:SCOPE},signal);
-  return this.exchange(msa,session.refreshToken,signal);
+  return {...await this.exchange(msa,session.refreshToken,signal),accountId:session.accountId||session.profile?.id||'xbox:'+session.xuid};
  }
  async exchange(msa,oldRefresh,signal){
   if(!msa.access_token)throw new AuthError('Microsoft did not return a session.','response');
@@ -56,9 +58,29 @@ class MicrosoftAuth{
   if(!xsts.Token||!uhs)throw new AuthError('Xbox did not return a Minecraft session.','response');
   const mc=await this.post('https://api.minecraftservices.com/authentication/login_with_xbox',{identityToken:'XBL3.0 x='+uhs+';'+xsts.Token},signal);
   if(!mc.access_token)throw new AuthError('Minecraft did not return a session.','response');
-  const profile=await this.json('https://api.minecraftservices.com/minecraft/profile',{headers:{Authorization:'Bearer '+mc.access_token}},signal);
-  if(!/^[a-f0-9]{32}$/i.test(profile.id)||!/^\w{1,16}$/.test(profile.name))throw new AuthError('This account has no valid Minecraft Java profile.','profile');
-  return {clientId:this.clientId,xuid:xsts.DisplayClaims.xui[0].xid||'0',refreshToken:msa.refresh_token||oldRefresh,accessToken:mc.access_token,expiresAt:Date.now()+(mc.expires_in||86400)*1000,profile:{id:profile.id,name:profile.name,skinURL:profile.skins?.find(s=>s.state==='ACTIVE')?.url||null}};
+  const xuid=/^\d{1,20}$/.test(String(xsts.DisplayClaims.xui[0].xid||''))?String(xsts.DisplayClaims.xui[0].xid):'0';
+  // The user hash is present even when the optional Xbox ID is omitted.
+  // Hash it into a stable, non-credential account key; never invent a Java profile.
+  const microsoftId='msa:'+createHash('sha256').update(this.clientId+'\0'+String(uhs)).digest('hex');
+  return this.checkAccess({clientId:this.clientId,xuid,microsoftId,accountId:microsoftId,refreshToken:msa.refresh_token||oldRefresh,accessToken:mc.access_token,expiresAt:Date.now()+(mc.expires_in||86400)*1000,profile:null},signal);
+ }
+ async checkAccess(session,signal){
+  const headers={Authorization:'Bearer '+session.accessToken};
+  try{
+   const license=await this.json('https://api.minecraftservices.com/entitlements/license?requestId='+randomUUID(),{headers,cache:'no-store'},signal);
+   if(!Array.isArray(license.items)||!license.items.every(item=>item&&typeof item.name==='string'))throw new AuthError('The Java access response is invalid.','response');
+   const entitled=license.items.some(item=>['game_minecraft','product_minecraft'].includes(item.name));
+   if(!entitled)return {...session,minecraftAccess:'missing'};
+   let profile;
+   try{profile=await this.json('https://api.minecraftservices.com/minecraft/profile',{headers,cache:'no-store'},signal);}
+   catch(error){if(error.status===404)return {...session,profile:null,minecraftAccess:'profile-required'};throw error;}
+   if(!/^[a-f0-9]{32}$/i.test(profile.id)||!/^\w{1,16}$/.test(profile.name))throw new AuthError('The Java profile response is invalid.','response');
+   return {...session,minecraftAccess:'owned',profile:{id:profile.id,name:profile.name,skin:session.profile?.id===profile.id?session.profile.skin:undefined,skinURL:profile.skins?.find(s=>s.state==='ACTIVE')?.url||null}};
+  }catch(error){
+   if(error.name==='AbortError'||signal?.aborted)throw error;
+   // Network/service/auth failures never prove non-ownership.
+   return {...session,minecraftAccess:'unknown',expiresAt:[401,403].includes(error.status)?0:session.expiresAt};
+  }
  }
 }
 module.exports={MicrosoftAuth,AuthError,DEFAULT_CLIENT_ID};
