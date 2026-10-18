@@ -65,6 +65,61 @@ try{
  await page.getByRole('button',{name:'Dismiss message'}).click();
  assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'failure notice can be dismissed');
  await app.evaluate(()=>global.easterTestFailPlay=false);
+ // One failure, one visible home — in the real app. A failed Play is announced twice by main (one
+ // settled broadcast carrying `error`, and the rejected call), so this is the exact shape Owen
+ // reported: one sentence that used to be painted on the page notice and inside Settings, and
+ // that came back whenever a dialog opened or closed.
+ const visibleErrorNodes=()=>page.evaluate(()=>[...document.querySelectorAll('.desktop-page-notice,.desktop-auth-error,.desktop-status')]
+  .filter(node=>!node.hidden&&node.getClientRects().length>0&&node.textContent.trim())
+  .map(node=>node.classList.contains('desktop-page-notice')?'desktop-page-notice':node.classList.contains('desktop-auth-error')?'desktop-auth-error':'desktop-status'));
+ const status=()=>page.evaluate(()=>window.easterDesktop.status());
+ await app.evaluate(()=>global.easterTestFailPlay=true);
+ await page.locator('[data-desktop-play][data-action=play]').click();
+ await page.locator('.desktop-page-notice').filter({hasText:'Unable to start Minecraft. Try again.'}).waitFor();
+ assert.deepEqual(await visibleErrorNodes(),['desktop-page-notice'],'one failure is one visible surface');
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  const notice=await page.locator('.desktop-page-notice').boundingBox();
+  assert(notice.x>=0&&notice.x+notice.width<=width+1,'the failure notice fits '+width+'px');
+  await shot('one-failure-notice-'+width);
+ }
+ await page.setViewportSize({width:1360,height:920});
+ // Settings opens over it and inherits nothing from it.
+ await page.getByRole('button',{name:'Settings',exact:true}).click();
+ await page.locator('#desktop-launcher').waitFor({state:'visible'});
+ assert.deepEqual(await visibleErrorNodes(),['desktop-page-notice'],'the settings dialog is never an error surface');
+ assert.equal(await page.evaluate(()=>document.querySelectorAll('#desktop-launcher .desktop-status').length),0,'the settings dialog carries no error area at all');
+ assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.innerText.includes('Unable to start Minecraft')),false,'no failure text is copied into settings');
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  const notice=await page.locator('.desktop-page-notice').boundingBox();
+  assert(notice.x>=0&&notice.x+notice.width<=width+1,'the failure notice fits '+width+'px');
+  await shot('one-failure-settings-open-'+width);
+ }
+ await page.setViewportSize({width:1360,height:920});
+ await page.keyboard.press('Escape');
+ await page.locator('#desktop-launcher').waitFor({state:'hidden'});
+ assert.deepEqual(await visibleErrorNodes(),['desktop-page-notice'],'closing settings neither repeats the failure nor moves it');
+ // Main keeps `error` set until the next ordinary message, so later broadcasts repeat the same
+ // sentence; a delivered failure is not delivered again, and a dismissed one stays dismissed.
+ const repeated={...await status(),error:'Unable to start Minecraft. Try again.'};
+ await send(repeated);
+ assert.deepEqual(await visibleErrorNodes(),['desktop-page-notice'],'a repeated broadcast does not deliver the failure twice');
+ await page.getByRole('button',{name:'Dismiss message'}).click();
+ assert.deepEqual(await visibleErrorNodes(),[],'the notice dismisses');
+ await send(repeated);
+ assert.deepEqual(await visibleErrorNodes(),[],'a dismissed failure is not resurrected by the same broadcast');
+ // A sign-in that is still running is never presented as failed: the code and the browser action
+ // are what the player is waiting for, so a stale sentence is not painted over them.
+ await send({...await status(),device:{code:'TEST-LIVE',url:'https://microsoft.com/link',expiresAt:Date.now()+300000},error:'Xbox Live did not accept the Microsoft sign-in: the provider answered UNAUTHORIZED (HTTP 401). Try again.'});
+ await page.locator('.desktop-code').filter({hasText:'TEST-LIVE'}).waitFor();
+ assert.equal(await page.locator('.desktop-code').filter({hasText:'TEST-LIVE'}).isVisible(),true,'the device code stays readable');
+ assert.equal(await page.getByRole('button',{name:'Login with Microsoft',exact:true}).isVisible(),true,'the sign-in link stays readable');
+ assert.deepEqual(await visibleErrorNodes(),[],'a live sign-in is never painted as failed');
+ await shot('sign-in-live-no-stale-failure');
+ await send({...await status(),device:null,error:null});
+ await page.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
+ await app.evaluate(()=>global.easterTestFailPlay=false);
  await page.evaluate(async()=>{const state=await window.easterDesktop.status();await window.easterDesktop.saveSettings({...state.settings,exitOnLaunch:false});});
  await page.locator('[data-desktop-play][data-action=play]').click();
  await page.locator('[data-desktop-play][data-action=running]').waitFor();
@@ -211,5 +266,5 @@ try{
  assert.equal(restored.error,null,'the exit message is the same one, with the launcher back on screen');
  await shot('tray-restored');
  assert.deepEqual(errors,[]);
- console.log('Launcher UI state review PASS: first run, transfer, failure, sign-in, ready, settings, both linked launch behaviours, the no-tray hide and its way back, the tray path, profile, wiki.');
+ console.log('Launcher UI state review PASS: first run, transfer, failure, sign-in, ready, settings, one failure on one surface (Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed), both linked launch behaviours, the no-tray hide and its way back, the tray path, profile, wiki.');
 }finally{await app.close();await fs.rm(home,{recursive:true,force:true});}
