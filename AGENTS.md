@@ -57,9 +57,10 @@ Use a dedicated app-owned Minecraft directory as the default, offer the player a
 installation location, and keep checksum-verified upstream downloads. Never write into an existing
 .minecraft, another launcher's files, the server or the world.
 Installing the launcher adds a launcher shortcut for all users of the machine, with an optional
-toggle offered at install time. An installed game gets no system shortcut of its own: the client is
-started from the launcher. Leave the existing drun shortcut and installed clients alone as part of
-launcher work.
+toggle offered at install time. An installed game gets no shortcut that starts it directly: the
+client is started by the launcher, and the optional desktop and Start menu entries Settings offers
+run the launcher with its `--play` auto-start argument so the mandatory updater still runs. Leave
+the existing drun shortcut and installed clients alone as part of launcher work.
 First run promotes downloading the client, and Play is gated on both a fully installed client and a
 connected account; neither alone is enough. A sticky, minimisable progress bar carries pause,
 resume, speed and percentage across every page. doc/launcher-states.md holds the frozen state

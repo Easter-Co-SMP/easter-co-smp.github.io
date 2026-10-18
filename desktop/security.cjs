@@ -66,7 +66,16 @@ function cleanSettings(input,totalMB=16384){
  const server=checkServer(input.server);
  const javaPath=String(input.javaPath||'').trim();
  if(javaPath&&(!path.isAbsolute(javaPath)||!/^java(?:\.exe)?$/i.test(path.basename(javaPath))))throw Error('Select a Java executable named java or java.exe.');
- return {memoryMB,server,javaPath,autoUpdateLauncher:true,autoUpdateGame:true,...cleanLaunchPreferences(input)};
+ return {memoryMB,server,javaPath,autoUpdateLauncher:true,autoUpdateGame:true,...cleanLaunchPreferences(input),...cleanShortcutPreferences(input)};
+}
+// The two game-shortcut preferences. Both are absent from every settings file written
+// before them, so both default to off: an existing install gets no new icon on the
+// desktop until the player asks for one. A value that is not a boolean is not coerced,
+// exactly like the launch preferences, so a stray string in a hand-edited file can
+// never put a file on someone's desktop.
+function cleanShortcutPreferences(input){
+ const source=input&&typeof input==='object'?input:{};
+ return {desktopShortcut:preference(source.desktopShortcut,false),startMenuShortcut:preference(source.startMenuShortcut,false)};
 }
 // The two launch-time behaviours are linked and cannot both be chosen: the launcher
 // either closes behind the game it started, or steps into the system tray, or stays
@@ -129,4 +138,4 @@ function includeGraphicsValue(input,fallback=false){
  if(!input||typeof input!=='object'||typeof input.includeGraphics!=='boolean')return Boolean(fallback);
  return input.includeGraphics;
 }
-module.exports={localFile,trustedFrame,externalURL,publicProfile,apiFetch,cleanSettings,cleanLaunchPreferences,migrateLaunchPreferences,launchBehaviour,SERVER_ADDRESS,checkServer,includeGraphicsValue};
+module.exports={localFile,trustedFrame,externalURL,publicProfile,apiFetch,cleanSettings,cleanLaunchPreferences,cleanShortcutPreferences,migrateLaunchPreferences,launchBehaviour,SERVER_ADDRESS,checkServer,includeGraphicsValue};

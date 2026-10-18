@@ -575,6 +575,8 @@ update gate*:
 | `autoUpdateGame` | on | Keep the installed game client current. When off, no update starts on its own and a launch never begins a transfer the player did not ask for. |
 | `exitOnLaunch` | off | Close the launcher when the game starts. |
 | `trayOnLaunch` | off | Minimise the launcher to the system tray when the game starts, offering **Open launcher** and **Quit**, and bring the window back when the game ends. |
+| `desktopShortcut` | off | Put a game shortcut on the desktop, and remove it again when unticked. |
+| `startMenuShortcut` | off | Put a game shortcut in the Start menu (`~/.local/share/applications` on Linux, the per-user Start menu on Windows), and remove it again when unticked. |
 
 **Starting the game moves the launcher exactly one way.** Owen's review of 2026-10-18: with
 neither preference on, the window is left exactly as the player had it; with `exitOnLaunch`
@@ -663,6 +665,128 @@ detail under the hero action, so the crest, the name, the single download action
 that detail all stay on screen at 800x600 without the shell ever scrolling. The
 narrow-width fallback is the website's stacked layout, which only desktop mode in a
 browser can reach.
+
+## Game shortcuts and the auto-start argument
+
+Owen's ask, and his own correction to it inside the same minute: a desktop shortcut and
+a Start menu entry for the game — *not* a shortcut that skips the launcher. "We open the
+launcher but the launcher then automatically opens the game (applying minimize or quit
+options as well). because otherwise our auto-updater won't kick in." So both entries run
+the launcher and nothing else, with one explicit argument:
+
+    <the launcher the player has> --play
+
+`--play` is the whole of it. There is no second form of the line: no client class, no
+jar, no Minecraft version, no account argument, no token and no identifier of any kind,
+and tests pin each of those absences. A shortcut that ran the client itself would skip
+the mandatory launcher update, the client update gate and the account/access checks, so
+the launcher never writes one; the entry it writes cannot start a game that the Play
+action would not have started.
+
+**One path starts a game.** `startGame()` in `desktop/main.cjs` is what the Play action
+and the game shortcut both call. It waits for a background update, refuses while another
+operation or a game is running, runs the launcher update check where the launcher is
+packaged, refuses while the mandatory update gate is closed, and then runs the same
+`exclusively(play)`. Because it is the same function, the launch-behaviour pair is
+honoured exactly as pressing Play honours it — the window stays, closes behind the game
+with `exitOnLaunch`, or steps into the tray with `trayOnLaunch` and comes back when the
+game ends — and a second game can never be started while one is running.
+
+**A shortcut launch waits for the gate instead of racing it.** `autoStart()` awaits the
+startup update sequence (bounded at three minutes) and then asks one pure decision,
+`autoStartDecision` in `desktop/shortcuts.cjs`, in the order a player experiences it: a
+running game, then `startupReady`, then any other launcher operation, then the installed
+client, then the Easter Company account (`signin`, `setup-password`,
+`connect-microsoft`), then Java access (`buy`, `setup-profile`, `check-access`), and
+finally the state contract's own `canPlay`. Only a yes starts a game; `actions` and
+`canPlay` are the same list and the same gate the UI renders, computed in one place
+(`remainingActions()` and `canPlayNow()`), so the shortcut cannot start what Play hides.
+
+**A click that may not start a game does nothing else.** The window opens normally —
+showing the sign-in action, the download action, the Java access notice or the running
+game — and no second, vaguer sentence is printed at the player, because the state
+already says what needs attention. The shortcut never opens the Settings dialog, never
+starts a download and never offers itself as a second route to anything.
+
+**A second launch is how this works while the launcher is running.** Clicking the entry
+starts the launcher again; the single-instance lock refuses the second process, and the
+`second-instance` event arrives at the first one carrying that process's own command
+line. The handler shows, restores and focuses the window first — that is unchanged — and
+then reads `--play` from the forwarded line. So a shortcut clicked while the launcher is
+in the tray, hidden on a desktop that has no tray, or open on the map starts the game
+once everything is ready, rather than silently doing nothing. The flag is never
+persisted anywhere: it is read from the command line of the launch that carried it, which
+is what makes the same click mean the same thing on the first and the second launch.
+
+**Two settings, saved with the rest, off by default.** `desktopShortcut` and
+`startMenuShortcut` are independent booleans in the settings file, validated by
+`cleanShortcutPreferences` in `desktop/security.cjs` with the same rule as the launch
+preferences: a value that is not a boolean is not coerced, and both default to off, so no
+existing install gains an icon until the player ticks one. Saving the dialog is the only
+thing that creates or removes a file — the launcher does not recreate a shortcut the
+player deleted by hand on the next start, and the dialog says so instead of assuming it.
+
+**Where the two files live.**
+
+| Platform | Desktop shortcut | Start menu entry |
+|---|---|---|
+| Linux | `~/Desktop/easter-co-game.desktop` (`$XDG_DESKTOP_DIR` when a session names one) | `$XDG_DATA_HOME/applications/easter-co-game.desktop`, default `~/.local/share/applications/` |
+| Windows | `Easter Co. Game.lnk` on the shell's desktop, written with `shell.writeShortcutLink` | `Easter Co. Game.lnk` in the per-user Start menu, same API |
+| macOS | not offered | not offered |
+
+Both Linux files are `[Desktop Entry]` files with `Type=Application`, the launcher as
+`Exec`, `--play` beside it, `Terminal=false` and `Categories=Game;`, written mode `0755`
+so a desktop that insists on an executable, trusted launcher will run them. Their `Icon`
+is an absolute path to a copy of the launcher's own icon inside its data directory
+(`easter-co-game.png`), so the entry does not depend on an icon a package may or may not
+have installed, and that copy is removed when the last entry that used it goes. An
+AppImage runs from a temporary mount, so the target is `$APPIMAGE` where it is set and
+`process.execPath` otherwise: the file the player actually has, not a mount that will be
+gone tomorrow. On Windows the entry is written by Electron's own shortcut API, carries
+`--play` as its arguments, and carries `ltd.easter.company.launcher` as its
+`appUserModelId`, the same identity `app.setAppUserModelId` gives the running launcher.
+
+**Removal deletes exactly the files the launcher created.** Both files live at names the
+launcher owns; the Linux entry also carries `X-Easter-Company=game-shortcut`, and removal
+reads the file and refuses to delete one that does not carry it. A `.desktop` file a
+player or a distribution put at that name is therefore left exactly where it is, and the
+dialog says so rather than reporting a removal that did not happen. The applications
+directory itself is created when it does not exist (it is the user's own, and harmless);
+a `~/Desktop` that does not exist is **not** created. That case, and a folder this
+computer will not let the launcher write, are reported in one plain sentence beside the
+switches, and the preference for the entry that could not be written is turned back off,
+so the saved setting and the file on disk never disagree.
+
+**The dialog reports the files, not the preference.** Settings asks `status()` when it
+opens, and that answer carries the two entries as they are *now*: the saved preference,
+whether the file exists, and whether the file is one this launcher wrote. A shortcut the
+player deleted by hand is visible instead of assumed to work; a file that is there with
+the preference off is shown as one the launcher did not create and will not delete.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `shortcuts` | object | `{available, reason, message, desktop, startMenu}`; always present in desktop mode |
+| `shortcuts.desktop`, `shortcuts.startMenu` | object | `{id, wanted, exists, ours}`: the saved preference, whether the file is there, and whether it is a file the launcher wrote |
+| `shortcuts.message` | string \| null | The sentence a save that could not write an entry left behind; null otherwise |
+
+`shortcuts.available` is false on a platform the launcher cannot write a shortcut for,
+with `reason` naming why; the two switches are then hidden and the reason takes their
+place rather than a dead control. **macOS is that platform**, and it is stated rather
+than pretended: Electron's shortcut API is a Windows feature, and an alias the launcher
+wrote would not survive its own update path, so no game shortcut is offered there.
+
+**Nothing about an account reaches a shortcut file or a log line.** The entries carry the
+launcher's own path, `--play`, their name, the launcher's comment, the icon path and the
+marker; the launcher writes no log line about them at all, and the state it publishes
+carries no path, no account and no token. A test reads both files back and fails on any
+credential-shaped word.
+
+**No new privileged surface.** The two preferences travel through the existing settings
+action and their real state through the existing `status()` and broadcast. There is no
+"create shortcut" channel, no renderer-chosen target and no renderer-reachable file
+operation: the renderer sends two booleans, and the main process decides.
+
+**What the uninstaller does and does not remove.** See `doc/releasing.md`.
 
 ## Account menu and installation recognition
 
