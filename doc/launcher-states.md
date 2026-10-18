@@ -1049,6 +1049,16 @@ poll answers that only mean "the player has not finished on Microsoft's page yet
 sign-in that is simply waiting writes nothing. A step that fails writes exactly one line,
 before its sentence is thrown, and nothing else in the launcher writes to this file.
 
+**`userData/install.log` is the same record for install and update failures**, written by
+the same bounded, redacted class with the same 64 KiB cap and single rotation, so treating
+it as unredacted would be a mistake: `2026-10-18T10:24:21.015Z v1.0.21 step=download
+outcome=failed http=503 code=- note=cdn.modrinth.com`. The install and update messages the
+player reads carry no HTTP status — "The download stopped before it finished. Your installed
+files are unchanged." — and the status rides on the thrown error as `httpStatus`, `host` and
+`step` so it reaches this line instead of the sentence. `step` is the install leg (`data`,
+`download`, `resume`, `launcher-update`, `launcher-asset`), `code` is `-`, and `note`
+carries the host.
+
 The file is bounded: when a line would take it past 64 KiB it is rotated once to
 `signin.log.1`, so at most two files exist however many times the launcher signs in. A log
 that cannot be written never affects the sign-in. `signin.log` is a diagnostic for the
