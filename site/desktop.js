@@ -33,7 +33,7 @@
  // The signed-out action starts Microsoft linking, which is where an account comes from.
  const LOGIN_ACTION='Link Microsoft Account';
  let companyAuth=null;
- const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft});if(current)companyAuth.render(current);return companyAuth;});
+ const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine});if(current)companyAuth.render(current);return companyAuth;});
  const CUSTOM_SERVER='__custom__';
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
  let current=null,settings,totalMemoryMB=0,heroButton=null,settingsButton=null,graphicsSection=null,graphicsSwitch=null,graphicsLabel=null,graphicsNote=null,graphicsError=null,signInPending=false;
@@ -624,19 +624,41 @@
  const profileMenu=document.createElement('div');profileMenu.className='desktop-profile-menu';profileMenu.popover='auto';profileMenu.setAttribute('aria-label','Profile');
  const accountHeading=document.createElement('p');accountHeading.className='desktop-profile-heading desktop-account';profileMenu.append(accountHeading);
  const companyHeading=document.createElement('p');companyHeading.className='desktop-profile-heading desktop-company';profileMenu.append(companyHeading);
+ // The verified email is the profile's own line: it names the address that signs this
+ // account in, or states which sign-in it has instead. It is written only from the
+ // owner-only read the profile section asks for, and it is the only place outside that
+ // section an address is ever displayed.
+ const emailLine=document.createElement('p');emailLine.className='desktop-profile-heading desktop-email';emailLine.hidden=true;profileMenu.append(emailLine);
  for(const [label,action,key] of [
   ['Add account',()=>{profileMenu.hidePopover();signIn({switchAccount:true});},'add'],
   ['Switch Account',()=>renderAccountList(),'switch'],
   ['Logout',()=>{profileMenu.hidePopover();void desktop.signOut().catch(report);},'logout'],
-  ['Reset password',()=>{profileMenu.hidePopover();void companyUI.then(ui=>ui.reset()).catch(report);},'companyPassword']]){
+  ['Reset password',()=>{profileMenu.hidePopover();void companyUI.then(ui=>ui.reset()).catch(report);},'companyPassword'],
+  ['Verified emails',()=>{profileMenu.hidePopover();void companyUI.then(ui=>ui.emails()).catch(report);},'companyEmails']]){
   const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.profileAction=key;button.onclick=action;profileMenu.append(button);
  }
  const accountList=document.createElement('div');accountList.className='desktop-account-list';accountList.hidden=true;profileMenu.append(accountList);document.body.append(profileMenu);
  const positionProfile=()=>{const rect=profileButton.getBoundingClientRect();profileMenu.style.top=rect.bottom+8+'px';profileMenu.style.right=Math.max(12,innerWidth-rect.right)+'px';};
- profileButton.onclick=()=>{if(!current?.account){signIn();return;}accountList.hidden=true;profileMenu.togglePopover();positionProfile();};
+ profileButton.onclick=()=>{
+  if(!current?.account){signIn();return;}
+  accountList.hidden=true;profileMenu.togglePopover();positionProfile();
+  // The profile section asks for the account's own verified emails when it opens, which is
+  // the only read of an address in the launcher. A failure is reported inside the section;
+  // the line simply says what it knows.
+  if(profileMenu.matches(':popover-open'))void companyUI.then(ui=>ui.refreshEmails()).catch(()=>{});
+ };
  profileMenu.addEventListener('toggle',event=>profileButton.setAttribute('aria-expanded',String(event.newState==='open')));
  window.addEventListener('resize',positionProfile);
- let skinSource=null;
+ let skinSource=null,emailView=null;
+ // The line the profile section last reported. It is kept with the account it was read
+ // for, so switching accounts never shows the previous account's address.
+ function setEmailLine(view){
+  const account=current?.account;
+  emailView=view&&account&&view.id===account.id?view:null;
+  emailLine.hidden=!emailView;
+  emailLine.textContent=emailView?emailView.line:'';
+  emailLine.classList.toggle('is-unavailable',Boolean(emailView?.error));
+ }
  function renderProfile(state){
   const account=state.account;
   profileButton.hidden=false;profileName.textContent=account?account.username||account.name:'Sign in';face.hidden=!account;
@@ -651,7 +673,9 @@
    button.hidden=button.dataset.profileAction.startsWith('company')&&!state.account;
   }
   if(!accountList.hidden)renderAccountList();
-  if(!account){if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
+  // The email line belongs to one account and to one read of it.
+  if(!emailView||!account||emailView.id!==account.id){emailLine.hidden=true;emailLine.textContent='';}
+  if(!account){emailView=null;if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
   const ctx=face.getContext('2d');
   const source=state.microsoftConnected?state.profile?.skin||'':'';
   const key=account.id+source;if(key===skinSource)return;skinSource=key;

@@ -617,6 +617,37 @@ function registerIPC(){
   company=companySession(signed);await saveCompany();notify({message:signed.created?'Your Easter Company username and password are saved.':'Your Easter Company password is saved.'});
   return publicAccount(company);
  }));
+ // ---- Verified emails ---------------------------------------------------------
+ // The one place an address is read, and the one place an address is chosen. Both are
+ // owner-only: the session comes from this process, the renderer names no account, and
+ // nothing here is broadcast, stored, logged or carried in an error message. The profile
+ // section asks for the list when it opens, so a choice survives a restart by being read
+ // back from the account service rather than by being cached in the vault.
+ // A session the service has refused is forgotten here, without a logout call it could
+ // not honour anyway, and the renderer is told as it is on the next broadcast.
+ async function sessionLost(error){
+  if(error?.code!=='invalid_session'||!company)return;
+  company=null;await vault.remove(companyFile());notify({});
+ }
+ async function verifiedEmails(){
+  if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
+  try{return await accounts.emails(company.token);}
+  catch(error){await sessionLost(error);throw error;}
+ }
+ async function selectLoginEmail(email){
+  if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
+  if(email!==null&&typeof email!=='string')throw Error('Choose one of your verified emails.');
+  try{
+   const listed=await accounts.selectLoginEmail(company.token,email);
+   // The sentence names what changed and nothing else: no address appears in a message,
+   // in the page notice or in any state a view other than the profile renders.
+   notify({message:email===null?'Your login email is cleared. Sign in with Microsoft or with your username.':'Your login email is saved.'});
+   return listed;
+  }
+  catch(error){await sessionLost(error);throw error;}
+ }
+ handle('profile-emails',verifiedEmails);
+ handle('login-email',selectLoginEmail);
  handle('open-minecraft-store',()=>shell.openExternal('https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc'));
  handle('open-minecraft-profile',()=>shell.openExternal('https://www.minecraft.net/en-us/msaprofile'));
  handle('recheck-access',async()=>{

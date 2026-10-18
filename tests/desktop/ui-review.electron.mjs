@@ -120,7 +120,31 @@ try{
  await page.keyboard.press('Escape');
  await page.locator('.desktop-account-nav').click();await shot('profile');
  for(const action of await page.locator('[data-profile-action]:visible').all())assert(await action.isDisabled(),'account changes disabled while game runs');
+ // The verified emails are the profile's own section: the line beneath the account states
+ // which address signs it in, and the section behind the button lists what the account
+ // service reports. Both are refused while the game runs, like every other account change.
+ const emailButton=page.getByRole('button',{name:'Verified emails',exact:true});
+ assert.equal(await emailButton.count(),1,'the profile offers the verified emails section');
+ assert.equal(await emailButton.isDisabled(),true,'and cannot change the login email while the game runs');
+ await page.locator('.desktop-profile-heading.desktop-email').filter({hasText:'Login email: captain@example.test'}).waitFor();
+ await shot('profile-with-email');
  await page.keyboard.press('Escape');await send(ready);
+ await page.locator('.desktop-account-nav').click();
+ await emailButton.click();
+ const emailsPanel=page.locator('#desktop-company-emails');
+ await emailsPanel.locator('input[name=email]').first().waitFor();
+ assert.equal(await emailsPanel.locator('input[name=email]').count(),2,'both verified addresses are listed');
+ assert.equal(await emailsPanel.locator('input[name=email]').first().isChecked(),true,'the login address is the marked one');
+ await shot('profile-emails');
+ for(const [width,height] of [[1360,920],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});await shot('profile-emails-'+width);
+  assert.equal(await emailsPanel.evaluate(el=>el.scrollWidth<=el.clientWidth),true,'the email section has no horizontal overflow at '+width+'px');
+  const box=await emailsPanel.boundingBox();
+  assert(box.x>=0&&box.x+box.width<=width+1,'the email section fits '+width+'px');
+  assert(box.y>=0&&box.y+box.height<=height+1,'the email section fits vertically at '+width+'px');
+ }
+ await page.setViewportSize({width:1360,height:920});
+ await page.keyboard.press('Escape');await emailsPanel.waitFor({state:'hidden'});
  await page.getByRole('link',{name:'Wiki',exact:true}).click();await page.locator('.wiki-card').first().waitFor();await shot('wiki');
  assert.equal(await page.locator('#launcher-bar').isVisible(),true,'idle action stays available on Wiki');
  await send({...ready,error:'Unable to start Minecraft. Try again.'});

@@ -3,18 +3,36 @@
 // the username is claimed together with the first password in step 2, so the password
 // step always names the username it is saved against. A Company ID is never asked for,
 // shown, or accepted anywhere in this flow.
-export function createCompanyAuth({desktop,signInMicrosoft}){
+//
+// The verified emails are the one place an address is ever displayed. The list is the
+// account service's own record, read through the owner-only profile action when the
+// section opens and never cached, so the choice shown is the choice the server holds. Only
+// the selected address is a login key; the others are recorded and cannot sign in.
+const PROVIDER_NAMES={microsoft:'Microsoft',xbox:'Xbox',discord:'Discord',steam:'Steam',email:'Email'};
+const providerName=value=>{
+ const key=String(value||'').trim().toLowerCase();
+ return PROVIDER_NAMES[key]||(key?key[0].toUpperCase()+key.slice(1):'Verified');
+};
+const NO_EMAILS='No verified email is recorded for this account. Sign in with Microsoft or with your username.';
+const NO_LOGIN_EMAIL='No login email is selected. Sign in with Microsoft or with your username.';
+export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null}){
  let state={},busy=false,dismissed=null,pendingUsername=null,replacePassword=false,advancing=false;
- const chooser=document.createElement('dialog'),username=document.createElement('dialog'),password=document.createElement('dialog');
+ const chooser=document.createElement('dialog'),username=document.createElement('dialog'),password=document.createElement('dialog'),emails=document.createElement('dialog');
  for(const dialog of [chooser,username,password])dialog.className='desktop-company-dialog';
  chooser.id='desktop-company-signin';username.id='desktop-company-username';password.id='desktop-company-password';
  chooser.setAttribute('aria-labelledby','company-signin-title');username.setAttribute('aria-labelledby','company-username-title');password.setAttribute('aria-labelledby','company-password-title');
  chooser.innerHTML='<button class="dialog-close" type="button" aria-label="Close account sign-in">×</button><h2 id="company-signin-title">Easter Company account</h2><button type="button" class="company-microsoft">Login with Microsoft Account</button><p class="company-provider-note">Please sign up using an existing online account provider, and then create an Easter Company account username &amp; password.</p><form><label>Username or Email<input name="identifier" autocomplete="username" maxlength="254" required spellcheck="false"></label><label>Password<input type="password" name="password" autocomplete="current-password" maxlength="128" required></label><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Sign in</button><button type="button" class="company-recover text-link">Forgot your password?</button></form>';
  username.innerHTML='<button class="dialog-close" type="button" aria-label="Close username setup">×</button><h2 id="company-username-title">Choose your Easter Company username</h2><p class="company-step">Step 1 of 2</p><form><label>Username<input name="username" autocomplete="username" maxlength="20" required spellcheck="false" aria-describedby="company-username-help"></label><p id="company-username-help">This is the name you sign in with, and it cannot be changed later. Use 3–20 characters: lowercase letters, numbers, underscores or dashes.</p><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Continue</button></form>';
  password.innerHTML='<button class="dialog-close" type="button" aria-label="Close password setup">×</button><h2 id="company-password-title">Create your Easter Company password</h2><p class="company-step">Step 2 of 2</p><p class="company-username"></p><p class="company-intro">Use your username or email and password to sign in directly next time.</p><form><label>New password<input name="password" type="password" minlength="15" maxlength="128" autocomplete="new-password" required aria-describedby="company-password-help"></label><p id="company-password-help">Use 15–128 characters. A long passphrase works well.</p><label>Confirm password<input name="confirm" type="password" minlength="15" maxlength="128" autocomplete="new-password" required></label><label class="company-show"><input type="checkbox" name="show">Show passwords</label><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Save password</button><button type="button" class="company-verify text-link" hidden>Verify with Microsoft</button></form>';
- document.body.append(chooser,username,password);
+ // The verified emails section. The list renders whatever the account service reports, so
+ // a provider that does not exist yet needs no new code here. Only the selected address is
+ // a login key, and that is said in the section itself rather than implied.
+ emails.className='desktop-company-dialog';emails.id='desktop-company-emails';
+ emails.setAttribute('aria-labelledby','company-emails-title');
+ emails.innerHTML='<button class="dialog-close" type="button" aria-label="Close verified emails">×</button><h2 id="company-emails-title">Verified emails</h2><p class="company-intro">Choose the address that signs you in to Easter Company. Only the selected address is a login key; the other addresses are recorded on your account and cannot be used to sign in.</p><div class="company-emails" role="radiogroup" aria-label="Verified emails"></div><p class="company-emails-loading" role="status">Reading your verified emails…</p><p class="company-emails-empty" hidden></p><p class="company-emails-unset" hidden></p><p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p><div class="company-email-actions"><button type="button" class="company-submit">Save selection</button><button type="button" class="company-clear text-link" hidden>Clear login email</button></div>';
+ document.body.append(chooser,username,password,emails);
  const error=(dialog,message)=>{const node=dialog.querySelector('.company-error');node.textContent=message;node.hidden=!message;};
- const lock=value=>{busy=value;for(const dialog of [chooser,username,password]){dialog.setAttribute('aria-busy',String(value));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}chooser.querySelector('.company-submit').textContent=value?'Signing in…':'Sign in';username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';};
+ const lock=value=>{busy=value;for(const dialog of [chooser,username,password,emails]){dialog.setAttribute('aria-busy',String(value));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}chooser.querySelector('.company-submit').textContent=value?'Signing in…':'Sign in';username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';emails.querySelector('.company-submit').textContent=value?'Saving…':'Save selection';};
  // A username the server rejects is a plain sentence beside the field, never a hint
  // about any other account: taken and policy are the only two answers there are.
  const usernamePolicy='Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.';
@@ -28,6 +46,108 @@ export function createCompanyAuth({desktop,signInMicrosoft}){
    // so a dismissal answers the same question rather than starting the flow over, and a
    // step that moved the player on keeps it too.
    if(dialog===username){if(!advancing)pendingUsername=null;advancing=false;}});
+ }
+ // ---- Verified emails --------------------------------------------------------
+ // One address at a time, and the account service's answer is the only thing on screen:
+ // the list is re-read on every open, so what the player sees is the record they hold
+ // rather than anything this launcher remembered. Only the selected address is a login
+ // key, and both the section's own copy and each row's own note say so.
+ const emailNodes={list:emails.querySelector('.company-emails'),intro:emails.querySelector('.company-intro'),loading:emails.querySelector('.company-emails-loading'),empty:emails.querySelector('.company-emails-empty'),unset:emails.querySelector('.company-emails-unset'),save:emails.querySelector('.company-submit'),clear:emails.querySelector('.company-clear'),status:emails.querySelector('.company-status')};
+ emailNodes.empty.textContent=NO_EMAILS;emailNodes.unset.textContent=NO_LOGIN_EMAIL;
+ let emailState={loaded:false,emails:[],loginEmail:null},emailFailure=null,emailBusy=false,emailAccount=null;
+ function publishEmails(){
+  if(typeof onEmails!=='function')return;
+  onEmails(state.account?{id:emailAccount,emails:emailState.emails,loginEmail:emailState.loginEmail,error:emailFailure,line:emailFailure||(emailState.loginEmail?'Login email: '+emailState.loginEmail:emailState.emails.length?NO_LOGIN_EMAIL:NO_EMAILS)}:null);
+ }
+ // Saving is only offered when there is a choice to save: no row selected, and the row the
+ // service already calls its login email, both mean there is nothing to send.
+ function syncSave(){
+  const chosen=emailNodes.list.querySelector('input[name=email]:checked');
+  emailNodes.save.disabled=emailBusy||!chosen||chosen.value===emailState.loginEmail;
+ }
+ function paintEmails(){
+  const rows=emailState.emails,listed=!emailFailure&&rows.length>0;
+  emailNodes.list.replaceChildren();
+  emailNodes.intro.hidden=!listed;
+  // The three information states are exclusive: a list, "none recorded", or "not known".
+  // Nothing suggests an address exists when it does not, and a list that could not be
+  // read never pretends the account has none.
+  emailNodes.empty.hidden=Boolean(emailFailure)||!emailState.loaded||rows.length>0;
+  emailNodes.unset.hidden=Boolean(emailFailure)||!rows.length||Boolean(emailState.loginEmail);
+  emailNodes.list.hidden=!listed;
+  emailNodes.save.hidden=Boolean(emailFailure)||!rows.length;
+  emailNodes.clear.hidden=Boolean(emailFailure)||!emailState.loginEmail;
+  for(const entry of rows){
+   const label=document.createElement('label');label.className='company-email';
+   const radio=document.createElement('input');radio.type='radio';radio.name='email';radio.value=entry.email;radio.checked=entry.login===true;
+   const address=document.createElement('span');address.className='company-email-address';address.textContent=entry.email;
+   // The note says what this address is for: the marked one signs the player in, the
+   // others are recorded and are not login keys.
+   const meta=document.createElement('small');meta.className='company-email-meta';meta.textContent=providerName(entry.provider)+(entry.login?' · signs you in':' · recorded, not a login key');
+   label.append(radio,address,meta);
+   radio.onchange=()=>{error(emails,'');emailNodes.status.textContent='';if(!emailBusy)syncSave();};
+   emailNodes.list.append(label);
+  }
+  syncSave();
+  publishEmails();
+ }
+ function showEmails(list){
+  const found=list&&typeof list==='object'?list:{};
+  emailState={loaded:true,emails:Array.isArray(found.emails)?found.emails:[],loginEmail:typeof found.loginEmail==='string'?found.loginEmail:null};
+  emailFailure=null;error(emails,'');paintEmails();
+ }
+ function failEmails(message){
+  emailFailure=message||'Your verified emails could not be read.';
+  emailState={loaded:false,emails:[],loginEmail:null};paintEmails();error(emails,emailFailure);
+ }
+ async function loadEmails(){
+  const fetcher=typeof desktop.profileEmails==='function'?desktop.profileEmails.bind(desktop):null;
+  if(!fetcher||!state.account){failEmails('This launcher build cannot read your verified emails.');return null;}
+  emailAccount=state.account.id;
+  emailNodes.loading.hidden=false;
+  try{const found=await fetcher();showEmails(found);return found;}
+  catch(cause){failEmails(cause&&cause.message);return null;}
+  finally{emailNodes.loading.hidden=true;}
+ }
+ async function saveLoginEmail(address){
+  if(emailBusy)return;
+  const select=typeof desktop.selectLoginEmail==='function'?desktop.selectLoginEmail.bind(desktop):null;
+  if(!select){error(emails,'This launcher build cannot change your login email.');return;}
+  emailBusy=true;emailNodes.status.textContent='';lock(true);
+  try{
+   const outcome=await select(address);
+   if(outcome&&outcome.ok===false){
+    // A refused address is reported as one unavailable address, and the selection the
+    // service already has stays exactly where it was and still marked. This is not a
+    // failed sign-in and is never worded as one.
+    error(emails,outcome.error||'That address could not be saved. Try again.');
+    paintEmails();
+   }else{
+    showEmails(outcome&&outcome.value?outcome.value:await loadEmails());
+    emailNodes.status.textContent=address===null?'Your login email is cleared. Sign in with Microsoft or with your username.':'Your login email is saved.';
+   }
+  }
+  catch(cause){
+   error(emails,(cause&&cause.message)||'That address could not be saved. Try again.');
+   paintEmails();
+  }
+  finally{emailBusy=false;lock(false);paintEmails();}
+ }
+ emailNodes.save.onclick=()=>{const chosen=emailNodes.list.querySelector('input[name=email]:checked');if(chosen)void saveLoginEmail(chosen.value);};
+ emailNodes.clear.onclick=()=>{void saveLoginEmail(null);};
+ emails.querySelector('.dialog-close').onclick=()=>{if(!emailBusy)emails.close();};
+ emails.addEventListener('cancel',event=>{if(emailBusy)event.preventDefault();});
+ emails.addEventListener('close',()=>{error(emails,'');emailNodes.status.textContent='';emailNodes.loading.hidden=true;});
+ // Opening the profile asks for the list; a bridge without the action has nothing to ask,
+ // so the line simply stays out of the way rather than claiming a failure.
+ async function refreshEmails(){
+  if(emailBusy||!state.account||typeof desktop.profileEmails!=='function')return null;
+  return loadEmails();
+ }
+ async function openEmails(){
+  if(emailBusy||emails.open||!state.account)return;
+  error(emails,'');emailNodes.status.textContent='';emails.showModal();
+  await loadEmails();
  }
  let chooseOptions={};
  async function microsoft(recover=false){
@@ -135,12 +255,18 @@ export function createCompanyAuth({desktop,signInMicrosoft}){
  }
  function render(next){
   state=next||{};
-  if(!state.account){dismissed=null;pendingUsername=null;if(!busy)for(const dialog of [username,password])if(dialog.open)dialog.close();return;}
+  if(!state.account){
+   dismissed=null;pendingUsername=null;if(!busy)for(const dialog of [username,password])if(dialog.open)dialog.close();
+   // The verified emails belong to one account. Leaving it closes the section and forgets
+   // the list, because the list was only ever a read of that account's own record.
+   emailState={loaded:false,emails:[],loginEmail:null};emailFailure=null;emailAccount=null;if(!emailBusy&&emails.open)emails.close();paintEmails();
+   return;
+  }
   if(!state.account.passwordRequired||dismissed===state.account.id)return;
   if(busy||state.accountWorking||state.startupReady===false)return;
   if(password.open||username.open||chooser.open||document.querySelector('#desktop-signin')?.open)return;
   // An account that already has a username is only ever asked for its password.
   if(state.account.username)setup();else openUsername();
  }
- return {render,setup,open(options={}){chooseOptions=options;error(chooser,'');if(!chooser.open&&!busy)chooser.showModal();},async reset(){const ok=await signInMicrosoft({link:true});if(ok)setup(true);}};
+ return {render,setup,open(options={}){chooseOptions=options;error(chooser,'');if(!chooser.open&&!busy)chooser.showModal();},async reset(){const ok=await signInMicrosoft({link:true});if(ok)setup(true);},emails:openEmails,refreshEmails};
 }

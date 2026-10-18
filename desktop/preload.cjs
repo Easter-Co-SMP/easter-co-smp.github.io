@@ -9,11 +9,16 @@ const invokeResult=channel=>(...args)=>ipcRenderer.invoke('launcher:'+channel,..
 contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  mode:'desktop',
  status:invoke('status'),signIn:invoke('sign-in'),cancelSignIn:invoke('cancel-sign-in'),
- // The account actions. Neither an email nor a Company ID is ever returned by them:
- // company-login carries the identifier the player typed and the username travels only
- // on the call that claims it.
+ // The account actions. No Company ID is ever returned by them: company-login carries the
+ // identifier the player typed and the username travels only on the call that claims it.
+ // An email address comes back from exactly one of them, the owner-only profile read, and
+ // never from the state broadcast.
  continueMicrosoft:invoke('continue-microsoft'),loginCompany:invokeResult('company-login'),
  checkCompanyUsername:invokeResult('company-username-check'),setCompanyPassword:invokeResult('company-password'),
+ // The profile's verified emails. Owner-only, on demand, and never part of the state
+ // broadcast: the list is asked for when the profile section opens, and the selection
+ // answers with the whole result because a refusal carries its own code and sentence.
+ profileEmails:invoke('profile-emails'),selectLoginEmail:invokeResult('login-email'),
  signOut:invoke('sign-out'),switchAccount:invoke('switch-account'),play:invoke('play'),saveSettings:invoke('settings'),
  openMinecraftStore:invoke('open-minecraft-store'),openMinecraftProfile:invoke('open-minecraft-profile'),recheckAccess:invoke('recheck-access'),
  refreshAccount:invoke('account-refresh'),signOutAccount:invoke('account-sign-out'),
