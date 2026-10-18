@@ -235,11 +235,12 @@ between computers, or included in the daily map archive. Clearing browser data r
 ## Shared wiki
 
 `site/wiki/` is the same bundled wiki in the website and Electron launcher, with no
-separate desktop content or network dependency. Its six initial articles are explicitly
-labelled demonstration content, not authoritative game instructions.
+separate desktop content or network dependency. Its twelve articles document the installed game’s custom rules: health and death,
+regions, ships, wildlife, law, banking, crews, cooking, services, equipment and encounters.
 
 Edit `site/wiki/pages.mjs` to maintain articles. Each has a stable id, title, group,
-summary, sections (stable ids, text, optional list and map link), and related article ids.
+summary, sections (stable ids, text, optional paragraphs, ordered steps, flat lists,
+tables, notes, related-guide links and map link), and related article ids.
 The same catalogue supplies the overview, sidebar, full-text search, related links and
 table of contents. Hash routes such as `wiki/#/ships-and-sailing` and
 `wiki/#/ships-and-sailing/before-you-sail` work on GitHub Pages and the launcher's
@@ -251,3 +252,5 @@ Wiki checks: `node --test tests/wiki.test.mjs`, `node tests/wiki-browser.mjs`
 (with the local preview origin in `EASTER_PUBLIC_ORIGIN`), and
 `xvfb-run -a node tests/desktop/wiki.electron.mjs`. The browser and Electron checks
 cover search, navigation, deep links, narrow layouts and the bundled offline wiki.
+
+Editorial rules and evidence for the real wiki are recorded in `doc/wiki-content-sources.md`. Keep the public guide focused on custom differences and recheck affected claims when rules change.

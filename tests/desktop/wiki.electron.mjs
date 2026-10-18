@@ -14,7 +14,7 @@ try {
   await page.getByRole('link',{name:'Wiki',exact:true}).click();
   await page.locator('.wiki-card').first().waitFor();
   assert(page.url().startsWith('easter://easter/wiki/'));
-  assert.equal(await page.locator('.wiki-card').count(),6);
+  assert.equal(await page.locator('.wiki-card').count(),12);
   assert.equal(await page.locator('.arrival-mist').count(),0);
   assert.equal(await page.locator('nav [popovertarget]').count(),0);
   assert.equal(await page.evaluate(()=>typeof window.require),'undefined');

@@ -9,7 +9,7 @@ try {
   await page.goto(origin + '/');
   await page.getByRole('link',{name:'Wiki',exact:true}).click();
   await page.locator('.wiki-card').first().waitFor();
-  assert.equal(await page.locator('.wiki-card').count(),6);
+  assert.equal(await page.locator('.wiki-card').count(),12);
   assert.equal(await page.locator('.arrival-mist').count(),0);
   assert.equal(await page.locator('.site-header a[aria-current]').textContent(),'Wiki');
   await page.screenshot({path:'/tmp/wiki-overview-desktop.png',fullPage:true});
@@ -62,6 +62,19 @@ try {
   await page.getByRole('heading',{name:'Getting started',exact:true,level:1}).waitFor();
   await page.goBack(); await page.locator('.wiki-card').first().waitFor();
   await page.goForward(); await page.getByRole('heading',{name:'Getting started',exact:true,level:1}).waitFor();
+  for (const [id, heading] of [['money-and-banking','Money & banking'], ['law-and-bounties','Law & bounties'], ['crews-and-property','Crews & property']]) {
+    await page.goto(origin+'/wiki/#/'+id);
+    await page.getByRole('heading',{name:heading,exact:true,level:1}).waitFor();
+    assert(await page.locator('.wiki-table').count() >= 1);
+    assert.equal(await page.locator('.wiki-demo').count(),0);
+    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+    await page.locator('.wiki-section-links a').first().click();
+    assert(!page.url().endsWith('#/'+id));
+  }
+  await page.goto(origin+'/wiki/#/the-easter-isles/a-world-to-explore');
+  await page.waitForFunction(()=>document.activeElement?.id==='region-notices');
+  assert(page.url().endsWith('/region-notices'));
+  assert.equal(await page.locator('.wiki-sidebar-note').innerText().then(text=>/demo|sample/i.test(text)), false);
   assert.deepEqual(errors,[]);
   console.log('Wiki browser PASS: navigation, section links, search, history, safe query rendering, responsive layouts.');
 } finally { await browser.close(); }
