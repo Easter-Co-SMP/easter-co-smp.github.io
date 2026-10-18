@@ -1,14 +1,11 @@
-# Easter Company launcher 1.0.19
+# Easter Company launcher 1.0.20
 
-The wiki now contains twelve complete guides to the custom rules of Easter Co. SMP.
+Three fixes to signing in, all of them about what you see when something goes wrong.
 
-- Getting started, Health & death, The Easter Isles, Ships & sailing, and Wildlife & pets.
-- Law & bounties, Money & banking, Crews & property, Cooking & crafting, Village services, Equipment & enchanting, and Raids & expeditions.
-- Search includes instructions, tables and warnings. Ordered steps, short rule tables and direct guide links make the articles easier to use.
-- The wiki works offline in the launcher and shares its content with the website. Original article URLs and renamed section links keep working.
+- **Your Easter Company account can no longer be swapped behind your back.** If the Microsoft account you sign in with belongs to a *different* Easter Company account, the launcher used to carry on and quietly sign you in as that other account. It now stops, says so in the sign-in dialog using the account service's own words, and tells you that nothing on your account changed and where to switch Company accounts if that is what you want. You still get the normal Microsoft sign-in whenever the saved sign-in simply cannot be used — the stop is only for the case where two accounts genuinely disagree.
+- **A message can no longer hide behind a dialog.** If something failed and you then opened Settings, the message stayed on screen underneath it — dimmed, unreadable, and impossible to dismiss with the mouse or the keyboard. While any dialog is open there is now no message drawn at all; the moment the last dialog closes, the same sentence comes back once, with a working Dismiss button. It still reads above the launcher card at narrow widths instead of sitting on top of the title.
+- **Sign-in messages are written for you, not for a log file.** The launcher no longer shows you `HTTP 401`, `invalid_grant`, `UNAUTHORIZED` or an XErr number. It says which part of the sign-in stopped and what to do about it — "the Xbox Live session was not accepted, sign in again", "this account may not play Minecraft: Java Edition, check that it owns the game", "there have been too many sign-in attempts in a short time, wait a few minutes". Every one of those codes is still written to `signin.log` in the launcher's data folder, so a failure can still be diagnosed without putting the jargon in front of you.
 
-The guides focus on installed custom mechanics, including death-loss exceptions, reverse rowing, bounty jurisdiction, banking input units, crew permissions and custom food/equipment recipes. They replace all demo articles and demo notices.
+The twelve wiki guides that arrived in 1.0.19 are unchanged, as is everything else from that release: the step-by-step sign-in diagnostics, the Xbox Live permission fix, the verified-email picker, username-before-password signup and the client's display and control defaults.
 
-Gameplay content was checked against the installed Easter Navy mod, the loaded Matcha datapack and existing focused tests. Publication does not change gameplay rules or require a server restart. Website/browser and offline Electron checks cover the wiki; no real Microsoft login, Windows installer interaction or production gameplay transaction is claimed by this release.
-
-This release also preserves the preceding sign-in update: clearer step-specific failures, one visible home for each failure, a fresh-sign-in fallback for an unusable saved Microsoft session, redacted bounded sign-in diagnostics, and the service email notice.
+Validation covers Node and Python unit tests, the browser suite against a local preview, and Electron journeys through the real main process — including a new journey that drives a real Microsoft identity conflict through the real preload and asserts the signed-in account does not change, and one that proves the same sign-in sentence is held back and handed over exactly once when a dialog opens and closes. No real Microsoft approval was exercised here; the provider endpoints were probed with unauthenticated requests only, and the sign-in chain itself is exercised against injected Microsoft, Xbox Live and Minecraft answers at every step. If anything still refuses, `signin.log` names the step.
