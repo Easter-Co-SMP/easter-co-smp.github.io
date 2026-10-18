@@ -4,7 +4,7 @@
 // network, and nothing writes outside a temporary directory.
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
-const {hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,gpuAdapters,drmCards,sessionDisplay,targetAdapter,renderOffload,pciForDriPrime,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,matchAdapter,chooseDevice,reportedDevices,reportedAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hex16,videoMemoryMB,busId,qualitySettings,parseProperties,mergeProperties,applyQualitySettings,recordQuality,installedQuality,applyDisplayDefaults,displayGuiScale,displayPhysicalPixels,displayDefaultValues,GUI_SCALE_LADDER,GUI_SCALE_DEFAULT,DISPLAY_DEFAULTS,DISPLAY_RECORD,DISPLAY_RECORD_SCHEMA,DISPLAY_SCHEMA_KEYS,SHADER_PACK_NAME}=require('../../desktop/hardware.cjs');
+const {hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,gpuAdapters,drmCards,sessionDisplay,targetAdapter,renderOffload,pciForDriPrime,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,matchAdapter,chooseDevice,reportedDevices,reportedAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hex16,videoMemoryMB,busId,qualitySettings,parseProperties,mergeProperties,applyQualitySettings,recordQuality,installedQuality,applyDisplayDefaults,displayGuiScale,displayPhysicalPixels,displayDefaultValues,GUI_SCALE_LADDER,GUI_SCALE_DEFAULT,DISPLAY_DEFAULTS,DISPLAY_RECORD,DISPLAY_RECORD_SCHEMA,DISPLAY_SCHEMA_KEYS,DISPLAY_DEFERRED_KEYS,SHADER_PACK_NAME}=require('../../desktop/hardware.cjs');
 const {deriveQuality}=require('../../desktop/install.cjs');
 async function tempDir(prefix){return fs.mkdtemp(path.join(os.tmpdir(),prefix));}
 
@@ -343,22 +343,57 @@ test('a quality setting write does not create the installed marker it may not ow
 });
 
 // ---- the client's display defaults -------------------------------------------
-// Owen asked for a first launch that is already fullscreen at GUI scale 2, and then for
-// five key bindings set the way the household plays: sprint and crouch swapped from
-// vanilla, inventory on tab, the player list on the grave key that frees, and third
-// person on R. The seven keys live in options.txt, are seeded once per client tree, and
-// are then never rewritten unless a recorded key has gone missing or an older record
-// schema never covered it.
-const SEEDED_BINDINGS=['key_key.sneak','key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective'];
-// The values Owen verified in the real clients. Vanilla's are below them, and the two
-// differ on purpose: this is the layout the seed exists to produce.
+// Owen asked for a first launch that is already fullscreen at GUI scale 2, then for the
+// five controls the household plays with, then for the rest of the approved set: chat on
+// enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift,
+// the vanilla debug keys unbound, and the Shippy Ships quick-build hotkey moved off the
+// Left Ctrl that crouch owns. The keys live in options.txt, are seeded once per client
+// tree, and are then never rewritten unless a covered key has gone missing or the table
+// has grown a key the record does not cover yet.
+const DEFERRED_KEY='key_key.shippy-ships.isPressingCtrl';
+// Pinned by name: these are the actions this client writes, so an action it stops writing
+// is a name to remove from the table rather than a key left half-bound.
+const DEBUG_BINDINGS=[
+ 'key_key.debug.clearChat',
+ 'key_key.debug.copyLocation',
+ 'key_key.debug.copyRecreateCommand',
+ 'key_key.debug.crash',
+ 'key_key.debug.debugOptions',
+ 'key_key.debug.dumpDynamicTextures',
+ 'key_key.debug.dumpVersion',
+ 'key_key.debug.focusPause',
+ 'key_key.debug.fpsCharts',
+ 'key_key.debug.lightmapTexture',
+ 'key_key.debug.modifier',
+ 'key_key.debug.networkCharts',
+ 'key_key.debug.overlay',
+ 'key_key.debug.profiling',
+ 'key_key.debug.profilingChart',
+ 'key_key.debug.reloadChunk',
+ 'key_key.debug.reloadResourcePacks',
+ 'key_key.debug.showAdvancedTooltips',
+ 'key_key.debug.showChunkBorders',
+ 'key_key.debug.showHitboxes',
+ 'key_key.debug.spectate',
+ 'key_key.debug.switchGameMode'
+];
+// The values Owen verified in the real clients, in the order the table writes them.
 const WANTED_BINDS={
  'key_key.sneak':'key.keyboard.left.control',
  'key_key.sprint':'key.keyboard.left.shift',
  'key_key.inventory':'key.keyboard.tab',
  'key_key.playerlist':'key.keyboard.grave.accent',
- 'key_key.togglePerspective':'key.keyboard.r'
+ 'key_key.togglePerspective':'key.keyboard.r',
+ 'key_key.chat':'key.keyboard.enter',
+ 'key_key.toggleGui':'key.keyboard.f10',
+ 'key_key.socialInteractions':'key.keyboard.i',
+ 'key_key.smoothCamera':'key.keyboard.right.shift',
+ ...Object.fromEntries(DEBUG_BINDINGS.map(key=>[key,'key.keyboard.unknown'])),
+ [DEFERRED_KEY]:'key.keyboard.right.control'
 };
+// Vanilla's values for the five controls the household layout moves. The rest of the
+// table is either a key vanilla leaves unbound (smooth camera, the debug keys) or one no
+// vanilla action uses.
 const VANILLA_BINDS={
  'key_key.sneak':'key.keyboard.left.shift',
  'key_key.sprint':'key.keyboard.left.control',
@@ -366,22 +401,32 @@ const VANILLA_BINDS={
  'key_key.playerlist':'key.keyboard.tab',
  'key_key.togglePerspective':'key.keyboard.f5'
 };
+const SEEDED_BINDINGS=Object.keys(WANTED_BINDS);
+// What a fresh tree gets: everything except the binding only a mod can register.
+const IMMEDIATE_BINDINGS=SEEDED_BINDINGS.filter(key=>key!==DEFERRED_KEY);
 const bindLines=binds=>Object.entries(binds).map(([key,value])=>key+':'+value);
-const seededLines=(guiScale='2')=>['guiScale:'+guiScale,'fullscreen:true',...bindLines(WANTED_BINDS)];
+const immediateBinds=()=>Object.fromEntries(IMMEDIATE_BINDINGS.map(key=>[key,WANTED_BINDS[key]]));
+const seededLines=(guiScale='2')=>['guiScale:'+guiScale,'fullscreen:true',...bindLines(immediateBinds())];
+// The Shippy key as the client writes it once the mod has registered its own default,
+// and as this seed wants it.
+const DEFERRED_VANILLA=DEFERRED_KEY+':key.keyboard.left.control';
+const DEFERRED_SEEDED=DEFERRED_KEY+':key.keyboard.right.control';
 const shown=text=>text.split('\n').filter(Boolean);
 const optionsText=root=>fs.readFile(path.join(root,'options.txt'),'utf8');
 const recordText=root=>fs.readFile(path.join(root,DISPLAY_RECORD),'utf8');
-// The seven seeded actions as options.txt ended up carrying them, read from the file.
-const boundKeys=text=>{
- const options=parseProperties(text);
- return [...SEEDED_BINDINGS.map(key=>[key,options.get(key)??null])];
-};
-// No two actions may end up on one key: inventory takes tab, which vanilla gives the
-// player list, so the seed has to move both or neither.
+const SEVEN_KEYS={'key_key.sneak':WANTED_BINDS['key_key.sneak'],'key_key.sprint':WANTED_BINDS['key_key.sprint'],'key_key.inventory':WANTED_BINDS['key_key.inventory'],'key_key.playerlist':WANTED_BINDS['key_key.playerlist'],'key_key.togglePerspective':WANTED_BINDS['key_key.togglePerspective']};
+// No two seeded actions may share a key. `key.keyboard.unknown` is the client's own word
+// for an action with no key, so the debug keys are counted as unbound rather than as one
+// shared binding.
 function assertDistinctBindings(text,label){
- const bound=boundKeys(text);
- assert.deepEqual(bound.filter(([,value])=>value===null),[],label+': every seeded action has a binding: '+JSON.stringify(bound));
- const values=bound.map(([,value])=>value);
+ const options=parseProperties(text);
+ for(const key of DEBUG_BINDINGS)assert.equal(options.get(key),'key.keyboard.unknown',label+': '+key+' is unbound');
+ const absent=IMMEDIATE_BINDINGS.filter(key=>!options.has(key));
+ assert.deepEqual(absent,[],label+': every seeded action has a binding');
+ // The deferred key is only there once the client has written it, so it joins the check
+ // when it is present and is never missed when it is not.
+ const bound=[...IMMEDIATE_BINDINGS,...(options.has(DEFERRED_KEY)?[DEFERRED_KEY]:[])].filter(key=>!DEBUG_BINDINGS.includes(key)).map(key=>[key,options.get(key)]);
+ const values=bound.map(([,value])=>value).filter(value=>value!=='key.keyboard.unknown');
  assert.equal(new Set(values).size,values.length,label+': no two seeded actions share a key: '+JSON.stringify(bound));
 }
 
@@ -391,14 +436,16 @@ test('the display defaults are seeded once into the launcher’s client tree',as
   const root=path.join(dir,'minecraft');
   await fs.mkdir(root,{recursive:true});
   await fs.writeFile(path.join(root,'.easter-client'),'');
-  assert.deepEqual(DISPLAY_DEFAULTS,{guiScale:'2',fullscreen:'true',...WANTED_BINDS},'the values are Owen’s, exactly');
+  assert.deepEqual(DISPLAY_DEFAULTS,{guiScale:'2',fullscreen:'true',...WANTED_BINDS},'the values are Owen’s approved set, exactly');
   assert.equal(DISPLAY_RECORD,'.easter-client-display');
-  assert.equal(DISPLAY_RECORD_SCHEMA,2,'the record covers the key bindings, not only the display pair');
+  assert.equal(DISPLAY_RECORD_SCHEMA,3,'the record covers the whole approved set, not only the display pair');
+  assert.deepEqual(DISPLAY_DEFERRED_KEYS,[DEFERRED_KEY],'exactly one binding waits for its mod to register it');
   const seeded=await applyDisplayDefaults(root);
   assert.equal(seeded.written,true);
   assert.equal(seeded.firstSeed,true,'the first seed records itself');
   assert.equal(seeded.upgraded,false,'a fresh tree is not an upgrade of anything');
-  assert.deepEqual(seeded.keys,[...new Set(seededLines().map(line=>line.split(':')[0]))],'all seven keys in one seed');
+  assert.deepEqual(seeded.deferred,[],'a fresh tree has no mod-provided binding to write yet');
+  assert.deepEqual(seeded.keys,['guiScale','fullscreen',...IMMEDIATE_BINDINGS],'the whole table except the deferred key, in one seed');
   // Read the file itself, not the intent.
   const options=await optionsText(root);
   assert.deepEqual(shown(options),seededLines());
@@ -407,9 +454,11 @@ test('the display defaults are seeded once into the launcher’s client tree',as
   assertDistinctBindings(options,'the first seed');
   const record=JSON.parse(await recordText(root));
   assert.equal(record.schema,DISPLAY_RECORD_SCHEMA);
-  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS});
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...immediateBinds()},'the record carries exactly the keys it has written');
+  assert.equal(DEFERRED_KEY in record.values,false,'the deferred key is not claimed before the client has written it');
   assert.equal(typeof record.appliedAt,'string');
   assert.match(record.appliedAt,/^\d{4}-\d\d-\d\dT/);
+  assert.equal(record.upgradedAt,undefined,'a first seed is not an upgrade');
   assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mode&0o777,0o600);
   // The install pipeline owns installed.json; a settings write never creates it.
   assert.equal(await fs.stat(path.join(root,'installed.json')).then(()=>'present',()=>'absent'),'absent');
@@ -418,7 +467,7 @@ test('the display defaults are seeded once into the launcher’s client tree',as
 });
 
 test('the seeded bindings are the household layout, not vanilla’s',async()=>{
- // The swap is the feature, so it is asserted against the literals read off the real
+ // The layout is the feature, so it is asserted against the literals read off the real
  // clients rather than against the constants that produce them.
  assert.equal(DISPLAY_DEFAULTS['key_key.sneak'],'key.keyboard.left.control');
  assert.equal(DISPLAY_DEFAULTS['key_key.sprint'],'key.keyboard.left.shift');
@@ -428,6 +477,12 @@ test('the seeded bindings are the household layout, not vanilla’s',async()=>{
  assert.equal(VANILLA_BINDS['key_key.playerlist'],'key.keyboard.tab','which is exactly why the player list has to move with it');
  assert.equal(WANTED_BINDS['key_key.playerlist'],'key.keyboard.grave.accent');
  assert.equal(WANTED_BINDS['key_key.togglePerspective'],'key.keyboard.r','third person moves off vanilla’s F5');
+ assert.equal(WANTED_BINDS['key_key.chat'],'key.keyboard.enter','chat moves off vanilla’s t');
+ assert.equal(WANTED_BINDS['key_key.toggleGui'],'key.keyboard.f10','the GUI toggle moves off vanilla’s F1');
+ assert.equal(WANTED_BINDS['key_key.socialInteractions'],'key.keyboard.i','the social screen moves off vanilla’s p');
+ assert.equal(WANTED_BINDS['key_key.smoothCamera'],'key.keyboard.right.shift','smooth camera takes right shift, which nothing else seeded uses');
+ assert.equal(WANTED_BINDS[DEFERRED_KEY],'key.keyboard.right.control','Shippy’s quick build keeps the mod’s Ctrl intent, on the right hand');
+ assert.notEqual(WANTED_BINDS[DEFERRED_KEY],WANTED_BINDS['key_key.sneak'],'so crouch owns Left Ctrl alone');
  for(const [key,value] of Object.entries(WANTED_BINDS))assert.equal(DISPLAY_DEFAULTS[key],value,key+' is seeded as Owen’s client has it');
  const dir=await tempDir('easter-display-swap-');
  try{
@@ -441,39 +496,56 @@ test('the seeded bindings are the household layout, not vanilla’s',async()=>{
   assert.equal(options.get('key_key.inventory'),'key.keyboard.tab');
   assert.equal(options.get('key_key.playerlist'),'key.keyboard.grave.accent');
   assert.equal(options.get('key_key.togglePerspective'),'key.keyboard.r');
+  assert.equal(options.get('key_key.chat'),'key.keyboard.enter');
+  assert.equal(options.get('key_key.toggleGui'),'key.keyboard.f10');
+  assert.equal(options.get('key_key.socialInteractions'),'key.keyboard.i');
+  assert.equal(options.get('key_key.smoothCamera'),'key.keyboard.right.shift');
+  assert.equal(options.has(DEFERRED_KEY),false,'and the mod’s own key is not invented on a tree that has never seen the mod');
   assertDistinctBindings(await optionsText(root),'the swap');
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
-test('the seed writes Owen’s seven keys and none of the settings he did not ask for',async()=>{
- // Owen's own client carries settings he did not ask the launcher to seed (chat on enter,
- // toggleGui on F10, socialInteractions on I, smoothCamera on right shift, unbound debug
- // keys). A tree that already has them keeps them, and a fresh tree never gets them.
+test('the seed writes the whole approved table and keeps the settings Owen did not ask for',async()=>{
+ // The table is pinned by name and value, because it is the complete list of things the
+ // launcher is allowed to have an opinion about. Owen's own client carries far more: the
+ // free-camera and ReplayMod binds, the creative toolbar keys, the spectator hotbar and
+ // Shippy's eject key. None of them is in the table, so none of them is ever touched —
+ // including his replaymod.positionkeyframe, which his client has on the same I the social
+ // screen is seeded to, exactly as his client has it.
+ const TABLE={guiScale:'2',fullscreen:'true',...WANTED_BINDS};
+ assert.deepEqual(DISPLAY_DEFAULTS,TABLE,'the table, name by name and value by value');
+ assert.deepEqual(Object.keys(DISPLAY_DEFAULTS),Object.keys(TABLE),'and in the order it is written');
+ assert.equal(Object.keys(TABLE).length,34,'two display values, 31 immediate bindings and the deferred one');
+ assert.equal(IMMEDIATE_BINDINGS.length,31);
+ assert.equal(DEBUG_BINDINGS.length,22,'the 22 vanilla debug actions');
+ assert.deepEqual(Object.keys(DISPLAY_DEFAULTS).filter(key=>key.startsWith('key_key.debug.')).sort(),[...DEBUG_BINDINGS].sort(),'exactly those, with no guessed extra');
+ const HIS_OTHER_SETTINGS=[
+  'key_key.free-camera.camera_control:key.keyboard.unknown',
+  'key_key.free-camera.hold_zoom:key.keyboard.unknown',
+  'key_key.free-camera.reset:key.keyboard.unknown',
+  'key_key.replaymod.marker:key.keyboard.m',
+  'key_key.replaymod.positionkeyframe:key.keyboard.i',
+  'key_key.spectatorHotbar:key.keyboard.unknown',
+  'key_key.saveToolbarActivator:key.keyboard.unknown',
+  'key_key.loadToolbarActivator:key.keyboard.unknown',
+  'key_key.shippy-ships.eject_passengers:key.keyboard.v'
+ ];
  const dir=await tempDir('easter-display-unrequested-');
  try{
-  const hisExtras=[
-   'key_key.chat:key.keyboard.enter',
-   'key_key.toggleGui:key.keyboard.f10',
-   'key_key.socialInteractions:key.keyboard.i',
-   'key_key.smoothCamera:key.keyboard.right.shift',
-   'key_key.debugOverlay:key.keyboard.',
-   'key_key.swapOffhand:key.keyboard.f'
-  ];
-  const SEVEN=['fullscreen','guiScale','key_key.inventory','key_key.playerlist','key_key.sneak','key_key.sprint','key_key.togglePerspective'];
-  assert.deepEqual(Object.keys(DISPLAY_DEFAULTS).sort(),SEVEN,'exactly the seven keys Owen asked for, nothing else');
   const root=path.join(dir,'minecraft');
   await fs.mkdir(root,{recursive:true});
   await fs.writeFile(path.join(root,'.easter-client'),'');
-  await fs.writeFile(path.join(root,'options.txt'),hisExtras.join('\n')+'\n');
+  await fs.writeFile(path.join(root,'options.txt'),['version:4903','fov:0.5',...HIS_OTHER_SETTINGS].join('\n')+'\n');
   await applyDisplayDefaults(root);
   const after=await optionsText(root);
-  for(const line of hisExtras)assert(shown(after).includes(line),'kept exactly as the player had it: '+line);
-  // A fresh tree gets the seven seeded keys and none of his extras.
+  for(const line of HIS_OTHER_SETTINGS)assert(shown(after).includes(line),'kept exactly as the player had it: '+line);
+  assert.deepEqual(shown(after),['version:4903','fov:0.5',...HIS_OTHER_SETTINGS,...seededLines()],'his lines stay where they were, the table lands after them, and nothing else changes');
+  // A fresh tree gets the table and none of his other settings.
   const fresh=path.join(dir,'fresh');
   await fs.mkdir(fresh,{recursive:true});
   await fs.writeFile(path.join(fresh,'.easter-client'),'');
   await applyDisplayDefaults(fresh);
-  assert.deepEqual([...parseProperties(await optionsText(fresh)).keys()].sort(),SEVEN,'the seed invents nothing beyond the seven');
+  assert.deepEqual([...parseProperties(await optionsText(fresh)).keys()].sort(),['fullscreen','guiScale',...IMMEDIATE_BINDINGS].sort(),'the seed invents nothing beyond the table, and the deferred key is not invented either');
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
@@ -487,7 +559,7 @@ test('a tree that has already been played is seeded once, and a key the player c
   await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\nguiScale:4\nfov:0.5\nrenderDistance:12\n');
   const first=await applyDisplayDefaults(root);
   assert.equal(first.firstSeed,true,'an already-played tree still takes the defaults once');
-  assert.deepEqual(shown(await optionsText(root)),['fullscreen:true','guiScale:2','fov:0.5','renderDistance:12',...bindLines(WANTED_BINDS)],'the seven defaults win on the first seed and every other line is kept');
+  assert.deepEqual(shown(await optionsText(root)),['fullscreen:true','guiScale:2','fov:0.5','renderDistance:12',...bindLines(immediateBinds())],'the table wins on the first seed and every other line is kept');
   const optionsBefore=await fs.readFile(path.join(root,'options.txt'));
   const recordBefore=await recordText(root);
   const optionsStat=await fs.stat(path.join(root,'options.txt'));
@@ -503,16 +575,16 @@ test('a tree that has already been played is seeded once, and a key the player c
   assert.equal(await recordText(root),recordBefore);
   assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mtimeMs,recordStat.mtimeMs,'the record is written once and never again');
   // The player plays again and turns fullscreen off in the game's own settings.
-  const playerChose='fullscreen:false\nguiScale:2\nfov:0.75\n'+bindLines(WANTED_BINDS).join('\n')+'\n';
+  const playerChose='fullscreen:false\nguiScale:2\nfov:0.75\n'+bindLines(immediateBinds()).join('\n')+'\n';
   await fs.writeFile(path.join(root,'options.txt'),playerChose);
   const playerStat=await fs.stat(path.join(root,'options.txt'));
   const third=await applyDisplayDefaults(root);
   assert.equal(third.written,false,'a present key is the player’s own from now on');
   assert.equal(await optionsText(root),playerChose,'the launcher never re-decides a player’s choice');
   assert.equal((await fs.stat(path.join(root,'options.txt'))).mtimeMs,playerStat.mtimeMs);
-  // The player rebinds, in the game's own controls screen, sprint back to Ctrl and the
-  // player list onto a key of their choosing. Both are theirs now.
-  const reboundText=playerChose.replace('key_key.sprint:key.keyboard.left.shift','key_key.sprint:key.keyboard.left.control').replace('key_key.playerlist:key.keyboard.grave.accent','key_key.playerlist:key.keyboard.p');
+  // The player rebinds, in the game's own controls screen, sprint back to Ctrl, the player
+  // list onto a key of their choosing, and chat back onto vanilla's t. All three are theirs.
+  const reboundText=playerChose.replace('key_key.sprint:key.keyboard.left.shift','key_key.sprint:key.keyboard.left.control').replace('key_key.playerlist:key.keyboard.grave.accent','key_key.playerlist:key.keyboard.p').replace('key_key.chat:key.keyboard.enter','key_key.chat:key.keyboard.t');
   await fs.writeFile(path.join(root,'options.txt'),reboundText);
   const reboundStat=await fs.stat(path.join(root,'options.txt'));
   const rebound=await applyDisplayDefaults(root);
@@ -522,7 +594,7 @@ test('a tree that has already been played is seeded once, and a key the player c
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
-test('the only later seed is repair: a recorded key that went missing is written again, bindings included',async()=>{
+test('the only later seed is repair: a covered key that went missing is written again, bindings included',async()=>{
  const dir=await tempDir('easter-display-repair-');
  try{
   const root=path.join(dir,'minecraft');
@@ -544,19 +616,20 @@ test('the only later seed is repair: a recorded key that went missing is written
   // One key missing, one present and player-chosen: only the missing one comes back.
   await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\n');
   const single=await applyDisplayDefaults(root);
-  assert.deepEqual(single.keys,['guiScale','key_key.sneak','key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective']);
-  assert.equal(await optionsText(root),'fullscreen:false\n'+seededLines().slice(0,1).join('\n')+'\n'+bindLines(WANTED_BINDS).join('\n')+'\n','the present key is untouched');
+  assert.deepEqual(single.keys,['guiScale',...IMMEDIATE_BINDINGS]);
+  assert.equal(await optionsText(root),'fullscreen:false\n'+['guiScale:2',...bindLines(immediateBinds())].join('\n')+'\n','the present key is untouched');
   // A binding that goes missing is repaired from the record exactly like a display key,
   // and a binding the player rebound meanwhile is left where they put it.
   await fs.writeFile(path.join(root,'options.txt'),'fullscreen:false\nguiScale:2\nkey_key.sneak:key.keyboard.left.control\n');
   const missingBind=await applyDisplayDefaults(root);
-  assert.deepEqual(missingBind.keys,['key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective']);
+  assert.deepEqual(missingBind.keys,IMMEDIATE_BINDINGS.filter(key=>key!=='key_key.sneak'));
   assert.match(await optionsText(root),/^key_key\.playerlist:key\.keyboard\.grave\.accent$/m,'the recorded binding came back');
-  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(WANTED_BINDS).join('\n').replace('key_key.togglePerspective:key.keyboard.r','key_key.togglePerspective:key.keyboard.f5')+'\n');
+  assert.match(await optionsText(root),/^key_key\.debug\.overlay:key\.keyboard\.unknown$/m,'and so does an unbound debug key');
+  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(immediateBinds()).join('\n').replace('key_key.togglePerspective:key.keyboard.r','key_key.togglePerspective:key.keyboard.f5')+'\n');
   const reboundRepair=await applyDisplayDefaults(root);
   assert.equal(reboundRepair.written,false,'a player’s own third-person key is not "missing", so nothing is repaired over it');
   // options.txt deleted entirely, as a fresh profile or a botched reset would: every
-  // recorded key comes back, from the record.
+  // covered key comes back, from the record.
   await fs.rm(path.join(root,'options.txt'));
   const recreated=await applyDisplayDefaults(root);
   assert.deepEqual(shown(await optionsText(root)),seededLines());
@@ -574,19 +647,19 @@ test('the inventory and player list keys land together, so no two actions share 
   // The inventory line goes missing while the player has since moved the player list to
   // a key of their own: the repair writes inventory back on tab and leaves their key be,
   // because nothing collides.
-  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(WANTED_BINDS).filter(line=>!line.startsWith('key_key.inventory:')).join('\n').replace('key_key.playerlist:key.keyboard.grave.accent','key_key.playerlist:key.keyboard.p')+'\n');
+  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(immediateBinds()).filter(line=>!line.startsWith('key_key.inventory:')).join('\n').replace('key_key.playerlist:key.keyboard.grave.accent','key_key.playerlist:key.keyboard.p')+'\n');
   const inventoryOnly=await applyDisplayDefaults(root);
   assert.deepEqual(inventoryOnly.keys,['key_key.inventory'],'only the missing member of the group is written');
   assert.match(await optionsText(root),/^key_key\.playerlist:key\.keyboard\.p$/m,'the player’s own player list key is not overwritten');
   assertDistinctBindings(await optionsText(root),'a group repair against a player-chosen sibling');
-  // The player list line goes missing and its present value is tab, which is the key the
-  // seed takes for inventory: both members are written together.
-  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(WANTED_BINDS).join('\n').replace('key_key.playerlist:key.keyboard.grave.accent','key_key.playerlist:key.keyboard.tab')+'\n');
+  // The player list line sits on tab, which is the key the seed takes for inventory: both
+  // members are written together.
+  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(immediateBinds()).join('\n').replace('key_key.playerlist:key.keyboard.grave.accent','key_key.playerlist:key.keyboard.tab')+'\n');
   const together=await applyDisplayDefaults(root);
-  assert.deepEqual(together.written,false,'both members are present and nothing is missing, so no repair runs');
+  assert.equal(together.written,false,'both members are present and nothing is missing, so no repair runs');
   // Now the collision that matters: inventory is missing, and the player list still sits
   // on tab, the key inventory is about to take.
-  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\nkey_key.sneak:key.keyboard.left.control\nkey_key.sprint:key.keyboard.left.shift\nkey_key.playerlist:key.keyboard.tab\nkey_key.togglePerspective:key.keyboard.r\n');
+  await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(immediateBinds()).filter(line=>!line.startsWith('key_key.inventory:')).join('\n').replace('key_key.playerlist:key.keyboard.grave.accent','key_key.playerlist:key.keyboard.tab')+'\n');
   const paired=await applyDisplayDefaults(root);
   assert.deepEqual(paired.keys,['key_key.inventory','key_key.playerlist'],'inventory and the player list move together');
   const pairedOptions=await optionsText(root);
@@ -596,11 +669,12 @@ test('the inventory and player list keys land together, so no two actions share 
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
-// The bindings were added after the display pair had already shipped, so a tree the
-// (unreleased) earlier build had seeded carries a schema-1 record. That record only ever
-// promised the display pair, so the upgrade writes exactly the five bindings once and
-// leaves the display values, player-changed or not, where they are.
-test('a schema-1 record gets exactly the five bindings added once, and its display values left alone',async()=>{
+// The controls arrived after the display pair had already shipped, so a tree the earlier
+// build had seeded carries a schema-1 record. That record only ever promised the display
+// pair, so the upgrade writes exactly the keys the table has grown — the five bindings,
+// the four new controls and the 22 debug unbinds — once, and leaves the display values,
+// player-changed or not, exactly where they are.
+test('a schema-1 record gets exactly the keys it does not cover added once, and its display values left alone',async()=>{
  const dir=await tempDir('easter-display-schema1-');
  try{
   const root=path.join(dir,'minecraft');
@@ -617,17 +691,24 @@ test('a schema-1 record gets exactly the five bindings added once, and its displ
   assert.equal(upgraded.written,true);
   assert.equal(upgraded.firstSeed,false,'the tree was already seeded by the older schema');
   assert.equal(upgraded.upgraded,true,'a schema-1 record is raised to this schema');
-  assert.deepEqual(upgraded.keys,SEEDED_BINDINGS,'only the keys schema 1 never covered are written');
-  const expected=before.replace('key_key.sneak:key.keyboard.left.shift','key_key.sneak:key.keyboard.left.control').replace('key_key.sprint:key.keyboard.left.control','key_key.sprint:key.keyboard.left.shift').replace('key_key.inventory:key.keyboard.e','key_key.inventory:key.keyboard.tab').replace('key_key.playerlist:key.keyboard.tab','key_key.playerlist:key.keyboard.grave.accent').replace('key_key.togglePerspective:key.keyboard.f5','key_key.togglePerspective:key.keyboard.r');
-  assert.equal(await optionsText(root),expected,'exactly the five bindings moved, in place, and every other line is byte for byte where it was');
+  assert.deepEqual(upgraded.deferred,[],'the mod’s key is not in this tree, so it is not written');
+  assert.deepEqual(upgraded.keys,IMMEDIATE_BINDINGS,'only the keys the record never covered are written');
+  // The five vanilla lines are rewritten where they stand; the keys the table has grown
+  // are appended after the player's last line.
+  const table=bindLines(immediateBinds());
+  const five=table.slice(0,5),grown=table.slice(5);
+  const expected=['version:4903','fullscreen:false','guiScale:4',...five,'fov:0.5',...grown].join('\n')+'\n';
+  assert.equal(await optionsText(root),expected,'exactly the keys the record never covered, and every other line byte for byte where it was');
   assertDistinctBindings(await optionsText(root),'a schema-1 upgrade');
   const record=JSON.parse(await recordText(root));
-  assert.equal(record.schema,2);
-  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS},'the values it already carried are kept, and the ones applied now are added');
+  assert.equal(record.schema,3);
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...immediateBinds()},'the values it already carried are kept, and the ones applied now are added');
   assert.equal(record.appliedAt,appliedAt,'the original seed time is still the seed time');
   assert.match(String(record.upgradedAt),/^\d{4}-\d\d-\d\dT/);
+  assert.match(String(record.updatedAt),/^\d{4}-\d\d-\d\dT/);
+  assert.equal(DEFERRED_KEY in record.values,false,'and it still claims nothing it has not written');
   assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mode&0o777,0o600);
-  // Once only: the next run finds a schema-2 record and touches neither file.
+  // Once only: the next run finds a schema-3 record and touches neither file.
   const optionsStat=await fs.stat(path.join(root,'options.txt'));
   const recordStat=await fs.stat(path.join(root,DISPLAY_RECORD));
   const optionsAfter=await fs.readFile(path.join(root,'options.txt'));
@@ -641,20 +722,183 @@ test('a schema-1 record gets exactly the five bindings added once, and its displ
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
-test('a schema-1 tree whose display values the player changed keeps those values through the upgrade',async()=>{
- const dir=await tempDir('easter-display-schema1-changed-');
+test('a schema-2 tree is upgraded by exactly the keys it does not cover, and the Shippy key when the client has written it',async()=>{
+ const dir=await tempDir('easter-display-schema2-');
  try{
   const root=path.join(dir,'minecraft');
   await fs.mkdir(root,{recursive:true});
   await fs.writeFile(path.join(root,'.easter-client'),'');
-  await fs.writeFile(path.join(root,DISPLAY_RECORD),JSON.stringify({schema:1,values:{guiScale:'2',fullscreen:'true'},appliedAt:'2026-10-17T09:00:00.000Z'},null,2)+'\n',{mode:0o600});
-  // The player moved the scale, plays windowed, and has not touched the bindings.
-  const before='fullscreen:false\nguiScale:1\n'+bindLines(VANILLA_BINDS).join('\n')+'\n';
+  // The tree as the previous build left it: a schema-2 record covering the display pair
+  // and the five bindings, and options.txt with the player's own window mode and scale,
+  // those five bindings, and the Shippy key the mod registered on the client's own run.
+  const appliedAt='2026-10-18T09:00:00.000Z';
+  await fs.writeFile(path.join(root,DISPLAY_RECORD),JSON.stringify({schema:2,values:{guiScale:'2',fullscreen:'true',...SEVEN_KEYS},appliedAt},null,2)+'\n',{mode:0o600});
+  const before=['version:4903','fullscreen:false','guiScale:1',...bindLines(SEVEN_KEYS),DEFERRED_VANILLA,'fov:0.5'].join('\n')+'\n';
   await fs.writeFile(path.join(root,'options.txt'),before);
   const upgraded=await applyDisplayDefaults(root,{guiScale:4});
-  assert.deepEqual(upgraded.keys,SEEDED_BINDINGS,'the display pair is not re-applied, however far the player moved it');
-  assert.equal(await optionsText(root),'fullscreen:false\nguiScale:1\n'+bindLines(WANTED_BINDS).join('\n')+'\n');
-  assertDistinctBindings(await optionsText(root),'a schema-1 upgrade over player-chosen display values');
+  assert.equal(upgraded.written,true);
+  assert.equal(upgraded.firstSeed,false);
+  assert.equal(upgraded.upgraded,true,'a schema-2 record is raised to this schema');
+  assert.deepEqual(upgraded.deferred,[DEFERRED_KEY],'the mod’s key is covered now that the client has written it');
+  const grown=IMMEDIATE_BINDINGS.filter(key=>!(key in SEVEN_KEYS));
+  assert.deepEqual(upgraded.keys,[...grown,DEFERRED_KEY],'exactly the keys the record did not cover, and nothing it already had');
+  const expected=['version:4903','fullscreen:false','guiScale:1',...bindLines(SEVEN_KEYS),DEFERRED_SEEDED,'fov:0.5',...bindLines(Object.fromEntries(grown.map(key=>[key,WANTED_BINDS[key]])))].join('\n')+'\n';
+  assert.equal(await optionsText(root),expected,'the player’s scale, window mode and the seven covered keys are untouched; the Shippy key moved in place and the new keys landed after them');
+  assertDistinctBindings(await optionsText(root),'a schema-2 upgrade');
+  const record=JSON.parse(await recordText(root));
+  assert.equal(record.schema,3);
+  assert.equal(record.appliedAt,appliedAt,'the seed time does not move');
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS},'every key in the table is covered now, with the values that were applied');
+  assert.match(String(record.upgradedAt),/^\d{4}-\d\d-\d\dT/);
+  // Once only: a further run rewrites neither file.
+  const optionsStat=await fs.stat(path.join(root,'options.txt'));
+  const recordStat=await fs.stat(path.join(root,DISPLAY_RECORD));
+  const again=await applyDisplayDefaults(root,{guiScale:4});
+  assert.equal(again.written,false);
+  assert.equal(again.upgraded,false);
+  assert.deepEqual(again.keys,[]);
+  assert.equal((await fs.stat(path.join(root,'options.txt'))).mtimeMs,optionsStat.mtimeMs);
+  assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mtimeMs,recordStat.mtimeMs);
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('the Shippy Ships hotkey waits for the client to write it, is seeded once, and is never rewritten',async()=>{
+ const dir=await tempDir('easter-display-deferred-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  // A fresh tree: the mod has not run, so the binding does not exist, and vanilla would
+  // drop any key_ entry this launcher invented for it. It is neither written nor claimed.
+  const first=await applyDisplayDefaults(root);
+  assert.equal(first.firstSeed,true);
+  assert.deepEqual(first.deferred,[]);
+  assert.equal(parseProperties(await optionsText(root)).has(DEFERRED_KEY),false,'the deferred key is not invented');
+  const firstRecord=JSON.parse(await recordText(root));
+  assert.equal(DEFERRED_KEY in firstRecord.values,false,'and it is not marked covered before it has been written');
+  // The client runs once with the mod, which registers the binding on its own default.
+  const seeded=await optionsText(root);
+  const withModLine=seeded+DEFERRED_VANILLA+'\n';
+  await fs.writeFile(path.join(root,'options.txt'),withModLine);
+  const arrived=await applyDisplayDefaults(root);
+  assert.equal(arrived.written,true,'the first launcher start after the client has run with the mod seeds it');
+  assert.equal(arrived.firstSeed,false);
+  assert.equal(arrived.upgraded,false,'this is not a schema upgrade');
+  assert.deepEqual(arrived.deferred,[DEFERRED_KEY]);
+  assert.deepEqual(arrived.keys,[DEFERRED_KEY],'and nothing else is touched');
+  assert.equal(await optionsText(root),withModLine.replace(DEFERRED_VANILLA,DEFERRED_SEEDED),'only the mod’s own line changed, byte for byte');
+  const arrivedRecord=JSON.parse(await recordText(root));
+  assert.equal(arrivedRecord.schema,3,'the schema does not move for a deferred key');
+  assert.equal(arrivedRecord.values[DEFERRED_KEY],'key.keyboard.right.control','the record covers it now that it has been written');
+  assert.equal(arrivedRecord.appliedAt,firstRecord.appliedAt,'and the seed time is still the first seed’s');
+  assert.match(String(arrivedRecord.updatedAt),/^\d{4}-\d\d-\d\dT/);
+  // Once written, it is never rewritten: not on the next run, and not after the player
+  // rebinds it back in the game's own controls screen.
+  const optionsStat=await fs.stat(path.join(root,'options.txt'));
+  const recordStat=await fs.stat(path.join(root,DISPLAY_RECORD));
+  const again=await applyDisplayDefaults(root);
+  assert.equal(again.written,false);
+  assert.deepEqual(again.keys,[]);
+  assert.equal((await fs.stat(path.join(root,'options.txt'))).mtimeMs,optionsStat.mtimeMs);
+  assert.equal((await fs.stat(path.join(root,DISPLAY_RECORD))).mtimeMs,recordStat.mtimeMs);
+  await fs.writeFile(path.join(root,'options.txt'),withModLine);
+  const kept=await applyDisplayDefaults(root);
+  assert.equal(kept.written,false,'a covered key is the player’s, the deferred one included');
+  assert.equal(await optionsText(root),withModLine);
+  // A recreated options.txt is repaired like any other file, and the Shippy key is
+  // released until the client writes it again: inventing it would be silently lost, and
+  // leaving it covered would let the client's own Left Ctrl default survive for good.
+  await fs.rm(path.join(root,'options.txt'));
+  const recreated=await applyDisplayDefaults(root);
+  assert.equal(recreated.written,true);
+  assert.deepEqual(recreated.keys,['guiScale','fullscreen',...IMMEDIATE_BINDINGS],'every covered key comes back');
+  assert.deepEqual(recreated.released,[DEFERRED_KEY],'and the mod’s key is released until the client writes it again');
+  assert.equal(parseProperties(await optionsText(root)).has(DEFERRED_KEY),false);
+  assert.equal(DEFERRED_KEY in JSON.parse(await recordText(root)).values,false,'so it is not covered while the tree has no such line');
+  // The client runs with the mod again and writes it on its own default: the seed repairs
+  // it back onto Right Ctrl, once.
+  const rewritten=(await optionsText(root))+DEFERRED_VANILLA+'\n';
+  await fs.writeFile(path.join(root,'options.txt'),rewritten);
+  const repairedAgain=await applyDisplayDefaults(root);
+  assert.deepEqual(repairedAgain.deferred,[DEFERRED_KEY]);
+  assert.deepEqual(repairedAgain.keys,[DEFERRED_KEY]);
+  assert.equal(await optionsText(root),rewritten.replace(DEFERRED_VANILLA,DEFERRED_SEEDED));
+  assert.equal(JSON.parse(await recordText(root)).values[DEFERRED_KEY],'key.keyboard.right.control');
+  const settled=await applyDisplayDefaults(root);
+  assert.equal(settled.written,false,'and then it is the player’s again');
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('the 22 vanilla debug keys are unbound, so there is no F3 overlay and no debug combinations',async()=>{
+ assert.deepEqual(DEBUG_BINDINGS,[
+  'key_key.debug.clearChat',
+  'key_key.debug.copyLocation',
+  'key_key.debug.copyRecreateCommand',
+  'key_key.debug.crash',
+  'key_key.debug.debugOptions',
+  'key_key.debug.dumpDynamicTextures',
+  'key_key.debug.dumpVersion',
+  'key_key.debug.focusPause',
+  'key_key.debug.fpsCharts',
+  'key_key.debug.lightmapTexture',
+  'key_key.debug.modifier',
+  'key_key.debug.networkCharts',
+  'key_key.debug.overlay',
+  'key_key.debug.profiling',
+  'key_key.debug.profilingChart',
+  'key_key.debug.reloadChunk',
+  'key_key.debug.reloadResourcePacks',
+  'key_key.debug.showAdvancedTooltips',
+  'key_key.debug.showChunkBorders',
+  'key_key.debug.showHitboxes',
+  'key_key.debug.spectate',
+  'key_key.debug.switchGameMode'
+ ],'the names this client writes, pinned one by one');
+ for(const key of DEBUG_BINDINGS)assert.equal(DISPLAY_DEFAULTS[key],'key.keyboard.unknown',key+' is unbound in the table');
+ const dir=await tempDir('easter-display-debug-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  // A tree where the client wrote the vanilla F3 bindings: the seed unbinds each one in
+  // place rather than adding a second line for it.
+  const played=DEBUG_BINDINGS.map(key=>key+':key.keyboard.f3').join('\n')+'\n';
+  await fs.writeFile(path.join(root,'options.txt'),played);
+  await applyDisplayDefaults(root);
+  const options=parseProperties(await optionsText(root));
+  for(const key of DEBUG_BINDINGS)assert.equal(options.get(key),'key.keyboard.unknown','unbound in options.txt: '+key);
+  assert.equal(shown(await optionsText(root)).filter(line=>line.startsWith('key_key.debug.')).length,22,'rewritten in place, not added again');
+  // The record keeps them, so a repair restores the unbind rather than vanilla's F3.
+  await fs.rm(path.join(root,'options.txt'));
+  await applyDisplayDefaults(root);
+  const repaired=parseProperties(await optionsText(root));
+  for(const key of DEBUG_BINDINGS)assert.equal(repaired.get(key),'key.keyboard.unknown','still unbound after a repair: '+key);
+ }finally{await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('no two seeded actions share a key, before or after the mod’s binding arrives',async()=>{
+ // The table itself, first: everything except the unbound debug keys is a distinct key.
+ const bound=Object.entries(DISPLAY_DEFAULTS).filter(([key,value])=>key.startsWith('key_key.')&&value!=='key.keyboard.unknown');
+ const values=bound.map(([,value])=>value);
+ assert.equal(new Set(values).size,values.length,'no two seeded actions share a key: '+JSON.stringify(bound));
+ assert.equal(bound.length,10,'nine household controls plus Shippy’s quick build');
+ // Left Ctrl is crouch's alone and Right Ctrl is Shippy's alone: that is the point of
+ // moving the hotkey rather than leaving two actions on one key.
+ assert.deepEqual(bound.filter(([,value])=>value==='key.keyboard.left.control').map(([key])=>key),['key_key.sneak']);
+ assert.deepEqual(bound.filter(([,value])=>value==='key.keyboard.right.control').map(([key])=>key),[DEFERRED_KEY]);
+ const dir=await tempDir('easter-display-distinct-');
+ try{
+  const root=path.join(dir,'minecraft');
+  await fs.mkdir(root,{recursive:true});
+  await fs.writeFile(path.join(root,'.easter-client'),'');
+  await applyDisplayDefaults(root);
+  assertDistinctBindings(await optionsText(root),'a fresh seed');
+  // And with the deferred key present, on a tree where every key the table names is there.
+  await fs.writeFile(path.join(root,'options.txt'),seededLines().concat([DEFERRED_VANILLA]).join('\n')+'\n');
+  await applyDisplayDefaults(root);
+  const withMod=await optionsText(root);
+  assertDistinctBindings(withMod,'a seed after the mod registered its key');
+  assert.match(withMod,new RegExp('^'+DEFERRED_KEY.replace(/\./g,'\\.')+':key\\.keyboard\\.right\\.control$','m'));
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
@@ -664,19 +908,28 @@ test('a record from a schema this build does not know is left alone, never pulle
   const root=path.join(dir,'minecraft');
   await fs.mkdir(root,{recursive:true});
   await fs.writeFile(path.join(root,'.easter-client'),'');
-  assert.deepEqual(DISPLAY_SCHEMA_KEYS,{1:['guiScale','fullscreen'],2:SEEDED_BINDINGS},'the documented schema table: what each version took responsibility for');
-  const future=JSON.stringify({schema:9,values:{guiScale:'2',fullscreen:'true',...WANTED_BINDS},appliedAt:'2026-10-17T09:00:00.000Z'},null,2)+'\n';
+  assert.deepEqual(DISPLAY_SCHEMA_KEYS,{1:['guiScale','fullscreen'],2:['key_key.sneak','key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective'],3:['key_key.chat','key_key.toggleGui','key_key.socialInteractions','key_key.smoothCamera',...DEBUG_BINDINGS,DEFERRED_KEY]},'the documented schema history: what each version added, kept for a human reader');
+  assert.deepEqual([...DISPLAY_SCHEMA_KEYS[1],...DISPLAY_SCHEMA_KEYS[2],...DISPLAY_SCHEMA_KEYS[3]].sort(),Object.keys(DISPLAY_DEFAULTS).sort(),'together they are the table, so the history cannot drift from it');
+  // A newer record: its values are the covered set, and this build neither adds keys it
+  // has never seeded into this tree nor lowers the record to its own schema.
+  const future=JSON.stringify({schema:9,values:{guiScale:'2',fullscreen:'true',...SEVEN_KEYS},appliedAt:'2026-10-17T09:00:00.000Z'},null,2)+'\n';
   await fs.writeFile(path.join(root,DISPLAY_RECORD),future,{mode:0o600});
   await fs.writeFile(path.join(root,'options.txt'),'guiScale:2\nfullscreen:true\n'+bindLines(VANILLA_BINDS).join('\n')+'\n');
+  const optionsBefore=await fs.readFile(path.join(root,'options.txt'));
   const result=await applyDisplayDefaults(root);
   assert.equal(result.written,false,'a newer schema has already had its say over every key this build knows');
+  assert.equal(result.upgraded,false);
   assert.deepEqual(result.keys,[]);
-  assert.equal(await recordText(root),future,'and the newer record is not downgraded');
-  // A record with no schema at all is the oldest meaning: the display pair only.
+  assert.deepEqual(await fs.readFile(path.join(root,'options.txt')),optionsBefore,'and the table is not extended into a tree a newer build owns');
+  assert.equal(await recordText(root),future,'nor is the newer record downgraded');
+  // A record with no schema at all is the oldest meaning, and coverage is still per key:
+  // the display pair is covered, everything the table has grown since is not.
   await fs.writeFile(path.join(root,DISPLAY_RECORD),JSON.stringify({values:{guiScale:'2',fullscreen:'true'}})+'\n');
   const legacy=await applyDisplayDefaults(root);
-  assert.deepEqual(legacy.keys,SEEDED_BINDINGS,'an unversioned record is treated as schema 1');
-  assert.equal(JSON.parse(await recordText(root)).schema,2,'and is brought up to the current schema');
+  assert.equal(legacy.upgraded,true,'an unversioned record is raised to this schema');
+  assert.deepEqual(legacy.keys,IMMEDIATE_BINDINGS,'and gets exactly the keys it never covered');
+  assert.equal(JSON.parse(await recordText(root)).schema,3);
+  assert.deepEqual(JSON.parse(await recordText(root)).values,{guiScale:'2',fullscreen:'true',...immediateBinds()});
   assertDistinctBindings(await optionsText(root),'an unversioned-record upgrade');
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
@@ -739,7 +992,7 @@ test('the first seed writes the GUI scale its display asked for, and the record 
   assert.equal(seeded.firstSeed,true);
   assert.deepEqual(shown(await optionsText(root)),seededLines('3'),'the display’s answer is what a fresh tree gets, with the same five bindings');
   const record=JSON.parse(await recordText(root));
-  assert.deepEqual(record.values,{guiScale:'3',fullscreen:'true',...WANTED_BINDS},'the record stores the value that was applied, not the fallback');
+  assert.deepEqual(record.values,{guiScale:'3',fullscreen:'true',...immediateBinds()},'the record stores the value that was applied, not the fallback, and covers exactly the keys it wrote');
   // A repair reuses the record, so the launcher moving to another screen cannot
   // re-decide a tree that has already been seeded.
   await fs.writeFile(path.join(root,'options.txt'),'renderDistance:12\n');
@@ -747,7 +1000,7 @@ test('the first seed writes the GUI scale its display asked for, and the record 
   assert.equal(repaired.firstSeed,false);
   assert.deepEqual(shown(await optionsText(root)),['renderDistance:12',...seededLines('3')],'the recorded 3 comes back, not this display’s 4');
   // And a key the player moved themselves is still never rewritten.
-  const playerChose='guiScale:1\nfullscreen:false\n'+bindLines(WANTED_BINDS).join('\n')+'\n';
+  const playerChose='guiScale:1\nfullscreen:false\n'+bindLines(immediateBinds()).join('\n')+'\n';
   await fs.writeFile(path.join(root,'options.txt'),playerChose);
   const kept=await applyDisplayDefaults(root,{guiScale:4});
   assert.equal(kept.written,false);
@@ -770,7 +1023,7 @@ test('an unusable GUI scale is never invented into the client',async()=>{
   for(const [key,value] of Object.entries(WANTED_BINDS))assert.equal(displayDefaultValues(4)[key],value,'and neither do the bindings: '+key);
   const seeded=await applyDisplayDefaults(root,{guiScale:'nonsense'});
   assert.deepEqual(shown(await optionsText(root)),seededLines());
-  assert.deepEqual(JSON.parse(await recordText(root)).values,{guiScale:'2',fullscreen:'true',...WANTED_BINDS});
+  assert.deepEqual(JSON.parse(await recordText(root)).values,{guiScale:'2',fullscreen:'true',...immediateBinds()});
   assertDistinctBindings(await optionsText(root),'the fallback seed');
  }finally{await fs.rm(dir,{recursive:true,force:true});}
 });

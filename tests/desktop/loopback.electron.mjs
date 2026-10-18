@@ -23,23 +23,56 @@ const sha256=buffer=>crypto.createHash('sha256').update(buffer).digest('hex');
 let failures=0;
 let tunedDistance=null,optionsAtRest=null,expectedScale=null;
 function check(condition,message){if(condition)console.log('  ok   '+message);else{failures++;console.log('  FAIL '+message);}}
-// The household's five key bindings, and vanilla's, as read off the real clients.
-const SEEDED_BINDINGS=['key_key.sneak','key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective'];
+// The household's approved controls, and vanilla's, as read off the real clients.
+const DEFERRED_KEY='key_key.shippy-ships.isPressingCtrl';
+const DEBUG_BINDINGS=[
+ 'key_key.debug.clearChat',
+ 'key_key.debug.copyLocation',
+ 'key_key.debug.copyRecreateCommand',
+ 'key_key.debug.crash',
+ 'key_key.debug.debugOptions',
+ 'key_key.debug.dumpDynamicTextures',
+ 'key_key.debug.dumpVersion',
+ 'key_key.debug.focusPause',
+ 'key_key.debug.fpsCharts',
+ 'key_key.debug.lightmapTexture',
+ 'key_key.debug.modifier',
+ 'key_key.debug.networkCharts',
+ 'key_key.debug.overlay',
+ 'key_key.debug.profiling',
+ 'key_key.debug.profilingChart',
+ 'key_key.debug.reloadChunk',
+ 'key_key.debug.reloadResourcePacks',
+ 'key_key.debug.showAdvancedTooltips',
+ 'key_key.debug.showChunkBorders',
+ 'key_key.debug.showHitboxes',
+ 'key_key.debug.spectate',
+ 'key_key.debug.switchGameMode'
+];
 const WANTED_BINDS={
  'key_key.sneak':'key.keyboard.left.control',
  'key_key.sprint':'key.keyboard.left.shift',
  'key_key.inventory':'key.keyboard.tab',
  'key_key.playerlist':'key.keyboard.grave.accent',
- 'key_key.togglePerspective':'key.keyboard.r'
-};
-const VANILLA_BINDS={
- 'key_key.sneak':'key.keyboard.left.shift',
- 'key_key.sprint':'key.keyboard.left.control',
- 'key_key.inventory':'key.keyboard.e',
- 'key_key.playerlist':'key.keyboard.tab',
- 'key_key.togglePerspective':'key.keyboard.f5'
+ 'key_key.togglePerspective':'key.keyboard.r',
+ 'key_key.chat':'key.keyboard.enter',
+ 'key_key.toggleGui':'key.keyboard.f10',
+ 'key_key.socialInteractions':'key.keyboard.i',
+ 'key_key.smoothCamera':'key.keyboard.right.shift',
+ ...Object.fromEntries(DEBUG_BINDINGS.map(key=>[key,'key.keyboard.unknown'])),
+ [DEFERRED_KEY]:'key.keyboard.right.control'
 };
 const bindLines=binds=>Object.entries(binds).map(([key,value])=>key+':'+value);
+const SEEDED_BINDINGS=Object.keys(WANTED_BINDS);
+// What a fresh tree gets: everything except the binding only a mod can register.
+const IMMEDIATE_BINDINGS=SEEDED_BINDINGS.filter(key=>key!==DEFERRED_KEY);
+const immediateBinds=()=>Object.fromEntries(IMMEDIATE_BINDINGS.map(key=>[key,WANTED_BINDS[key]]));
+const immediateLines=()=>bindLines(immediateBinds());
+// The Shippy key as the client writes it once the mod has registered its own default, and
+// as this seed wants it: crouch keeps Left Ctrl, the quick build takes Right Ctrl.
+const DEFERRED_VANILLA=DEFERRED_KEY+':key.keyboard.left.control';
+const DEFERRED_SEEDED=DEFERRED_KEY+':key.keyboard.right.control';
+const SEVEN_KEYS={'key_key.sneak':WANTED_BINDS['key_key.sneak'],'key_key.sprint':WANTED_BINDS['key_key.sprint'],'key_key.inventory':WANTED_BINDS['key_key.inventory'],'key_key.playerlist':WANTED_BINDS['key_key.playerlist'],'key_key.togglePerspective':WANTED_BINDS['key_key.togglePerspective']};
 const boundValues=text=>{
  const map=new Map();
  for(const line of text.split('\n')){const index=line.indexOf(':');if(index>0)map.set(line.slice(0,index),line.slice(index+1));}
@@ -47,7 +80,11 @@ const boundValues=text=>{
 };
 function checkDistinctBindings(text,label){
  const map=boundValues(text);
- const bound=SEEDED_BINDINGS.map(key=>[key,map.get(key)??null]);
+ for(const key of DEBUG_BINDINGS)check(map.get(key)==='key.keyboard.unknown',label+': '+key+' is unbound');
+ // The deferred key is only there once the client has written it, so it joins the check
+ // when it is present and is never missed when it is not.
+ const keys=[...IMMEDIATE_BINDINGS,...(map.has(DEFERRED_KEY)?[DEFERRED_KEY]:[])].filter(key=>!DEBUG_BINDINGS.includes(key));
+ const bound=keys.map(key=>[key,map.get(key)??null]);
  const values=bound.map(([,value])=>value);
  check(bound.every(([,value])=>typeof value==='string')&&new Set(values).size===values.length,label+': no two of the seeded actions share a key: '+JSON.stringify(bound));
 }
@@ -182,15 +219,24 @@ try{
  check(/^key_key\.inventory:key\.keyboard\.tab$/m.test(seeded),'and inventory on tab');
  check(/^key_key\.playerlist:key\.keyboard\.grave\.accent$/m.test(seeded),'and the player list on the grave key that frees');
  check(/^key_key\.togglePerspective:key\.keyboard\.r$/m.test(seeded),'and third person on R');
+ check(/^key_key\.chat:key\.keyboard\.enter$/m.test(seeded),'and chat on enter');
+ check(/^key_key\.toggleGui:key\.keyboard\.f10$/m.test(seeded),'and the GUI toggle on F10');
+ check(/^key_key\.socialInteractions:key\.keyboard\.i$/m.test(seeded),'and social interactions on I');
+ check(/^key_key\.smoothCamera:key\.keyboard\.right\.shift$/m.test(seeded),'and smooth camera on right shift');
+ const debugLines=seeded.split('\n').filter(line=>line.startsWith('key_key.debug.'));
+ check(debugLines.length===22&&debugLines.every(line=>line.endsWith(':key.keyboard.unknown')),'and the 22 vanilla debug keys unbound, so no F3 overlay: '+JSON.stringify(debugLines.length));
+ check(!seeded.includes(DEFERRED_KEY),'and the mod’s own hotkey is not invented before the client has written it');
  console.log('  info options.txt now reads: '+JSON.stringify(seeded));
- const expectedLines=new RegExp('^(guiScale:'+expectedScale+'|fullscreen:true|'+SEEDED_BINDINGS.map(key=>key.replace(/\./g,'\\.')+':'+WANTED_BINDS[key].replace(/\./g,'\\.')).join('|')+')$');
+ const expectedLines=new RegExp('^(guiScale:'+expectedScale+'|fullscreen:true|'+IMMEDIATE_BINDINGS.map(key=>key.replace(/\./g,'\\.')+':'+WANTED_BINDS[key].replace(/\./g,'\\.')).join('|')+')$');
  check(seeded.split('\n').filter(Boolean).every(line=>expectedLines.test(line)),'and nothing else was written into it: '+JSON.stringify(seeded));
+ check(seeded.split('\n').filter(Boolean).length===33,'which is the whole table except the one key that waits for its mod');
  checkDistinctBindings(seeded,'the startup seed');
  const seedRecord=JSON.parse(await fs.readFile(displayRecordPath,'utf8'));
- console.log('  info the seed record now reads: '+JSON.stringify(seedRecord));
- check(seedRecord.schema===2,'the seed is remembered by its own record, at the schema that covers the bindings');
- check(seedRecord.values?.guiScale===String(expectedScale)&&seedRecord.values?.fullscreen==='true','with the display values that were applied: '+JSON.stringify(seedRecord.values));
- check(SEEDED_BINDINGS.every(key=>seedRecord.values?.[key]===WANTED_BINDS[key]),'and the five bindings that were applied: '+JSON.stringify(Object.fromEntries(SEEDED_BINDINGS.map(key=>[key,seedRecord.values?.[key]]))));
+ console.log('  info the seed record now reads: '+JSON.stringify({schema:seedRecord.schema,keys:Object.keys(seedRecord.values||{}).length,appliedAt:seedRecord.appliedAt}));
+ check(seedRecord.schema===3,'the seed is remembered by its own record, at the schema that covers the whole approved set');
+ check(seedRecord.values?.guiScale===String(expectedScale)&&seedRecord.values?.fullscreen==='true','with the display values that were applied: '+JSON.stringify({guiScale:seedRecord.values?.guiScale,fullscreen:seedRecord.values?.fullscreen}));
+ check(IMMEDIATE_BINDINGS.every(key=>seedRecord.values?.[key]===WANTED_BINDS[key]),'and every binding that was applied: '+JSON.stringify(Object.fromEntries(IMMEDIATE_BINDINGS.filter(key=>!DEBUG_BINDINGS.includes(key)).map(key=>[key,seedRecord.values?.[key]]))));
+ check(!(DEFERRED_KEY in seedRecord.values),'while the deferred key is not claimed before it has been written');
  check(await fs.readFile(path.join(clientRoot,'installed.json'),'utf8')===installedBefore,'the install marker is byte-identical: the seed did not create or race it');
  check(await fs.stat(path.join(clientRoot,'config','iris.properties')).then(()=>'present',()=>'absent')==='absent','the seed is not the graphics step: no iris.properties was written');
  check(requests.every(entry=>entry.path.startsWith('/data/')),'and the seed fetched nothing');
@@ -286,7 +332,7 @@ try{
  check(/^graphicsMode:(fancy|fast)$/m.test(options),'the client options carry a graphics mode: '+options.trim().split('\n').join(' '));
  check(new RegExp('^renderDistance:'+onState.graphics.tuned.renderDistance+'$','m').test(options),'and the render distance that was reported');
  check(new RegExp('^guiScale:'+expectedScale+'$','m').test(options)&&/^fullscreen:true$/m.test(options),'the display defaults are still there after the graphics write: guiScale:'+expectedScale);
- check(SEEDED_BINDINGS.every(key=>new RegExp('^'+key.replace(/\./g,'\\.')+':'+WANTED_BINDS[key].replace(/\./g,'\\.')+'$','m').test(options)),'and so are the five bindings');
+ check(IMMEDIATE_BINDINGS.every(key=>new RegExp('^'+key.replace(/\./g,'\\.')+':'+WANTED_BINDS[key].replace(/\./g,'\\.')+'$','m').test(options)),'and so are all 31 bindings, the 22 debug unbinds included');
  check(/^enableShaders:true$/m.test(iris),'the shader loader is switched on');
  check(/^shaderPack:ComplementaryUnbound_r5\.9\.3\.zip$/m.test(iris),'and names the pack Owen chose');
  check(onState.graphics.tuned.shaders===true||onState.graphics.tuned.shaders===false,'shaders are reported as written');
@@ -328,14 +374,15 @@ try{
   check((await marker()).chunks.graphics.version==='sha256:'+sha256(graphicsV3),'and the install marker still records the chunks it had before the restart');
  }finally{await relaunch.close();}
 
- // A tree the earlier (unreleased) build had already seeded carries a schema-1 record,
- // which only ever promised the display pair. That tree must get exactly the two
- // bindings added once, with the display values the player has since chosen untouched.
- console.log('\n7. a schema-1 tree gets exactly the five bindings added, once');
- const appliedAt='2026-10-17T09:00:00.000Z';
- const beforeUpgrade='version:4903\nfullscreen:false\nguiScale:1\n'+bindLines(VANILLA_BINDS).join('\n')+'\n';
+ // A tree the previous build had already seeded carries a schema-2 record, and one whose
+ // client has run with the mod since carries the Shippy hotkey on Left Ctrl. That tree must
+ // get exactly the keys the record does not cover once — the mod's hotkey included, moved
+ // off the Left Ctrl crouch owns — with every value it already covers left alone.
+ console.log('\n7. a schema-2 tree gets exactly the keys it does not cover added, and the Shippy hotkey with them');
+ const appliedAt='2026-10-18T09:00:00.000Z';
+ const beforeUpgrade=['version:4903','fullscreen:false','guiScale:1',...bindLines(SEVEN_KEYS),DEFERRED_VANILLA,'fov:0.5'].join('\n')+'\n';
  await fs.writeFile(optionsPath,beforeUpgrade);
- await fs.writeFile(displayRecordPath,JSON.stringify({schema:1,values:{guiScale:String(expectedScale),fullscreen:'true'},appliedAt},null,2)+'\n',{mode:0o600});
+ await fs.writeFile(displayRecordPath,JSON.stringify({schema:2,values:{guiScale:String(expectedScale),fullscreen:'true',...SEVEN_KEYS},appliedAt},null,2)+'\n',{mode:0o600});
  let upgraded=null,upgradedRecord=null,upgradeOptionsStat=null,upgradeRecordStat=null;
  const upgrade=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'desktop/main.cjs')],env:launchEnv});
  try{
@@ -346,16 +393,18 @@ try{
   upgraded=await fs.readFile(optionsPath,'utf8');
   console.log('  info options.txt now reads: '+JSON.stringify(upgraded));
   upgradedRecord=JSON.parse(await fs.readFile(displayRecordPath,'utf8'));
-  console.log('  info the seed record now reads: '+JSON.stringify(upgradedRecord));
+  console.log('  info the seed record now reads: '+JSON.stringify({schema:upgradedRecord.schema,keys:Object.keys(upgradedRecord.values||{}).length,appliedAt:upgradedRecord.appliedAt,upgradedAt:upgradedRecord.upgradedAt}));
   upgradeOptionsStat=await fs.stat(optionsPath);
   upgradeRecordStat=await fs.stat(displayRecordPath);
  }finally{await upgrade.close();}
- check(upgraded===SEEDED_BINDINGS.reduce((text,key)=>text.replace(key+':'+VANILLA_BINDS[key],key+':'+WANTED_BINDS[key]),beforeUpgrade),'exactly the five bindings moved and every other line is unchanged, the player’s own guiScale:1 and fullscreen:false included');
- checkDistinctBindings(upgraded,'the schema-1 upgrade');
- check(upgradedRecord.schema===2,'the record is raised to the schema that covers the bindings');
+ const grown=IMMEDIATE_BINDINGS.filter(key=>!(key in SEVEN_KEYS));
+ const expectedUpgrade=[...beforeUpgrade.replace(DEFERRED_VANILLA,DEFERRED_SEEDED).split('\n').filter(Boolean),...bindLines(Object.fromEntries(grown.map(key=>[key,WANTED_BINDS[key]])))].join('\n')+'\n';
+ check(upgraded===expectedUpgrade,'exactly the keys the record never covered landed after the player’s own lines, the mod’s hotkey moved in place, and the player’s guiScale:1, fullscreen:false and seven covered keys are byte-identical');
+ checkDistinctBindings(upgraded,'the schema-2 upgrade');
+ check(upgradedRecord.schema===3,'the record is raised to the schema that covers the whole approved set');
  check(upgradedRecord.appliedAt===appliedAt,'and keeps the time of the seed that first wrote it');
  check(typeof upgradedRecord.upgradedAt==='string','recording when it was raised');
- check(SEEDED_BINDINGS.every(key=>upgradedRecord.values?.[key]===WANTED_BINDS[key]),'with the five bindings it applied added to its values');
+ check(IMMEDIATE_BINDINGS.every(key=>upgradedRecord.values?.[key]===WANTED_BINDS[key]),'with every key it had just applied added to its values, the deferred one included');
  // One more start of the real app: the upgrade happened once and writes nothing again.
  const settle=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'desktop/main.cjs')],env:launchEnv});
  try{
@@ -372,5 +421,5 @@ try{
  await fs.rm(temp,{recursive:true,force:true});
 }
 
-console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the household bindings: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key and third person on R, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-1 tree with exactly the five bindings (inventory and the player list together, so no two actions share tab) and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, and applied the enhanced graphics toggle in both directions by writing the client\'s own quality files':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
+console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the whole approved control set: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key, third person on R, chat on enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift, the 22 vanilla debug keys unbound and the mod-provided Shippy hotkey left for the client to register, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-2 tree with exactly the keys its record did not cover — the Shippy hotkey moved off Left Ctrl in the same pass, inventory and the player list together so no two actions share tab — and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, and applied the enhanced graphics toggle in both directions by writing the client\'s own quality files':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
 process.exitCode=failures===0?0:1;

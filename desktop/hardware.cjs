@@ -552,27 +552,58 @@ function displayPhysicalPixels(display){
 // Owen's goal: a new player's first launch is already fullscreen at a GUI scale of 2.
 // Two keys in the vanilla client's own options.txt carry that — the GUI scale the
 // display asked for above, and fullscreen — and they are seeded once per client tree.
-// The same seed also carries the household's key bindings: sprint on Left Shift and
-// crouch on Left Ctrl, which is the vanilla pair SWAPPED on purpose (see below).
+// The same seed also carries the household's approved controls, read off Owen's own
+// client: sprint and crouch swapped from vanilla, inventory on tab, the player list on
+// the key that frees, third person on R, chat on enter, the GUI toggle on F10, social
+// interactions on I, smooth camera on right shift, and the vanilla debug keys unbound.
 // The first seed writes every value whether or not the game has written options.txt
 // before, because the game writes every key on its first exit and a tree that has
 // already been played would otherwise never see them. A small record inside the same
-// app-owned tree remembers that the seed happened, so after it exists a key that is
-// still there belongs to the player and is never rewritten; the only thing ever
-// written again is a recorded key that has gone missing (options.txt deleted or
-// truncated), or a key a newer schema of the record took responsibility for. The
+// app-owned tree remembers that the seed happened and which keys it covered; after that
+// a present key belongs to the player and is never rewritten, and the only thing ever
+// written again is a covered key that has gone missing (options.txt deleted or
+// truncated) or a key the table has grown that the record does not cover yet. The
 // record is its own dotfile and never `installed.json`, which the install pipeline
 // rewrites from a record it read earlier: a separate file cannot race that write.
 // Like the quality files, this refuses a tree without the launcher's marker.
 //
-// The key bindings are the swap Owen asked for on 2026-10-18 after the display pair
-// shipped, so they are a second schema of the same record rather than a new mechanism:
-// schema 1 covered the display pair alone, schema 2 adds the two bindings, and a
-// record's schema says which keys the launcher has already had its say over. A tree
-// still holding a schema-1 record gets exactly the two bindings written once — its
-// bindings on disk are the vanilla ones the game wrote, never a decision about the
-// launcher's defaults, while its guiScale and fullscreen, player-changed or not, are
-// left exactly as they are. From schema 2 on, a present key is the player's.
+// The controls arrived in three rounds — the display pair, then the five bindings Owen
+// plays with, then the rest of the approved set — and the record's schema records that
+// history for a human reader: schema 1 covered the display pair, schema 2 the five
+// bindings, schema 3 the remaining approved keys. The schema does not decide what a
+// tree gets. Coverage is per key: the record's values are the set of keys the launcher
+// has had its say over, so a tree holding an older record gets exactly the keys it does
+// not cover, once, and leaves every value it already covers byte-identical — including
+// the ones the player has since changed.
+//
+// The debug keys are pinned by name because that is the set of actions this client
+// writes into options.txt; an action the client stops writing is a name to remove from
+// this list rather than a key left half-bound. Unbinding them is deliberate and has a
+// player-visible consequence, documented in doc/launcher-states.md: no F3 debug overlay.
+const DEBUG_BINDINGS=[
+ 'key_key.debug.clearChat',
+ 'key_key.debug.copyLocation',
+ 'key_key.debug.copyRecreateCommand',
+ 'key_key.debug.crash',
+ 'key_key.debug.debugOptions',
+ 'key_key.debug.dumpDynamicTextures',
+ 'key_key.debug.dumpVersion',
+ 'key_key.debug.focusPause',
+ 'key_key.debug.fpsCharts',
+ 'key_key.debug.lightmapTexture',
+ 'key_key.debug.modifier',
+ 'key_key.debug.networkCharts',
+ 'key_key.debug.overlay',
+ 'key_key.debug.profiling',
+ 'key_key.debug.profilingChart',
+ 'key_key.debug.reloadChunk',
+ 'key_key.debug.reloadResourcePacks',
+ 'key_key.debug.showAdvancedTooltips',
+ 'key_key.debug.showChunkBorders',
+ 'key_key.debug.showHitboxes',
+ 'key_key.debug.spectate',
+ 'key_key.debug.switchGameMode'
+];
 const DISPLAY_DEFAULTS={
  guiScale:'2',
  fullscreen:'true',
@@ -584,24 +615,51 @@ const DISPLAY_DEFAULTS={
  // grave/accent key it displaces, and third person on R instead of vanilla's F5.
  'key_key.inventory':'key.keyboard.tab',
  'key_key.playerlist':'key.keyboard.grave.accent',
- 'key_key.togglePerspective':'key.keyboard.r'
+ 'key_key.togglePerspective':'key.keyboard.r',
+ // The keys that unblock the rest of the household's layout: clicking the game window
+ // no longer opens the chat line, F10 is the GUI toggle rather than vanilla's F1, the
+ // social screen sits on I, and smooth camera takes right shift.
+ 'key_key.chat':'key.keyboard.enter',
+ 'key_key.toggleGui':'key.keyboard.f10',
+ 'key_key.socialInteractions':'key.keyboard.i',
+ 'key_key.smoothCamera':'key.keyboard.right.shift',
+ // The F3 debug keys, unbound. `key.keyboard.unknown` is the client's own word for an
+ // action with no key, so this is an unbind rather than an invented binding.
+ ...Object.fromEntries(DEBUG_BINDINGS.map(key=>[key,'key.keyboard.unknown'])),
+ // The Shippy Ships quick-build hotkey ("Quick Build (Use Stack)") moves off Left Ctrl,
+ // which crouch owns, onto Right Ctrl: no vanilla action and no other seeded action uses
+ // that key, and it keeps the mod's own Ctrl intent. Deferred — see DISPLAY_DEFERRED_KEYS.
+ 'key_key.shippy-ships.isPressingCtrl':'key.keyboard.right.control'
 };
 const DISPLAY_RECORD='.easter-client-display';
 // Bindings that have to land together. Inventory takes tab, which is vanilla's player
 // list key, so applying one without the other would leave two actions on one key. A
 // group is written whenever one of its members is: a member the player is already
 // carrying is only written when its present value is the one a sibling is taking.
+// With the full table applied, no two seeded actions share a key.
 const DISPLAY_KEY_GROUPS=[['key_key.inventory','key_key.playerlist']];
-// What each schema of the record added: the display pair Owen asked for first, then the
-// five key bindings he added afterwards. A record at schema N has had its say over
-// everything up to N, and never over a later one.
-const DISPLAY_SCHEMA_KEYS={1:['guiScale','fullscreen'],2:['key_key.sneak','key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective']};
-const DISPLAY_RECORD_SCHEMA=2;
+// A mod-provided binding does not exist in options.txt until the mod has registered it,
+// and the vanilla client does not persist a key_ entry it never read: writing one into a
+// fresh tree is silently lost when the game saves. So a deferred key is written only
+// once it is already present in options.txt, it is never counted as covered until it has
+// actually been written, and it is re-checked on every seed run. A new install therefore
+// seeds everything else immediately, and the Shippy key is fixed on the first launcher
+// start after the client has run once with the mod.
+const DISPLAY_DEFERRED_KEYS=['key_key.shippy-ships.isPressingCtrl'];
+// What each schema of the record added, kept as the history a human reads: the display
+// pair Owen asked for first, then the five bindings, then the rest of the approved set.
+// This is no longer the mechanism — coverage is per key, read from the record's values.
+const DISPLAY_SCHEMA_KEYS={
+ 1:['guiScale','fullscreen'],
+ 2:['key_key.sneak','key_key.sprint','key_key.inventory','key_key.playerlist','key_key.togglePerspective'],
+ 3:['key_key.chat','key_key.toggleGui','key_key.socialInteractions','key_key.smoothCamera',...DEBUG_BINDINGS,'key_key.shippy-ships.isPressingCtrl']
+};
+const DISPLAY_RECORD_SCHEMA=3;
 // The range this launcher is willing to seed: 1 to 4, the ladder's bottom and its own
 // ceiling. Anything outside it is not a scale the launcher decided, so the documented
 // ordinary-display default is written instead of passing the value through.
 const GUI_SCALE_RANGE={min:1,max:4};
-// What the first seed writes: Owen's four defaults with the scale this display asked
+// What the first seed writes: Owen's approved defaults with the scale this display asked
 // for. An answer that is not a usable scale is not invented into the file - the
 // documented fallback of 2 is written instead, so a broken screen probe costs the
 // ordinary-display default and nothing else.
@@ -617,14 +675,14 @@ function displayRecordSchema(record){
  const schema=Number(record?.schema);
  return Number.isInteger(schema)&&schema>0?schema:1;
 }
-// The keys a record of this schema never took responsibility for: what a newer schema
-// added. Those are the only keys an upgrade may write over, because nothing the
-// launcher decided is on disk for them yet.
-function displayKeysUncovered(record){
- const schema=displayRecordSchema(record);
- const keys=[];
- for(const [added,names] of Object.entries(DISPLAY_SCHEMA_KEYS))if(Number(added)>schema)keys.push(...names);
- return keys;
+// The keys the launcher has already had its say over. The record's values are that set:
+// a key the record carries a value for is one the launcher wrote once and will not write
+// again, whatever the player has since done to it. An empty or unreadable value is not
+// coverage — it is a record this launcher cannot act on.
+function displayCoveredKeys(record){
+ const values=record?.values;
+ if(!values||typeof values!=='object')return new Set();
+ return new Set(Object.keys(values).filter(key=>typeof values[key]==='string'&&values[key]!==''));
 }
 async function readDisplayRecord(file){
  try{
@@ -649,15 +707,34 @@ async function applyDisplayDefaults(root,{marker='.easter-client',record=DISPLAY
  const remembered=await readDisplayRecord(recordFile);
  const text=await readText(optionsFile);
  const existing=parseProperties(text??'');
- const uncovered=new Set(remembered?displayKeysUncovered(remembered):[]);
+ const schema=displayRecordSchema(remembered);
+ // A record written by a newer build than this one is not ours to extend: its schema
+ // covers keys this build has never heard of, so it is left alone — not pulled down to
+ // this schema and not given keys this build would only now start to seed.
+ const future=Boolean(remembered)&&schema>DISPLAY_RECORD_SCHEMA;
+ const covered=displayCoveredKeys(remembered);
+ const deferred=new Set(DISPLAY_DEFERRED_KEYS);
+ // A deferred key that is not in options.txt is not writable yet, so it stops being
+ // covered: its value leaves the record, and the seed writes it again the moment the
+ // client writes the line again (after a reset, or the first run with the mod). Without
+ // this a tree whose options.txt was recreated would keep every other key and lose the
+ // Shippy one to the mod's own Left Ctrl default — the collision this seed exists to fix.
+ const released=future?[]:[...deferred].filter(key=>covered.has(key)&&!existing.has(key));
+ for(const key of released)covered.delete(key);
  // The value a key is written with: what this tree was actually seeded with, or the
  // default when the record has never covered it.
  const valueFor=key=>typeof remembered?.values?.[key]==='string'&&remembered.values[key]!==''?remembered.values[key]:defaults[key];
  const wanted={};
  for(const key of Object.keys(defaults)){
-  // A first seed writes everything; an upgrade writes only the keys its schema never
-  // covered; after that the only write left is repairing a recorded key that is gone.
-  if(!remembered||uncovered.has(key)||!existing.has(key))wanted[key]=valueFor(key);
+  // A deferred key cannot be seeded before the client has written it: vanilla drops a
+  // key_ entry it never read, so the write would be silently lost, and marking it covered
+  // then would leave it never seeded at all.
+  if(deferred.has(key)&&!existing.has(key))continue;
+  if(future&&!covered.has(key))continue;
+  // A first seed writes everything; a key the record does not cover is written once,
+  // whether it is new in the table or belonged to a schema the record predates; after
+  // that the only write left is repairing a covered key that has gone missing.
+  if(!remembered||!covered.has(key)||!existing.has(key))wanted[key]=valueFor(key);
  }
  // Two actions may never end up on one key because only half of a group was applied.
  // A sibling the player is carrying stays theirs unless its present value is exactly
@@ -671,17 +748,30 @@ async function applyDisplayDefaults(root,{marker='.easter-client',record=DISPLAY
    wanted[key]=valueFor(key);
   }
  }
- if(!Object.keys(wanted).length)return {optionsFile,recordFile,written:false,firstSeed:false,upgraded:false,keys:[]};
- await fs.writeFile(optionsFile,mergeProperties(text??'',wanted),{mode:0o600});
+ if(!Object.keys(wanted).length&&!released.length)return {optionsFile,recordFile,written:false,firstSeed:false,upgraded:false,deferred:[],released:[],keys:[]};
+ const applied=Object.keys(wanted);
+ const deferredWritten=applied.filter(key=>deferred.has(key));
+ // Coverage only grows: a key already in the record keeps the value it was seeded with,
+ // so an upgrade or a late-arriving mod key cannot rewrite a player's own rebind.
+ const newlyCovered=applied.filter(key=>!covered.has(key));
+ if(applied.length)await fs.writeFile(optionsFile,mergeProperties(text??'',wanted),{mode:0o600});
  // Written once, on the first seed, and it stores the values that were applied rather
  // than the defaults, so a repair restores what this tree was actually seeded with. A
  // repair leaves the record as it was, so a repeat run touches neither file's mtime.
  if(!remembered)await fs.writeFile(recordFile,JSON.stringify({schema:DISPLAY_RECORD_SCHEMA,values:{...wanted},appliedAt:now()},null,2)+'\n',{mode:0o600});
- // An older record is raised to this schema exactly once, keeping the values it already
- // carries and the time of the seed that first wrote them. The tree is still seeded
- // once; this only fills in the keys the older schema did not know about.
- else if(uncovered.size)await fs.writeFile(recordFile,JSON.stringify({...remembered,schema:DISPLAY_RECORD_SCHEMA,values:{...remembered.values,...wanted},upgradedAt:now()},null,2)+'\n',{mode:0o600});
- return {optionsFile,recordFile,written:true,firstSeed:!remembered,upgraded:Boolean(remembered)&&uncovered.size>0,keys:Object.keys(wanted)};
+ // An older record is raised to this schema exactly once, and a key that only became
+ // writable later (a deferred one) joins the covered set once it has been written. Either
+ // way the record keeps the values it already carries and the time of the seed that first
+ // wrote them; the tree is still seeded once, and only the keys it did not cover before
+ // are written now.
+ else if(newlyCovered.length||released.length){
+  const values={...remembered.values,...wanted};
+  for(const key of released)delete values[key];
+  const next={...remembered,schema:DISPLAY_RECORD_SCHEMA,values,updatedAt:now()};
+  if(schema<DISPLAY_RECORD_SCHEMA)next.upgradedAt=now();
+  await fs.writeFile(recordFile,JSON.stringify(next,null,2)+'\n',{mode:0o600});
+ }
+ return {optionsFile,recordFile,written:applied.length>0,firstSeed:!remembered,upgraded:Boolean(remembered)&&!future&&schema<DISPLAY_RECORD_SCHEMA,deferred:deferredWritten,released,keys:applied};
 }
 // The installed marker records what was written, so status() can report it without
 // re-reading the client on every broadcast. The record is only updated when it
@@ -716,4 +806,4 @@ async function installedQuality(root){
  const shadowDistance=Number(iris.get('shadowDistance'));
  return {renderDistance:Number.isFinite(renderDistance)?renderDistance:null,shadowDistance:Number.isFinite(shadowDistance)?shadowDistance:null,shaders:iris.get('enableShaders')==='true'};
 }
-module.exports={hex16,videoMemoryMB,busId,distinctAdapters,isDiscreteAdapter,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,gpuAdapters,drmCards,sessionDisplay,targetAdapter,pciForDriPrime,renderOffload,reportedDevices,reportedAdapter,chooseDevice,matchAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,SHADER_PACK_NAME,QUALITY_LADDER,qualitySettings,parseProperties,readProperty,mergeProperties,applyQualitySettings,recordQuality,installedQuality,tunedDigest,GUI_SCALE_LADDER,GUI_SCALE_DEFAULT,displayGuiScale,displayPhysicalPixels,displayDefaultValues,DISPLAY_DEFAULTS,DISPLAY_RECORD,DISPLAY_RECORD_SCHEMA,DISPLAY_SCHEMA_KEYS,applyDisplayDefaults};
+module.exports={hex16,videoMemoryMB,busId,distinctAdapters,isDiscreteAdapter,parseNvidiaSmi,parseLspci,parseWindowsVideoControllers,parseSystemProfiler,gpuAdapters,drmCards,sessionDisplay,targetAdapter,pciForDriPrime,renderOffload,reportedDevices,reportedAdapter,chooseDevice,matchAdapter,vendorOf,isSoftwareRenderer,isIntegrated,softwareFallback,hardwareProfile,graphicsRecommended,graphicsTunable,detectHardware,SHADER_PACK_NAME,QUALITY_LADDER,qualitySettings,parseProperties,readProperty,mergeProperties,applyQualitySettings,recordQuality,installedQuality,tunedDigest,GUI_SCALE_LADDER,GUI_SCALE_DEFAULT,displayGuiScale,displayPhysicalPixels,displayDefaultValues,DISPLAY_DEFAULTS,DISPLAY_RECORD,DISPLAY_RECORD_SCHEMA,DISPLAY_SCHEMA_KEYS,DISPLAY_DEFERRED_KEYS,DEBUG_BINDINGS,applyDisplayDefaults};
