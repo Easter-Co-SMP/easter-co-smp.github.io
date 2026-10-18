@@ -587,14 +587,14 @@ try{
    await pushState({phase:'ready',progress:null,canPlay:false,actions:['signin'],profile:null});
    assert.equal(await launcherPage.locator('.launcher-bar-track').isVisible(),false,'an idle bar must not show a zeroed progress track');
    assert.equal(await launcherPage.locator('.launcher-bar-meta').isVisible(),false,'an idle bar must not show empty transfer figures');
-   assert.equal(await barVisibleNow(),true,'the bar stays on screen once a download has started');
+   assert.equal(await barVisibleNow(),false,'idle Home uses its single hero action');
    await pushState({canPlay:false,actions:['signin'],progress:{label:'Installing the client',percent:73},phase:'installing'});
    assert.equal(await launcherPage.locator('.launcher-bar-track').getAttribute('aria-valuenow'),'73');
 
    // 5. Ready without an account: the install finished alone, so Play must not appear.
    await pushState({phase:'ready',progress:null,actions:['signin'],install:INSTALLED});
    heroAction({name:'ready-without-account',...await hero(),expect:'signin'});
-   assert.equal(await barVisibleNow(),true,'the bar persists after the client is ready');
+   assert.equal(await barVisibleNow(),false,'ready Home does not repeat sign-in in a dock');
    // 6. Ready with an account but an install update still pending: still no Play.
    await pushState({phase:'updating',actions:['download'],profile:{name:'Owen'},progress:progressFor({label:'Updating the client',percent:8}),canPlay:false});
    heroAction({name:'ready-with-account-update-pending',...await hero(),expect:'busy'});
@@ -606,13 +606,12 @@ try{
    assert.equal(await launcherPage.locator('.hero-actions [data-desktop-play]').getAttribute('data-action'),'play');
    assert.equal(await launcherPage.locator('.hero-actions [data-desktop-play]').getAttribute('aria-disabled'),null);
 
-   // Minimised, the bar follows the same state: percentages while transferring, the play or
-   // sign-in action otherwise.
+   assert.equal(await barVisibleNow(),false,'ready Home has exactly one Play entry point');
+   // Transfers retain the minimisable dock on every page.
+   await pushState({phase:'downloading',progress:progressFor({percent:42}),actions:['signin'],canPlay:false});
    await launcherPage.locator('[data-bar-toggle]').click();
    assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),true);
-   assert((await launcherPage.locator('.launcher-bar-tab-text').textContent()).includes('PLAY NOW'),'minimised while everything is ready shows PLAY NOW');
-   assert.equal(await barVisibleNow(),true,'minimising keeps the bar on screen as a side tab');
-   await pushState({phase:'downloading',progress:progressFor({percent:42}),actions:['signin'],canPlay:false});
+   assert.equal(await barVisibleNow(),true,'minimising keeps transfer progress available');
    assert.equal((await launcherPage.locator('.launcher-bar-tab-text').textContent()).trim(),'42%','minimised during a transfer shows percentages');
    await launcherPage.locator('[data-bar-toggle]').click();
    assert.equal(await launcherPage.locator('#launcher-bar').evaluate(el=>el.classList.contains('is-minimised')),false,'the tab re-opens the bar');
@@ -650,8 +649,7 @@ try{
    assert.equal(await installDetails.locator('[data-choose-location]').isVisible(),true,'choosing the folder is a real button');
    assert.equal(await installDetails.locator('.desktop-folder-button').evaluate(el=>el.tagName),'BUTTON');
    const folderDefault=await installDetails.locator('.desktop-install-default').textContent();
-   assert(folderDefault.length>0,'the folder row explains itself instead of a bare path: '+folderDefault);
-   assert(/app-owned folder|default/i.test(folderDefault),'the default path is supporting text, not the row itself: '+folderDefault);
+   assert.equal(folderDefault,'','the default path is not repeated beneath itself');
    assert((await installDetails.locator('.desktop-install-current').textContent()).includes('/home/player/.easter-company/minecraft'),'the details name the folder that will be used');
    await installDetails.locator('[data-choose-location]').click();
    assert((await installDetails.locator('.desktop-install-current').textContent()).includes('/mnt/games/easter-company/minecraft'),'the folder picker replaces the default');
@@ -659,8 +657,8 @@ try{
    // The details state what the automatic graphics choice will be. They offer no second
    // copy of the control: the toggle under the hero action is the only one.
    const graphicsNote=await installDetails.locator('.desktop-install-graphics').textContent();
-   assert(graphicsNote.includes('Discrete GPU with 8192 MB of video memory.'),'the machine note comes from the contract: '+graphicsNote);
-   assert(/enhanced graphics and shaders/i.test(graphicsNote),'the note states the automatic graphics choice: '+graphicsNote);
+   assert(graphicsNote.includes('Enhanced graphics included'),'the note states the automatic graphics choice: '+graphicsNote);
+   assert(!graphicsNote.includes('8192'),'setup defers hardware diagnostics');
    assert.equal(await installDetails.locator('input[type=checkbox]').count(),0,'the details offer no second graphics control');
    await heroActionButton.click();
    await launcherPage.waitForFunction(()=>window.easterRenderer.calls.some(call=>call.name==='startInstall'));
@@ -792,11 +790,14 @@ try{
 
    // Two accounts, two labelled lines, and the company line is omitted when there
    // is no company account rather than advertised as an absence.
-   assert((await dialog.locator('.desktop-account').textContent()).startsWith('Microsoft account: Owen'),'the Microsoft line is labelled');
-   assert.equal(await dialog.locator('.desktop-company').isVisible(),false,'with no company account the line is omitted');
-   assert(!dialogText.includes('No Easter Company account on this device yet.'),'a signed-in Microsoft account is never followed by that sentence');
+   assert.equal(await dialog.locator('.desktop-account,.desktop-company').count(),0,'account management has one home in the profile menu');
+   await launcherPage.keyboard.press('Escape');
+   await launcherPage.locator('.desktop-account-nav').click();
+   const profileMenu=launcherPage.locator('.desktop-profile-menu');
+   assert((await profileMenu.locator('.desktop-account').textContent()).startsWith('Microsoft account: Owen'),'the Microsoft line is labelled');
+   assert.equal(await profileMenu.locator('.desktop-company').isVisible(),false,'with no company account the line is omitted');
    await pushState({account:{name:'Captain Owen',roles:['crew']}});
-   assert((await dialog.locator('.desktop-company').textContent()).includes('Easter Company account: Captain Owen'),'the company line is labelled separately');
+   assert((await profileMenu.locator('.desktop-company').textContent()).includes('Easter Company account: Captain Owen'),'the company line is labelled separately');
    await launcherPage.keyboard.press('Escape');
 
    // The themed graphics toggle sits below the hero's primary action, at the Play Now

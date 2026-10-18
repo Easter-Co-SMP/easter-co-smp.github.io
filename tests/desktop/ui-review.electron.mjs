@@ -1,0 +1,102 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+const home=await fs.mkdtemp(path.join(os.tmpdir(),'launcher-ui-'));
+const images=process.env.EASTER_REVIEW_IMAGES||'/tmp/launcher-ui-after';
+await fs.mkdir(images,{recursive:true});
+const app=await electron.launch({executablePath:path.resolve('node_modules/electron/dist/electron'),
+ args:['--no-sandbox',path.resolve('tests/desktop/deslop-harness.cjs')],env:{...process.env,EASTER_TEST_HOME:home}});
+try{
+ const page=await app.firstWindow();page.setDefaultTimeout(12000);
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');await page.keyboard.press('Escape');
+ const shot=async(name)=>page.screenshot({path:path.join(images,name+'.png'),animations:'disabled'});
+ for(const [width,height] of [[1360,920],[800,600]]){
+  await page.setViewportSize({width,height});await shot('first-run-'+width);
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'no horizontal overflow');
+  assert(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1),'Home fits window');
+ }
+ await page.setViewportSize({width:1360,height:920});
+ const initial=await page.evaluate(()=>window.easterDesktop.status());
+ const send=state=>app.evaluate(({BrowserWindow},state)=>BrowserWindow.getAllWindows()[0].webContents.send('launcher:state',state),state);
+ await send({...initial,phase:'downloading',actions:['pause','signin'],bar:{visible:true},progress:{label:'Downloading client files',percent:47,bytesDone:470000000,bytesTotal:1000000000,bytesPerSecond:12000000,etaSeconds:44}});
+ await shot('downloading');
+ await send({...initial,phase:'error',message:'The download was interrupted. Check your connection and try again.',actions:['download']});
+ await shot('error');
+ assert.equal(await page.locator('.desktop-page-notice').isVisible(),true,'operation errors are visible on Home');
+ assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'errors do not open unrelated settings');
+ await send(initial);
+ await page.locator('[data-desktop-play][data-action=download]').click();
+ await page.locator('[data-desktop-play][data-action=signin]').waitFor();
+ await app.evaluate(()=>global.easterTestDelayDevice=true);
+ await page.locator('[data-desktop-play][data-action=signin]').click();
+ await page.locator('.desktop-auth-wait').waitFor();await shot('sign-in-pending');
+ assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'pending authentication never flashes settings');
+ await page.keyboard.press('Escape');
+ await page.waitForFunction(()=>document.querySelector('[data-desktop-play]').disabled===false);
+ assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'pending authentication cancels cleanly');
+ await page.locator('[data-desktop-play][data-action=signin]').click();
+ await page.locator('.desktop-auth-wait').waitFor();
+ await app.evaluate(()=>{global.easterTestDeviceReady();global.easterTestDelayDevice=false;});
+ await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();await shot('sign-in');
+ assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'sign-in never displays settings');
+ await page.keyboard.press('Escape');
+ await page.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
+ await page.waitForFunction(()=>document.querySelector('[data-desktop-play]').disabled===false);
+ assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'cancellation is not an error');
+ assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'cancellation does not reveal settings');
+ await page.locator('[data-desktop-play][data-action=signin]').click();
+ await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();
+ await app.evaluate(()=>global.easterTestApprove());
+ await page.locator('[data-desktop-play][data-action=play]').waitFor();
+ await page.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
+ assert.equal(await page.locator('#launcher-bar').isVisible(),false,'one Play entry point on Home');
+ for(const [width,height] of [[1360,920],[800,600]]){
+  await page.setViewportSize({width,height});await shot('ready-'+width);
+ }
+ await page.setViewportSize({width:1360,height:920});
+ await app.evaluate(()=>global.easterTestFailPlay=true);
+ await page.locator('[data-desktop-play][data-action=play]').click();
+ await page.locator('.desktop-page-notice').waitFor();
+ assert.equal((await page.evaluate(()=>window.easterDesktop.status())).error,'Unable to start Minecraft. Try again.','main publishes a safe typed failure');
+ assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'a failed launch does not open settings');
+ await page.getByRole('button',{name:'Dismiss message'}).click();
+ assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'failure notice can be dismissed');
+ await app.evaluate(()=>global.easterTestFailPlay=false);
+ await page.evaluate(async()=>{const state=await window.easterDesktop.status();await window.easterDesktop.saveSettings({...state.settings,exitOnLaunch:false});});
+ await page.locator('[data-desktop-play][data-action=play]').click();
+ await page.locator('[data-desktop-play][data-action=running]').waitFor();
+ await app.evaluate(()=>global.easterTestGame.emit('error',new Error('fixture child failure')));
+ await page.locator('.desktop-page-notice').filter({hasText:'Minecraft could not start'}).waitFor();
+ assert.equal((await page.evaluate(()=>window.easterDesktop.status())).error,'Minecraft could not start. Check Java and try again.','asynchronous game failure remains visible');
+ await page.getByRole('button',{name:'Dismiss message'}).click();
+ const ready={...await page.evaluate(()=>window.easterDesktop.status()),error:null};
+ await send({...ready,phase:'running'});
+ await page.getByRole('button',{name:'Settings',exact:true}).click();await shot('settings');
+ await page.setViewportSize({width:800,height:600});await shot('settings-800');
+ assert(await page.locator('#desktop-launcher').evaluate(el=>el.scrollHeight<=el.clientHeight+1),'default settings fit compact window');
+ await page.setViewportSize({width:1360,height:920});
+ assert.equal(await page.locator('.desktop-settings').evaluate(el=>el.inert),false,'settings stay usable while playing');
+ for(const input of await page.locator('.desktop-preference input').all()){
+  assert(await input.evaluate(el=>{const a=el.getBoundingClientRect(),b=el.previousElementSibling.getBoundingClientRect();return a.x>b.right&&Math.abs(a.y+a.height/2-b.y-b.height/2)<3;}),'switch aligns beside its label');
+ }
+ await page.locator('select[name=serverSelect]').selectOption('__custom__');
+ await page.locator('input[name=server]').fill('keyboard.example:25565');
+ await page.locator('input[name=server]').press('Enter');
+ await page.locator('.desktop-settings-result').filter({hasText:'Saved.'}).waitFor();
+ assert.equal((await page.evaluate(()=>window.easterDesktop.status())).settings.server,'keyboard.example:25565','Enter saves settings');
+ await page.locator('.desktop-advanced summary').click();await shot('settings-advanced');
+ await page.keyboard.press('Escape');
+ await page.locator('.desktop-account-nav').click();await shot('profile');
+ for(const action of await page.locator('[data-profile-action]:visible').all())assert(await action.isDisabled(),'account changes disabled while game runs');
+ await page.keyboard.press('Escape');await send(ready);
+ await page.getByRole('link',{name:'Wiki',exact:true}).click();await page.locator('.wiki-card').first().waitFor();await shot('wiki');
+ assert.equal(await page.locator('#launcher-bar').isVisible(),true,'idle action stays available on Wiki');
+ await send({...ready,error:'Unable to start Minecraft. Try again.'});
+ assert.equal(await page.locator('.desktop-page-notice').isVisible(),true,'utility pages show failures');
+ assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'utility failures do not open settings');
+ assert.deepEqual(errors,[]);
+ console.log('Launcher UI state review PASS: first run, transfer, failure, sign-in, ready, settings, profile, wiki.');
+}finally{await app.close();await fs.rm(home,{recursive:true,force:true});}

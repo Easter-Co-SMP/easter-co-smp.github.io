@@ -37,7 +37,7 @@ const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalm
 // are the live pipeline's; everything else is derived from the installed client,
 // the account session and the saved settings on every broadcast, so no view has to
 // guess. canPlay is computed here and nowhere else.
-let state={message:'Download the game to get started.',device:null,progress:null,profile:null,remembered:false,account:null};
+let state={message:'Download the game to get started.',error:null,device:null,progress:null,profile:null,remembered:false,account:null};
 let phase=null,progress=null,control=null,installStarted=false,backgroundUpdate=null;
 let client={installed:false,version:null,updatedAt:null,record:null};
 // doc/launcher-states.md, "Home actions, Settings and enhanced graphics": the
@@ -80,6 +80,7 @@ function installInfo(){
  return {location:gameRoot(),defaultLocation:defaultLocation(),installed,includeGraphics:Boolean(settings?.includeGraphics),version:installed?client.version:null,updatedAt:installed?client.updatedAt:null};
 }
 function notify(patch={}){
+ if('message' in patch && !('error' in patch))patch={...patch,error:null};
  if('progress' in patch)progress=patch.progress;
  if(typeof patch.phase==='string')phase=patch.phase;
  state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:savedAccounts.map(publicProfile)};
@@ -166,10 +167,10 @@ function safeError(error){
 }
 async function exclusively(action){
  if(working||game||controller)throw Error(game?'Minecraft is already running.':'Another launcher operation is still running.');
- working=true;
+ working=true;state.error=null;
  try{return await action();}catch(error){
   const message=safeError(error);
-  if(error.name!=='CancelledError')settle(message,{device:null});
+  if(error.name!=='CancelledError')settle(message,{device:null,error:error.name==='AbortError'?null:message});
   throw Error(message);
  }finally{working=false;}
 }
@@ -284,8 +285,8 @@ async function play(){
  game=child;
  // Do not store launch arguments or raw stdout; Minecraft writes its own latest.log.
  child.stdout?.on('data',()=>{});child.stderr?.on('data',()=>{});
- child.once('error',()=>{game=null;settle('Minecraft could not start. Check Java and try again.');});
- child.once('exit',code=>{game=null;settle(code===0?'Minecraft closed. Ready to play.':'Minecraft closed with code '+code+'. Its log is in the client folder.');});
+ child.once('error',()=>{game=null;const message='Minecraft could not start. Check Java and try again.';settle(message,{error:message});});
+ child.once('exit',code=>{game=null;const message=code===0?'Minecraft closed. Ready to play.':'Minecraft closed with code '+code+'. Its log is in the client folder.';settle(message,{error:code===0?null:message});});
  notify({phase:'running',message:'Minecraft is running. Your map stays right here.',progress:null});
  // Owen's setting: the launcher is a doorway, so it closes behind the game it started.
  if(settings.exitOnLaunch!==false)setTimeout(()=>{ if(game){ app.quit(); } },800);
@@ -302,7 +303,7 @@ function registerIPC(){
   // pipeline or clears its progress when authentication fails or is cancelled.
   if(control){
    try{return await login();}
-   catch(error){notify({message:safeError(error),device:null});throw error;}
+   catch(error){const message=safeError(error);notify({message,error:error.name==='AbortError'?null:message,device:null});throw error;}
   }
   return exclusively(login);
  });
@@ -325,7 +326,9 @@ function registerIPC(){
  handle('account-sign-out',async()=>{if(working||controller)throw Error('Wait for the current operation to finish.');await forgetCompany();notify({message:'Signed out of your Easter Company account.'});});
  handle('play',async()=>{if(backgroundUpdate)await backgroundUpdate;return exclusively(play);});
  handle('settings',async input=>{
-  if(working||game||controller)throw Error('Close Minecraft and wait for the current operation before changing settings.');
+  if(working||controller)throw Error('Wait for the current operation before changing settings.');
+  // A running game already owns its launch configuration. Saved preferences apply
+  // on the next launch and do not mutate the running process.
   // The location is never taken from this handler: it comes from the folder
   // picker or the saved setting, nowhere else.
   settings={...cleanSettings(input,Math.floor(os.totalmem()/1024/1024)),location:settings.location,includeGraphics:includeGraphicsValue(input,settings.includeGraphics)};

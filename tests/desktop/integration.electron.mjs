@@ -130,8 +130,9 @@ try {
   await page.locator('.desktop-code').waitFor({state:'visible'});
   // Let the client finish while Microsoft approval is still pending. The code must
   // survive installation completing, and Play must stay gated on the account.
-  await page.keyboard.press('Escape');
-  await page.getByRole('button',{name:'Resume',exact:true}).click();
+  // Resume the fixture transfer through IPC while the modal remains open.
+  // Escape now cancels sign-in instead of hiding an in-flight authentication flow.
+  await page.evaluate(()=>window.easterDesktop.resumeInstall());
   await page.waitForFunction(async()=>(await window.easterDesktop.status()).install.installed);
   assert.equal((await state()).canPlay,false,'a completed client still needs Microsoft approval');
   // Settings is the hero's secondary action; it opens the dialog that carries the

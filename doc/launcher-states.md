@@ -41,7 +41,8 @@ meaning. These are added or extended:
 | `install` | object | `{location, defaultLocation, installed, includeGraphics, version, updatedAt}`; `location` is the chosen root, `defaultLocation` the value shown as "default" |
 | `actions` | array | Ordered remaining requirements, each `download` or `signin`. Empty means nothing is required |
 | `canPlay` | boolean | Exactly `install.installed && profile !== null` |
-| `bar` | object | `{visible}`: the sticky bar's visibility. The bar's minimised state is a renderer-local preference and does not belong in this state |
+| `bar` | object | `{visible}`: progress/action dock availability. The renderer omits an idle dock on Home because Home already provides the action; utility pages retain it. The minimised preference stays renderer-local. |
+| `error` | string \| null | Safe operation failure text for a visible notice. Cleared by the next operation or a new ordinary message. Cancellation is not an error. Older states without this field still render. |
 
 `canPlay` is the single source of truth for the Play action. No view may compute
 its own version of the gate, and no view may enable Play on install completion
@@ -49,8 +50,9 @@ alone.
 
 ## Bar behaviour
 
-- Hidden until a download or install has started; visible from then on, on every
-  page, including after the client is ready.
+- Visible during a download/install on every page. When idle, Home uses its own
+  primary action and omits the dock; Map and Wiki retain the dock's action after
+  installation. There is never a second Play or sign-in action on idle Home.
 - Minimised, it collapses to a side tab and shows **percentages only** while a
   download or install is active. When nothing is transferring it shows **PLAY
   NOW** or the **LOGIN / sign-in** action instead, according to `actions`.
@@ -314,7 +316,8 @@ install form.
 the hero's secondary action, exactly as *Account menu and installation recognition*
 already said; the header has no client settings button and never had one in the
 contract. The dialog contains client settings and nothing else: the server choice,
-memory and Java as client settings, the account lines and the version footer. The
+memory and Java as client settings, preferences and the version footer. Account
+management belongs to the profile popover. The
 installation folder is not one of them: choosing where the client lives belongs to
 the download details that do the installing, and offering it in a dialog that cannot
 install anything is how the shipped launcher ended up showing a bare "Default:
@@ -405,7 +408,7 @@ connect. An entry the player types is kept as their own choice and is never
 rewritten to an entry id.
 
 **Two accounts are never rendered as one.** The Microsoft account and the Easter
-Company account are separate systems, and the dialog labels them separately. A
+Company account are separate systems, and the profile popover labels them separately. A
 signed-in Microsoft account must not be followed by "No Easter Company account on
 this device yet." as bare, unlabelled copy: the company line is labelled, and when
 nothing depends on a company account it is omitted rather than advertised. The
@@ -459,3 +462,24 @@ Manifest paths identify published files; JARs install under mods/ regardless of
 their public download path. Old chunk records with different installation paths
 require repair through the verified pipeline. Completion re-reads the installed
 marker before reporting ready; installed but signed-out clients request sign-in.
+
+## Launcher UI review, 2026-10-18
+
+Home keeps the crest and small name in one compact control surface over the harbour.
+It has one state-driven primary action. Graphics diagnostics are collapsed under
+the graphics switch; the first-run folder and automatic graphics choice remain
+visible. The marketing page and its large heading remain website-only.
+
+Settings and Microsoft sign-in use separate dialogs. Settings contains the server,
+preferences and collapsed advanced fields, with one Save action; account management
+belongs to the header profile popover. The popover labels Microsoft and Easter
+Company identity separately when present and disables account changes during
+authentication or gameplay. The profile name and skin face retain their order.
+
+Sign-in shows a pending state until a device code arrives, then the code and browser
+action. Closing or cancelling that dialog aborts authentication and returns to the
+previous view, retaining an existing account. It never reveals Settings mid-flow.
+Errors appear in the active dialog or a visible page notice; a failed launch does
+not open Settings. Save can be submitted by keyboard and cannot submit twice while
+pending. Client settings may be opened during gameplay; changes apply on a later
+launch. Graphics changes remain disabled while the game is running.

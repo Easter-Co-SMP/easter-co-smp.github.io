@@ -54,7 +54,8 @@ try{
   assert.equal(await page.getByRole('button',{name:/^(download the game|start download|install the game)\b/i}).count(),1,'the first run offers exactly one download action');
   assert.equal(await page.getByRole('button',{name:/^start download$/i}).count(),0,'no second download button exists on Home');
   assert.equal(await installDetails.locator('[data-choose-location]').isVisible(),true,'choosing the folder is a real button');
-  assert((await installDetails.locator('.desktop-install-default').textContent()).length>0,'the folder row is supporting text, never a bare default line');
+  assert((await installDetails.locator('.desktop-install-current').textContent()).length>0,'the installation path is visible');
+  assert.equal(await installDetails.locator('.desktop-install-default').isVisible(),false,'the default path is not repeated');
   assert.equal(await installDetails.getByRole('button').count(),1,'the folder picker is the only control in the details');
   assert.equal(await page.evaluate(()=>typeof window.require),'undefined');
   assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences().nodeIntegration),false);
@@ -80,7 +81,7 @@ try{
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   const signin=page.getByRole('dialog',{name:'Sign in with Microsoft',exact:true});
   assert.equal(await signin.isVisible(),true);
-  assert.equal(await signin.locator('.desktop-status').isVisible(),false,'transfer status must not duplicate the sign-in instruction');
+  assert.equal(await signin.locator('.desktop-status').count(),0,'transfer status must not duplicate the sign-in instruction');
   assert.equal(await signin.locator('[data-open-microsoft]').evaluate(el=>el===document.activeElement),true,'focus goes to the Microsoft browser action');
   await app.evaluate(({shell})=>{global.__openedMicrosoft=[];shell.openExternal=async url=>{global.__openedMicrosoft.push(url);};});
   await page.keyboard.press('Enter');
@@ -98,7 +99,8 @@ try{
   await page.setViewportSize({width:800,height:600});
   assert(!(await page.evaluate(()=>JSON.stringify(document.body.textContent))).includes('fixture-private'));
   await page.getByRole('button',{name:'Cancel sign-in',exact:true}).click();
-  await page.locator('.desktop-status').filter({hasText:'cancelled'}).waitFor();
+  await page.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
+  assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'cancelling sign-in is not an error');
   // Signing in is the hero's action, not a control inside the settings dialog.
   assert.equal(await page.locator('#desktop-launcher').getByRole('button',{name:'Sign in with Microsoft',exact:true}).count(),0,'the settings dialog offers no sign-in action');
   // The dialog is modal: it has to be closed before the hero behind it can be used.
@@ -116,7 +118,7 @@ try{
   await hero.waitFor();
   assert.equal(await page.locator('#desktop-launcher').getByRole('button',{name:'PLAY NOW',exact:true}).count(),0,'the settings dialog carries no play action');
   await hero.click();
-  await page.locator('.desktop-status').filter({hasText:'Minecraft is running'}).waitFor({state:'attached'});
+  await page.locator('[data-desktop-play][data-action=running]').waitFor();
   assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.open),false,'Play launches the game without opening a dialog');
   assert(await page.locator('[data-desktop-play]').isDisabled());
   const status=await page.evaluate(()=>window.easterDesktop.status());assert.equal(status.profile.name,'TestCaptain');assert(!JSON.stringify(status).includes('fixture-private'));
@@ -125,10 +127,14 @@ try{
   // The contract keys Settings on the client being installed, not on the game's state: a
   // player who is running the game may still open settings, and nothing here may hide them.
   assert.equal(await page.locator('.desktop-settings-button:visible').count(),1,'Settings stays available while the game runs');
+  await page.locator('.desktop-settings-button').click();
+  await page.locator('[data-save-settings]').click();
+  await page.locator('.desktop-settings-result').filter({hasText:'Saved.'}).waitFor();
+  await page.keyboard.press('Escape');
   await app.evaluate(()=>global.easterTestGame.emit('exit',0));
   // The status line lives in the dialog, which Play never opens now, so it is read
   // attached rather than visible.
-  await page.locator('.desktop-status').filter({hasText:'Minecraft closed.'}).waitFor({state:'attached'});
+  await page.waitForFunction(async()=>(await window.easterDesktop.status()).phase==='ready');
   await page.locator('[data-desktop-play][data-action=play]').waitFor();
   assert.equal(await page.locator('[data-desktop-play]').isDisabled(),false,'game exit restores the Play action');
   assert.equal((await page.evaluate(()=>window.easterDesktop.status())).phase,'ready');
@@ -203,11 +209,10 @@ try{
    assert.equal(await page.locator('.hero-graphics:visible').count(),0,'without an installed client there is nothing to toggle, so no dead control is shown');
   }
   await page.screenshot({path:'/tmp/easter-desktop-launcher.png'});
-  await settingsButton.click();
-  await dialog.waitFor({state:'visible'});
-  await dialog.getByRole('button',{name:'Sign out',exact:true}).click();
-  await dialog.locator('.desktop-account').filter({hasText:'No Microsoft account'}).waitFor();
-  await page.keyboard.press('Escape');
+  await page.locator('.desktop-account-nav').click();
+  await page.getByRole('button',{name:'Logout',exact:true}).click();
+  await page.locator('[data-desktop-play][data-action=signin]').waitFor();
+  assert.equal(await page.locator('.desktop-account-nav').isVisible(),false);
  });
  const savedCustom=JSON.parse(await fs.readFile(path.join(temp,'settings.json'),'utf8'));
  assert.equal(savedCustom.server,'test.example:25565','a custom server address is saved exactly as typed');

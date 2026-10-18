@@ -52,7 +52,7 @@
  const transferring=state=>['downloading','paused','verifying','installing','updating'].includes(phaseOf(state));
  // Visible once a download or install has started; a stale `bar` field must not hide it
  // while a transfer is running.
- const barVisible=state=>Boolean(state.bar&&state.bar.visible)||transferring(state);
+ const barVisible=state=>transferring(state)||(!document.body.classList.contains('home')&&Boolean(state.bar?.visible));
  // The machine, as main reports it. Every field is optional here so an older build
  // renders without them rather than printing "undefined" at the player.
  const hardwareOf=state=>state&&state.hardware&&typeof state.hardware==='object'?state.hardware:{};
@@ -85,9 +85,30 @@
  }
 
  const panel=document.createElement('dialog');panel.id='desktop-launcher';panel.setAttribute('aria-labelledby','desktop-title');
- // Client settings and the account lines only. No install action, no transfer, no
- // progress and no status hint about what the player still has to do.
- panel.innerHTML='<button class="dialog-close" type="button" aria-label="Close launcher">×</button><p class="eyebrow">Easter Company · Desktop</p><h2 id="desktop-title">Settings</h2><p class="desktop-account"></p><p class="desktop-company" hidden></p><button type="button" class="text-link" data-account-refresh hidden>Refresh account</button><button type="button" class="text-link" data-account-sign-out hidden>Sign out of Easter Company</button><section class="desktop-device" hidden><p class="desktop-device-instruction" id="desktop-device-instruction">Enter this code on the Microsoft sign-in page.</p><strong class="desktop-code"></strong><button type="button" class="launcher-button desktop-device-action" data-open-microsoft><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg><span>Login with Microsoft</span></button><p class="desktop-device-foot"><small class="desktop-provider"></small><button type="button" class="text-link" data-cancel>Cancel sign-in</button></p></section><div class="desktop-status" role="status" aria-live="polite"></div><form class="desktop-settings"><p class="desktop-settings-heading">Client settings</p><label>Server address<select name="serverSelect"></select><input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><p class="desktop-settings-note" hidden></p><details class="desktop-advanced"><summary>Advanced settings</summary><p class="desktop-advanced-note">How much memory the game may use. Too little makes the client stutter or run out of memory in busy areas; more than the game needs takes memory from everything else on this machine, so leave it alone unless you are told to change it.</p><label>Memory allocated to the game<output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"><small class="desktop-memory-detail"></small></label><label>Java executable <small>Leave empty to install the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label></details><p class="desktop-settings-heading">Updates and launching</p><label class="desktop-preference"><input type="checkbox" name="autoUpdateLauncher"> Automatically keep launcher up-to-date.</label><label class="desktop-preference"><input type="checkbox" name="autoUpdateGame"> Automatically keep games up-to-date.</label><label class="desktop-preference"><input type="checkbox" name="exitOnLaunch"> Exit launcher when opening a game.</label><p class="desktop-launcher-update" hidden></p><button type="button" class="text-link" data-save-settings>Save settings</button><output class="desktop-settings-result" role="status"></output></form><div class="desktop-utilities"><button class="text-link" type="button" data-open-folder>Open client folder ↗</button><button class="text-link" type="button" data-sign-out>Sign out</button><small class="desktop-version"></small></div>';
+ // Settings and authentication have separate dialogs and independent lifecycles.
+ panel.innerHTML=`<button class="dialog-close" type="button" aria-label="Close settings">×</button>
+ <h2 id="desktop-title">Settings</h2><div class="desktop-status" role="alert" hidden></div>
+ <form class="desktop-settings">
+ <label>Server address<select name="serverSelect"></select><input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><p class="desktop-settings-note" hidden></p>
+ <fieldset><legend>Updates and launching</legend>
+ <label class="desktop-preference"><span>Check for launcher updates</span><input type="checkbox" name="autoUpdateLauncher"></label>
+ <label class="desktop-preference"><span>Keep game up to date</span><input type="checkbox" name="autoUpdateGame"></label>
+ <label class="desktop-preference"><span>Close launcher when the game starts</span><input type="checkbox" name="exitOnLaunch"></label></fieldset>
+ <p class="desktop-launcher-update" hidden></p>
+ <details class="desktop-advanced"><summary>Advanced settings</summary><p class="desktop-advanced-note">Memory is shared with other apps. Increase it only if Minecraft needs more. Changes apply the next time you launch.</p>
+ <label>Memory allocated to the game<output id="memory-value"></output><input type="range" name="memoryMB" min="2048" max="16384" step="512"><small class="desktop-memory-detail"></small></label>
+ <label>Java executable<small>Leave empty to use the matching runtime automatically.</small><span class="java-field"><input name="javaPath" autocomplete="off" spellcheck="false" placeholder="Automatic Java 25"><button type="button" data-choose-java>Browse</button></span></label></details>
+ <div class="desktop-save-row"><button type="submit" data-save-settings>Save settings</button><output class="desktop-settings-result" role="status"></output></div></form>
+ <div class="desktop-utilities"><button class="text-link" type="button" data-open-folder>Open client folder ↗</button><small class="desktop-version"></small></div>`;
+ const signin=document.createElement('dialog');signin.id='desktop-signin';signin.setAttribute('aria-labelledby','desktop-signin-title');
+ signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close sign-in">×</button><h2 id="desktop-signin-title">Sign in with Microsoft</h2>
+ <p class="desktop-auth-wait" role="status">Connecting to Microsoft…</p><section class="desktop-device" hidden>
+ <p class="desktop-device-instruction" id="desktop-device-instruction">Enter this code on the Microsoft sign-in page.</p><strong class="desktop-code"></strong>
+ <button type="button" class="launcher-button desktop-device-action" data-open-microsoft>Login with Microsoft</button><p class="desktop-provider"></p></section>
+ <p class="desktop-auth-error" role="alert" hidden></p><button type="button" class="text-link" data-cancel>Cancel sign-in</button>`;
+ document.body.append(signin);
+ const auth=selector=>signin.querySelector(selector);
+ const notice=document.createElement('div');notice.className='desktop-page-notice';notice.setAttribute('role','alert');notice.hidden=true;document.body.append(notice);
  document.body.append(panel);
  // One screen carries one action. The hero's own Download the game starts the download,
  // so this is supporting detail beside it rather than a second panel with a second
@@ -108,12 +129,27 @@
  let installRequested=false,settingsDirty=false;
  $('.dialog-close').onclick=()=>panel.close();
  panel.addEventListener('click',event=>{if(event.target!==panel||event.detail===0)return;const r=panel.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)panel.close();});
- // The dialog serves sign-in and settings. Which one is open is tracked here, so a
- // launcher update check can close the settings view without ever closing a sign-in
- // that is waiting for its device code.
- let dialogPurpose='settings';
- const open=()=>{if(!panel.open)panel.showModal();if(current?.device)$('[data-open-microsoft]').focus();};
- const report=error=>{message.textContent=error&&error.message?error.message:String(error);message.classList.add('is-error');};
+ const open=()=>{if(!panel.open)panel.showModal();showError(localError);};
+ let cancelledSignIn=false,localError='';
+ function showError(value){
+  localError=value||'';
+  const target=signin.open?auth('.desktop-auth-error'):panel.open?message:notice;
+  for(const node of [message,notice,auth('.desktop-auth-error')]){node.hidden=true;node.textContent='';}
+  if(localError){
+   target.textContent=localError;target.hidden=false;target.classList.add('is-error');
+   if(target===notice){
+    const dismiss=document.createElement('button');dismiss.type='button';dismiss.textContent='×';dismiss.setAttribute('aria-label','Dismiss message');dismiss.onclick=()=>showError('');target.append(dismiss);
+   }
+  }
+ }
+ const report=error=>showError(error?.message||String(error));
+ const cancelSignIn=()=>{
+  cancelledSignIn=true;signin.close();void desktop.cancelSignIn().catch(report);
+ };
+ auth('.dialog-close').onclick=cancelSignIn;auth('[data-cancel]').onclick=cancelSignIn;
+ signin.addEventListener('cancel',event=>{event.preventDefault();cancelSignIn();});
+ signin.addEventListener('close',()=>{if(localError)showError(localError);(current?.profile?profileButton:heroButton)?.focus();});
+ panel.addEventListener('close',()=>{settingsButton?.setAttribute('aria-expanded','false');if(localError)showError(localError);});
 
  // ---- Sticky bottom bar -----------------------------------------------------
  // The minimised state is a renderer-local preference by contract, so it is kept here
@@ -259,22 +295,8 @@
  // Client settings only, and only once the client is installed. No install, update
  // or play action lives here, and the dialog carries no transfer and no status hint.
  function renderSettings(state,busy){
-  const graphicState=graphicsOf(state);
-  const account=state.profile?.name,company=state.account;
-  $('.desktop-account').textContent=account?'Microsoft account: '+account+(state.remembered?' · Remembered on this device':' · This session only'):'No Microsoft account on this device yet.';
-  // Two systems, two lines: a signed-in Microsoft account is never followed by an
-  // unlabelled sentence about the Easter Company account, and with no company
-  // account the line is omitted rather than advertised.
-  $('.desktop-company').hidden=!company;
-  $('.desktop-company').textContent=company?'Easter Company account: '+company.name+(company.roles?.length?' · '+company.roles.join(', '):''):'';
-  $('[data-account-refresh]').hidden=!account;$('[data-account-refresh]').disabled=busy;
-  // The session token never comes near the UI; only whether one is held and when
-  // it lapses, so a player can see that signing in again is enough.
-  const live=Boolean(company)&&state.sessionExpiresAt>Date.now();
-  $('[data-account-sign-out]').hidden=!live||busy;
-  $('[data-sign-out]').hidden=!account;$('[data-sign-out]').disabled=busy&&phaseOf(state)!=='running';
-  $('.desktop-version').textContent='Easter Company '+state.version+(graphicState?' · Enhanced graphics '+(graphicState.enabled?'on':'off'):'');
-  settingsForm.inert=busy;
+  $('.desktop-version').textContent='Launcher '+(state.version||'');
+  settingsForm.inert=busy&&phaseOf(state)!=='running';
  }
 
  function fillServerRow(state,address){
@@ -296,19 +318,18 @@
  // The details belong to the hero's Download the game action: they say where it will
  // install and what the machine will do about graphics, and carry no action of their own.
  function renderInstallCard(state){
-  const install=installOf(state),graphicsState=graphicsOf(state),hardware=hardwareOf(state);
+  const install=installOf(state),graphicsState=graphicsOf(state);
   const fallback=typeof install.defaultLocation==='string'?install.defaultLocation:'';
   const location=chosenLocation||install.location||fallback;
   $$('.desktop-install-current').textContent=location||'Not chosen yet';
   // The default is supporting text, and the choice is a real button.
-  $$('.desktop-install-default').textContent=!location?'':location===fallback?'The app-owned folder, used unless you choose another.':'Default: '+fallback;
+  $$('.desktop-install-default').textContent=location&&location!==fallback?'Default: '+fallback:'';
   $$('[data-choose-location]').hidden=typeof chooseLocation!=='function';
   // The details state what the automatic choice for this machine will be; the toggle
   // under the hero action is the only graphics control in the launcher.
   const recommended=graphicsState?Boolean(graphicsState.recommended):Boolean(install.includeGraphics);
-  const why=graphicsState?.reason||hardware.reason||'';
   installGraphics.hidden=!graphicsState;
-  installGraphics.textContent=graphicsState?joinParts(['Enhanced graphics and shaders will be '+(recommended?'included':'left off')+' automatically on this machine.',why,graphicsState.tunable===false?'This machine cannot report enough about its graphics to promise a quality level.':'']):'';
+  installGraphics.textContent=graphicsState?'Enhanced graphics '+(recommended?'included':'off')+' for this device. You can change this after installation.':'';
  }
 
  function renderGraphics(state,busy){
@@ -326,14 +347,13 @@
 
  // ---- State rendering -------------------------------------------------------
  function render(state){
+  const fromMain=state!==current;
   current={...current,...state};
   if(installRequested&&transferring(current)){installRequested=false;if(panel.open)panel.close();}
   const busy=signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
   const action=primaryAction(current);
-  // The dialog's status line belongs to the sign-in flow it is showing. Settings
-  // carries no status hint about what the player still has to do.
-  message.classList.remove('is-error');
-  message.textContent=current.device?'':(current.message||'');
+
+  document.querySelector('.home-footer>span:last-child')?.replaceChildren(document.createTextNode('Launcher '+(current.version||'')));
   renderSettings(current,busy);
   const stateSettings=current.settings&&typeof current.settings==='object'?current.settings:null;
   if(stateSettings)settings=stateSettings;
@@ -354,28 +374,24 @@
    launcherNotice.append(link);
   }else launcherNotice.hidden=true;
   renderProfile(current);
-  const device=current.device;$('.desktop-device').hidden=!device;
-  // Keep the pending sign-in focused on the instruction, code and browser action.
-  const wasSigningIn=panel.classList.contains('is-signing-in');
-  panel.classList.toggle('is-signing-in',Boolean(device));
-  if(device){
-   panel.removeAttribute('aria-labelledby');panel.setAttribute('aria-label','Sign in with Microsoft');
-   panel.setAttribute('aria-describedby','desktop-device-instruction');
-   $('.desktop-code').textContent=device.code;
-   $('.desktop-provider').textContent='Microsoft lists this app as '+(current.authName||'the launcher')+'.';
-   if(!wasSigningIn&&panel.open)$('[data-open-microsoft]').focus();
-  }else{
-   panel.removeAttribute('aria-label');panel.removeAttribute('aria-describedby');panel.setAttribute('aria-labelledby','desktop-title');
-  }
+  const device=current.device,wasWaiting=auth('.desktop-device').hidden;
+  auth('.desktop-device').hidden=!device;auth('.desktop-auth-wait').hidden=Boolean(device);
+  if(device&&!cancelledSignIn){
+   if(panel.open)panel.close();
+   if(!signin.open)signin.showModal();
+   auth('.desktop-code').textContent=device.code;
+   auth('.desktop-provider').textContent='Microsoft lists this app as '+(current.authName||'the launcher')+'.';
+   if(wasWaiting)auth('[data-open-microsoft]').focus();
+  }else if(!device&&!signInPending&&signin.open)signin.close();
   // Settings is the hero's secondary action, and it is offered only at the Play Now
   // stage. Before that the hero shows the download action instead.
   if(settingsButton){
    settingsButton.hidden=!settingsOffered(current);
-   settingsButton.disabled=busy;
+   settingsButton.disabled=busy&&phaseOf(current)!=='running';
    // A check that begins while Settings is open closes it: the rule is that client
-   // settings are unreachable during a check, not merely that the button is gone. The
-   // dialog is shared with sign-in, so only the settings view is closed here.
-   if(settingsButton.hidden&&panel.open&&dialogPurpose==='settings')panel.close();
+   // settings are unreachable during a check, not merely that the button is gone.
+   // Authentication has its own dialog and is unaffected.
+   if(settingsButton.hidden&&panel.open)panel.close();
   }
   if(graphicsSection){
    graphicsSection.hidden=!graphicsOffered(current);
@@ -398,22 +414,27 @@
    heroButton.querySelector('small').textContent=action.kind==='play'?joinParts([action.note,current.profile?.name]):action.note;
   }
   renderBar(current);
+  if(fromMain&&('error' in state||'message' in state))showError(state.error||(phaseOf(state)==='error'?state.message:''));
  }
 
  // ---- Wiring ----------------------------------------------------------------
  // Sign-in opens the dialog for its device code and closes it again when the flow is
  // over: a finished login must not leave the settings dialog sitting on screen.
- const closeSignIn=()=>{if(panel.open&&dialogPurpose==='signin')panel.close();};
- const signIn=()=>{if(signInPending)return;dialogPurpose='signin';open();signInPending=true;render(current||{});void Promise.resolve(desktop.signIn()).then(closeSignIn).catch(report).finally(()=>{signInPending=false;render(current||{});const target=$('[data-open-microsoft]');if(panel.open&&!deviceHidden())target.focus();});};
- const deviceHidden=()=>$('.desktop-device').hidden;
+ const closeSignIn=()=>{if(signin.open)signin.close();};
+ const signIn=()=>{
+  if(signInPending)return;
+  cancelledSignIn=false;showError('');if(panel.open)panel.close();
+  signInPending=true;render(current||{});signin.showModal();
+  void Promise.resolve(desktop.signIn()).then(closeSignIn).catch(error=>{
+   if(!cancelledSignIn){closeSignIn();report(error);}
+  }).finally(()=>{signInPending=false;render(current||{});});
+ };
  // Play Now starts the game. It opens nothing: the dialog is for sign-in and client
- // settings, and a player who presses Play should never be shown either of them. A
- // failure is the one case worth a dialog, because the player needs to read why, so the
- // error is reported there rather than swallowing the launch.
- const start=()=>{void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(error=>{dialogPurpose='settings';open();report(error);});};
- const openSettings=()=>{dialogPurpose='settings';open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
+ // settings. Failures appear in the visible page notice without opening Settings.
+ const start=()=>{showError('');void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
+ const openSettings=()=>{open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
   // Land the keyboard on the first setting that is actually usable.
-  const first=current?.device?$('[data-open-microsoft]'):!serverField.hidden?serverField:$('.desktop-advanced summary');
+  const first=!serverSelect.hidden?serverSelect:serverField;
   first?.focus?.();};
  // The hero is one control whose action follows the same state its label does.
  const heroAction=()=>{const action=primaryAction(current||{});
@@ -462,7 +483,7 @@
   actions?.append(settingsButton);
   const graphics=document.createElement('div');
   graphics.className='hero-graphics';graphics.hidden=true;
-  graphics.innerHTML='<label class="hero-graphics-switch"><input type="checkbox" data-graphics-toggle><span class="hero-graphics-track" aria-hidden="true"><i></i></span><span class="hero-graphics-text"><strong class="desktop-graphics-label"></strong><small class="desktop-graphics-note"></small></span></label><p class="desktop-graphics-error" role="alert" hidden></p>';
+  graphics.innerHTML='<label class="hero-graphics-switch"><span class="hero-graphics-text"><strong class="desktop-graphics-label"></strong></span><input type="checkbox" data-graphics-toggle><span class="hero-graphics-track" aria-hidden="true"><i></i></span></label><details class="desktop-graphics-details"><summary>Graphics details</summary><p class="desktop-graphics-note"></p></details><p class="desktop-graphics-error" role="alert" hidden></p>';
   // Below the hero's primary action, in the hero itself rather than in a dialog.
   (actions?.parentElement||actions)?.insertBefore(graphics,actions?.nextSibling||null);
   // The download details follow the toggle, in the hero, and belong to the hero's own
@@ -480,13 +501,29 @@
    }finally{graphicsSwitch.disabled=false;if(current)render(current);}
   });
  }
+ const homeCopy=document.querySelector('.hero-copy'),crest=document.querySelector('.crest-frame');
+ if(homeCopy&&crest){
+  const heading=document.createElement('div');heading.className='desktop-home-heading';
+  heading.append(crest);
+  const title=document.createElement('div'),eyebrow=homeCopy.querySelector('.eyebrow');
+  if(eyebrow)title.append(eyebrow);
+  const edition=document.createElement('p');edition.className='desktop-edition';edition.textContent='Minecraft Java Edition';title.append(edition);
+  heading.append(title);homeCopy.prepend(heading);
+ }
  // The header is account-only: no client settings button is ever placed there.
  for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"]'))trigger.remove();
  const profileButton=document.createElement('button');profileButton.type='button';profileButton.className='desktop-account-nav';profileButton.hidden=true;profileButton.setAttribute('aria-haspopup','true');profileButton.setAttribute('aria-expanded','false');
  const profileName=document.createElement('span'),face=document.createElement('canvas');face.width=32;face.height=32;face.setAttribute('aria-hidden','true');profileButton.append(profileName,face);document.querySelector('.site-header nav').append(profileButton);
  const profileMenu=document.createElement('div');profileMenu.className='desktop-profile-menu';profileMenu.popover='auto';profileMenu.setAttribute('aria-label','Profile');
- for(const [label,action] of [['Add account',()=>{profileMenu.hidePopover();signIn();}],['Switch Account',()=>{renderAccountList();}],['Logout',()=>{profileMenu.hidePopover();void desktop.signOut().catch(error=>{open();report(error);});}]]){
-  const button=document.createElement('button');button.type='button';button.textContent=label;button.onclick=action;profileMenu.append(button);
+ const accountHeading=document.createElement('p');accountHeading.className='desktop-profile-heading desktop-account';profileMenu.append(accountHeading);
+ const companyHeading=document.createElement('p');companyHeading.className='desktop-profile-heading desktop-company';profileMenu.append(companyHeading);
+ for(const [label,action,key] of [
+  ['Add account',()=>{profileMenu.hidePopover();signIn();},'add'],
+  ['Switch Account',()=>renderAccountList(),'switch'],
+  ['Logout',()=>{profileMenu.hidePopover();void desktop.signOut().catch(report);},'logout'],
+  ['Refresh Easter Company account',()=>desktop.refreshAccount().catch(report),'companyRefresh'],
+  ['Sign out of Easter Company',()=>desktop.signOutAccount().catch(report),'companyLogout']]){
+  const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.profileAction=key;button.onclick=action;profileMenu.append(button);
  }
  const accountList=document.createElement('div');accountList.className='desktop-account-list';accountList.hidden=true;profileMenu.append(accountList);document.body.append(profileMenu);
  const positionProfile=()=>{const rect=profileButton.getBoundingClientRect();profileMenu.style.top=rect.bottom+8+'px';profileMenu.style.right=Math.max(12,innerWidth-rect.right)+'px';};
@@ -496,6 +533,14 @@
  let skinSource=null;
  function renderProfile(state){
   profileButton.hidden=!state.profile;profileName.textContent=state.profile?.name||'';
+  accountHeading.textContent='Microsoft account: '+(state.profile?.name||'');
+  companyHeading.hidden=!state.account;companyHeading.textContent=state.account?'Easter Company account: '+state.account.name:'';
+  const locked=signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(state));
+  for(const button of profileMenu.querySelectorAll('[data-profile-action]')){
+   button.disabled=locked;
+   button.hidden=button.dataset.profileAction.startsWith('company')&&!state.account;
+  }
+  if(!accountList.hidden)renderAccountList();
   if(!state.profile){if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
   const ctx=face.getContext('2d');
   const source=state.profile.skin||'';
@@ -509,8 +554,8 @@
   accountList.replaceChildren();accountList.hidden=false;
   const accounts=current?.accounts||[];
   for(const account of accounts){
-   const button=document.createElement('button');button.type='button';button.textContent=account.name+(account.id===current.profile?.id?' (current)':'');button.disabled=account.id===current.profile?.id;
-   button.onclick=async()=>{button.disabled=true;try{await desktop.switchAccount(account.id);profileMenu.hidePopover();}catch(error){open();report(error);}finally{button.disabled=false;}};accountList.append(button);
+   const button=document.createElement('button');button.type='button';button.textContent=account.name+(account.id===current.profile?.id?' (current)':'');button.disabled=account.id===current.profile?.id||signInPending||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
+   button.onclick=async()=>{button.disabled=true;try{await desktop.switchAccount(account.id);profileMenu.hidePopover();}catch(error){profileMenu.hidePopover();report(error);}finally{renderAccountList();}};accountList.append(button);
   }
   if(!accounts.length)accountList.textContent='No saved accounts. Use Add account.';
  }
@@ -532,24 +577,24 @@
  settingsForm.addEventListener('input',()=>{settingsDirty=true;settingsResult.textContent='';});
  memory.oninput=()=>{$('#memory-value').textContent=memoryLabel(memory.value);
   $('.desktop-memory-detail').textContent=memoryLabel(memory.value)+' of '+memoryLabel(memory.max)+' this machine can give the game.';};
- $('[data-save-settings]').onclick=async()=>{
+ let savingSettings=false;
+ settingsForm.onsubmit=async event=>{
+  event.preventDefault();if(savingSettings)return;
   const server=(serverSelect.hidden?serverField.value:serverSelect.value===CUSTOM_SERVER?serverField.value:serverSelect.value).trim();
   if(!server){settingsResult.textContent='Enter the address of the server you play on.';serverField.focus?.();return;}
+  savingSettings=true;$('[data-save-settings]').disabled=true;
   try{
    settings=await desktop.saveSettings({memoryMB:Number(memory.value),server,javaPath:settingsForm.elements.javaPath.value,
     autoUpdateLauncher:settingsForm.elements.autoUpdateLauncher.checked,autoUpdateGame:settingsForm.elements.autoUpdateGame.checked,
     exitOnLaunch:settingsForm.elements.exitOnLaunch.checked});
    settingsDirty=false;settingsResult.textContent='Saved.';
   }catch(error){settingsResult.textContent=error&&error.message?error.message:String(error);}
+  finally{savingSettings=false;$('[data-save-settings]').disabled=false;}
   if(current)render(current);
  };
  $('[data-choose-java]').onclick=()=>desktop.chooseJava().then(value=>{if(value){settingsForm.elements.javaPath.value=value;settingsDirty=true;settingsResult.textContent='';}}).catch(report);
- $('[data-open-microsoft]').onclick=()=>desktop.openMicrosoft().catch(report);
- $('[data-cancel]').onclick=()=>desktop.cancelSignIn().catch(report);
+ auth('[data-open-microsoft]').onclick=()=>desktop.openMicrosoft().catch(report);
  $('[data-open-folder]').onclick=()=>desktop.openFolder().catch(report);
- $('[data-sign-out]').onclick=()=>desktop.signOut().catch(report);
- $('[data-account-refresh]').onclick=()=>desktop.refreshAccount().catch(report);
- $('[data-account-sign-out]').onclick=()=>desktop.signOutAccount().catch(report);
  window.addEventListener('resize',()=>{if(current)renderBar(current);},{passive:true});
  window.addEventListener('storage',event=>{if(event.key!==BAR_KEY)return;minimised=readMinimised();if(current)renderBar(current);});
 
