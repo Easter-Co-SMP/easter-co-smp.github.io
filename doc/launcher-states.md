@@ -128,6 +128,17 @@ that returns.
   cap at all. A dock the chart itself inserts after the notice is painted (the drawing
   palette, once its saved notes have loaded) re-measures it, and so does the bar when it
   moves, appears or goes away.
+  The drawing palette's own panel follows the same rule rather than a viewport
+  subtraction: it is capped by the room between its own top and the first edge under it —
+  the chart's footer, or the sticky bar where the bar stands over the palette's columns —
+  which `site/map/map.js` measures and publishes as `--drawing-panel-room` (the notice
+  band's reserved height is already inside that number, because the band moves the whole
+  strip), while `site/styles.css` keeps its own viewport subtraction as the other term of
+  a `min()`, so a chart nobody has measured lays out exactly as it did and a measurement
+  one frame stale during a resize can only tighten the panel. The palette's horizontal
+  position is the stylesheet's at the width the window is at now, media query included:
+  nothing caches the width the chart was loaded at, and an inline `left` is written only
+  to clear the open map key.
 - **Nothing is hard-coded.** The UI renders whatever sentence the state or the
   rejected call supplies; it does not compose or re-word failures.
 
@@ -155,6 +166,12 @@ paints the sentence, not even for one frame. Every other failure of the saved se
 still falls through to the interactive sign-in with its device code. The account id
 comparison stays server-driven, and no account identifier, token or address appears in
 the sentence, the state or a log.
+On a window too short to show all three lines at once, the chooser scrolls the refusal
+into view rather than leaving its last line under the dialog's own edge: the least it can
+scroll for the whole refusal to be inside the box, and nothing at all when the box
+already shows it, so the refusal is still read above the form with Sign in and Forgot
+your password below the fold. At the launcher's own 800x600 minimum the three lines fit
+at once and the dialog keeps no scrollbar over space it cannot show.
 
 **Microsoft's email answer is a notice, not a failure.** The sign-in answer may carry
 `emailStatus` (`'stored'`, `'unavailable'`, `'none'`) at its own top level. Only
