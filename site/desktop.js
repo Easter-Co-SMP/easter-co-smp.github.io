@@ -33,7 +33,7 @@
  // The signed-out action starts Microsoft linking, which is where an account comes from.
  const LOGIN_ACTION='Link Microsoft Account';
  let companyAuth=null;
- const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine});if(current)companyAuth.render(current);return companyAuth;});
+ const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const CUSTOM_SERVER='__custom__';
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
  let current=null,settings,totalMemoryMB=0,heroButton=null,settingsButton=null,graphicsSection=null,graphicsSwitch=null,graphicsLabel=null,graphicsNote=null,graphicsError=null,signInPending=false;
@@ -105,7 +105,7 @@
  const panel=document.createElement('dialog');panel.id='desktop-launcher';panel.setAttribute('aria-labelledby','desktop-title');
  // Settings and authentication have separate dialogs and independent lifecycles.
  panel.innerHTML=`<button class="dialog-close" type="button" aria-label="Close settings">×</button>
- <h2 id="desktop-title">Settings</h2><div class="desktop-status" role="alert" hidden></div>
+ <h2 id="desktop-title">Settings</h2>
  <form class="desktop-settings">
  <label>Server address<select name="serverSelect"></select><input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><p class="desktop-settings-note" hidden></p>
  <label class="desktop-preference"><span>Close launcher when the game starts</span><input type="checkbox" name="exitOnLaunch"></label>
@@ -123,7 +123,7 @@
  <p class="desktop-auth-wait" role="status">Connecting to Microsoft…</p><section class="desktop-device" hidden>
  <p class="desktop-device-instruction" id="desktop-device-instruction">Enter this code on the Microsoft sign-in page.</p><strong class="desktop-code"></strong>
  <button type="button" class="launcher-button desktop-device-action" data-open-microsoft>Login with Microsoft</button><p class="desktop-provider"></p></section>
- <p class="desktop-auth-error" role="alert" hidden></p><button type="button" class="text-link" data-cancel>Cancel sign-in</button>`;
+ <p class="desktop-auth-error" role="alert" hidden></p><p class="desktop-auth-notice" role="status" hidden></p><button type="button" class="text-link" data-cancel>Cancel sign-in</button>`;
  document.body.append(signin);
  const startup=document.createElement('dialog');startup.id='desktop-update';startup.setAttribute('aria-labelledby','desktop-update-title');
  startup.innerHTML='<div class="desktop-update-spinner" aria-hidden="true"></div><h2 id="desktop-update-title">Checking updates…</h2><p data-update-detail role="status"></p><div class="desktop-update-progress" role="progressbar" aria-label="Update progress" hidden><i></i></div><div class="desktop-update-actions"><button type="button" data-update-retry hidden>Retry update</button><button type="button" data-update-pause hidden>Pause</button><button type="button" data-update-resume hidden>Resume</button></div>';
@@ -165,7 +165,6 @@
  installDetails.innerHTML='<div class="desktop-folder"><span>Installs to</span><strong class="desktop-install-current"></strong><button type="button" class="desktop-folder-button" data-choose-location hidden>Choose folder…</button><small class="desktop-install-default"></small></div><p class="desktop-install-graphics" hidden></p><p class="desktop-install-error" role="alert" hidden></p>';
  const $=selector=>panel.querySelector(selector);
  const $$=selector=>installDetails.querySelector(selector);
- const message=$('.desktop-status');
  // An empty choice means the app-owned default; the folder picker is the only thing that
  // replaces it, and the hero action hands it to main when it starts the download.
  let chosenLocation='';
@@ -176,30 +175,67 @@
  let installRequested=false,settingsDirty=false;
  $('.dialog-close').onclick=()=>panel.close();
  panel.addEventListener('click',event=>{if(event.target!==panel||event.detail===0)return;const r=panel.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)panel.close();});
- const open=()=>{if(!panel.open)panel.showModal();showError(localError);};
+ const open=()=>{if(!panel.open)panel.showModal();};
  // The two game-shortcut rows report the files, not the preference. Asking main as the
  // dialog opens is the difference between "you ticked this" and "it is on this computer".
  const refreshShortcutState=()=>{Promise.resolve(desktop.status()).then(state=>{if(!current||!state)return;current={...current,shortcuts:state.shortcuts};render(current);}).catch(()=>{});};
- let cancelledSignIn=false,localError='';
- function showError(value){
-  localError=value||'';
-  const target=signin.open?auth('.desktop-auth-error'):panel.open?message:notice;
-  for(const node of [message,notice,auth('.desktop-auth-error')]){node.hidden=true;node.textContent='';}
-  if(localError){
-   target.textContent=localError;target.hidden=false;target.classList.add('is-error');
-   if(target===notice){
-    const dismiss=document.createElement('button');dismiss.type='button';dismiss.textContent='×';dismiss.setAttribute('aria-label','Dismiss message');dismiss.onclick=()=>showError('');target.append(dismiss);
-   }
+ let cancelledSignIn=false;
+ // True while the sign-in dialog is showing Microsoft's own answer about the account's email
+ // address. It holds the dialog open for one sentence the player still needs to read.
+ let emailNoticeHeld=false;
+ // ---- One failure, one home --------------------------------------------------
+ // A failure is delivered once and then has exactly one surface: the sign-in dialog's own
+ // error area while that dialog is on screen, and the page notice everywhere else. Settings
+ // is never a home, so a failure can no longer be dragged into whichever dialog happens to
+ // be open, and nothing replays a failure when a dialog opens or closes.
+ //
+ // `deliveredError` is the sentence the state channel has already been given. Main keeps
+ // `error` set until the next ordinary message clears it, so every later broadcast repeats
+ // the same sentence; without this marker each of those broadcasts repainted an old failure,
+ // which is why a single failed sign-in looked permanent. Dedupe is therefore by delivery:
+ // the visible failure is cleared by a dismissal or a new action, the marker is not.
+ let failure='',failureHome='',deliveredError=null;
+ const failureNodes=()=>[notice,auth('.desktop-auth-error'),auth('.desktop-auth-notice')];
+ // The notice carries a dismiss control as its last child; replacing the text drops it.
+ function clearFailureNodes(){for(const node of failureNodes()){node.hidden=true;node.textContent='';node.classList.remove('is-error','is-notice');}}
+ // Where a sentence goes is decided by what is on screen, never by who asked for it.
+ const failureHomeNow=()=>signin.open?'dialog':'notice';
+ function paintFailure(text,home){
+  clearFailureNodes();failure=text||'';failureHome=failure?home:'';
+  if(!failure)return;
+  const target=home==='dialog'?auth('.desktop-auth-error'):notice;
+  target.textContent=failure;target.hidden=false;target.classList.add('is-error');
+  if(target===notice){
+   const dismiss=document.createElement('button');dismiss.type='button';dismiss.textContent='×';dismiss.setAttribute('aria-label','Dismiss message');
+   dismiss.onclick=()=>dismissFailure();target.append(dismiss);
   }
  }
- const report=error=>showError(error?.message||String(error));
+ const showFailure=text=>{if(text)paintFailure(text,failureHomeNow());};
+ function dismissFailure(){failure='';failureHome='';clearFailureNodes();}
+ // A new action starts from a clean slate: the previous failure is nobody's answer to this
+ // one. `deliveredError` is left alone, so the stale broadcast of that old sentence cannot
+ // bring it back while the action runs.
+ const clearFailure=()=>{if(failure)dismissFailure();};
+ // The dialog that was showing a failure has gone, so the sentence moves to the page notice
+ // rather than disappearing with it. A failure the page already owns is left exactly where it
+ // is: the dialog's close event arrives after the call that failed has already reported.
+ function moveFailureOutOfDialog(){
+  if(!failure)clearFailureNodes();
+  else if(failureHome==='dialog')paintFailure(failure,'notice');
+ }
+ // A sign-in that is actually running owns the dialog. The device code and the browser action
+ // are what the player is waiting for, so a sentence from the state channel is never painted
+ // over them: a live flow wins, and a failure that really ends it arrives through the call that
+ // rejected. This is what keeps an old failure from looking like an instant one.
+ const signInFlowLive=()=>Boolean(signInPending||(current&&current.device&&!cancelledSignIn));
+ const report=error=>showFailure(error?.message||String(error));
  const cancelSignIn=()=>{
   cancelledSignIn=true;signin.close();void desktop.cancelSignIn().catch(report);
  };
  auth('.dialog-close').onclick=cancelSignIn;auth('[data-cancel]').onclick=cancelSignIn;
  signin.addEventListener('cancel',event=>{event.preventDefault();cancelSignIn();});
- signin.addEventListener('close',()=>{if(localError)showError(localError);(current?.profile?profileButton:heroButton)?.focus();});
- panel.addEventListener('close',()=>{settingsButton?.setAttribute('aria-expanded','false');if(localError)showError(localError);});
+ signin.addEventListener('close',()=>{releaseSignInNotice();moveFailureOutOfDialog();(current?.profile?profileButton:heroButton)?.focus();});
+ panel.addEventListener('close',()=>{settingsButton?.setAttribute('aria-expanded','false');});
 
  // ---- Sticky bottom bar -----------------------------------------------------
  // The minimised state is a renderer-local preference by contract, so it is kept here
@@ -472,14 +508,16 @@
   accessPanel.querySelector('[data-recheck-access]').hidden=access==='unknown';
   for(const button of accessPanel.querySelectorAll('button'))button.disabled=Boolean(current.accessChecking||current.accountWorking)||signInPending;
   const device=current.device,wasWaiting=auth('.desktop-device').hidden;
-  auth('.desktop-device').hidden=!device;auth('.desktop-auth-wait').hidden=Boolean(device);
+  // While Microsoft's email answer is on screen the dialog is already where it belongs and
+  // has nothing left to wait for, so it neither repeats the waiting line nor closes itself.
+  auth('.desktop-device').hidden=!device;auth('.desktop-auth-wait').hidden=Boolean(device)||emailNoticeHeld;
   if(device&&!cancelledSignIn){
    if(panel.open)panel.close();
    if(!signin.open)signin.showModal();
    auth('.desktop-code').textContent=device.code;
    auth('.desktop-provider').textContent='Microsoft lists this app as '+(current.authName||'the launcher')+'.';
    if(wasWaiting)auth('[data-open-microsoft]').focus();
-  }else if(!device&&!signInPending&&signin.open)signin.close();
+  }else if(!device&&!signInPending&&!emailNoticeHeld&&signin.open)signin.close();
   // Settings is the hero's secondary action, and it is offered only at the Play Now
   // stage. Before that the hero shows the download action instead.
   if(settingsButton){
@@ -511,25 +549,68 @@
    heroButton.querySelector('small').textContent=action.kind==='play'?joinParts([action.note,current.profile?.name]):action.note;
   }
   renderBar(current);
-  if(fromMain&&('error' in state||'message' in state))showError(state.error||(phaseOf(state)==='error'?state.message:''));
+  if(fromMain){
+   // The state's own failure, delivered once per distinct sentence, and then owned here: main
+   // announces it in the one frame that carries it and drops it from the next, so a notice that
+   // waited for the state to still say so would flash and vanish. What takes a failure away is
+   // the player dismissing it or starting a new action, never a later broadcast.
+   const next=typeof current.error==='string'?current.error:(phaseOf(current)==='error'&&typeof current.message==='string'?current.message:'');
+   if(next!==deliveredError){
+    deliveredError=next;
+    if(next&&!signInFlowLive())showFailure(next);
+   }
+  }
  }
 
  // ---- Wiring ----------------------------------------------------------------
  // Sign-in opens the dialog for its device code and closes it again when the flow is
  // over: a finished login must not leave the settings dialog sitting on screen.
  const closeSignIn=()=>{if(signin.open)signin.close();};
- const signIn=(options={})=>{void companyUI.then(ui=>ui.open(options)).catch(report);};
+ const signIn=(options={})=>{clearFailure();void companyUI.then(ui=>ui.open(options)).catch(report);};
+ // Microsoft's own answer about the account's email address. The launcher does not print an
+ // address and does not need one: it only shows the sentence this status asks for, and
+ // 'stored' and 'none' pass without a word. Read from the answer itself, so a build whose
+ // sign-in carries no status renders exactly as it did before.
+ const EMAIL_UNAVAILABLE='We could not read your Microsoft email address. You can sign in, and choose a login email later from your profile.';
+ const emailStatusOf=answer=>{
+  if(!answer||typeof answer!=='object')return '';
+  // The preload hands the renderer the value inside the IPC envelope; a build that answers
+  // with that envelope itself is read the same way rather than silently ignored.
+  const value=typeof answer.emailStatus==='string'?answer:answer.value;
+  return value&&typeof value.emailStatus==='string'?value.emailStatus:'';
+ };
+ // The player has finished signing in and the dialog stays for one sentence: it says what
+ // Microsoft could not give, and the × closes it. Nothing is left waiting, so the pending
+ // line and the Cancel action go with it.
+ function holdSignInNotice(){
+  emailNoticeHeld=true;
+  clearFailureNodes();
+  auth('.desktop-auth-wait').hidden=true;auth('.desktop-device').hidden=true;auth('[data-cancel]').hidden=true;
+  const node=auth('.desktop-auth-notice');
+  node.textContent=EMAIL_UNAVAILABLE;node.hidden=false;node.classList.add('is-notice');
+  if(!signin.open)signin.showModal();
+ }
+ // Closing the dialog ends the notice too: it belongs to the sign-in it answered and is
+ // never carried into a later screen.
+ function releaseSignInNotice(){
+  if(!emailNoticeHeld)return;
+  emailNoticeHeld=false;auth('[data-cancel]').hidden=false;
+  clearFailureNodes();
+ }
  function signInMicrosoft(options={}){
   if(signInPending)return;
-  cancelledSignIn=false;showError('');if(panel.open)panel.close();
+  cancelledSignIn=false;clearFailure();if(panel.open)panel.close();
   signInPending=true;render(current||{});signin.showModal();
-  return Promise.resolve(desktop.signIn(options)).then(()=>{closeSignIn();return true;}).catch(error=>{
+  return Promise.resolve(desktop.signIn(options)).then(answer=>{
+   if(emailStatusOf(answer)==='unavailable'){holdSignInNotice();return true;}
+   closeSignIn();return true;
+  }).catch(error=>{
    if(!cancelledSignIn){closeSignIn();report(error);}return false;
   }).finally(()=>{signInPending=false;render(current||{});});
  }
  // Play Now starts the game. It opens nothing: the dialog is for sign-in and client
  // settings. Failures appear in the visible page notice without opening Settings.
- const start=()=>{showError('');void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
+ const start=()=>{clearFailure();void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
  const openSettings=()=>{open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
   // The two shortcut rows say whether the files are really there, so the truth is asked
   // for as the dialog opens rather than trusted from the last broadcast.
@@ -537,8 +618,9 @@
   // Land the keyboard on the first setting that is actually usable.
   const first=!serverSelect.hidden?serverSelect:serverField;
   first?.focus?.();};
- // The hero is one control whose action follows the same state its label does.
- const heroAction=()=>{const action=primaryAction(current||{});
+ // The hero is one control whose action follows the same state its label does. It starts a
+ // new action, so any failure already on screen belongs to the last one and goes.
+ const heroAction=()=>{clearFailure();const action=primaryAction(current||{});
   if(action.kind==='setup-password')return void companyUI.then(ui=>ui.setup()).catch(report);
   if(action.kind==='connect-microsoft')return void signInMicrosoft({link:true});
   if(action.kind==='buy')return void desktop.openMinecraftStore().catch(report);
@@ -552,7 +634,7 @@
   if(typeof startInstall!=='function'||installRequested)return;
   const install=installOf(current||{});
   const location=(chosenLocation||install.location||install.defaultLocation||'').trim();
-  installError.hidden=true;installError.textContent='';
+  clearFailure();installError.hidden=true;installError.textContent='';
   installRequested=true;
   try{
    // The graphics choice travels with the install as the machine's own automatic
@@ -560,9 +642,11 @@
    // client is there.
    await startInstall({location,includeGraphics:Boolean(graphicsOf(current||{})?.recommended??installOf(current||{}).includeGraphics)});
   }catch(error){
-   // A refused location is shown, and the flow stays usable.
+   // A refused location is shown beside the action that tried it, and the flow stays
+   // usable. A refusal has one home, so the page notice gives up its copy of it.
    installError.hidden=false;installError.textContent=error&&error.message?error.message:String(error);
    $$('[data-choose-location]').setAttribute('aria-invalid','true');
+   dismissFailure();
   }finally{installRequested=false;}
  }
 
@@ -725,6 +809,7 @@
  let savingSettings=false;
  settingsForm.onsubmit=async event=>{
   event.preventDefault();if(savingSettings)return;
+  clearFailure();
   const server=(serverSelect.hidden?serverField.value:serverSelect.value===CUSTOM_SERVER?serverField.value:serverSelect.value).trim();
   if(!server){settingsResult.textContent='Enter the address of the server you play on.';serverField.focus?.();return;}
   savingSettings=true;$('[data-save-settings]').disabled=true;

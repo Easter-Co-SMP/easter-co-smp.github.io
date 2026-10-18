@@ -15,7 +15,7 @@ const providerName=value=>{
 };
 const NO_EMAILS='No verified email is recorded for this account. Sign in with Microsoft or with your username.';
 const NO_LOGIN_EMAIL='No login email is selected. Sign in with Microsoft or with your username.';
-export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null}){
+export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlineError=null}){
  let state={},busy=false,dismissed=null,pendingUsername=null,replacePassword=false,advancing=false;
  const chooser=document.createElement('dialog'),username=document.createElement('dialog'),password=document.createElement('dialog'),emails=document.createElement('dialog');
  for(const dialog of [chooser,username,password])dialog.className='desktop-company-dialog';
@@ -31,7 +31,13 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null}){
  emails.setAttribute('aria-labelledby','company-emails-title');
  emails.innerHTML='<button class="dialog-close" type="button" aria-label="Close verified emails">×</button><h2 id="company-emails-title">Verified emails</h2><p class="company-intro">Choose the address that signs you in to Easter Company. Only the selected address is a login key; the other addresses are recorded on your account and cannot be used to sign in.</p><div class="company-emails" role="radiogroup" aria-label="Verified emails"></div><p class="company-emails-loading" role="status">Reading your verified emails…</p><p class="company-emails-empty" hidden></p><p class="company-emails-unset" hidden></p><p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p><div class="company-email-actions"><button type="button" class="company-submit">Save selection</button><button type="button" class="company-clear text-link" hidden>Clear login email</button></div>';
  document.body.append(chooser,username,password,emails);
- const error=(dialog,message)=>{const node=dialog.querySelector('.company-error');node.textContent=message;node.hidden=!message;};
+ // A sentence in one of these dialogs is that failure's only home: the page notice gives up
+ // its copy rather than showing the same failure twice. A closed dialog holds no text the
+ // player can see, so it never takes the failure away from the notice.
+ const error=(dialog,message)=>{
+  if(message&&dialog.open&&typeof onInlineError==='function')onInlineError();
+  const node=dialog.querySelector('.company-error');node.textContent=message;node.hidden=!message;
+ };
  const lock=value=>{busy=value;for(const dialog of [chooser,username,password,emails]){dialog.setAttribute('aria-busy',String(value));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}chooser.querySelector('.company-submit').textContent=value?'Signing in…':'Sign in';username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';emails.querySelector('.company-submit').textContent=value?'Saving…':'Save selection';};
  // A username the server rejects is a plain sentence beside the field, never a hint
  // about any other account: taken and policy are the only two answers there are.
@@ -154,9 +160,25 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null}){
   if(busy)return;
   const useSaved=!recover&&!chooseOptions.switchAccount&&state.microsoftAccount&&typeof desktop.continueMicrosoft==='function';
   chooser.close();
+  // The saved Microsoft session is a shortcut, never a dead end. Every failure of it falls
+  // through to the fresh interactive sign-in that shows the device code and the browser
+  // action, with exactly one stop: an identity conflict means the player must choose the
+  // Microsoft account linked to this Easter Company account, and nobody else can do that.
+  // Anything else — an expired, invalid or unreachable saved session included — is the
+  // shortcut failing rather than the sign-in, so the player still gets the code that the
+  // Forgot your password path already gives them.
   if(useSaved){
    try{await desktop.continueMicrosoft();return;}
-   catch(cause){if(!['invalid_grant','invalid_microsoft_token','invalid_session'].includes(cause.code)){chooser.showModal();error(chooser,cause.message);return;}}
+   catch(cause){
+    if(cause&&cause.code==='identity_conflict'){
+     // Identity conflict is the one stop: the player has to choose the Microsoft account linked
+     // to this Easter Company account, so the chooser comes back carrying that sentence.
+     // Choosing Microsoft closed it, and its own close handler runs as a task after this catch,
+     // so the dialog is reopened once that task has run rather than racing the reset it does.
+     await new Promise(resolve=>setTimeout(resolve,0));
+     chooser.showModal();error(chooser,cause.message);return;
+    }
+   }
   }
   const result=await signInMicrosoft({link:recover?Boolean(state.account&&!chooseOptions.switchAccount):Boolean(chooseOptions.link)});
   if(result&&recover&&state.account&&!state.account.passwordRequired)setup(true);
