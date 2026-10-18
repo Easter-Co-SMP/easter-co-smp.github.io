@@ -865,7 +865,7 @@ try{
    await emailsDialog.locator('.company-status').filter({hasText:'cleared'}).waitFor();
    assert.equal((await callsNamed('selectLoginEmail')).at(-1).payload,null,'clearing sends an explicit null');
    assert.equal(await emailsDialog.locator('.company-emails-unset').isVisible(),true,'with no selection the section says which sign-in works');
-   assert.equal((await emailLine.textContent()).trim(),'No login email is selected. Sign in with Microsoft or with your username.','and the profile line says the same thing');
+   assert.equal((await emailLine.textContent()).trim(),'No login email is selected. Sign in with a linked provider or with your username.','and the profile line says the same thing');
    await emailsDialog.locator('input[name=email]').nth(1).check();
    await emailsDialog.getByRole('button',{name:'Save selection',exact:true}).click();
    await emailsDialog.locator('.company-status').filter({hasText:'Your login email is saved.'}).waitFor();
@@ -933,8 +933,8 @@ try{
    // MESSAGES.identity_conflict) plus the two lines the renderer adds. Three lines, in order:
    // the sentence, what did not change, and the action — which starts by closing the dialog it
    // is spoken from, because the profile control it names is inert behind a modal.
-   const CONFLICT_SENTENCE='Sign in with the Microsoft account linked to this Easter Company account, or switch Easter Company accounts.';
-   const CONFLICT_LINES=[CONFLICT_SENTENCE,'Nothing on your Easter Company account has changed.','Close this window first. Then open your profile at the top of the page and choose Switch Account, or Add account.'];
+   const CONFLICT_SENTENCE='That provider belongs to a different Easter Company account, or this account already has a different link. Sign out to use another account.';
+   const CONFLICT_LINES=[CONFLICT_SENTENCE,'Nothing on your Easter Company account has changed.','Close this window first. Sign out from your profile before signing in to a different account.'];
    await pushState({phase:'ready',actions:['signin'],canPlay:false,install:INSTALLED,profile:{name:'Owen'},account:{id:'EC-7',username:'captain_owen',name:'Captain Owen',roles:['crew'],passwordRequired:false,microsoftLinked:true},companyReady:true,microsoftConnected:true,error:null});
    assert.deepEqual(await visibleErrors(),[],'a settled launcher has no failure on screen');
    // A failure with no dialog open has exactly one home: the page notice.

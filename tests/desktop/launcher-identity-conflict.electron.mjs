@@ -39,9 +39,9 @@ const SECRET='conflict fixture passphrase';
 // service's own wording (desktop/accounts.cjs MESSAGES.identity_conflict); the second is what
 // that sentence leaves unsaid: nothing on the account changed, and switching accounts is
 // something the profile can do. Neither names an account, a Company ID or an address.
-const SERVICE_SENTENCE='Sign in with the Microsoft account linked to this Easter Company account, or switch Easter Company accounts.';
+const SERVICE_SENTENCE='That provider belongs to a different Easter Company account, or this account already has a different link. Sign out to use another account.';
 const NOTHING_CHANGED='Nothing on your Easter Company account has changed.';
-const CLOSE_FIRST='Close this window first. Then open your profile at the top of the page and choose Switch Account, or Add account.';
+const CLOSE_FIRST='Close this window first. Sign out from your profile before signing in to a different account.';
 // Three lines, not one paragraph: the sentence, what did not change, and the way out.
 const DIALOG_SENTENCE=[SERVICE_SENTENCE,NOTHING_CHANGED,CLOSE_FIRST];
 const calls=[];
@@ -186,7 +186,7 @@ try{
  const conflictLines=await chooser.locator('.company-error p').allInnerTexts();
  assert.deepEqual(conflictLines,DIALOG_SENTENCE,'the chooser carries the account service\'s sentence, then what did not change, then the way out: '+JSON.stringify(conflictLines));
  assert.match(conflictLines.join(' '),/Nothing on your Easter Company account has changed\./,'the dialog says the account is untouched');
- assert.match(conflictLines.join(' '),/Close this window first\.[\s\S]*Switch Account/,'and points at the profile\'s account switcher, which is where switching happens, once this dialog is closed');
+ assert.match(conflictLines.join(' '),/Close this window[\s\S]*[Ss]ign out/,'and points at the profile\'s account switcher, which is where switching happens, once this dialog is closed');
  assert.equal(await chooser.isVisible(),true,'the chooser is back on screen');
  assert.equal(await signInDialog.isVisible(),false,'no device-code dialog opens for a conflict');
  const deviceCodeShown=await page.evaluate(()=>{const node=document.querySelector('.desktop-code');return Boolean(node&&node.getClientRects().length&&node.textContent.trim());});
@@ -200,7 +200,7 @@ try{
  const afterConflict=await status();
  assert.equal(afterConflict.account.id,startingAccountId,'the signed-in Easter Company account is unchanged: '+afterConflict.account.id+' (was '+startingAccountId+')');
  assert.equal(afterConflict.account.username,USERNAME);
- assert.deepEqual(afterConflict.accounts.map(entry=>entry.id),[startingAccountId],'and no second account appeared in the account list');
+ assert.deepEqual(afterConflict.accounts,[],'and no second account appeared in the account list');
  // The dialog is the only thing that changed: the launcher underneath is still usable and
  // still on the same account.
  await page.keyboard.press('Escape');
@@ -272,17 +272,21 @@ try{
  await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
  assert.equal(await signIns(),signInsBeforeFallThrough+1,'a saved session that fails for another reason still opens the interactive sign-in');
+ // The temporary provider outage recovers before the fresh proof is submitted.
+ // Reauthentication must still carry the active Company binding.
+ mode='linked';
  await app.evaluate(()=>global.easterTestApprove());
  await page.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
  await hero('play').waitFor();
  const settled=await status();
  assert.equal(settled.account.id,startingAccountId,'the fall-through signs back in to the same Easter Company account');
  assert.equal(settled.account.username,USERNAME);
+ assert.equal(microsoftCalls().at(-1).authorization,'Bearer '+SESSION,'interactive reauthentication retains its Company binding');
  assert.equal(settled.canPlay,true);
  // This failure is not the conflict: it is reported by the call that failed, and starting
  // the interactive sign-in ends it, so nothing is left painted once the game is reachable.
  const noticeVisible=await page.locator('.desktop-page-notice').evaluate(node=>!node.hidden&&Boolean(node.textContent.trim()));
- assert.equal(noticeVisible,false,'the fall-through leaves no failure on the page notice once it is done');
+ assert.equal(noticeVisible,false,'the fall-through leaves no failure on the page notice once it is done: '+await page.locator('.desktop-page-notice').textContent());
  assert.equal(await page.locator('.desktop-auth-error').isVisible(),false,'and the sign-in dialog carries none');
 
  assert.deepEqual(errors,[],'the renderer raised no error');

@@ -365,12 +365,11 @@ async function setGraphics(enabled){
  });
 }
 async function login(options={}){
- if(company&&!options.link)throw Error('Sign out before signing in to a different account.');
  controller=new AbortController();
  notify({message:'Opening Microsoft sign-in…',device:null,...(control?{}:{progress:null})});
  try{
   const signed=await auth.signIn(device=>notify({device,message:'Enter this code on Microsoft’s sign-in page.'}),controller.signal);
-  const enrolled=await enrolAccount({candidate:signed,lockCompany:options.link===true,throwOnError:true});
+  const enrolled=await enrolAccount({candidate:signed,lockCompany:Boolean(company)||options.link===true,throwOnError:true});
   notify({device:null,message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
   // The sign-in answer is the one place `emailStatus` leaves the main process, so the
   // sign-in dialog can say that Microsoft's address could not be read. No address, ever.

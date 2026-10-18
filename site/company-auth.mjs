@@ -59,6 +59,12 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  // paragraph is where a player stops reading. The slot stays one alert, so assistive
  // technology reads it once, in order. A single sentence stays a single text node, which is
  // what every other dialog's slot is.
+ window.addEventListener('resize',()=>{
+  for(const dialog of [chooser,username,password,emails]){
+   const notice=dialog.querySelector('.company-error');
+   if(dialog.open&&notice&&!notice.hidden)reveal(dialog,notice);
+  }
+ });
  const error=(dialog,lines)=>{
   const shown=(Array.isArray(lines)?lines:[lines]).filter(line=>typeof line==='string'&&line.trim());
   if(shown.length&&dialog.open&&typeof onInlineError==='function')onInlineError();
@@ -205,7 +211,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  // its Switch Account control cannot be pressed until this window is gone. Neither line names an
  // account, an address or a Company ID.
  const IDENTITY_CONFLICT_UNCHANGED='Nothing on your Easter Company account has changed.';
- const IDENTITY_CONFLICT_NEXT='Close this window and sign out from your profile before signing in to a different account.';
+ const IDENTITY_CONFLICT_NEXT='Close this window first. Sign out from your profile before signing in to a different account.';
  const identityConflictCopy=sentence=>{
   const own=typeof sentence==='string'&&sentence.trim()?sentence.trim():IDENTITY_CONFLICT;
   return [own,IDENTITY_CONFLICT_UNCHANGED,IDENTITY_CONFLICT_NEXT];

@@ -776,6 +776,7 @@
   cancelledSignIn=false;clearFailure();if(panel.open)panel.close();
   signInPending=true;render(current||{});signin.showModal();
   return Promise.resolve(desktop.signIn(options)).then(answer=>{
+   clearFailure();
    if(emailStatusOf(answer)==='unavailable'){holdSignInNotice();return true;}
    closeSignIn();return true;
   }).catch(error=>{
