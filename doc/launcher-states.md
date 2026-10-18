@@ -120,9 +120,14 @@ that returns.
   topmost dock the band reaches — the map key, the drawing palette, the compass and the
   zoom controls. The band is narrower than the window, so a dock it does not reach at the
   current width moves with the others and the strip stays one row. The open key's legend is
-  capped by the room left above the chart's own footer, so it scrolls inside the key rather
-  than sliding under that footer, and a dock the chart itself inserts after the notice is
-  painted (the drawing palette, once its saved notes have loaded) re-measures it.
+  capped by the room left above **whichever edge it meets first — the chart's own footer or
+  the launcher's sticky bar** — so it scrolls inside the key rather than sliding under
+  either, with the bar counted only when it is laid out and standing over the key's own
+  columns (at 1440 it is not, so the key there is untouched); one value
+  (`--launcher-notice-key-space`) owns the rule and a key that already fits is published no
+  cap at all. A dock the chart itself inserts after the notice is painted (the drawing
+  palette, once its saved notes have loaded) re-measures it, and so does the bar when it
+  moves, appears or goes away.
 - **Nothing is hard-coded.** The UI renders whatever sentence the state or the
   rejected call supplies; it does not compose or re-word failures.
 
