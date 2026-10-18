@@ -201,3 +201,20 @@
 .desktop-company-dialog .company-clear{display:block;margin:10px auto 0;font-size:11px}
 .desktop-profile-heading.desktop-email{color:#e4d7b8;overflow-wrap:anywhere}
 .desktop-profile-heading.desktop-email.is-unavailable{color:#f4b6a6}
+
+/* The map is a full-bleed chart, so there is no page flow for the failure notice's room to be
+   reserved on: the docked controls move instead. site/desktop.js measures how far the strip the
+   band actually reaches has to drop and publishes it as --launcher-notice-space (0 otherwise, and
+   never measured from the location pill, which is a pointer-events:none output). margin-top is
+   used rather than top so each dock keeps the offset its own stylesheet gave it at every width,
+   and rather than a transform so the location pill keeps its centring. */
+.desktop-mode .atlas-stage>.compass,
+.desktop-mode .atlas-stage>.map-key,
+.desktop-mode .atlas-stage>.map-navigation,
+.desktop-mode .atlas-stage>.map-drawing,
+.desktop-mode .atlas-stage>.map-location{margin-top:var(--launcher-notice-space,0px)}
+/* With the strip moved down, an open key would otherwise grow under the chart's own footer. The
+   room left between them is measured and published as --launcher-notice-key-space, so the legend
+   scrolls inside the key rather than sliding behind the footer's panel. Unset (or generous) means
+   the key is laid out exactly as it always was. */
+.desktop-mode .atlas .key-content{max-height:var(--launcher-notice-key-space,none);overflow:auto;overscroll-behavior:contain}

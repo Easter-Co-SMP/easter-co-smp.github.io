@@ -340,6 +340,71 @@ try{
  }
  await page.setViewportSize({width:1360,height:920});
  await page.getByRole('button',{name:'Dismiss message'}).click();
+ // The map is the other page the band crosses, and the same defect followed it: the key, the
+ // drawing palette and the zoom controls are docked on top of a full-bleed chart, so the notice sat
+ // on the key at 800 and on the key, the palette and both zoom buttons at 390 — and at 390 the key
+ // could not even be clicked open, because the band took the pointer. The room is now measured from
+ // the topmost dock the band reaches and published to site/desktop.css, which moves that strip, so
+ // what is proven here is the same property as the guide: no control under the band, by box and by
+ // elementFromPoint, and the key still opens with a real click.
+ const mapFailure='The chart data could not be cached. Try again.';
+ const mapNotice=()=>page.evaluate(()=>{
+  const box=node=>{const r=node.getBoundingClientRect();return {left:Math.round(r.left),top:Math.round(r.top),right:Math.round(r.right),bottom:Math.round(r.bottom)};};
+  const notice=document.querySelector('.desktop-page-notice'),band=box(notice),controls=[];
+  const add=(name,node)=>{if(node&&node.getClientRects().length)controls.push({name,box:box(node)});};
+  add('map key',document.querySelector('.map-key summary'));
+  for(const label of document.querySelectorAll('.map-key .legend label'))add('legend',label);
+  add('draw palette',document.querySelector('.map-drawing summary'));
+  for(const id of ['zoom-in','zoom-out','home','fullscreen'])add(id,document.getElementById(id));
+  add('compass',document.querySelector('.compass'));
+  const under=controls.filter(control=>control.box.right>band.left&&control.box.left<band.right&&control.box.bottom>band.top&&control.box.top<band.bottom).map(control=>control.name);
+  const reached=[];
+  for(const control of controls){
+   const x=Math.round((Math.max(control.box.left,band.left)+Math.min(control.box.right,band.right))/2);
+   const y=Math.round((Math.max(control.box.top,band.top)+Math.min(control.box.bottom,band.bottom))/2);
+   if(x<0||y<0||x>=innerWidth||y>=innerHeight)continue;
+   const hit=document.elementFromPoint(x,y);
+   if(hit&&hit.closest('.desktop-page-notice'))reached.push(control.name);
+  }
+  const key=document.querySelector('.map-key'),footer=document.querySelector('.map-bottom'),keyBox=box(key);
+  return {band,under,reached,open:key.open,keyBox,
+   // The key grows downward once opened: with the strip moved down it must not slide under the
+   // chart's own footer, so its content is capped by the room that is left.
+   keyClearOfFooter:!footer||keyBox.bottom<=box(footer).top+1,
+   legendInsideKey:[...document.querySelectorAll('.map-key .legend label')].every(label=>box(label).bottom<=keyBox.bottom+1),
+   reserved:getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-space').trim(),
+   overflow:document.documentElement.scrollWidth<=innerWidth+1};
+ });
+ await page.getByRole('link',{name:'Map',exact:true}).click();
+ await page.waitForFunction(()=>!!document.getElementById('terrain'),{timeout:20000});
+ await send({...ready,launcherUpdate:{phase:'current'},error:mapFailure});
+ await page.locator('.desktop-page-notice').filter({hasText:mapFailure}).waitFor();
+ for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  // The reservation is layout, so the strip is re-measured on the frame after the window changes.
+  await page.waitForFunction(()=>{
+   const notice=document.querySelector('.desktop-page-notice'),key=document.querySelector('.map-key');
+   return !notice||!key||notice.getBoundingClientRect().bottom<=key.getBoundingClientRect().top+1;
+  },{timeout:4000}).catch(()=>{});
+  // A real click, with the pointer: this is the interaction the band used to swallow. The point is
+  // on the summary's left edge because the chart's own drawing palette sits over its right half at
+  // every width (map.js slides that palette aside only once the key is open) — a chart-internal
+  // overlap, not this one.
+  await page.locator('.map-key summary').click({position:{x:16,y:18}});
+  await page.waitForFunction(()=>document.querySelector('.map-key').open);
+  const geometry=await mapNotice();
+  assert.equal(geometry.open,true,'the map key opens by click at '+width+'px');
+  assert.deepEqual(geometry.under,[],'the notice reaches no map control at '+width+'px: '+JSON.stringify(geometry));
+  assert.deepEqual(geometry.reached,[],'and elementFromPoint agrees on the map at '+width+'px: '+JSON.stringify(geometry));
+  assert.equal(geometry.keyClearOfFooter,true,'the open key stays clear of the chart footer at '+width+'px: '+JSON.stringify(geometry.keyBox));
+  assert.equal(geometry.legendInsideKey,true,'every legend row is inside the key at '+width+'px');
+  assert(geometry.overflow,'the moved strip adds no horizontal overflow at '+width+'px');
+  await shot('notice-map-'+width);
+  await page.locator('.map-key summary').click({position:{x:16,y:18}});
+  await page.waitForFunction(()=>!document.querySelector('.map-key').open);
+ }
+ await page.setViewportSize({width:1360,height:920});
+ await page.getByRole('button',{name:'Dismiss message'}).click();
  // The launch-time pair, honestly. Main is told by EASTER_TEST_TRAY=0 that this desktop
  // has no status-notifier host, which is the state of the test seat, of a bare X session
  // and of Owen's own i3/polybar seat: polybar's tray is XEmbed, so no watcher owns the
