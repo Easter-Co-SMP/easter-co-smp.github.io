@@ -682,3 +682,90 @@ test('published JAR paths install into mods and legacy markers request repair',a
   assert.equal(installDiff(published,fixture.record(),{origin:server.origin}).changed,false);
  }finally{await server.close();await fixture.cleanup();}
 });
+
+// ---- the client's display defaults -------------------------------------------
+// Owen asked for a first launch that is already fullscreen at GUI scale 2. The seed
+// is not a graphics choice, so every case here runs with the toggle off, and the
+// second one starts from a tree that has already been played: the game writes every
+// key on its first exit, and that tree is where the feature has to be observable.
+const PLAYED_OPTIONS='version:4903\nao:true\nfullscreen:false\nguiScale:4\nfov:0.5\nrenderDistance:12\ngraphicsMode:fancy\n';
+const optionsFile=root=>path.join(root,'options.txt');
+const displayRecordFile=root=>path.join(root,'.easter-client-display');
+const shown=(text)=>text.split('\n').filter(Boolean);
+
+test('an install seeds the display defaults with enhanced graphics off, and only once',async()=>{
+ const body=Buffer.from('base-mod-jar');
+ const server=await fileServer({'/files/base.jar':body});
+ const tree=await installedTree();
+ try{
+  const baseChunk={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(body),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',body)]};
+  const published=chunkFixture({base:baseChunk});
+  const result=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false});
+  assert.equal(result.unchanged,undefined);
+  // Read the file itself: the defaults are on disk, not merely intended.
+  const options=await fs.readFile(optionsFile(tree.root),'utf8');
+  assert.deepEqual(shown(options),['guiScale:2','fullscreen:true'],'the toggle was off and they were written anyway');
+  assert.equal(options.includes('\r'),false,'LF line endings');
+  assert.equal((await fs.stat(optionsFile(tree.root))).mode&0o777,0o600,'the mode the existing settings writer uses');
+  assert.equal(await fs.stat(path.join(tree.root,'config','iris.properties')).then(()=>'present',()=>'absent'),'absent','the graphics step wrote nothing');
+  const record=JSON.parse(await fs.readFile(displayRecordFile(tree.root),'utf8'));
+  assert.equal(record.schema,1);
+  assert.deepEqual(record.values,{guiScale:'2',fullscreen:'true'});
+  // A second install/update run rewrites neither the file nor the record.
+  const past=new Date('2020-01-01T00:00:00.000Z');
+  await fs.utimes(optionsFile(tree.root),past,past);
+  await fs.utimes(displayRecordFile(tree.root),past,past);
+  const optionsBefore=await fs.readFile(optionsFile(tree.root));
+  resetTransferStats();
+  const repeat=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
+  assert.equal(repeat.unchanged,true);
+  assert.deepEqual(await fs.readFile(optionsFile(tree.root)),optionsBefore,'the file is byte-identical');
+  assert.equal((await fs.stat(optionsFile(tree.root))).mtimeMs,past.getTime(),'a repeat run does not rewrite options.txt');
+  assert.equal((await fs.stat(displayRecordFile(tree.root))).mtimeMs,past.getTime(),'nor its record');
+  assert.equal(transferStats().hashReads,0);
+ }finally{await server.close();await tree.cleanup();}
+});
+
+test('an install seeds a tree that has already been played once, and a later player choice survives',async()=>{
+ const body=Buffer.from('base-mod-jar');
+ const server=await fileServer({'/files/base.jar':body});
+ const tree=await installedTree();
+ try{
+  // The client this launcher already installed and the player has already launched:
+  // the game wrote every key, including its own fullscreen:false and guiScale:4.
+  await fs.writeFile(optionsFile(tree.root),PLAYED_OPTIONS);
+  const baseChunk={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(body),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',body)]};
+  const published=chunkFixture({base:baseChunk});
+  await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
+  assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),PLAYED_OPTIONS.replace('fullscreen:false','fullscreen:true').replace('guiScale:4','guiScale:2'),'seeded once, every other line kept exactly where it was');
+  assert.equal(await fs.stat(displayRecordFile(tree.root)).then(()=>'present',()=>'absent'),'present','the seed is remembered in the tree');
+  const recordStat=await fs.stat(displayRecordFile(tree.root));
+  // The player plays again and turns fullscreen back off in the game's own settings.
+  const chosen=PLAYED_OPTIONS.replace('guiScale:4','guiScale:2');
+  await fs.writeFile(optionsFile(tree.root),chosen);
+  await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
+  assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),chosen,'a later update never re-decides a player’s choice');
+  assert.equal((await fs.stat(displayRecordFile(tree.root))).mtimeMs,recordStat.mtimeMs,'and the record is written only once');
+  // A key that goes missing is repaired through the install path too.
+  await fs.writeFile(optionsFile(tree.root),'ao:true\nfullscreen:false\n');
+  await installClient({root:tree.root,published,origin:server.origin,includeGraphics:false,mode:'update'});
+  assert.equal(await fs.readFile(optionsFile(tree.root),'utf8'),'ao:true\nfullscreen:false\nguiScale:2\n','the missing key came back and the present one was not touched');
+ }finally{await server.close();await tree.cleanup();}
+});
+
+test('the display defaults are written alongside the graphics step, not instead of it',async()=>{
+ const base=Buffer.from('base-mod-jar'),graphics=Buffer.from('shader-bundle');
+ const server=await fileServer({'/files/base.jar':base,'/files/graphics.zip':graphics});
+ const tree=await installedTree();
+ try{
+  const baseChunk={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(base),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',base)]};
+  const graphicsChunk={id:'graphics',name:'Enhanced graphics',optional:true,immutable:false,version:'sha256:'+sha256(graphics),files:[entry(server.origin+'/files/graphics.zip','shaderpacks/graphics.zip',graphics)]};
+  const published=chunkFixture({base:baseChunk,graphics:graphicsChunk});
+  const result=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:true,hardware:{vramMB:8188,tier:'capable'}});
+  const options=shown(await fs.readFile(optionsFile(tree.root),'utf8'));
+  for(const line of ['guiScale:2','fullscreen:true','graphicsMode:fancy','renderDistance:16'])assert(options.includes(line),line+' is in options.txt: '+JSON.stringify(options));
+  assert.equal(await fs.stat(displayRecordFile(tree.root)).then(()=>'present',()=>'absent'),'present');
+  assert.deepEqual({...result.quality},{renderDistance:16,shadowDistance:12,shaders:true},'the quality report is unchanged by the display seed');
+  assert.match(await fs.readFile(path.join(tree.root,'config','iris.properties'),'utf8'),/^enableShaders:true$/m);
+ }finally{await server.close();await tree.cleanup();}
+});

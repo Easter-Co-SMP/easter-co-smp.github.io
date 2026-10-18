@@ -17,7 +17,7 @@ const temp=await fs.mkdtemp(path.join(os.tmpdir(),'easter-loopback-test-'));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const sha256=buffer=>crypto.createHash('sha256').update(buffer).digest('hex');
 let failures=0;
-let tunedDistance=null;
+let tunedDistance=null,optionsAtRest=null;
 function check(condition,message){if(condition)console.log('  ok   '+message);else{failures++;console.log('  FAIL '+message);}}
 
 // ---- the published fixture --------------------------------------------------
@@ -77,6 +77,13 @@ await fs.writeFile(path.join(clientRoot,'installed.json'),JSON.stringify({
  files:['mods/easter-navy.jar','shaderpacks/graphics.zip'],includeGraphics:true,updatedAt:'2026-10-15T00:00:00.000Z'
 }));
 await fs.writeFile(path.join(temp,'settings.json'),JSON.stringify({memoryMB:4096,server:'',javaPath:'',location:clientRoot,includeGraphics:true}));
+// The display-default seam: the tree is installed and current before the app starts,
+// which is the state a returning player is in. options.txt does not exist yet, and the
+// install marker is copied byte for byte so a settings write can be shown not to have
+// rewritten it.
+const optionsPath=path.join(clientRoot,'options.txt');
+const displayRecordPath=path.join(clientRoot,'.easter-client-display');
+const installedBefore=await fs.readFile(path.join(clientRoot,'installed.json'),'utf8');
 
 // The graphics profile this run is told to assume: the discrete card the ticket's
 // real run found on this machine, so the quality settings the toggle writes are the
@@ -122,6 +129,19 @@ try{
  check(started.canPlay===false,'an installed client with no account is not playable');
  // The renderer also pulls map data through the same origin; no client content is fetched.
  check(requests.every(entry=>entry.path.startsWith('/data/')),'the launch check fetched no client content: '+JSON.stringify(requests.map(r=>r.path)));
+
+ console.log('\n1a. the display defaults are seeded from the startup path of an installed, up-to-date tree');
+ // Nothing above installed anything: the tree was current before the app started, so
+ // this is the path a returning player takes.
+ const seeded=await fs.readFile(optionsPath,'utf8');
+ check(/^guiScale:2$/m.test(seeded),'starting the launcher seeded guiScale:2 into the client options.txt: '+JSON.stringify(seeded));
+ check(/^fullscreen:true$/m.test(seeded),'and fullscreen:true, read back from the file');
+ check(seeded.split('\n').filter(Boolean).every(line=>/^(guiScale:2|fullscreen:true)$/.test(line)),'and nothing else was written into it: '+JSON.stringify(seeded));
+ const seedRecord=JSON.parse(await fs.readFile(displayRecordPath,'utf8'));
+ check(seedRecord.schema===1&&seedRecord.values?.guiScale==='2'&&seedRecord.values?.fullscreen==='true','the seed is remembered by its own record in the tree: '+JSON.stringify(seedRecord));
+ check(await fs.readFile(path.join(clientRoot,'installed.json'),'utf8')===installedBefore,'the install marker is byte-identical: the seed did not create or race it');
+ check(await fs.stat(path.join(clientRoot,'config','iris.properties')).then(()=>'present',()=>'absent')==='absent','the seed is not the graphics step: no iris.properties was written');
+ check(requests.every(entry=>entry.path.startsWith('/data/')),'and the seed fetched nothing');
 
  console.log('\n2. publishing a new graphics chunk and applying it through the real pipeline');
  files['/data/client.json']=Buffer.from(JSON.stringify({...manifest,chunks:[manifest.chunks[0],{...manifest.chunks[1],version:'sha256:'+sha256(graphicsV3),files:[{...manifest.chunks[1].files[0],hash:'sha256:'+sha256(graphicsV3),size:graphicsV3.length}]}]}));
@@ -213,6 +233,7 @@ try{
  const iris=await fs.readFile(path.join(clientRoot,'config','iris.properties'),'utf8');
  check(/^graphicsMode:(fancy|fast)$/m.test(options),'the client options carry a graphics mode: '+options.trim().split('\n').join(' '));
  check(new RegExp('^renderDistance:'+onState.graphics.tuned.renderDistance+'$','m').test(options),'and the render distance that was reported');
+ check(/^guiScale:2$/m.test(options)&&/^fullscreen:true$/m.test(options),'the display defaults are still there after the graphics write');
  check(/^enableShaders:true$/m.test(iris),'the shader loader is switched on');
  check(/^shaderPack:ComplementaryUnbound_r5\.9\.3\.zip$/m.test(iris),'and names the pack Owen chose');
  check(onState.graphics.tuned.shaders===true||onState.graphics.tuned.shaders===false,'shaders are reported as written');
@@ -220,6 +241,13 @@ try{
 
  console.log('\n5. the state the running app broadcasts');
  console.log(JSON.stringify({final:await latest()},null,1));
+ // What the files look like at rest, so the fresh run below can be shown to leave them
+ // exactly as they are.
+ optionsAtRest={
+  bytes:await fs.readFile(optionsPath),
+  mtimeMs:(await fs.stat(optionsPath)).mtimeMs,
+  recordMtimeMs:(await fs.stat(displayRecordPath)).mtimeMs
+ };
 }finally{
  await app.close();
 }
@@ -239,11 +267,17 @@ try{
   check(restarted.install.installed===true,'the client tree is still recognised');
   check(restarted.graphics.tuned&&restarted.graphics.tuned.renderDistance===tunedDistance,'the tuned record is read back from the client: '+JSON.stringify(restarted.graphics.tuned));
   check(restarted.hardware.tier==='capable','and the hardware answer is unchanged: '+JSON.stringify({tier:restarted.hardware.tier,vramMB:restarted.hardware.vramMB}));
+  // The second start of the real app finds the seed record and writes nothing at all.
+  const optionsAfterRestart=await fs.readFile(optionsPath);
+  check(optionsAfterRestart.equals(optionsAtRest.bytes),'a second app run leaves options.txt byte-identical: '+JSON.stringify(optionsAfterRestart.toString('utf8')));
+  check((await fs.stat(optionsPath)).mtimeMs===optionsAtRest.mtimeMs,'and does not touch it: mtime unchanged');
+  check((await fs.stat(displayRecordPath)).mtimeMs===optionsAtRest.recordMtimeMs,'the seed record is written once, never again');
+  check((await marker()).chunks.graphics.version==='sha256:'+sha256(graphicsV3),'and the install marker still records the chunks it had before the restart');
  }finally{await relaunch.close();}
 }finally{
  server.close();
  await fs.rm(temp,{recursive:true,force:true});
 }
 
-console.log(failures===0?'\nLOOPBACK PASS: the real launcher fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, and applied the enhanced graphics toggle in both directions by writing the client\'s own quality files':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
+console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults from its startup path on an already-installed tree and wrote nothing on the second run, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, and applied the enhanced graphics toggle in both directions by writing the client\'s own quality files':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
 process.exitCode=failures===0?0:1;
