@@ -32,6 +32,15 @@ Review screenshots remain on Easter-Server under `/tmp/launcher-ui-after/`. Repr
 xvfb-run -a node tests/desktop/ui-review.electron.mjs
 ```
 
+Known staleness in that reviewer script, found 2026-10-19 and deliberately not chased
+because it is not one of the release preconditions in `doc/releasing.md`: its
+account-conflict case still expects the pre-4341b90 copy, which told the player to "choose
+Switch Account, or Add account" — neither control has existed since the one-account change —
+and its account-action-lock case races the main process's own next state broadcast, so the
+account actions are legitimately enabled again by the time it asserts. Both need re-authoring
+the way `tests/desktop/ownership.electron.mjs` and `tests/desktop/deslop.electron.mjs` were.
+Neither affects the shipped launcher.
+
 ## Release boundary
 
 Prepared for Delta to merge. No version bump, release, deployment, service restart, installed-launcher change or live game change is part of this branch. Authentication and game execution use dedicated fixtures in these tests; no real player credentials were used. This host has no usable OS keyring, so the secure-storage refusal path was exercised. Windows packaging remains a release-runner check.
