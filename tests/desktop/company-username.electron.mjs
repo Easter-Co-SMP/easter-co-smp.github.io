@@ -162,8 +162,15 @@ try{
  };
  await refuse(PROBE_TAKEN,'That username is already taken. Try another.');
  // A reserved word passes every rule the client can see and is refused by the server as a
- // policy answer, which must not be reported as a name someone else holds.
- await refuse(PROBE_RESERVED,'Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.');
+ // policy answer, which must not be reported as a name someone else holds. The sentence is
+ // the product's own, read from both layers that state it and identical in each:
+ // site/company-auth.mjs `usernamePolicy` and desktop/accounts.cjs `username_policy`
+ // MESSAGES. It said 'lowercase letters' before launcher 1.0.27, when a capital letter in a
+ // username was refused; since then the field folds capitals as they are typed, so the
+ // sentence promises the fold instead of demanding lowercase. A journey that keeps the old
+ // words fails here against a product that is right, which is what happened before this line
+ // was corrected (doc/launcher-states.md, *The username and the password, as of 1.0.27*).
+ await refuse(PROBE_RESERVED,'Use 3 to 20 characters: letters, numbers, underscores or dashes. Capitals become lowercase.');
  // 4. A username the probe allows is taken to step 2, which names it.
  await usernameStep.getByLabel('Username',{exact:true}).fill(RACE_LOST);
  await usernameStep.getByRole('button',{name:'Continue',exact:true}).click();
@@ -281,16 +288,20 @@ try{
  await page.waitForFunction(()=>document.querySelectorAll('#desktop-company-emails input[name=email]')[1]?.checked===true);
  assert.equal(await addressRows.nth(1).isChecked(),true,'the reopened section reads the saved choice back');
  // Clearing the selection, which is the state an account signs in with Microsoft or its
- // username from.
+ // username from. Both sentences below are site/company-auth.mjs's own constants — NO_LOGIN_EMAIL
+ // and NO_EMAILS — and they name "a linked provider", not Microsoft: commit 4341b90 added
+ // provider sign-in, so an account with no login email can sign in with any linked provider.
+ // This journey asserted the older Microsoft-only wording until it was found here, on the same
+ // day and for the same reason as the signed-out hero's sentence.
  await emailsDialog.getByRole('button',{name:'Clear login email',exact:true}).click();
  await emailsDialog.locator('.company-status').filter({hasText:'cleared'}).waitFor();
  assert.equal(loginEmail,null,'the selection is cleared on the account service');
  assert.equal(await addressRows.nth(0).isChecked(),false);
  assert.equal(await addressRows.nth(1).isChecked(),false);
  assert.equal(await emailsDialog.locator('.company-emails-unset').isVisible(),true,'with nothing selected the section says which sign-in works');
- assert.match(await emailsDialog.locator('.company-emails-unset').textContent(),/Sign in with Microsoft or with your username\./);
+ assert.match(await emailsDialog.locator('.company-emails-unset').textContent(),/Sign in with a linked provider or with your username\./);
  assert.equal(await emailsDialog.getByRole('button',{name:'Clear login email',exact:true}).isVisible(),false,'there is nothing left to clear');
- await lineIs('No login email is selected. Sign in with Microsoft or with your username.');
+ await lineIs('No login email is selected. Sign in with a linked provider or with your username.');
  await page.screenshot({path:'/tmp/company-emails-cleared.png',animations:'disabled'});
  // Choose the second address again, so the restart below has a non-default choice to keep.
  await addressRows.nth(1).check();
@@ -305,10 +316,10 @@ try{
  await page.getByRole('button',{name:'Verified emails',exact:true}).click();
  await emailsDialog.locator('.company-emails-empty').waitFor();
  assert.equal(await emailsDialog.locator('input[name=email]').count(),0,'an account with no verified email shows no list');
- assert.equal((await emailsDialog.locator('.company-emails-empty').textContent()).trim(),'No verified email is recorded for this account. Sign in with Microsoft or with your username.');
+ assert.equal((await emailsDialog.locator('.company-emails-empty').textContent()).trim(),'No verified email is recorded for this account. Sign in with a linked provider or with your username.');
  assert.equal(await emailsDialog.getByRole('button',{name:'Save selection',exact:true}).isVisible(),false);
  assert.equal(await emailsDialog.getByRole('button',{name:'Clear login email',exact:true}).isVisible(),false);
- await lineIs('No verified email is recorded for this account. Sign in with Microsoft or with your username.');
+ await lineIs('No verified email is recorded for this account. Sign in with a linked provider or with your username.');
  await page.screenshot({path:'/tmp/company-emails-none.png',animations:'disabled'});
  noEmails=false;
  // A verified address another account already signs in with is refused as unavailable:
@@ -345,9 +356,17 @@ try{
   ,'no request outside the verified-email routes carries an address');
  await page.screenshot({path:'/tmp/company-username-ready.png',animations:'disabled'});
  // 8b. A password change is the password step on its own: no username is asked for again,
- // and the request that changes the password carries none.
+ // and the request that changes the password carries none. The reauthentication is what
+ // proves the player owns the account, and since provider sign-in (4341b90) it runs through
+ // a provider linked to the account: Reset password opens the provider chooser rather than
+ // starting Microsoft's sign-in by itself, which is what this block used to wait for. It
+ // reauthenticates through Microsoft here because Microsoft is this fixture account's
+ // linked provider; the chooser, not the password step, is where that provider is named.
  await page.locator('.desktop-account-nav').click();
  await page.getByRole('button',{name:'Reset password',exact:true}).click();
+ await chooser.waitFor();
+ assert.equal(await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).isVisible(),true,'a password change reauthenticates through a provider linked to the account');
+ await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();await app.evaluate(()=>global.easterTestApprove());
  const reset=passwordStep;
  await reset.getByRole('heading',{name:'Reset your Easter Company password',exact:true}).waitFor();
@@ -425,5 +444,5 @@ try{
  await page2.screenshot({path:'/tmp/company-emails-restarted.png',animations:'disabled'});
  await page2.keyboard.press('Escape');
  assert.deepEqual(errors2,[]);
- console.log('Company username flow PASS: Sign in / Easter Company account required on signed-out Home and Sign in with Microsoft in the chooser that Home opens, Username or Email identifier login, username chosen before the password with the probe\'s taken and policy refusals each keeping the player on step 1 and writing nothing, verified emails listed and chosen through the real main process with the save, the re-read, the clear, the no-email sentence and the refused address, the choice surviving a restart, exact request bodies, username displayed with no Company ID and no address in the state.');
+ console.log('Company username flow PASS: Sign in / Easter Company account required on signed-out Home and Sign in with Microsoft in the chooser that Home opens, Username or Email identifier login, username chosen before the password with the probe\'s taken and policy refusals each keeping the player on step 1 and writing nothing, verified emails listed and chosen through the real main process with the save, the re-read, the clear, the no-email sentence and the refused address, the choice surviving a restart, a password change that reauthenticates through the provider linked to the account and asks for no username, Play appearing only once the account is ready, exact request bodies, username displayed with no Company ID and no address in the state.');
 }finally{await app.close();await new Promise(resolve=>stub.close(resolve));await fs.rm(home,{recursive:true,force:true});}
