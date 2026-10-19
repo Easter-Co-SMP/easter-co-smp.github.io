@@ -705,9 +705,12 @@ async function installChunked({root,client,chunks,record,settings,notify,control
  // Retire files only from the chunks this run successfully installed, after every
  // replacement passed verification, and preserve files another recorded chunk uses.
  // Never sweep mods/: files the player added are not ours to remove.
+ const targetKey=target=>process.platform==='win32'?target.toLowerCase():target;
+ const retained=new Set(files.map(relative=>targetKey(chunkFileTarget(root,relative))));
  const retired=new Set(installing.flatMap(chunk=>record?.chunks?.[chunk.id]?.files||[]));
  for(const relative of retired){
-  if(!files.includes(relative))await fs.rm(chunkFileTarget(root,relative),{force:true});
+  const target=chunkFileTarget(root,relative);
+  if(!retained.has(targetKey(target)))await fs.rm(target,{force:true});
  }
  const updatedAt=new Date().toISOString();
  const quality=(includeGraphics||(!record?.quality&&hardware?.tunable))?await applyQuality(root,hardware,notify,{shaders:includeGraphics&&Boolean(graphicsChunk)&&deriveQuality(hardware).shaders}):{quality:null,tuned:null,message:null};

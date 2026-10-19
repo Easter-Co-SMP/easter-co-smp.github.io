@@ -935,7 +935,7 @@ test('a changed chunk retires obsolete managed files only after verified replace
  const oldJar=Buffer.from('old-mod'),newJar=Buffer.from('new-mod');
  const server=await fileServer({'/files/current.jar':Buffer.from('bad-payload')});
  const tree=await installedTree({extraFiles:['mods/legacy.jar','mods/player-added.jar','resourcepacks/shared.zip']});
- const oldBase={id:'base',version:'old',immutable:true,verified:true,files:['mods/legacy.jar','resourcepacks/shared.zip']};
+ const oldBase={id:'base',version:'old',immutable:true,verified:true,files:['mods/legacy.jar','resourcepacks/./shared.zip']};
  const shared={id:'visuals',version:'shared',immutable:true,verified:true,files:['resourcepacks/shared.zip']};
  const record=tree.record();record.chunks={base:oldBase,visuals:shared};
  record.files=[...oldBase.files,'mods/player-added.jar'];
