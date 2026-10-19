@@ -809,10 +809,16 @@ try{
  // process: the saved-session shortcut is answered by an account service that names a different
  // Easter Company account, which is exactly the comparison desktop/main.cjs stops on. The
  // renderer is not stubbed, and the sentence is the account service's own.
+ // These are the three sentences the product carries now. "Add provider sign-in linking profile
+ // editing and session renewal" reworded both ends of the refusal - desktop/accounts.cjs's
+ // `identity_conflict` and site/company-auth.mjs's line under it - and updated tests/browser.mjs
+ // and tests/desktop/launcher-identity-conflict.electron.mjs with the new words; this copy was
+ // left expecting the previous ones, which is why the journey stopped here once the assertion
+ // above it was reached again. The three lines are still compared word for word.
  const smallConflictCopy=[
-  'Sign in with the Microsoft account linked to this Easter Company account, or switch Easter Company accounts.',
+  'That provider belongs to a different Easter Company account, or this account already has a different link. Sign out to use another account.',
   'Nothing on your Easter Company account has changed.',
-  'Close this window first. Then open your profile at the top of the page and choose Switch Account, or Add account.'
+  'Close this window first. Sign out from your profile before signing in to a different account.'
  ];
  // One enrolment that answers with a different Easter Company account, armed for a single call
  // and disarmed by it so nothing else in the suite sees a changed account service.
