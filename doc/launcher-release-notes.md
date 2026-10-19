@@ -1,6 +1,6 @@
 # Easter Company launcher 1.0.23
 
-Steam can now create and sign in to an Easter Company account, alongside Microsoft/Xbox. Discord and Google support is included and becomes available when valid owned OAuth registrations are configured. Discord remains disabled because its supplied credential was rejected by Discord during the live check.
+Discord and Steam can now create and sign in to an Easter Company account, alongside Microsoft/Xbox. Google support is included and becomes available when its owned OAuth registration is configured.
 
 - New accounts choose a unique Company username and password after provider sign-in. Linked providers can also recover a forgotten Company password.
 - Profile & linked accounts lets you connect providers, edit your display name, and upload or remove a picture. Provider links are permanent and cannot be used to merge or switch Company accounts.

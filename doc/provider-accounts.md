@@ -70,10 +70,11 @@ load initial provider pictures; the renderer receives a local PNG, never a remot
 ## Deployment prerequisites
 
 The backend and migration 005 were deployed on 2026-10-18, and launcher 1.0.23
-was published with the compatible UI. Microsoft and Steam are enabled. Discord
-remains disabled after its supplied app credential was rejected by Discord with
-invalid_client; Google remains unconfigured. No real user provider consent,
-linking or recovery is claimed by the fixture verification.
+was published with the compatible UI. Microsoft, Steam and Discord are enabled.
+The current Discord app credential passed live validation, and the published
+AppImage shows its sign-in button enabled against the live API. Google remains
+unconfigured. No real user provider consent, linking or recovery is claimed by
+the fixture verification or the configuration checks.
 
 Apply migrations through 005 before deploying this backend. Run tests and synth, then
 deploy the backend and compatible launcher together. New tables explicitly revoke
