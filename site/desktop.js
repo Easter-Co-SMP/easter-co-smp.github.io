@@ -86,6 +86,19 @@
  // The Play Now stage: the client is on this device. Settings and the graphics
  // toggle belong to it and to nothing earlier.
  const atPlayNow=state=>installOf(state).installed===true;
+ // The Microsoft/Minecraft session, as main reports it (doc/launcher-states.md, "The Minecraft
+ // session the account service holds"). A state from a build that shipped before this field
+ // existed still renders: the session's word then falls back to what `microsoftConnected` used
+ // to decide, so an older main process asks for exactly what it asked for before.
+ const minecraftSessionOf=state=>{
+  const reported=state&&state.minecraftSession&&typeof state.minecraftSession==='object'?state.minecraftSession:null;
+  if(reported&&typeof reported.state==='string'&&reported.state)return reported;
+  if(!state?.account)return null;
+  // A state from a build without the field: a linked account with no live token is `required`,
+  // an account with no Microsoft link at all is `unlinked`, and anything else is `local`.
+  const state_word=state.account.microsoftLinked!==true?'unlinked':state.microsoftConnected===false?'required':'local';
+  return {state:state_word,serverHeld:false,checkedAt:null};
+ };
  // Settings is client settings, and a launcher update check is the launcher working on
  // the same machine: Owen's decision of 2026-10-17 is that the dialog is not offered
  // while `launcherUpdate.phase` is `checking`. Everything else stays usable.
@@ -102,15 +115,22 @@
   if(state?.accountWorking)return {kind:'busy',label:'Connecting your account…',note:'Please wait'};
   if(state?.accessChecking)return {kind:'busy',label:'Checking Java access…',note:'Please wait'};
   if(state?.account?.passwordRequired)return {kind:'setup-password',label:'Create your password',note:'Finish your Easter Company account'};
-  // A password sign-in holds no live Microsoft token, so Play is still gated - but a linked
-  // account and an account with no Microsoft link at all are two different situations and
-  // never share words (doc/launcher-states.md, "A password sign-in still knows the account is
-  // linked"). The linked one names the Minecraft identity that will start the game.
-  if(state?.account&&state.microsoftConnected===false){
-   if(state.account.microsoftLinked!==true)return {kind:'link-microsoft',label:'Link Microsoft',note:'Attach the Microsoft account that owns Minecraft'};
-   const minecraftName=typeof state.account.minecraftName==='string'?state.account.minecraftName.trim():'';
-   return {kind:'connect-microsoft',label:'Sign in with Microsoft',note:minecraftName?'Starts Minecraft as '+minecraftName:'Starts Minecraft with your linked Microsoft account'};
-  }
+  // The Microsoft/Minecraft session, from the field that answers the account's question rather
+  // than this computer's: a genuinely unlinked account is told to link, a linked one whose
+  // session has to be proved here is told to sign in, and a linked one whose session lives on
+  // the account service is not asked for anything at all (doc/launcher-states.md, "The Minecraft
+  // session the account service holds"). The wording for the linked case is the one a password
+  // sign-in already used: it names the Minecraft identity that will start the game.
+  const sessionState=minecraftSessionOf(state)?.state;
+  const minecraftName=typeof state?.account?.minecraftName==='string'?state.account.minecraftName.trim():'';
+  if(sessionState==='unlinked')return {kind:'link-microsoft',label:'Link Microsoft',note:'Attach the Microsoft account that owns Minecraft'};
+  if(sessionState==='checking')return {kind:'busy',label:'Checking your Minecraft session…',note:'Asking your Easter Company account'};
+  if(sessionState==='required')return {kind:'connect-microsoft',label:'Sign in with Microsoft',note:minecraftName?'Starts Minecraft as '+minecraftName:'Starts Minecraft with your linked Microsoft account'};
+  if(sessionState==='reauth')return {kind:'connect-microsoft',label:'Sign in with Microsoft',note:'Microsoft asked you to sign in again'};
+  // The account service could not make a session just now — it is rate-limiting mints, or it
+  // cannot answer. None of that is the player's Microsoft session dying, so this offers a retry
+  // and never a Microsoft sign-in.
+  if(sessionState==='busy')return {kind:'retry-minecraft',label:'Try again',note:'The account service is busy right now'};
   if(state?.companyReady===false&&!state.account&&(install.installed||state.microsoftAccount))return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account required'};
   if(state?.minecraftAccess==='missing')return {kind:'buy',label:'Buy Now',note:'Minecraft Java Edition required'};
   if(state?.minecraftAccess==='profile-required')return {kind:'setup-profile',label:'Set up Java profile',note:'Choose your Java player name'};
@@ -512,7 +532,7 @@
   else barTabText.textContent=percentText||'…';
   const game=gameOf(state);
   barLabel.textContent=active?label:game&&game.waking?game.message:state.minecraftAccess==='missing'?'Minecraft Java Edition required':state.minecraftAccess==='profile-required'?'Java profile setup required':state.minecraftAccess==='unknown'?'Check Minecraft Java access':state.canPlay?'Ready to play':installOf(state).installed?'Your client is ready':label;
-  barPrimary.hidden=active||!['play','signin','download','buy','setup-profile','check-access','setup-password','connect-microsoft','link-microsoft'].includes(action.kind);
+  barPrimary.hidden=active||!['play','signin','download','buy','setup-profile','check-access','setup-password','connect-microsoft','link-microsoft','retry-minecraft'].includes(action.kind);
   barPrimary.textContent=action.label;
   const bytes=progressState&&typeof progressState.bytesDone==='number'&&typeof progressState.bytesTotal==='number'?formatBytes(progressState.bytesDone)+' of '+formatBytes(progressState.bytesTotal):null;
   const speed=progressState&&typeof progressState.bytesPerSecond==='number'?formatSpeed(progressState.bytesPerSecond):null;
@@ -660,7 +680,7 @@
   renderProfile(current);
   companyAuth?.render(current);
   const access=current.minecraftAccess;
-  accessPanel.hidden=!current.account||current.account.passwordRequired||current.microsoftConnected===false||!['missing','profile-required','unknown'].includes(access);
+  accessPanel.hidden=!current.account||current.account.passwordRequired||minecraftSessionOf(current)?.state!=='local'||!['missing','profile-required','unknown'].includes(access);
   accessPanel.querySelector('p').textContent=access==='missing'?'This Microsoft account does not have access to Minecraft Java Edition. Buy it using the same account, then check again.':access==='profile-required'?'This account has Java Edition access. Set up your Java player profile, then check again.':'We could not confirm Java Edition access. Check again, or sign in with the account that has Minecraft.';
   accessPanel.querySelector('[data-recheck-access]').hidden=access==='unknown';
   for(const button of accessPanel.querySelectorAll('button'))button.disabled=Boolean(current.accessChecking||current.accountWorking)||signInPending;
@@ -686,6 +706,12 @@
   if(device&&!cancelledSignIn){
    if(panel.open)panel.close();
    if(!signin.open)signin.showModal();
+   // The instruction under the code is main's own sentence (the state's `message`), so a sign-in
+   // the launcher started for a reason — a stored session the account service would not renew —
+   // says why in that one place, and no view invents words for it.
+   const instruction=auth('.desktop-device-instruction');
+   const instructionText=typeof current.message==='string'&&current.message?current.message:'Enter this code on the Microsoft sign-in page.';
+   if(instruction.textContent!==instructionText)instruction.textContent=instructionText;
    // Progress broadcasts share this render path with sign-in. Replacing even
    // identical text destroys the browser's selection before the player can copy.
    const code=auth('.desktop-code'),provider=auth('.desktop-provider');
@@ -815,6 +841,9 @@
  const heroAction=()=>{clearFailure();const action=primaryAction(current||{});
   if(action.kind==='setup-password')return void companyUI.then(ui=>ui.setup()).catch(report);
   if(action.kind==='connect-microsoft'||action.kind==='link-microsoft')return void signInMicrosoft({link:true});
+  // A retry asks the account service for a Minecraft session again. It is a read: no launch and
+  // no Microsoft sign-in, because a busy service is not a dead session.
+  if(action.kind==='retry-minecraft')return void Promise.resolve(desktop.refreshMinecraftSession?.()).then(()=>render(current||{})).catch(report);
   if(action.kind==='buy')return void desktop.openMinecraftStore().catch(report);
   if(action.kind==='setup-profile')return void desktop.openMinecraftProfile().catch(report);
   if(action.kind==='check-access')return void desktop.recheckAccess().catch(report);
@@ -973,7 +1002,11 @@
   const signIn=Boolean(username)&&username!==name;
   accountSignInNode.textContent=signIn?'Signs in as '+username:'';
   accountSignInNode.hidden=!signIn;
-  companyHeading.hidden=!account;companyHeading.textContent=state.microsoftConnected?'Microsoft / Xbox linked'+(state.profile?' · '+state.profile.name:''):account?.microsoftLinked?'Microsoft / Xbox linked · sign in to play':'Microsoft / Xbox not connected';
+  // A session held by this machine or minted by the account service both mean the same thing to
+  // the player: Microsoft is linked and there is something to play with. Only the words for a
+  // linked account with no session, and an unlinked one, stay as they were.
+  const heldHereOrThere=['local','server'].includes(minecraftSessionOf(state)?.state||'');
+  companyHeading.hidden=!account;companyHeading.textContent=heldHereOrThere?'Microsoft / Xbox linked'+(state.profile?' · '+state.profile.name:''):account?.microsoftLinked?'Microsoft / Xbox linked · sign in to play':'Microsoft / Xbox not connected';
   const locked=signInPending||Boolean(state.accessChecking||state.accountWorking)||['signing-in','refreshing','launching','running'].includes(phaseOf(state));
   for(const button of profileMenu.querySelectorAll('[data-profile-action]')){
    button.disabled=locked;

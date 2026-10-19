@@ -17,6 +17,9 @@ function emailPayload(){
  const list=emails.list.map(entry=>({...entry,login:entry.email===emails.loginEmail}));
  return {emails:list,loginEmail:emails.loginEmail};
 }
+// What a journey can make of the server-held session: `mint` to hold one, `reauth` to refuse,
+// `revoke` to say the revoke route is absent. Nothing is set by default.
+const serverSession={mint:null,reauth:false,revoke:'accepted',revokedAt:0};
 function install(){
  if(process.env.EASTER_API_BASE_URL)return;
  const accounts=require('../../desktop/accounts.cjs');
@@ -33,6 +36,20 @@ function install(){
   // against tests/desktop/stub-game-api.mjs, which can be told to return any state.
   async gameStatus(){return {state:'running',ready:true,endpoint:'smp.easter.company:25565',since:'2026-10-18T00:00:00Z',players:1,detail:null};}
   async wakeGame(){return this.gameStatus();}
+  // The server-held Microsoft session (doc/launcher-states.md, "The Minecraft session the
+  // account service holds"). This fixture service has no such route unless a journey sets one
+  // up, which is exactly the live service until the cloud half ships: a password sign-in that
+  // cannot play asks for Microsoft as it always did, and a revoke revokes nothing.
+  async gameSession(){
+   if(serverSession.reauth)throw new accounts.AccountError('reauth_required',accounts.MESSAGES.reauth_required);
+   if(serverSession.mint)return {...serverSession.mint};
+   throw new accounts.AccountError('route_absent',accounts.MESSAGES.route_absent);
+  }
+  async revokeGameSession(){
+   if(serverSession.revoke==='absent')throw new accounts.AccountError('route_absent',accounts.MESSAGES.route_absent);
+   serverSession.revokedAt=Date.now();
+   return {revoked:serverSession.revoke!=='nothing'};
+  }
   // The owner-only verified email pair, answering the contract shape. A test that wants
   // the empty state or a refusal sets it on this fixture rather than on the UI.
   async emails(){return emailPayload();}
@@ -43,4 +60,4 @@ function install(){
   }
  };
 }
-module.exports={proof,install,emails};
+module.exports={proof,install,emails,serverSession};

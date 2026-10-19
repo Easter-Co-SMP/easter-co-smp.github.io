@@ -203,6 +203,13 @@ download-first flow has its own coverage: `tests/desktop/flow.test.cjs` runs in 
 and proves the Play gate, the installation-location refusals, the throughput estimator
 against a fake clock, pause/resume/cancel and the checksum gate against a loopback stub
 server that serves bytes slowly, and the update check against fixture manifests.
+The server-held Microsoft session has its own coverage: `tests/desktop/server-session.test.cjs`
+proves the two frozen routes (the mint and the revoke) and the five answers they can give against
+a loopback stub, `tests/desktop/server-session.electron.mjs` drives the real main process through
+a password sign-in that reaches Play with no Microsoft prompt, the hand-over that leaves no
+refresh token in the vault, a second machine, one `reauth_required` fallback and the sign-out
+everywhere control (`xvfb-run -a node tests/desktop/server-session.electron.mjs`), and
+`tests/browser.mjs` proves the hero's own rendering of every session state.
 `tests/desktop/wake.test.cjs` proves the game server's own two routes and the wake rule
 against `tests/desktop/stub-game-api.mjs`, a loopback server that can be told to answer any
 of the five frozen states and that records every wake call, so a test can prove exactly one

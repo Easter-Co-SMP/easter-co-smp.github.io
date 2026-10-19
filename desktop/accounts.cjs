@@ -10,6 +10,11 @@ const {setTimeout:wait}=require('node:timers/promises');
 const DEFAULT_TIMEOUT=30000;
 const DATABASE_RESUME_BACKOFF_MS=3000;
 const DATABASE_RESUME_BUDGET_MS=90000, DATABASE_RESUME_ATTEMPTS=4;
+// The mint is five upstream calls in one answer (Microsoft refresh, Xbox Live, XSTS,
+// Minecraft and the Java profile), so it is given the same generous ceiling the game
+// status read has and for the same reason: the account cluster scales to zero, and a
+// ceiling below its resume would turn a slow service into "no session".
+const GAME_SESSION_TIMEOUT_MS=29000;
 class AccountError extends Error{
  constructor(code,message){super(message);this.name='AccountError';this.code=code;}
 }
@@ -39,15 +44,51 @@ const MESSAGES={
  reauthentication_required:'Sign in with a linked provider to set or reset your password.',
  invalid_minecraft_token:'Microsoft signed you in, but Minecraft did not accept that session. Sign in again.',
  invalid_session:'Your Easter Company session expired. Sign in again.',
+ // The account service's answer when Microsoft will not renew the session it stores: the
+ // refresh grant was refused, the password changed, or the session was revoked. It is the
+ // one failure the launcher answers with the interactive Microsoft flow, and this sentence
+ // is what the player reads while that happens. No provider code, no status, no token.
+ reauth_required:'Microsoft needs you to sign in again before Minecraft starts.',
  invalid_request:'The account service rejected the request. Update the launcher and try again.',
  identity_provider_unavailable:'Minecraft sign-in is unavailable right now. Try again in a moment.',
+ // The service cannot make Minecraft sessions at all just now: its sealing key is not configured,
+ // or no Microsoft application is. Neither is the player's fault, neither is their session dying,
+ // and neither may be answered with a Microsoft prompt — the launcher says what it sees.
+ session_key_unconfigured:'The account service cannot make Minecraft sessions right now. Try again later.',
+ microsoft_not_configured:'The account service cannot make Minecraft sessions right now. Try again later.',
  // The address the player chose is not one this account may sign in with: it is either
  // not verified for this account or another Easter Company account already uses it. It is
  // reported as an unavailable address, never as a failure to sign in.
  email_not_yours:'That address cannot be your login email. It is not verified for this account, or another Easter Company account already uses it to sign in.',
- rate_limited:'Too many account requests just now. Wait a moment and try again.'
+ rate_limited:'Too many account requests just now. Wait a moment and try again.',
+ // Not a player-facing failure: the service has no session route (yet), which is the state
+ // the live service is in until the cloud half ships. The launcher degrades to the
+ // behaviour it had before that route existed, so this sentence reaches nobody.
+ route_absent:'The account service does not offer Minecraft sessions yet.'
 };
 const FALLBACK='The Easter Company account service could not complete that request.';
+// The minted Minecraft session, rebuilt field by field in the frozen shape. `accessToken`
+// is the Mojang token the client launches with, `expiresAt` is when it stops being usable,
+// and `profile` is the Java profile the session belongs to: 32 hex characters and a name of
+// up to 16 word characters, which is what Minecraft's own profile has always looked like.
+// Anything else is unreadable and is refused rather than guessed at, and no other field of
+// the answer is read, so a service that one day returns more cannot widen this launcher's
+// idea of what a session is. The token is held in memory for one launch window and is never
+// written to the vault, a log line or an error message.
+const SESSION_TOKEN_MAX=8192,PROFILE_NAME=/^\w{1,16}$/;
+function sanitizeGameSession(value){
+ if(!value||typeof value!=='object'||Array.isArray(value))return null;
+ const accessToken=typeof value.accessToken==='string'?value.accessToken:'';
+ const expiresAt=Date.parse(value.expiresAt);
+ const profile=value.profile&&typeof value.profile==='object'&&!Array.isArray(value.profile)?value.profile:{};
+ const uuid=typeof profile.uuid==='string'?profile.uuid.replace(/-/g,'').toLowerCase():'';
+ const name=typeof profile.name==='string'?profile.name:'';
+ if(!accessToken||accessToken.length>SESSION_TOKEN_MAX||!Number.isFinite(expiresAt))return null;
+ if(!/^[a-f0-9]{32}$/.test(uuid)||!PROFILE_NAME.test(name))return null;
+ // `id` is the Java profile id in the shape the client launches with, so the minted session is
+ // the same object a locally signed-in session is, and no caller has to know which it got.
+ return {accessToken,expiresAt,profile:{id:uuid,name}};
+}
 function serverMessage(status,body){
  const code=typeof body?.error==='string'?body.error:'';
  // Only our own fixed wording ever leaves this module; the API body never does.
@@ -184,7 +225,14 @@ class AccountClient{
   }
   let data=null;
   if(response.status!==204){
-   try{data=await response.json();}catch{throw new AccountError('invalid_response',FALLBACK);}
+   try{data=await response.json();}
+   catch{
+    // A body this launcher cannot read is still a known status, and the number is what lets a
+    // caller tell "there is no such route" from a refusal. The body itself is never kept.
+    const error=new AccountError('invalid_response',FALLBACK);
+    error.status=response.status;
+    throw error;
+   }
   }
   signal?.throwIfAborted();
   if(!response.ok){
@@ -192,6 +240,7 @@ class AccountClient{
    // Only a declared database failure is safe to retry. A lost response could
    // have committed, and an unrelated service failure must keep its own meaning.
    error.databaseUnavailable=response.status===503&&data?.error==='database_unavailable';
+   error.status=response.status;
    throw error;
   }
   return data;
@@ -199,10 +248,16 @@ class AccountClient{
  // The Microsoft Graph token is optional in the contract and transient here: it is put in
  // this one request body, never stored, never returned and never logged. An empty or
  // missing token means the request is sent without it and the server still answers.
- async login(xboxUserToken,signal,token,microsoftAccessToken,onWait){
+ // `microsoftRefreshToken` is the hand-over (doc/launcher-states.md, "The Minecraft session
+ // the account service holds"): the account service stores it so any machine signed in to
+ // the same Easter Company account can play. It travels on this request and on no other,
+ // it is the agreed name with the cloud half, and once the hand-over is confirmed the
+ // caller drops its own copy — this module never keeps it either.
+ async login(xboxUserToken,signal,token,microsoftAccessToken,onWait,microsoftRefreshToken){
   if(typeof xboxUserToken!=='string'||!xboxUserToken)throw new AccountError('invalid_request',MESSAGES.invalid_request);
   const graph=typeof microsoftAccessToken==='string'&&microsoftAccessToken?microsoftAccessToken:null;
-  const options={method:'POST',body:{xboxUserToken,...(graph?{microsoftAccessToken:graph}:{}),client:this.client},signal,token};
+  const handOver=typeof microsoftRefreshToken==='string'&&microsoftRefreshToken?microsoftRefreshToken:null;
+  const options={method:'POST',body:{xboxUserToken,...(graph?{microsoftAccessToken:graph}:{}),...(handOver?{microsoftRefreshToken:handOver}:{}),client:this.client},signal,token};
   // Aurora can take longer to resume than one bounded API request allows.
   // A declared database_unavailable response can be retried with the same
   // verified identity while that cluster continues waking. Never retry a network
@@ -323,6 +378,41 @@ class AccountClient{
   return found===null?null:sanitizeGameStatus(found);
  }
  async refreshSession(token,signal){return this.signed(await this.call('/v2/accounts/session/refresh',{method:'POST',token,signal,body:{client:this.client}}));}
+ // ---- the Minecraft session the account service holds -------------------------
+ // Two routes, frozen with the cloud side (doc/launcher-states.md, "The Minecraft session
+ // the account service holds"). They are methods of this client for the same reason the game
+ // routes are: one HTTP client, one bounded timeout, one HTTPS-only origin rule, and a
+ // response body that never reaches the renderer.
+ //
+ // The mint answers with a Minecraft session and nothing else — no Microsoft refresh token
+ // and no Xbox or XSTS token, so there is nothing else here to keep. `reauth_required` is
+ // mapped to its own code because it is the one refusal the launcher answers with the
+ // interactive Microsoft flow; everything else keeps the meaning it already had.
+ async gameSession(token,signal){
+  let found;
+  try{found=await this.call('/v2/game/session',{method:'POST',token,body:{client:this.client},signal,timeout:Math.min(this.timeout,GAME_SESSION_TIMEOUT_MS)});}
+  catch(error){
+   if(error?.status===404||error?.code==='service_404')throw new AccountError('route_absent',MESSAGES.route_absent);
+   throw error;
+  }
+  const session=sanitizeGameSession(found);
+  if(!session)throw new AccountError('invalid_response',FALLBACK);
+  return session;
+ }
+ // The player's own "sign out of Minecraft everywhere". The stored session is the one thing every
+ // machine mints from, so revoking it here is the whole of that promise. The service answers
+ // `{"revoked": true|false}`: false is its honest "there was nothing stored", and this returns
+ // that value rather than turning it into a claim the launcher cannot support. A 404 is its own
+ // code, because then nothing was revoked at all.
+ async revokeGameSession(token,signal){
+  let found;
+  try{found=await this.call('/v2/game/session/revoke',{method:'POST',token,body:{client:this.client},signal,timeout:Math.min(this.timeout,GAME_SESSION_TIMEOUT_MS)});}
+  catch(error){
+   if(error?.status===404||error?.code==='service_404')throw new AccountError('route_absent',MESSAGES.route_absent);
+   throw error;
+  }
+  return {revoked:found?.revoked===true};
+ }
  async updateProfile(token,body){const found=await this.call('/v2/accounts/profile',{method:'POST',token,body});return sanitizeAccount(found?.account);}
  async logout(token,signal){
   // Revocation is best effort. A refusal or a dead network must still let the
@@ -345,4 +435,7 @@ function storedSession(value){
  if(!value||typeof value.token!=='string'||!value.token||!Number.isFinite(value.expiresAt))return null;
  try{return {token:value.token,expiresAt:value.expiresAt,account:sanitizeAccount(value.account)};}catch{return null;}
 }
-module.exports={AccountClient,AccountError,sanitizeAccount,publicAccount,verifiedEmails,MESSAGES,USERNAME_PATTERN,companySession,storedSession,companyVaultName};
+// The Minecraft session's own shape is exported beside the account's, because the main
+// process builds a launch out of it and tests/desktop/server-session.test.cjs proves it
+// refuses every shape it should.
+module.exports={AccountClient,AccountError,sanitizeAccount,publicAccount,verifiedEmails,MESSAGES,USERNAME_PATTERN,companySession,storedSession,companyVaultName,sanitizeGameSession,GAME_SESSION_TIMEOUT_MS};
