@@ -127,7 +127,7 @@ meaning. These are added or extended:
 | `canPlay` | boolean | Exactly `install.installed && profile !== null` |
 | `bar` | object | `{visible}`: progress/action dock availability. The renderer omits an idle dock on Home because Home already provides the action; utility pages retain it. The minimised preference stays renderer-local. |
 | `settings` | object | The saved settings, exactly as `status()` already returned them, so the Settings dialog refreshes from a broadcast as well as from a read. It carries no server address: the launcher's target is a constant, not a setting (*The one server the launcher targets*). |
-| `game` | object | The game server's own state, always present in desktop mode: `{state, ready, endpoint, since, players, detail, message, waking, checkedAt}`. It is a different service from the account and shares no field with it; see *The game server, which may be asleep*. |
+| `game` | object | The game server's own state, always present in desktop mode: `{state, ready, endpoint, since, players, detail, message, tone, waking, checkedAt}`. It is a different service from the account and shares no field with it; see *The game server, which may be asleep*. |
 | `error` | string \| null | Safe operation failure text, announced in the one broadcast that carries it and dropped from the next, so no later unrelated broadcast can repaint an old failure; a new account action clears it as it starts. A sign-in failure names its step (see *Sign-in steps, sentences and the redacted log*). **It has exactly one home, and the UI decides it, not the state:** while the sign-in dialog is on screen the failure belongs to that dialog's own error area and to nothing else; otherwise it belongs to the page notice, with its dismiss control — but **not while any modal dialog is open**, because a notice under a modal is a message the player can neither read nor dismiss. For that time the sentence is held with no surface at all, and the last modal to close gives it back once. The Settings dialog is never an error surface. The renderer owns the sentence once delivered — it keeps it without re-reading this field, and only a dismissal or a new action (sign-in, Play, download, save settings) takes it away. A failure already given a home is never shown again by a later broadcast, a re-open or a close. Cancellation is not an error. Older states without this field still render. |
 
 `canPlay` is the single source of truth for the Play action. No view may compute
@@ -190,9 +190,10 @@ Both routes answer with that shape; the wake's answer is already the first poll,
 | `game.ready` | boolean | The frozen `ready` flag, and the only thing that authorises a launch. `false` while `unknown`, while `stopping`, and whenever the answer is not `running`. |
 | `game.endpoint` | string \| null | Unless nothing has been asked yet, the address the launcher will join: the one fixed target in `desktop/config.cjs` (`smp.easter.company:25565`, or the test-only override). **It is the launch target, not an echo of the answer:** a value the status service names is not read at all, because a launcher that woke one host and joined another would be worse than one that woke nothing. See *The one server the launcher targets*. |
 | `game.since` | string \| null | The service's ISO-8601 timestamp, kept as written and dropped when it is not one. |
-| `game.players` | number \| null | The service's player count, an integer or null. Published; not printed today, because a stopped server has nobody on it and the joinable case says nothing at all. |
-| `game.detail` | string \| null | The service's own detail sentence, bounded to 200 characters, shown below the launcher's sentence. Never replaces it, and the service's other fields are dropped. |
-| `game.message` | string | The launcher's own sentence for this state, from one table in `desktop/game.cjs`. The UI prints it and never composes or re-words it. |
+| `game.players` | number \| null | The service's player count, an integer or null — never a list. Since 2026-10-19 it is **printed**, in the status line's parenthetical (this supersedes "published, not printed"): `(2 Active Players)`, `(1 Active Player)` for one, and no parenthetical at all when the count is null, because a false zero is worse than no number. A stopped server prints zero whatever integer it last sent: a server that is not running has nobody on it. |
+| `game.detail` | string \| null | The service's own detail sentence, bounded to 200 characters. Since 2026-10-19 it appears **inside the offline line's parenthetical and nowhere else** — `Server Offline (Update in progress...)` — and never below the launcher's words, because the row is one line. It never replaces the launcher's own words, and the service's other fields are dropped. A detail that arrives with a state whose parenthetical is the player count is not printed; the line has one parenthetical and the count is the fact the player asked for. |
+| `game.message` | string | The launcher's own status line for this state, from one table in `desktop/game.cjs`: the whole sentence, player count and parenthetical included. The UI prints it and never composes or re-words it. |
+| `game.tone` | string | One of `online`, `asleep`, `offline`, `starting`, `stopping`, `unknown` — what the LED dot repeats, decided by the same table that decided `game.message` so no view re-derives the rule. It is meaning, not colour: the view turns it into a dot and nothing else, and the words carry the state on their own. |
 | `game.waking` | boolean | True while this launcher is waking the server and polling it — the first player's cold start. |
 | `game.checkedAt` | string \| null | ISO-8601 local time of the last status read attempt, or null when nothing has been asked yet in this session. |
 
@@ -235,23 +236,68 @@ re-check and the client verification instead of being paid after them. Then:
 on the server, because pressing it is what starts the server. Nothing about the game
 state disables sign-in, a download, an update, Settings or any account screen.
 
-### The sentences
+### The LED and the status line (2026-10-19)
 
-One table, in `desktop/game.cjs`, so every surface reads the same words. The copy is
-fixed: it carries no time, no address and no number, so no view has to fill a blank in.
+Owen's request, verbatim: *"Let's replace this section with a simple LED indicator and
+status line element instead for a `Server Online (2 Active Players)` or
+`Server Asleep Zzz (0 Active Players)` or `Server Offline (Update in progress...)`"*.
 
-| State | Sentence |
+One table, in `desktop/game.cjs`, decides both halves of that element: `game.message`,
+the one sentence the player reads, and `game.tone`, the meaning the LED dot repeats. The
+copy is no longer number-free — the player count is the number, and it is the service's
+own integer rather than one a view fills in — and it is still fixed: no view composes,
+shortens or re-words any of it.
+
+| Condition | `tone` | Line |
+|---|---|---|
+| `running` and `ready` | `online` | `Server Online (2 Active Players)` — the service's real count, `(1 Active Player)` when it is one, and `Server Online` with **no parenthetical at all** when the count is `null` |
+| `stopped`, no `detail` | `asleep` | `Server Asleep Zzz (0 Active Players)` — the credit-saving sleep, which is normal, so amber and dim rather than red |
+| `stopped`, with `detail` | `offline` | `Server Offline (Update in progress...)` — the service's own sentence inside the parentheses. There is deliberately no reachable "offline without a reason" line: a stopped server the service said nothing about is the ordinary sleep in the row above, and inventing a reason, or a bare `Server Offline` for a state that cannot occur, would be dead UI |
+| `starting` | `starting` | `Server Starting (about a minute)` — amber and pulsing, never red and never offline |
+| `running` without `ready` | `starting` | `Server Starting (about a minute)` — the instance answers but the port has not confirmed a real Minecraft status exchange, which is what a server still coming up looks like, so the launcher never prints **Online** for a server it cannot join |
+| `stopping` | `stopping` | `Server Stopping (finishing the last session)` |
+| `unknown`, after a read | `unknown` | `Server Status Unknown (the launcher could not read it just now)` — neutral, never red, never the word offline |
+| `unknown`, before any read | `unknown` | `Server Status Unknown (checked when you press Play)` — the launcher does not call a server offline it never asked about |
+| waking | `starting`, `stopping` | `Starting your server… the first player in a session waits about a minute.` / `Your server is finishing its last session. It starts as soon as that is done.` — unchanged, and carried by the cold start's own wait line (see *Where it is shown*) |
+| timeout (a failure) | — | `Your server did not become joinable within three minutes. Press Play to try it again.` |
+| expired session (a failure) | — | `Your Easter Company session expired. Sign in again.` |
+
+**The dot is never the only signal.** It is `aria-hidden`; the line carries the whole
+state as text, so a player reading it with a screen reader, or a test asserting text, gets
+`Server Online (2 Active Players)` and not a colour. Colour only repeats what the words
+already say, and a state whose words are missing paints nothing.
+
+**Why `stopped` splits into asleep and offline.** The frozen service word for the sleeping
+host and for a host that is down for a stated reason is the same word, `stopped`; the only
+thing that separates them is whether the service sent a `detail`. Reading `stopped` as
+asleep alone would make `Server Offline (...)` dead UI — a sentence no state could ever
+produce — and reading it as offline alone would tell the family their server is broken
+every night it saves credit. So the detail decides, and both of Owen's sentences are live.
+
+**Why unknown resolves the way it does.** An unreachable status service, a 5xx, a body the
+launcher cannot read and an unrecognised state word are all `unknown`, and `unknown` says
+exactly that: **Server Status Unknown**, neutral grey, no claim either way. Calling it
+offline would be the launcher asserting something nobody measured — the rule this document
+already froze — and hiding the row would leave a player pressing Play with no idea that the
+launcher cannot see the server. It stays visible and honest instead.
+
+**Superseded copy, kept visible.** These are the words that table printed before this
+change, so nobody has to guess what was replaced:
+
+| State | Sentence that was printed until 2026-10-19 |
 |---|---|
-| running and ready | `Your server is online.` (not printed: the line is absent when the server is joinable) |
+| running and ready | `Your server is online.` (and the line was **absent** in this case) |
 | stopped | `Your server is offline right now. Play starts it.` |
 | starting | `Your server is starting. This takes about a minute.` |
 | stopping | `Your server is finishing its last session. It is never joined while it stops.` |
 | unknown, after a read | `The launcher could not read the game server status just now.` |
 | unknown, before any read | `Your server is checked when you press Play.` |
-| waking | `Starting your server… the first player in a session waits about a minute.` |
-| waking while stopping | `Your server is finishing its last session. It starts as soon as that is done.` |
-| timeout (a failure) | `Your server did not become joinable within three minutes. Press Play to try it again.` |
-| expired session (a failure) | `Your Easter Company session expired. Sign in again.` |
+
+The row also used to hide itself whenever the server answered ready, which is the whole
+reason a warm server said nothing at all. It no longer does: `Server Online (2 Active
+Players)` is one of the three sentences Owen asked for, so the healthy case is the case
+the line exists for. The row is still absent before the Play Now stage, where there is
+nothing to join.
 
 ### The username and the password, as of 1.0.27
 
@@ -291,10 +337,19 @@ nothing for the higher ceiling.
 
 ### Where it is shown
 
-- **One line under the hero action** (`site/desktop.js`, `.desktop-game-status`), which
-  carries `game.message` and, below it, `game.detail` when the service sent one. It is
-  the only surface a game state is ever written on, and it is **absent** while the server
-  answers ready, so a warm server looks exactly as it did before this feature existed.
+- **One row under the hero action** (`site/desktop.js`, `.desktop-game-status`): a small
+  LED dot (`aria-hidden`) and the one status line main chose, as a single `role=status`
+  live region. The row is the only surface a game state is written on. It is **visible
+  whenever the launcher is at the Play Now stage and has a game state at all**, including
+  when the server is online — this supersedes the sentence here that made it absent for a
+  joinable server, which is precisely the state Owen asked to see words for. It is still
+  absent before the Play Now stage, where there is nothing to join, and it gives way only
+  to the cold start's own wait line while that line is carrying the same sentence (next
+  bullet), so one live region says it rather than two.
+- **The cold start's wait line** (`site/wait-feedback.mjs`, `.desktop-activity`) carries the
+  waking sentence, the service's `detail` and the long-wait reassurance for the length of
+  the wake, and the LED row stands down for that time. The `phase: 'starting-game'` hero
+  action is the surface that says the wait is under way.
 - **The hero action** says `Starting your server…` with the note `The first player in a
   session waits about a minute` while `phase` is `starting-game`, and offers no second
   Play. It is disabled for that time, as it is during `launching`.
@@ -313,6 +368,13 @@ records every wake call, and that refuses a request without the Company session 
 `tests/desktop/wake.test.cjs` proves the frozen shape, the copy table, the ready rule, the
 `stopping` rule, the 3-second polling, the single wake per Play, the 180-second failure and
 the unknown fallback, against a fake clock and against that stub over a real socket.
+`tests/browser.mjs` renders the row in every state the table above names and asserts the
+sentence as **text**, character for character: `Server Online (2 Active Players)` with a
+live count, `Server Online` with a null one, `Server Asleep Zzz (0 Active Players)`,
+`Server Offline (Update in progress...)` from a service detail, `Server Starting`,
+`Server Stopping`, the neutral unknown, the absence of the row before the Play Now stage
+and for a state with no game field, and that the dot is `aria-hidden` while the line is
+readable.
 
 Not verified here, and not verifiable from this repository alone: the real cloud routes
 (their existence, authentication, latency and the readiness probe behind `ready`), a real

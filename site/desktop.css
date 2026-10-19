@@ -30,14 +30,22 @@
 .desktop-mode .hero-actions .desktop-settings-button:hover{background:#ffffff09;box-shadow:none}
 .desktop-mode .home-footer{flex:none;width:100%;padding:16px 32px;font-size:11px;letter-spacing:0;color:#afbfba}
 .desktop-mode .home-footer>span:last-child{font:inherit;letter-spacing:0}
-/* The game server's own line, under the hero action. It is the only surface a cold
-   start, an offline server or an unreachable status is ever written on, and it is absent
-   while the server answers ready, so a warm server looks exactly as it did before. */
-.desktop-game-status{display:flex;flex-wrap:wrap;gap:0 8px;margin:16px 0 0;color:var(--app-muted);font-size:11px;line-height:1.7}
-.desktop-game-status[data-state=stopped]{color:#e4c486}
-.desktop-game-status.is-awake{color:#f1e6ce}
-.desktop-game-detail{opacity:.72}
-.desktop-game-detail:empty{visibility:hidden}
+/* The game server's row, under the hero action: a small LED and one status line. The words
+   carry the state and the dot repeats it, so the tone is decided by the main process
+   (`game.tone`) and only drawn here. It shows whenever the launcher is at the Play Now
+   stage with a game state, an online server included: 'Server Online (2 Active Players)' is
+   what the row exists for. */
+.desktop-game-status{display:flex;align-items:center;gap:8px;margin:16px 0 0;color:var(--app-muted);font-size:11px;line-height:1.7}
+.desktop-game-led{flex:none;width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px #ffffff0d}
+.desktop-game-line{min-width:0;overflow-wrap:anywhere}
+.desktop-game-status[data-tone=online]{color:#8fd694}
+.desktop-game-status[data-tone=asleep]{color:#e4c486}
+.desktop-game-status[data-tone=asleep] .desktop-game-led{opacity:.55}
+.desktop-game-status[data-tone=starting],.desktop-game-status[data-tone=stopping]{color:#e4c486}
+.desktop-game-status[data-tone=starting] .desktop-game-led{animation:game-led-pulse 1.6s ease-in-out infinite}
+.desktop-game-status[data-tone=offline]{color:#e08b7f}
+@keyframes game-led-pulse{0%,100%{opacity:.3}50%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.desktop-game-status[data-tone=starting] .desktop-game-led{animation:none;opacity:1}}
 .desktop-install-details{display:grid;gap:12px;margin-top:24px;padding-top:18px;border-top:1px solid var(--app-border)}
 .desktop-folder{display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 12px}
 .desktop-folder>span{color:var(--app-muted);font-size:11px}
@@ -135,7 +143,7 @@
 .launcher-bar.is-minimised .launcher-bar-tab-text{display:block}
 @keyframes launcher-bar-sweep{from{transform:translateX(-110%)}to{transform:translateX(320%)}}
 @media(prefers-reduced-motion:reduce){.launcher-bar.is-indeterminate .launcher-bar-track i{animation:none}}
-@media(max-height:700px){.desktop-mode body.home>.home-content{padding-top:calc(16px + var(--launcher-notice-space,0px));padding-bottom:76px}.desktop-mode .hero-copy{padding:22px}.desktop-home-heading{margin-bottom:20px}.desktop-install-details,.hero-graphics{margin-top:18px;padding-top:14px}.desktop-game-status{margin-top:12px}.desktop-game-status:empty{display:none}
+@media(max-height:700px){.desktop-mode body.home>.home-content{padding-top:calc(16px + var(--launcher-notice-space,0px));padding-bottom:76px}.desktop-mode .hero-copy{padding:22px}.desktop-home-heading{margin-bottom:20px}.desktop-install-details,.hero-graphics{margin-top:18px;padding-top:14px}.desktop-game-status{margin-top:12px}
  /* The settings dialog carries four preferences and the shortcut state now, so on a short
     window it closes up its own spacing rather than scrolling. */
  #desktop-launcher{padding:22px}#desktop-launcher h2{margin-bottom:18px}
