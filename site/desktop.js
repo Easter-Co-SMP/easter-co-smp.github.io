@@ -115,12 +115,15 @@
   // The Microsoft/Minecraft session, from the field that answers the account's question rather
   // than this computer's: a genuinely unlinked account is told to link, a linked one whose
   // session has to be proved here is told to sign in, and a linked one whose session lives on
-  // the account service is not asked for anything at all.
+  // the account service is not asked for anything at all (doc/launcher-states.md, "The Minecraft
+  // session the account service holds"). The wording for the linked case is the one a password
+  // sign-in already used: it names the Minecraft identity that will start the game.
   const sessionState=minecraftSessionOf(state)?.state;
-  if(sessionState==='unlinked')return {kind:'link-microsoft',label:'Link Microsoft to play',note:'Your Easter Company account has no Microsoft link yet'};
+  const minecraftName=typeof state?.account?.minecraftName==='string'?state.account.minecraftName.trim():'';
+  if(sessionState==='unlinked')return {kind:'link-microsoft',label:'Link Microsoft to play',note:'Attach the Microsoft account that owns Minecraft'};
   if(sessionState==='checking')return {kind:'busy',label:'Checking your Minecraft session…',note:'Asking your Easter Company account'};
-  if(sessionState==='required')return {kind:'connect-microsoft',label:'Sign in to Minecraft',note:'Use your linked Microsoft account'};
-  if(sessionState==='reauth')return {kind:'connect-microsoft',label:'Sign in to Minecraft',note:'Microsoft asked you to sign in again'};
+  if(sessionState==='required')return {kind:'connect-microsoft',label:'Sign in with Microsoft',note:minecraftName?'Starts Minecraft as '+minecraftName:'Starts Minecraft with your linked Microsoft account'};
+  if(sessionState==='reauth')return {kind:'connect-microsoft',label:'Sign in with Microsoft',note:'Microsoft asked you to sign in again'};
   // The account service could not make a session just now — it is rate-limiting mints, or it
   // cannot answer. None of that is the player's Microsoft session dying, so this offers a retry
   // and never a Microsoft sign-in.
@@ -834,8 +837,7 @@
  // new action, so any failure already on screen belongs to the last one and goes.
  const heroAction=()=>{clearFailure();const action=primaryAction(current||{});
   if(action.kind==='setup-password')return void companyUI.then(ui=>ui.setup()).catch(report);
-  if(action.kind==='connect-microsoft')return void signInMicrosoft({link:true});
-  if(action.kind==='link-microsoft')return void signInMicrosoft({link:true});
+  if(action.kind==='connect-microsoft'||action.kind==='link-microsoft')return void signInMicrosoft({link:true});
   // A retry asks the account service for a Minecraft session again. It is a read: no launch and
   // no Microsoft sign-in, because a busy service is not a dead session.
   if(action.kind==='retry-minecraft')return void Promise.resolve(desktop.refreshMinecraftSession?.()).then(()=>render(current||{})).catch(report);
@@ -1015,9 +1017,14 @@
   // Precedence, in Owen's order: the picture they uploaded, then the head of the Minecraft
   // skin their linked Microsoft account owns, then the initial tile. state.profile.skin is
   // already the whole skin PNG as a data URL - the main process loads it - so this is canvas
-  // work only and the renderer makes no request of its own.
+  // work only and the renderer makes no request of its own. A password sign-in holds no
+  // Microsoft session and therefore no profile, so main publishes the same head from the
+  // account's own Minecraft uuid instead (doc/launcher-states.md, "A password sign-in still
+  // knows the account is linked"), and the canvas draws it exactly the same way.
   const picture=typeof account.picture==='string'?account.picture:'';
-  const skin=account.microsoftLinked&&typeof state.profile?.skin==='string'&&state.profile.skin.startsWith('data:image/png;base64,')?state.profile.skin:'';
+  const sessionSkin=account.microsoftLinked&&typeof state.profile?.skin==='string'&&state.profile.skin.startsWith('data:image/png;base64,')?state.profile.skin:'';
+  const accountHead=account.microsoftLinked&&typeof state.minecraftHead==='string'&&state.minecraftHead.startsWith('data:image/png;base64,')?state.minecraftHead:'';
+  const skin=sessionSkin||accountHead;
   // The work is skipped when nothing that decides the face has changed. The skin string is
   // the same instance across broadcasts, so this is a reference comparison in the common case.
   if(account.id===faceId&&picture===facePicture&&skin===faceSkin)return;

@@ -187,13 +187,13 @@ test('three minutes without readiness fails honestly, with one wake and no launc
  assert.equal(updates.at(-1).status.state,'stopped','the last thing said was the last thing known');
 });
 
-test('no answer at all is unknown, with no wake and no invented cold start',async()=>{
- const clock=fakeClock(),api=scripted([noAnswer('unreachable')]);
- const result=await wakeServerOf(api,clock);
- assert.equal(result.outcome,'unknown');
- assert.equal(result.status,null);
- assert.equal(api.wakes,0,'a service nobody can reach is asked nothing');
- assert.deepEqual(clock.sleeps,[]);
+test('unreachable and unknown status refuse launch with an actionable retry and no wake',async()=>{
+ for(const response of [noAnswer('unreachable'),answer('unknown'),{ok:true,status:null}]){
+  const clock=fakeClock(),api=scripted([response]);
+  await assert.rejects(wakeServerOf(api,clock),{code:'game_status_unavailable',message:MESSAGES.unavailable});
+  assert.equal(api.wakes,0,'unknown readiness must never wake a host or authorise launch');
+  assert.deepEqual(clock.sleeps,[]);
+ }
 });
 
 test('an expired account session keeps its own sentence and is never dressed as a server fault',async()=>{
@@ -228,7 +228,7 @@ test('the account client reads the status with the Company session and no other 
   const status=await client(stub.origin).gameStatus(stubApi.TOKEN);
   // The stub answers with an endpoint of its own; the launcher publishes the address it
   // will actually join instead, so a service answer can never become a launch target.
-  assert.equal(stubApi.ENDPOINT!==PRODUCTION_SERVER,true,'the fixture deliberately names another host');
+  assert.equal(stubApi.ENDPOINT,PRODUCTION_SERVER,'the ready fixture agrees with the deployment target');
   assert.deepEqual(status,{state:'running',ready:true,endpoint:PRODUCTION_SERVER,since:'2026-10-18T00:00:00Z',players:2,detail:null});
   assert.equal(stub.calls.length,1);
   assert.equal(stub.calls[0].method,'GET');
@@ -293,4 +293,12 @@ test('the wake refuses a session the service does not accept',async()=>{
   assert.equal(error.code,'invalid_session','a 401 is the account session expiring, not a server fault');
   assert(!JSON.stringify({message:error.message,code:error.code}).includes('some-other-token'));
  }finally{await stub.close();}
+});
+
+
+test('an accepted wake without a body keeps polling from its last known status',async()=>{
+ const clock=fakeClock(),api=scripted(['stopped',{ok:true,status:null},'running']);
+ const result=await wakeServerOf(api,clock);
+ assert.equal(result.outcome,'ready');assert.equal(api.wakes,1);assert.equal(api.reads,2);
+ assert.deepEqual(clock.sleeps,[GAME_POLL_MS]);
 });

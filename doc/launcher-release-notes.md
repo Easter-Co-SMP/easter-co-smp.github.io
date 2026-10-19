@@ -1,3 +1,37 @@
+# Easter Company launcher 1.0.32
+
+The Easter Co. client gets a coordinated navy-and-brass interface and a more
+reliable path from launcher to the public game server. Includes custom mod 2.0.1.
+
+- The in-game main menu, NPC dialogue and shop item cards, crew scoreboard,
+  boat cargo and ship-management screens share the Easter Co. visual theme.
+- Crew, wallet and bounty displays receive private server-to-client updates.
+- The launcher and in-game menu use the same published deployment metadata.
+  A changed server target updates without reinstalling unchanged game content;
+  the old in-game tailnet address is removed.
+- Play requires confirmed server readiness for the current deployment. An outage
+  or address mismatch leaves a clear retry instead of starting a disconnected game.
+- Active downloads no longer fail merely because they last longer than three
+  minutes. Stalled connections are bounded; pause suspends their deadline and
+  cancel interrupts a blocked request immediately while preserving resumable bytes.
+- Verified chunk updates retire obsolete managed files, preventing renamed mod
+  JARs from loading alongside their replacements. Player-added files and files
+  still shared by another installed chunk are preserved.
+- A game shortcut's Play request survives a mandatory launcher update.
+- The opening arrival plays once per launcher window session. Linked-provider
+  details appear only when the account service supplies them.
+
+This is a patch release: existing launcher caches, settings and sign-in sessions
+are preserved. The required custom-mod payload updates through the normal verified
+client update flow.
+
+Validation includes launcher, publishing/privacy, browser and real Electron
+journeys with isolated accounts and game-service fixtures, plus the custom mod's
+Java harnesses and rendered UI review. These checks do not claim a fresh real-account
+Microsoft sign-in, native Windows gameplay or a full multiplayer playtest.
+Start through the launcher for authenticated server wake; the native in-game menu
+can connect to the configured host but cannot wake a sleeping host by itself.
+
 # Easter Company launcher 1.0.31
 
 Waiting for sign-in and account services now gives immediate, quiet feedback, and

@@ -51,25 +51,27 @@ const MARKER='.easter-client';
 // launcher's files, the server or the world.
 const FOREIGN_ENTRIES=['.minecraft','launcher_profiles.json','launcher_accounts.json','launcher_profiles_microsoft_store.json','versions','libraries','assets','mods','saves','server.properties','eula.txt','usercache.json','banned-ips.json','banned-players.json','level.dat','world','server.jar'];
 function defaultInstallLocation(configRoot){return path.join(configRoot,CLIENT_FOLDER);}
-// ---- the one server the launcher targets -------------------------------------
-// Owen's instruction of 2026-10-18: the launcher's server address is no longer a
-// player setting, so there is exactly one target and every path that names an address
-// reads it from here. The production host is live at smp.easter.company:25565 on an
-// Elastic IP (3.151.255.100, DNS verified 2026-10-18), and the *hostname* is the
-// constant rather than the IP: the name survives the address changing, a number baked
-// into a launcher release does not.
-const PRODUCTION_SERVER='smp.easter.company:25565';
-// The one override, for tests and development only. The suites need an address that is
-// not production (a loopback fixture, a stub server), and none of them may reintroduce
-// a field a player can edit: this is read from the process environment, is never part
-// of renderer state, is never written to the settings file, and is validated by the
-// very hostname/port rule (security.cjs checkServer) that used to guard the settings
-// field. Nothing a player can reach sets it, and a released launcher never sets it
-// itself, so an ordinary install always targets PRODUCTION_SERVER.
+// ---- the deployment selected by the published client manifest ----------------
+// One versioned public source is copied into the manifest, the packaged launcher
+// and the in-game fallback. It contains deployment metadata, never credentials.
+const BUNDLED_DEPLOYMENT=Object.freeze(validateDeployment(require('../deployment.json')));
+const PRODUCTION_SERVER=BUNDLED_DEPLOYMENT.serverAddress;
+let currentDeployment=BUNDLED_DEPLOYMENT;
+const DEPLOYMENT_PATH=path.join('config','easter-company','deployment.json');
+function validateDeployment(value){
+ if(!value||typeof value!=='object'||Array.isArray(value)||value.schema!==1||Object.keys(value).some(key=>!['schema','serverAddress'].includes(key))||typeof value.serverAddress!=='string')throw Error('The client deployment metadata is invalid.');
+ const address=checkServer(value.serverAddress);
+ if(!address)throw Error('The client deployment metadata has no server address.');
+ return {schema:1,serverAddress:address};
+}
+function configureDeployment(value){currentDeployment=Object.freeze(validateDeployment(value));return currentDeployment;}
+function deployment(){return {...currentDeployment};}
+// The environment override is for test/development launch paths only; it is not a
+// saved player preference and never appears in renderer state.
 const SERVER_ADDRESS_ENV='EASTER_SERVER_ADDRESS';
 function serverAddress(override=process.env[SERVER_ADDRESS_ENV]){
  const candidate=String(override??'').trim();
- if(!candidate)return PRODUCTION_SERVER;
+ if(!candidate)return currentDeployment.serverAddress;
  let address='';
  try{address=checkServer(candidate);}
  catch{throw Error(SERVER_ADDRESS_ENV+' must be a hostname or IPv4 address, with an optional port.');}
@@ -177,4 +179,4 @@ function resolveLocation(requested,{saved='',defaultLocation}={}){
  if(fallback&&resolved===fallback)return resolved;
  throw Error('Choose the installation folder with the folder picker.');
 }
-module.exports={apiOrigin,DEFAULT_API_ORIGIN,clientOrigin,DEFAULT_CLIENT_ORIGIN,LOOPBACK,CLIENT_FOLDER,MARKER,FOREIGN_ENTRIES,defaultInstallLocation,PRODUCTION_SERVER,SERVER_ADDRESS_ENV,serverAddress,cleanLaunchSettings,locationProblem,checkLocation,ensureLocation,resolveLocation,GAME_STATES,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS,GAME_STATUS_TIMEOUT_MS,GAME_WAKE_REQUEST_TIMEOUT_MS,GAME_DETAIL_MAX};
+module.exports={BUNDLED_DEPLOYMENT,DEPLOYMENT_PATH,validateDeployment,configureDeployment,deployment,apiOrigin,DEFAULT_API_ORIGIN,clientOrigin,DEFAULT_CLIENT_ORIGIN,LOOPBACK,CLIENT_FOLDER,MARKER,FOREIGN_ENTRIES,defaultInstallLocation,PRODUCTION_SERVER,SERVER_ADDRESS_ENV,serverAddress,cleanLaunchSettings,locationProblem,checkLocation,ensureLocation,resolveLocation,GAME_STATES,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS,GAME_STATUS_TIMEOUT_MS,GAME_WAKE_REQUEST_TIMEOUT_MS,GAME_DETAIL_MAX};

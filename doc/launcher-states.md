@@ -1,3 +1,30 @@
+## Readiness gate (2026-10-19)
+
+The deployed game-control service must confirm `ready: true` for the current
+published target before Play invokes Java. An unreachable, unreadable or `unknown`
+initial status stops with `game_status_unavailable`: "The game server status could
+not be checked. Try Play again shortly." No wake or bare join follows. Play stays
+available as the retry. This supersedes the legacy bare-join fallback below.
+An accepted wake without a body keeps polling from the last known state.
+
+## Deployment metadata (2026-10-19)
+
+The versioned repository-root `deployment.json` is the production deployment source:
+`{"schema":1,"serverAddress":"smp.easter.company:25565"}`. The public client
+manifest includes this object as `deployment`. The launcher validates and persists
+it to the app-owned client `config/easter-company/deployment.json`, including during
+a quiet manifest check when no content chunk changed. The in-game menu reads the
+same file. A missing field in an older manifest uses the bundled copy of that same
+source; malformed metadata is refused, never replaced with a private/LAN address.
+Before Play the manifest check completes before the wake request, so waking, launch
+arguments and the in-game menu share the current published target. This supersedes
+the compiled-target descriptions below; the server remains unavailable as a player
+setting. A status service endpoint that disagrees with the published target does not
+authorise launch: Play stops with `game_target_mismatch` and the sentence
+"The game server address could not be confirmed. Try again shortly." No wake or
+bare join follows that refusal. Status and wake stay on the existing authenticated account API
+routes, and deployment metadata never changes the authentication origin.
+
 > Account behavior is updated by [Provider accounts](provider-accounts.md). The new
 > contract supersedes Microsoft-only signup and Add/Switch account descriptions below.
 
@@ -1566,13 +1593,17 @@ before, so the header is never blank.
 **The avatar falls back to the Minecraft skin head.** `state.profile.skin` already
 carries the whole skin PNG as a `data:image/png;base64,` URL, loaded by the main process
 (`desktop/main.cjs` `loadSkin`, surfaced by `desktop/security.cjs` `publicProfile`), so
-the renderer draws it and makes no request of its own. The order is:
+the renderer draws it and makes no request of its own. `state.minecraftHead` is the same
+head from the account's own Minecraft identity, for a linked account whose launcher session
+holds no live Microsoft token (*A password sign-in still knows the account is linked*). The
+order is:
 
 | Precedence | Source | Drawing |
 |---|---|---|
 | 1 | `account.picture` (the player's uploaded picture) | the whole PNG stretched into the canvas |
 | 2 | `state.profile.skin`, when it is a data URL and the account is Microsoft-linked | the 8x8 face at 8,8 and the 8x8 hat overlay at 40,8, each nearest-neighbour into the 32px canvas, hat over face |
-| 3 | neither | the teal tile with the first letter of the name |
+| 3 | `state.minecraftHead`, when it is a data URL and the account is Microsoft-linked | the same crop and the same pixels as row 2 |
+| 4 | none of them | the teal tile with the first letter of the name |
 
 The canvas stays 32x32 with `imageSmoothingEnabled` false, so a skin reads as pixel art
 and not as a blurred smear. The letter tile is the last resort and is never drawn under a
@@ -1585,6 +1616,108 @@ reads "Microsoft / Xbox · linked" with no button. Only an unlinked provider car
 already-linked provider re-ran the link flow and was answered "this account is already
 linked to an Easter Company account" every time, so it is gone rather than disabled and
 re-worded.
+
+## A password sign-in still knows the account is linked (2026-10-19)
+
+Owen logged out of the launcher and signed back in with his Easter Company username and
+password. The profile dialog went on saying "Microsoft / Xbox · linked", and correctly: the
+link is a fact about the Easter Company account. But the hero said **Sign in to Minecraft** /
+**Use your linked Microsoft account**, which reads like a first-time connect, and the header
+avatar fell back to the letter tile "O" instead of his Minecraft face.
+
+The behaviour behind that hero was right and is unchanged. `microsoftConnected()` in
+`desktop/main.cjs` is false after a password sign-in because this process holds no live
+Microsoft session, and Minecraft cannot be launched without one: `canPlay` stays false,
+`play()` still refuses with "Sign in with the Microsoft account linked to `<username>`", and
+nothing here loosens that gate. What was wrong was the words and the face.
+
+### Two situations, never the same words
+
+A signed-in account with no live Microsoft token is one of two different situations, and
+they may never share wording. The hero says which one it is, and it names the identity that
+will start the game whenever it knows it:
+
+| Situation | State | Hero label | Hero note | Action kind |
+|---|---|---|---|---|
+| The account is Microsoft-linked; this session holds no Microsoft token | `account.microsoftLinked` true, `microsoftConnected` false | `Sign in with Microsoft` | `Starts Minecraft as <Minecraft name>`; `Starts Minecraft with your linked Microsoft account` when the name is unknown | `connect-microsoft` |
+| The account has no Microsoft link at all | `account.microsoftLinked` false | `Link Microsoft` | `Attach the Microsoft account that owns Minecraft` | `link-microsoft` |
+
+`link-microsoft` is new in the view and is not a new native action: it runs the same
+Microsoft sign-in with the link intent `connect-microsoft` runs, because linking is exactly
+what it does. The sticky bar carries both kinds, so a player on the map reads the same
+sentence Home does. `remainingActions()` still publishes `connect-microsoft` for both,
+because that list answers "what stands between the player and the game" and not "which of
+the two sentences applies"; no view may re-word it, and neither kind enables Play.
+
+The name in these sentences is the account's own `account.minecraftName` (*A linked
+provider's own details*), never the editable display name, and an account that carries no
+Minecraft name gets the sentence with no blank in it rather than a placeholder.
+
+### The head without a live Microsoft token
+
+`state.profile.skin` is the skin of the live Microsoft session, so a password sign-in has
+none. The Easter Company account document already carries the Minecraft identity it is
+linked to (`account.minecraftUuid`, `sanitizeAccount` validates it), and Mojang's own public
+endpoints answer for that uuid with no credential at all, so the main process reads the head
+there and publishes it as a data URL. One new state field:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `minecraftHead` | string \| null | The whole Minecraft skin PNG as a `data:image/png;base64,` URL for the Minecraft identity the signed-in Easter Company account already knows. Null when the account has no Minecraft identity, when the read failed, and when this session holds a live Microsoft token (the head is then `profile.skin`, and one face has one source). It is only ever the signed-in account's own head: a head cached for a different account is not published |
+
+`desktop/main.cjs` owns the read, in the same place and shape as `loadSkin`, and bounded the
+same way: `https://sessionserver.mojang.com/session/minecraft/profile/<uuid, dashes removed>`
+for the profile, the `textures` property it carries decoded to the `SKIN` texture URL on
+`textures.minecraft.net`, then that PNG. Each request has the skin read's own 5 s ceiling, the
+body is capped at 128 KB, and the PNG signature is checked before anything is published. No
+token, no cookie and no other credential is involved, and nothing about the account (its
+Company id, username, display name or email) is sent to either host.
+
+**Mojang names that texture over `http`, and the launcher asks for it over `https`.** The
+profile's own answer carries `http://textures.minecraft.net/texture/...`; the scheme is rewritten
+before the request, exactly as `loadSkin` already did, so a player's skin is never fetched in
+plaintext. If the https fetch fails, the answer is no head at all — the launcher never falls back
+to http. The profile's `metadata.model` (`classic` or `slim`) changes nothing here: the head is
+the same 8x8 region of the same 64x64 skin either way, so nothing branches on it.
+
+**Cached beside the account, not refetched per render.** A successful read is written to
+`minecraft-head.json` in the launcher's per-user directory, next to `company.enc`,
+`accounts.enc` and `settings.json`, as `{uuid, head}` and nothing else — a public image and
+the uuid it belongs to, no credential. It is read back before the first broadcast, so a
+restart paints the face immediately and asks Mojang nothing. One attempt is made per account
+per launcher run: a failed read is not retried in a loop, and the next launch may try once
+more.
+
+**A face is never a reason to fail.** The read starts after the window and the first
+broadcast, never on the boot path, so it delays nothing and holds no action. A refused,
+empty, oversized or non-PNG answer, an unreachable host, or an account with no Minecraft
+identity all leave `minecraftHead` null: no error is announced, nothing appears in the page
+notice or any dialog, no broken image is drawn, and the avatar stays the letter tile. The
+read never rejects into anything it does not own and never writes the state's `error`.
+
+**The renderer still only draws.** No request is added to `site/`: the field arrives as a
+data URL in state exactly as `profile.skin` does.
+
+The avatar's precedence is the one written above (*The player's own name and face*): the
+uploaded picture, then the live session's skin, then this head, then the letter tile. A skin
+or a head is only ever drawn for a Microsoft-linked account, so an account with no Microsoft
+link keeps the tile. The tile is the fallback for exactly two reasons: there is no Minecraft
+identity at all, or the head could not be read.
+
+**What is proven, and what is not.** `tests/identity-browser.mjs` drives the real
+`site/desktop.js` with the field in state and reads the header canvas back pixel by pixel: the
+head from `minecraftHead` when no session skin exists, the picture over it, the tile when the
+read failed, and the tile for an account with no Microsoft link. The same suite asserts the
+two hero sentences and their action kinds, and records both screenshots. The main process's
+own side — the two Mojang requests by the account's own uuid, the https upgrade of the texture
+Mojang names over http, the cache file, one attempt per account, and a refused profile or refused
+texture each leaving the tile with nothing in the error area and nothing thrown — is proven in
+`tests/desktop/minecraft-head.electron.mjs` against a stub of those two endpoints.
+
+Not verified here: what Mojang's endpoints answer for Owen's own uuid on the day he signs in
+again (the stub proves the launcher's half of the conversation, not Mojang's availability),
+and how a real skin looks on his machine, which is a screenshot on a signed-in launcher
+rather than a suite.
 
 ## A linked provider's own details (2026-10-19)
 
@@ -1962,7 +2095,7 @@ vault or the session, never logged, never put in renderer state and never sent a
 else. It is optional in the contract, so a build that cannot obtain one signs in without it
 rather than blocking the player.
 
-Company login restores only a matching cached Microsoft session. Otherwise Sign in to Minecraft asks for the linked Microsoft identity. Wrong-provider login cannot replace the active Company identity. Play requires a complete Company account, a matching Microsoft link, current launcher/client and confirmed Java access. Revoked Java access retains the Company identity and shows Buy Now. Add/switch/cancel/failure retain the current account until a new login succeeds. Logout signs out the primary identity. Provider storage supports future Steam linking; no Steam button or unverified linking is shipped.
+Company login restores only a matching cached Microsoft session. Otherwise the hero asks for the linked Microsoft identity and names it, with wording that a wholly unlinked account can never share (*A password sign-in still knows the account is linked*). Wrong-provider login cannot replace the active Company identity. Play requires a complete Company account, a matching Microsoft link, current launcher/client and confirmed Java access. Revoked Java access retains the Company identity and shows Buy Now. Add/switch/cancel/failure retain the current account until a new login succeeds. Logout signs out the primary identity. Provider storage supports future Steam linking; no Steam button or unverified linking is shipped.
 
 ## Verified emails and the login email (2026-10-18)
 

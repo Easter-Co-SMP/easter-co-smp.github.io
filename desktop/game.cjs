@@ -9,12 +9,8 @@
 // Everything in this module is pure or clock-injected, so tests/desktop/wake.test.cjs
 // can prove the whole wake rule without a network and without Electron.
 const {GAME_STATES,serverAddress,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS,GAME_DETAIL_MAX}=require('./config.cjs');
-// The address the launcher joins is published under `game.endpoint`, and it is the
-// launcher's own fixed target (config.cjs serverAddress()) rather than whatever the
-// status service names. One source of truth means the wake flow and the launch cannot
-// be aimed at two different hosts, which a launcher that woke one server and joined
-// another would be. doc/launcher-states.md, "The one server the launcher targets",
-// says why a service-supplied endpoint is ignored rather than published.
+// The address the launcher joins comes from the validated deployment metadata.
+// A service endpoint can confirm that target, never redirect the launch elsewhere.
 // The account service's own wording for an expired session is restated in this table,
 // so this module needs no import from accounts.cjs (which imports this one).
 // One table of copy, so every surface reads the same sentence and no view composes
@@ -38,7 +34,9 @@ const MESSAGES={
  // The failures. They leave this module as a GameWaitError and reach the player
  // through the page notice, with Play as the retry.
  timeout:'Your server did not become joinable within three minutes. Press Play to try it again.',
- session:'Your Easter Company session expired. Sign in again.'
+ session:'Your Easter Company session expired. Sign in again.',
+ target:'The game server address could not be confirmed. Try again shortly.',
+ unavailable:'The game server status could not be checked. Try Play again shortly.'
 };
 // ISO-8601 only, kept as the string the service wrote: the launcher never re-times a
 // server's own clock, and a value it cannot parse is dropped rather than shown.
@@ -58,6 +56,14 @@ function sanitizeDetail(value){
 // a launch and it is never inferred: a body that claims readiness for a server that is
 // not running is refused, because the port answering a real Minecraft status exchange
 // is the server being running.
+function endpointMatches(endpoint){
+ // Older APIs omitted the endpoint; current APIs must describe the very target
+ // the manifest selected. A mismatch never redirects the client to another host.
+ if(endpoint===undefined||endpoint===null)return true;
+ if(typeof endpoint!=='string')return false;
+ const key=value=>{const address=String(value).toLowerCase();return address.includes(':')?address:address+':25565';};
+ return key(endpoint)===key(serverAddress());
+}
 function sanitizeGameStatus(payload){
  if(!payload||typeof payload!=='object'||Array.isArray(payload))return null;
  // A body that does not even name a state is not an answer, however well formed the
@@ -67,11 +73,8 @@ function sanitizeGameStatus(payload){
  const players=Number.isInteger(payload.players)&&payload.players>=0&&payload.players<=10000?payload.players:null;
  return {
   state,
-  ready:payload.ready===true&&state==='running',
-  // The launcher's own target, never `payload.endpoint`. A service that named a
-  // different host must not be able to move where Play connects, and publishing an
-  // address the launcher will not join is a claim waiting to be believed, so the
-  // answer's own endpoint is not read at all.
+  ready:payload.ready===true&&state==='running'&&endpointMatches(payload.endpoint),
+  // Publish the manifest target; disagreement with the service refuses readiness.
   endpoint:serverAddress(),
   since:sanitizeSince(payload.since),
   players,
@@ -107,9 +110,8 @@ function defaultSleep(ms,signal){
 //
 // 1. Ask once. A server that answers ready is joined immediately, exactly as the
 //    launcher joined it before this feature existed: no wake, no prompt, no wait.
-// 2. Nothing answered at all: the launcher has no answer to respect, so it returns
-//    'unknown' and the caller keeps its previous behaviour (the bare join). It never
-//    claims the server is online and never invents a cold start.
+// 2. An unreadable or unknown answer refuses launch and leaves Play as the retry.
+//    The deployed control service must confirm readiness; there is no bare join.
 // 3. An answer that is not ready is respected. `stopping` is waited out and never
 //    woken and never joined; everything else is woken exactly once, then polled every
 //    GAME_POLL_MS until the server answers ready, and the caller launches straight
@@ -126,17 +128,20 @@ async function wakeServer({read,wake,onUpdate=()=>{},signal,now=Date.now,sleep=d
  const call=async(fn)=>{
   const result=await fn();
   if(!result||result.ok!==true){
+   if(result?.code==='game_target_mismatch')throw new GameWaitError('game_target_mismatch',MESSAGES.target);
    if(result?.code==='invalid_session')throw new GameWaitError('game_session_expired',MESSAGES.session);
    return false;
   }
+  if(!result.status)return false;
   answered=true;
-  known=result.status||{state:'unknown',ready:false,endpoint:serverAddress(),since:null,players:null,detail:null};
+  known=result.status;
   return true;
  };
  await call(read);
  report(false);
- if(!answered)return {outcome:'unknown',status:null,woke:false};
+ if(!answered)throw new GameWaitError('game_status_unavailable',MESSAGES.unavailable);
  while(true){
+  if(known.state==='unknown')throw new GameWaitError('game_status_unavailable',MESSAGES.unavailable);
   if(known.ready)return {outcome:'ready',status:known,woke:sent};
   // `stopping` is a server on its way down: waking it would be a second shutdown in
   // the way, and joining it is not possible. Wait for the state to change instead.
@@ -153,4 +158,4 @@ async function wakeServer({read,wake,onUpdate=()=>{},signal,now=Date.now,sleep=d
   if(!known.ready&&now()>=deadline)throw new GameWaitError('game_wake_timeout',MESSAGES.timeout);
  }
 }
-module.exports={GameWaitError,sanitizeGameStatus,sanitizeSince,gameMessage,wakeServer,MESSAGES,GAME_STATES,serverAddress,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS};
+module.exports={endpointMatches,GameWaitError,sanitizeGameStatus,sanitizeSince,gameMessage,wakeServer,MESSAGES,GAME_STATES,serverAddress,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS};

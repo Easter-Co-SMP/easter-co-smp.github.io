@@ -117,8 +117,8 @@ with `ready` the only field that authorises a launch. Play reads the status, wak
 server once when it is off, polls every three seconds and launches the moment it is
 joinable, so nobody presses Play twice; `doc/launcher-states.md` freezes those two routes,
 the `game` field of the state broadcast and every sentence the player reads. The launcher's
-side of it is `desktop/game.cjs`, and it is proven against a local stub because the cloud
-side of that contract is not deployed yet.
+side of it is `desktop/game.cjs`. The cloud v2 routes were deployed on 2026-10-19;
+launcher regressions exercise them against isolated loopback fixtures rather than AWS.
 
 The launcher is download-first. On a fresh machine the hero promotes downloading the game
 rather than the launcher: the player picks an installation folder or accepts the default, may
@@ -171,8 +171,9 @@ be pointed at a plaintext host.
 
 The app installs its own Java 25, Minecraft 26.2, Fabric 0.19.5, the custom mod, and the five
 pinned dependencies into its chosen client directory. It does not touch ~/.minecraft or
-an existing player's credentials. The default server is the same tailnet address as the drun
-shortcut; the launcher does not grant tailnet membership or change server network access.
+an existing player's credentials. The production deployment source names the public
+`smp.easter.company:25565` hostname; manifest updates propagate it into both launcher
+launch arguments and the in-game menu without using a legacy saved LAN address.
 Java is spawned directly with argument arrays on Windows and Linux, without a shell. Game
 logs live in the dedicated client directory. The app remains available for the map while playing.
 
@@ -286,3 +287,24 @@ Wiki checks: `node --test tests/wiki.test.mjs`, `node tests/wiki-browser.mjs`
 cover search, navigation, deep links, narrow layouts and the bundled offline wiki.
 
 Editorial rules and evidence for the real wiki are recorded in `doc/wiki-content-sources.md`. Keep the public guide focused on custom differences and recheck affected claims when rules change.
+
+## Deployment metadata
+
+`deployment.json` is the public, versioned production-target source. The client
+export includes it as `deployment` in `site/data/client.json`; the launcher packages
+the same source and writes the validated published object to the app-owned game
+`config/easter-company/deployment.json`, even when no content chunk changed. The
+in-game menu consumes that file. Play checks the manifest before waking the server,
+and refuses an authenticated game-control response naming a different endpoint.
+No player setting, legacy saved address or tailnet fallback chooses the target.
+
+The scheduled map exporter currently refuses public/remote deployments because its
+terrain reader still targets the retired local world. It preserves the current
+published snapshot until a verified remote snapshot source is implemented. Client
+publication uses canonical `/opt/minecraft/client-mods` artifacts and the reviewed
+published game pins through `PublishedClientArtifacts`; it no longer imports the
+removed e-server download API or derives releases from a local startup log.
+
+The native in-game menu reads the shared deployment address but has no Company
+session and cannot wake a sleeping EC2 instance itself. Start through the launcher
+for its authenticated wake/readiness flow; no account token is copied into the mod.

@@ -18,7 +18,7 @@ from scripts.export_world import (FABRIC_FALLBACK, GRAPHICS_COMPANIONS, GRAPHICS
                                   COMPANION_PATH_PREFIX, MANIFEST_KEYS,
                                   MODRINTH_CDN_HOST, PUBLIC_MARKER_KINDS, chunk_version,
                                   declared_fabric, default_resolution_state, ensure_state_writable,
-                                  export_client, fetch_modrinth_versions,
+                                  export_client, export_snapshot, PublishedClientArtifacts, fetch_modrinth_versions,
                                   manifest_text, modrinth_resolver, packages, parse_graphics_release,
                                   parse_modrinth_files, public_marker, public_marker_kind,
                                   read_resolution_state, resolve_dependencies, resolved_pins, write_json,
@@ -730,6 +730,7 @@ class ClientExportTests(unittest.TestCase):
             self.assertEqual(set(published) <= set(MANIFEST_KEYS), True)
             self.assertEqual(published['minecraft'], '26.2')
             self.assertEqual(published['fabric'], '0.19.5')
+            self.assertEqual(published['deployment'], json.loads((Path(__file__).resolve().parents[1] / 'deployment.json').read_text()))
             self.assertEqual(published['mod']['url'], 'downloads/easter-navy.jar')
             self.assertEqual([d['id'] for d in published['dependencies']], list(DEPENDENCIES))
             base = published['chunks'][0]
@@ -1011,6 +1012,23 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual((self.repo / 'site/data/world.json').read_bytes(), before)
         self.assertEqual(run_git(self.repo, 'status', '--porcelain'), '')
 
+    def test_remote_deployment_refusal_preserves_the_complete_generated_tree(self):
+        before = {str(path.relative_to(self.repo)): path.read_bytes()
+                  for prefix in ('site/data', 'site/downloads')
+                  for path in (self.repo / prefix).rglob('*') if path.is_file()}
+        with mock.patch('scripts.export_world.deployment_metadata', return_value={
+                'schema': 1, 'serverAddress': 'smp.easter.company:25565'}), \
+                mock.patch('scripts.export_world.importlib.import_module') as imported:
+            with self.assertRaisesRegex(RuntimeError, 'retired local world'):
+                self.capture(exporter=export_snapshot)
+            imported.assert_not_called()
+        after = {str(path.relative_to(self.repo)): path.read_bytes()
+                 for prefix in ('site/data', 'site/downloads')
+                 for path in (self.repo / prefix).rglob('*') if path.is_file()}
+        self.assertEqual(before, after)
+        self.assertEqual(self.count(), 1)
+        self.assertEqual(run_git(self.repo, 'status', '--porcelain'), '')
+
     def test_upstream_website_edits_and_pending_snapshots_both_survive(self):
         run_git(self.repo, 'remote', 'set-url', 'origin', str(self.remote) + '.offline')
         with self.assertRaises(RuntimeError):
@@ -1060,3 +1078,30 @@ class ManifestStatePreflightTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class PublishedArtifactSourceTests(unittest.TestCase):
+    def test_source_uses_reviewed_pins_and_refuses_old_or_ambiguous_same_version_content(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            jar = root / 'custom.jar'
+            def write(version):
+                with zipfile.ZipFile(jar, 'w') as archive:
+                    archive.writestr('fabric.mod.json', json.dumps({'id': 'easter-navy', 'version': version}))
+            write('2.0.1')
+            published = {'minecraft': '26.2', 'fabric': '0.19.5', 'mod': {
+                'version': '2.0.1', 'sha256': hashlib.sha256(jar.read_bytes()).hexdigest()}}
+            source = PublishedClientArtifacts(root, published)
+            self.assertIn('MC 26.2', source.facts.stack())
+            self.assertEqual(source.fabric, '0.19.5')
+            self.assertEqual(source._mods(), [jar])
+            write('2.0.0')
+            with self.assertRaisesRegex(RuntimeError, 'older than'):
+                source._mods()
+            write('2.0.1')
+            with zipfile.ZipFile(jar, 'a') as archive:
+                archive.writestr('changed.txt', 'different same-version artifact')
+            with self.assertRaisesRegex(RuntimeError, 'same version'):
+                source._mods()
+            write('2.0.2')
+            self.assertEqual(source._mods(), [jar])
