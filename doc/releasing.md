@@ -13,7 +13,18 @@ name from `/releases/latest/download/`. The launcher job is
 
 ## Preconditions, all of which must hold
 
-1. `main` is pushed and the working tree is clean.
+1. `main` is pushed and the working tree is clean — and it is the `main` you think
+   it is. Cut from `origin/main` after a `git fetch`, and confirm the fixes you
+   intend to ship are actually ancestors of it:
+
+       git fetch && git log --oneline -1 origin/main
+       git merge-base --is-ancestor <sha-you-expect> origin/main && echo "in"
+
+   Three releases on 2026-10-19 were cut from a branch that predated merged work:
+   1.0.32 shipped without the hero fix Owen had reported, and 1.0.34 shipped with
+   neither the server-status LED nor the cold-start retry fix — so the launcher a
+   player installed still failed on the first cold Lambda, and the version number
+   was already spent. A release cut from a stale branch is worse than a late one.
 2. The full check suite passes on that exact tree: `python -m unittest discover -s tests
    -p 'test_*.py'` (use `/root/e-server/.venv/bin/python`), `python scripts/validate.py
    site`, `npm test`, `node tests/drawings.mjs`, `node tests/browser.mjs` against a local
