@@ -26,11 +26,13 @@ const REAUTH_SENTENCE='Microsoft needs you to sign in again before Minecraft sta
 const REVOKED_SENTENCE='Signed Minecraft out everywhere. The next game on any computer needs a Microsoft sign-in.';
 // The stub's own switches. `mint` and `revoke` are what the service answers; the journey flips
 // them the way a live service changes its mind.
-const service={mint:'ok',revoke:'ok',calls:[]};
+// `mintDelay` makes the mint slow on purpose: the sign-in must not wait for it, and the journey
+// proves that below (a slow account service may never hold a password sign-in open).
+const service={mint:'ok',revoke:'ok',mintDelay:0,calls:[]};
 const mintedBody=()=>({accessToken:'fixture-minted-minecraft-token',expiresAt:new Date(Date.now()+86400000).toISOString(),profile:{uuid:'12345678-90ab-cdef-1234-567890abcdef',name:'FixtureCaptain'}});
 const sessionBody=()=>({created:false,account:ACCOUNT,session:{token:'fixture-company-session-token',expiresAt:new Date(Date.now()+86400000).toISOString()}});
 const stub=http.createServer((request,response)=>{
- const chunks=[];request.on('data',chunk=>chunks.push(chunk));request.on('end',()=>{
+ const chunks=[];request.on('data',chunk=>chunks.push(chunk));request.on('end',async()=>{
   const body=Buffer.concat(chunks).toString('utf8');
   service.calls.push({method:request.method,path:request.url,authorization:request.headers.authorization,body});
   const json=(status,payload)=>{response.writeHead(status,{'Content-Type':'application/json'});response.end(JSON.stringify(payload));};
@@ -43,6 +45,7 @@ const stub=http.createServer((request,response)=>{
   if(route==='GET /v2/accounts/emails')return json(200,{emails:[],loginEmail:null});
   if(route==='POST /v2/accounts/logout'){response.writeHead(204);response.end();return;}
   if(route==='POST /v2/game/session'){
+   if(service.mintDelay)await new Promise(resolve=>setTimeout(resolve,service.mintDelay));
    if(service.mint==='reauth')return json(401,{error:'reauth_required'});
    if(service.mint==='absent')return json(404,{error:'not_found'});
    return json(200,mintedBody());
@@ -95,9 +98,18 @@ try{
  // ---- A: a password sign-in whose account stores its Microsoft session ---------------
  process.stdout.write('[journey] scenario  A\n');
  service.mint='ok';
+ // The account service is slow for this sign-in on purpose: the password sign-in must settle
+ // and apply the account while the mint is still running, because a slow service may never hold
+ // a sign-in open or leave its busy state behind on the hero.
+ service.mintDelay=2500;
  const a=await launch();
  await a.passwordSignIn();
+ await a.page.waitForFunction(async()=>{const state=await window.easterDesktop.status();return Boolean(state.account&&state.account.username);},undefined,{timeout:15000});
+ const duringMint=await a.status();
+ assert.equal(duringMint.accountWorking,false,'the sign-in settles while the mint is still in flight');
+ assert.equal(duringMint.minecraftSession.state,'checking','and the hero says it is asking the account service');
  await a.hero('play').waitFor();
+ service.mintDelay=0;
  const signedIn=await a.status();
  assert.equal(signedIn.account.username,ACCOUNT.username);
  assert.equal(signedIn.companyReady,true);

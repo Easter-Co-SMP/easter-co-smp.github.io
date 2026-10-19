@@ -662,7 +662,7 @@ try{
    assert((await hero()).text.includes('OwenTheCaptain'),'and a linked one names the Minecraft identity it would start: '+(await hero()).text);
    await pushState({actions:['connect-microsoft'],canPlay:false,minecraftSession:{state:'reauth',serverHeld:false,checkedAt:'2026-10-19T00:00:00Z'}});
    heroAction({name:'a stored session the service will not renew',...await hero(),expect:'connect-microsoft'});
-   assert((await hero()).text.includes('sign in again'),'the renewal is asked for in the same action with its own note: '+(await hero()).text);
+   assert((await hero()).text.includes('Starts Minecraft as OwenTheCaptain'),'a stored session that cannot be renewed asks for the same sign-in, in main\'s own sentence and without claiming to know why it is gone: '+(await hero()).text);
    await pushState({actions:[],canPlay:true,profile:{name:'OwenTheCaptain',id:'1234567890abcdef1234567890abcdef',skin:null},companyReady:true,microsoftConnected:false,minecraftSession:{state:'server',serverHeld:true,checkedAt:'2026-10-19T00:00:00Z'}});
    heroAction({name:'a session the account service mints',...await hero(),expect:'play'});
    assert(!/Microsoft|link/i.test((await hero()).text),'and never asks for Microsoft while it has one: '+(await hero()).text);
