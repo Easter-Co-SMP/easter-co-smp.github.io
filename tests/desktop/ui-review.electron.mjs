@@ -181,7 +181,15 @@ try{
  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).error,'Minecraft could not start. Check Java and try again.','asynchronous game failure remains visible');
  await page.getByRole('button',{name:'Dismiss message'}).click();
  const ready={...await page.evaluate(()=>window.easterDesktop.status()),error:null};
- await send({...ready,phase:'running'});
+ // The game these checks are made under is one main really started, not a `running` phase
+ // pushed into the renderer. A broadcast carries main's own phase, and the profile's own
+ // verified-emails read answers with one about a second after it opens, so a fabricated phase
+ // outlives nothing: the four [data-profile-action] controls came back enabled while the
+ // assertion below was still to come, and that is how this journey stayed red. The fixture
+ // starts the same game the player does, and main then says `running` for real.
+ await page.locator('[data-desktop-play][data-action=play]').click();
+ await page.locator('[data-desktop-play][data-action=running]').waitFor();
+ assert.equal((await page.evaluate(()=>window.easterDesktop.status())).phase,'running','the launcher reports the game running for the checks below, from main and not from this test');
  await page.getByRole('button',{name:'Settings',exact:true}).click();await shot('settings');
  await page.setViewportSize({width:800,height:600});await shot('settings-800');
  assert(await page.locator('#desktop-launcher').evaluate(el=>el.scrollHeight<=el.clientHeight+1),'default settings fit compact window');
@@ -243,8 +251,17 @@ try{
  assert.equal(await emailButton.count(),1,'the profile offers the verified emails section');
  assert.equal(await emailButton.isDisabled(),true,'and cannot change the login email while the game runs');
  await page.locator('.desktop-profile-heading.desktop-email').filter({hasText:'Login email: captain@example.test'}).waitFor();
+ // That address is written only once the read above has answered, and the answer is a real
+ // broadcast: the first one that arrived after this popover opened is the one that used to
+ // hand the account controls back. The lock is made of the phase main still reports.
+ assert.equal((await page.evaluate(()=>window.easterDesktop.status())).phase,'running','the profile read its own state without the launcher forgetting the game is running');
+ for(const action of await page.locator('[data-profile-action]:visible').all())assert(await action.isDisabled(),'account changes stay disabled after the profile reads its own state while the game runs');
  await shot('profile-with-email');
- await page.keyboard.press('Escape');await send(ready);
+ // The game closes, and the launcher settles by itself: no state is fabricated to get the
+ // account controls back, because a fabricated one is what this journey just proved wrong.
+ await page.keyboard.press('Escape');
+ await app.evaluate(()=>global.easterTestGame.emit('exit',0));
+ await page.locator('[data-desktop-play][data-action=play]').waitFor();
  await page.locator('.desktop-account-nav').click();
  await emailButton.click();
  const emailsPanel=page.locator('#desktop-company-emails');
