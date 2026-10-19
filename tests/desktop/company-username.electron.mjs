@@ -163,7 +163,7 @@ try{
  await refuse(PROBE_TAKEN,'That username is already taken. Try another.');
  // A reserved word passes every rule the client can see and is refused by the server as a
  // policy answer, which must not be reported as a name someone else holds.
- await refuse(PROBE_RESERVED,'Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.');
+ await refuse(PROBE_RESERVED,'Use 3 to 20 characters: letters, numbers, underscores or dashes. Capitals become lowercase.');
  // 4. A username the probe allows is taken to step 2, which names it.
  await usernameStep.getByLabel('Username',{exact:true}).fill(RACE_LOST);
  await usernameStep.getByRole('button',{name:'Continue',exact:true}).click();
