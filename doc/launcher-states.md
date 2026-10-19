@@ -1964,9 +1964,22 @@ then, which was true only while Microsoft was the only provider). The one button
 not that action is **Open the Microsoft page**, because that is all it does: it opens
 Microsoft's page in the browser
 and signs nobody in by itself. The sentences around the action already used the same verb
-and are unchanged (`Sign in again.`, `Sign in with Microsoft or with your username.`,
-`Sign in with Microsoft to continue.`), and so is the setup copy that names the account
-service. These are strings, so the suites assert the labels themselves.
+and are unchanged (`Sign in again.`, `Sign in with a linked provider or with your
+username.`, `Sign in with Microsoft to continue.`), and so is the setup copy that names the
+account service. These are strings, so the suites assert the labels themselves.
+
+**Correction 2026-10-19: the middle of those three sentences was not unchanged, and this
+paragraph said it was.** It read `Sign in with Microsoft or with your username.` when this
+paragraph was written (8b9971b, 2026-10-18 06:20) and it is the cleared-login-email
+sentence, not a name for the Microsoft action: it lists the ways back into an account, and
+since provider sign-in there are four. Commit 4341b90 (18:44 the same day) reworded the
+renderer's copy to `Sign in with a linked provider` and neither this paragraph nor the
+verified-emails section below was amended, so the contract went on quoting the superseded
+wording as current and `desktop/main.cjs` went on saying it. The decided sentence is now
+**`Your login email is cleared. Sign in with a linked provider or with your username.`** — one
+event, one sentence, in both the dialog and the page notice; see *The login email says what
+actually gets you back in*, below. `Sign in with Microsoft to continue.` really is unchanged:
+there Microsoft is the requirement, because that sentence is about the Minecraft session.
 
 **A download or update failure carries no HTTP status.** The status is not something a
 player can act on, so it has left the sentence and moved onto the error object
@@ -2252,11 +2265,44 @@ The four states are distinct and each is stated rather than implied:
 
 - verified addresses, one selected → the list, with that address marked as the sign-in key;
 - verified addresses, none selected → the list plus "No login email is selected. Sign in
-  with Microsoft or with your username.";
+  with a linked provider or with your username.";
 - no verified address → no list and the sentence "No verified email is recorded for this
-  account. Sign in with Microsoft or with your username.";
+  account. Sign in with a linked provider or with your username.";
 - the list could not be read → the failure sentence only. Nothing claims an address exists,
   and nothing claims the account has none, when the answer is unknown.
+
+**The login email says what actually gets you back in (2026-10-19).** Both of those
+sentences used to name Microsoft — "Sign in with Microsoft or with your username." — and so
+did the cleared notice `desktop/main.cjs` sends for the same section. They name **a linked
+provider** now, and the reason is the same one that took Microsoft's name off the signed-out
+hero (5c9c853, *The signed-out hero's own sentence*): the Easter Company sign-in chooser
+offers that account through **Microsoft, Google, Steam and Discord** (*Provider account
+state*), so naming one of them tells a player who signed up with the others that the way back
+in is closed to them. Microsoft stays named where it genuinely is the requirement — the
+chooser's own button, and `Sign in with Microsoft to continue.`, which is about the Minecraft
+session.
+
+The three sentences this corrects — the two states above and the cleared notice — and the
+place this document quoted one of them as unchanged, kept visible so the next reader does not
+take the old words for the contract. Commit 4341b90 (2026-10-18 18:44) added provider sign-in
+and reworded the renderer to "a linked provider"; it did not touch `desktop/main.cjs` and did
+not amend this document, so the old wording survived in both places:
+
+| Where | Superseded wording | State now |
+|---|---|---|
+| no selected address (this section) | `No login email is selected. Sign in with Microsoft or with your username.` | `…Sign in with a linked provider or with your username.` |
+| no verified address (this section) | `No verified email is recorded for this account. Sign in with Microsoft or with your username.` | `…Sign in with a linked provider or with your username.` |
+| cleared notice (`desktop/main.cjs`) | `Your login email is cleared. Sign in with Microsoft or with your username.` | `…Sign in with a linked provider or with your username.` |
+| quoted in *One verb, and sentences that carry no status* | `Sign in with Microsoft or with your username.` listed as unchanged | listed as `Sign in with a linked provider or with your username.`, with the correction recorded there |
+
+One event, one sentence: clearing the login email is one action, and a player reads it twice —
+the verified-emails dialog's own status line while the dialog is open, then the page notice
+`desktop/main.cjs` held back until that dialog closes (*One failure, one visible home*) — so
+both surfaces carry the identical sentence, and `tests/desktop/accounts.test.cjs` asserts the
+two files agree rather than asserting each against its own history. There is no module shared
+across that boundary (main is CommonJS, `site/` is browser ESM), so this document is the one
+place the decided sentence is recorded and both files carry it verbatim; that is the same
+arrangement `username_policy` and the password floor already use.
 
 **Refusals are reported as what they are.** A selection the service refuses
 (`email_not_yours`) is one sentence naming the address as unavailable — it is not verified
