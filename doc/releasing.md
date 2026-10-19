@@ -29,7 +29,17 @@ name from `/releases/latest/download/`. The launcher job is
    `xvfb-run -a node tests/desktop/launcher-identity-conflict.electron.mjs` (the identity
    conflict through the real preload: the refusal code crosses the isolated world, the
    chooser comes back with the account service's sentence, and the signed-in account is
-   unchanged — the browser suite drives a stub bridge and cannot see this), and
+   unchanged — the browser suite drives a stub bridge and cannot see this),
+   `xvfb-run -a node tests/desktop/ownership.electron.mjs` (the ownership gate on the one
+   signed-in account: sign-in without Java Edition lands on Buy Now and never on Play, the
+   store link is Minecraft's own, a direct Play IPC call cannot bypass the gate, the
+   profile-required and service-outage rechecks each offer their own action, Play appears
+   once access is owned, and revoked access refuses to start the cached profile),
+   `xvfb-run -a node tests/desktop/deslop.electron.mjs` (no slop in the UI on the one-account
+   model: one action per screen, no second route to the Map, Settings only once there is a
+   client, a launcher update check withholds Settings and closes its dialog, the header names
+   the one signed-in account, nothing in the profile menu offers Add account or Switch
+   Account, and signing out returns the signed-out copy), and
    `xvfb-run -a node tests/desktop/shortcuts.electron.mjs` (the game shortcuts: both
    entries created and removed in an isolated HOME, and the auto-start path driven
    through the real main process).
@@ -89,10 +99,18 @@ The three facts that make it work, and the details that bite:
 
 The other Electron journeys need no fixture. `accounts.electron.mjs` starts its own
 loopback stub and reads the account shape from it; `electron.mjs`, `flow.electron.mjs`,
-`launcher-identity-conflict.electron.mjs` and `shortcuts.electron.mjs` use their own
-harnesses. The browser and drawings suites need only the static preview:
+`launcher-identity-conflict.electron.mjs`, `ownership.electron.mjs`, `deslop.electron.mjs`
+and `shortcuts.electron.mjs` use their own harnesses. The browser, waits and drawings
+suites need only the static preview of `site/` (run them from the repository root, and note
+that `tests/waits-browser.mjs` reads `EASTER_PUBLIC_ORIGIN`, which is how it is pointed at
+18100 rather than its own default port):
 
     python -m http.server --directory site 18100
+
+`ownership.electron.mjs` and `deslop.electron.mjs` were the two journeys the account
+clean-up left driving the removed Add/Switch Account UI; they are re-authored against the
+one-account model (see the account state contract in `doc/launcher-states.md`) and both are
+green, so a red one of them is a real regression rather than a stale test.
 
 ## Cutting it
 

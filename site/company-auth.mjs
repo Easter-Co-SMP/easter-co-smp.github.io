@@ -228,8 +228,9 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  // What that sentence leaves unsaid and the player needs, one line each rather than one
  // paragraph: their account is untouched, and then the way out. The way out starts by closing
  // this dialog, because that is not a detail — the profile it names is behind a modal dialog, so
- // its Switch Account control cannot be pressed until this window is gone. Neither line names an
- // account, an address or a Company ID.
+ // its Logout entry cannot be pressed until this window is gone, and the launcher has one
+ // account: signing in again while signed in is refused until the player signs out. Neither
+ // line names an account, an address or a Company ID.
  const IDENTITY_CONFLICT_UNCHANGED='Nothing on your Easter Company account has changed.';
  const IDENTITY_CONFLICT_NEXT='Close this window first. Sign out from your profile before signing in to a different account.';
  const identityConflictCopy=sentence=>{
@@ -243,7 +244,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  };
  async function microsoft(recover=false){
   if(busy)return;
-  const useSaved=!recover&&!chooseOptions.switchAccount&&state.microsoftAccount&&typeof desktop.continueMicrosoft==='function';
+  const useSaved=!recover&&state.microsoftAccount&&typeof desktop.continueMicrosoft==='function';
   chooser.close();
   // The saved Microsoft session is a shortcut, never a dead end. Every failure of it falls
   // through to the fresh interactive sign-in that shows the device code and the browser
@@ -267,7 +268,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
     chooser.showModal();error(chooser,identityConflictCopy(answer.error));return;
    }
   }
-  const result=await signInMicrosoft({link:recover?Boolean(state.account&&!chooseOptions.switchAccount):Boolean(chooseOptions.link)});
+  const result=await signInMicrosoft({link:recover?Boolean(state.account):Boolean(chooseOptions.link)});
   if(result&&recover&&state.account&&!state.account.passwordRequired)setup(true);
  }
  chooser.querySelector('.company-microsoft').onclick=()=>void microsoft(recovering);
