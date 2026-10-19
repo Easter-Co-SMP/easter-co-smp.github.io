@@ -537,3 +537,60 @@ test('the password floor is eight characters in every layer that states it',()=>
  // may not read another repository: CI has no copy of it, and that is how this test broke
  // the 1.0.27 build.
 });
+
+test('Microsoft enrollment retries one explicit database resume failure then succeeds',async()=>{
+ const stub=await startStub(({response})=>send(response,stub.calls.length===1?503:200,
+  stub.calls.length===1?{error:'database_unavailable',detail:TOKEN}:loginBody(true)));
+ try{
+  const signed=await client(stub.origin).login(TOKEN,undefined,SESSION,'fixture-graph-proof');
+  assert.equal(signed.created,true);
+  assert.equal(stub.calls.length,2);
+  assert.equal(stub.calls[0].body,stub.calls[1].body,'retry preserves the original enrollment proof');
+  assert.equal(stub.calls[1].headers.authorization,'Bearer '+SESSION,'link binding survives the retry');
+ }finally{await stub.close();}
+});
+
+test('database resume retry stops after two requests and reports fixed actionable wording',async()=>{
+ const stub=await startStub(({response})=>send(response,503,{error:'database_unavailable',detail:TOKEN}));
+ try{
+  const error=await rejects(assert,client(stub.origin).login(TOKEN),'database_unavailable');
+  assert.equal(stub.calls.length,2);
+  assert.match(error.message,/still waking up.*try signing in again/i);
+  assert(!error.message.includes(TOKEN));
+ }finally{await stub.close();}
+});
+
+test('enrollment never retries unrelated service errors or database words on other statuses',async()=>{
+ for(const [status,body,code] of [[503,{error:'identity_provider_unavailable'},'identity_provider_unavailable'],[500,{error:'database_unavailable'},'database_unavailable'],[503,{},'service_503']]){
+  const stub=await startStub(({response})=>send(response,status,body));
+  try{
+   await rejects(assert,client(stub.origin).login(TOKEN),code);
+   assert.equal(stub.calls.length,1);
+  }finally{await stub.close();}
+ }
+ let attempts=0;
+ const {AccountClient}=require('../../desktop/accounts.cjs');
+ await rejects(assert,new AccountClient({request:async()=>{attempts++;throw new Error('private transport detail');}}).login(TOKEN),'unreachable');
+ assert.equal(attempts,1,'an unknown write outcome must not be replayed');
+});
+
+test('cancel during database resume backoff prevents enrollment replay',async()=>{
+ const controller=new AbortController();
+ let attempts=0;
+ const {AccountClient}=require('../../desktop/accounts.cjs');
+ const api=new AccountClient({request:async()=>{
+  attempts++;
+  setTimeout(()=>controller.abort(),25);
+  return {ok:false,status:503,json:async()=>({error:'database_unavailable'})};
+ }});
+ await assert.rejects(api.login(TOKEN,controller.signal),{name:'AbortError'});
+ assert.equal(attempts,1);
+});
+
+test('other account mutations are never replayed on database failures',async()=>{
+ const stub=await startStub(({response})=>send(response,503,{error:'database_unavailable'}));
+ try{
+  await rejects(assert,client(stub.origin).setPassword(SESSION,'fixture-password',false,'fixture-user'),'database_unavailable');
+  assert.equal(stub.calls.length,1);
+ }finally{await stub.close();}
+});

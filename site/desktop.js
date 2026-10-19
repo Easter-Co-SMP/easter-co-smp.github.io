@@ -659,8 +659,12 @@
   if(device&&!cancelledSignIn){
    if(panel.open)panel.close();
    if(!signin.open)signin.showModal();
-   auth('.desktop-code').textContent=device.code;
-   auth('.desktop-provider').textContent='Microsoft lists this app as '+(current.authName||'the launcher')+'.';
+   // Progress broadcasts share this render path with sign-in. Replacing even
+   // identical text destroys the browser's selection before the player can copy.
+   const code=auth('.desktop-code'),provider=auth('.desktop-provider');
+   if(code.textContent!==device.code)code.textContent=device.code;
+   const providerText='Microsoft lists this app as '+(current.authName||'the launcher')+'.';
+   if(provider.textContent!==providerText)provider.textContent=providerText;
    if(wasWaiting)auth('[data-open-microsoft]').focus();
   }else if(!device&&!signInPending&&!emailNoticeHeld&&signin.open)signin.close();
   // Settings is the hero's secondary action, and it is offered only at the Play Now

@@ -4,6 +4,7 @@ const companyFixture=require('./account-fixture.cjs');companyFixture.install();
 const auth=require('../../desktop/auth.cjs');
 auth.MicrosoftAuth=class{
  async signIn(notify,signal){
+  global.easterTestDevice=notify;
   notify({code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000});
   await new Promise((resolve,reject)=>{
    global.easterTestApprove=resolve;
@@ -19,6 +20,9 @@ const record=()=>({version:'fixture-fabric',mod:'fixture-2.0.0',java:'/fixture/j
 install.clientStatus=async()=>({installed,version:installed?'fixture-2.0.0':null,updatedAt:installed?'2026-10-15T00:00:00.000Z':null,record:installed?record():null});
 install.checkForUpdates=async()=>({checked:true,changed:false,applied:false,changes:[],result:null});
 install.installClient=async({notify,control,includeGraphics=false})=>{
+ let progress=0;
+ global.easterTestFinishDownload=()=>notify({phase:'ready',message:'Client ready.',progress:null});
+ global.easterTestDownloadProgress=()=>notify({phase:'downloading',message:'Downloading the test client',progress:{label:'Downloading the test client',percent:++progress%100,bytesDone:progress,bytesTotal:1000,bytesPerSecond:250,etaSeconds:4}});
  notify({phase:'downloading',message:'Downloading the test client',progress:{label:'Downloading the test client',percent:50,bytesDone:50,bytesTotal:100,bytesPerSecond:null,etaSeconds:null}});
  await new Promise(resolve=>setTimeout(resolve,150));
  await control?.gate();

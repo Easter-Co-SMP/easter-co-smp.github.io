@@ -6,7 +6,9 @@
 const {apiOrigin,GAME_STATUS_TIMEOUT_MS,GAME_WAKE_REQUEST_TIMEOUT_MS}=require('./config.cjs');
 const {sanitizeGameStatus}=require('./game.cjs');
 const {apiFetch}=require('./security.cjs');
+const {setTimeout:wait}=require('node:timers/promises');
 const DEFAULT_TIMEOUT=30000;
+const DATABASE_RESUME_BACKOFF_MS=750;
 class AccountError extends Error{
  constructor(code,message){super(message);this.name='AccountError';this.code=code;}
 }
@@ -24,6 +26,7 @@ const PROBE_REASONS={taken:'username_taken',username_taken:'username_taken',poli
 const EMAIL_STATUSES=['stored','unavailable','none'];
 // Error messages and codes from the frozen contract, mapped to one actionable line.
 const MESSAGES={
+ database_unavailable:'The account service is still waking up. Please try signing in again in a moment.',
  provider_not_configured:'This sign-in provider is not available yet.',
  invalid_provider_token:'Your provider sign-in was not accepted. Try again.',
  invalid_credentials:'The username or email, or the password, is incorrect.',
@@ -136,7 +139,13 @@ class AccountClient{
   if(response.status!==204){
    try{data=await response.json();}catch{throw new AccountError('invalid_response',FALLBACK);}
   }
-  if(!response.ok)throw serverMessage(response.status,data);
+  if(!response.ok){
+   const error=serverMessage(response.status,data);
+   // Only a declared database failure is safe to retry. A lost response could
+   // have committed, and an unrelated service failure must keep its own meaning.
+   error.databaseUnavailable=response.status===503&&data?.error==='database_unavailable';
+   throw error;
+  }
   return data;
  }
  // The Microsoft Graph token is optional in the contract and transient here: it is put in
@@ -145,7 +154,18 @@ class AccountClient{
  async login(xboxUserToken,signal,token,microsoftAccessToken){
   if(typeof xboxUserToken!=='string'||!xboxUserToken)throw new AccountError('invalid_request',MESSAGES.invalid_request);
   const graph=typeof microsoftAccessToken==='string'&&microsoftAccessToken?microsoftAccessToken:null;
-  const created=await this.call('/v2/accounts/microsoft',{method:'POST',body:{xboxUserToken,...(graph?{microsoftAccessToken:graph}:{}),client:this.client},signal,token});
+  const options={method:'POST',body:{xboxUserToken,...(graph?{microsoftAccessToken:graph}:{}),client:this.client},signal,token};
+  // Aurora can take longer to resume than one bounded API request allows.
+  // A declared database_unavailable response can be retried with the same
+  // verified identity while that cluster continues waking. Never retry a network
+  // error or a malformed success, whose write outcome is unknown.
+  let created;
+  try{created=await this.call('/v2/accounts/microsoft',options);}
+  catch(error){
+   if(!error.databaseUnavailable)throw error;
+   await wait(DATABASE_RESUME_BACKOFF_MS,undefined,{signal});
+   created=await this.call('/v2/accounts/microsoft',options);
+  }
   return this.signed(created);
  }
  // Direct sign-in. The identifier is the Easter Company username or the email the

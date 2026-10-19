@@ -1716,3 +1716,18 @@ with `graphicsPreset:"custom"` because distances follow the hardware ladder. The
 obsolete `graphicsMode` line is removed. On a detected weak GPU the first install
 also applies the conservative vanilla settings with shaders off; subsequent off
 transitions keep the player's distances and personal settings.
+
+## Stable Microsoft device code (2026-10-19)
+
+Background download progress must never replace an unchanged Microsoft device-code
+text node, disturb its selection, move focus, or reopen the sign-in dialog. The
+code and provider text update only when their displayed values change; a newly
+issued code still replaces the previous one. The progress bar continues updating
+while the code is selected or copied. No copy control or extra sign-in step is added.
+
+The error notice's dismiss control and desktop dialog close controls explicitly
+center their glyphs without inherited button padding. Microsoft enrollment retries
+only an explicit HTTP 503 `database_unavailable` response once; it does not retry
+network errors, unknown failures, credentials, or other account mutations. The
+backoff honours cancellation. A second database-unavailable answer has an actionable
+launcher-owned message. No token or server detail enters that message.
