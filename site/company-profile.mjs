@@ -1,4 +1,17 @@
 const NAMES={microsoft:'Microsoft / Xbox',google:'Google',steam:'Steam',discord:'Discord'};
+// What each linked provider's row may show, in the order it is drawn. The values are the
+// account's own record of what that provider holds (desktop/accounts.cjs publishes them after
+// rebuilding them field by field), so this view checks only that a value is there and never
+// decides what a value may be. The Minecraft name is the account's own and is not read from
+// the provider: one source, and the one the launcher already trusts.
+const DETAILS={
+ microsoft:[['Xbox Gamer Tag',(account,detail)=>detail?.gamertag],['Minecraft Username',account=>account.minecraftName]],
+ google:[['Gmail',(account,detail)=>detail?.email]],
+ steam:[['Username',(account,detail)=>detail?.persona]],
+ // Discord carries two names and shows one line: the username, then the display name.
+ discord:[['Username',(account,detail)=>detail?.username||detail?.displayName]]
+};
+const shown=value=>typeof value==='string'&&value.trim()?value.trim():'';
 export async function openCompanyProfile({desktop,getState,signInMicrosoft}){
  if(document.querySelector('#company-profile'))return;
  const modal=document.createElement('dialog');modal.id='company-profile';modal.className='desktop-company-dialog';modal.setAttribute('aria-labelledby','company-profile-title');
@@ -19,11 +32,15 @@ export async function openCompanyProfile({desktop,getState,signInMicrosoft}){
   const account=getState()?.account;if(!account){modal.close();return;}
   if(document.activeElement!==modal.querySelector('input'))modal.querySelector('input').value=account.name||account.username||'';
   const list=modal.querySelector('.company-provider-links');list.replaceChildren();
+  // A missing or malformed record is no details at all, which renders exactly as the dialog
+  // did before this field existed. It is never an error and never a broken row.
+  const details=account.providerDetails&&typeof account.providerDetails==='object'&&!Array.isArray(account.providerDetails)?account.providerDetails:null;
   for(const [provider,name] of Object.entries(NAMES)){
    const linked=(account.providers||[]).includes(provider)||(provider==='microsoft'&&account.microsoftLinked);
    const row=document.createElement('div');row.className='company-provider-link';
-   const label=document.createElement('span');label.textContent=name+(linked?' · linked':'');
-   row.append(label);
+   const head=document.createElement('div');head.className='company-provider-head';
+   const label=document.createElement('span');label.className='company-provider-name';label.textContent=name+(linked?' · linked':'');
+   head.append(label);
    // A linked provider is described and not offered. The account service has no unlink route,
    // so a control over an already-linked provider could only ever fail: pressing Verify re-ran
    // the link flow and the API answered "this account is already linked to an Easter Company
@@ -31,7 +48,25 @@ export async function openCompanyProfile({desktop,getState,signInMicrosoft}){
    if(!linked){
     const button=document.createElement('button');button.type='button';button.textContent='Connect';button.disabled=busy||(available&&!available.includes(provider));button.setAttribute('aria-label','Connect '+name);
     button.onclick=()=>void run(()=>provider==='microsoft'?signInMicrosoft({link:true}):desktop.signInProvider(provider,true),provider!=='microsoft');
-    row.append(button);
+    head.append(button);
+   }
+   row.append(head);
+   // What this provider holds, as labelled lines. A line is drawn only when the value exists:
+   // an unlinked provider has no detail block at all, and a linked one with nothing known
+   // draws no line - never a label with no value, a colon on its own, a brace, a placeholder
+   // or "undefined". Each value is text and only text (textContent, never innerHTML): these
+   // came from Microsoft, Steam and Discord, and the main process already rebuilt them.
+   if(linked){
+    const lines=[];
+    for(const [caption,read] of DETAILS[provider]||[]){
+     const value=shown(read(account,details?.[provider]));
+     if(!value)continue;
+     const line=document.createElement('p');line.className='company-provider-detail';
+     const key=document.createElement('span');key.className='company-provider-detail-label';key.textContent=caption+': ';
+     const held=document.createElement('span');held.className='company-provider-detail-value';held.textContent=value;
+     line.append(key,held);lines.push(line);
+    }
+    if(lines.length){const block=document.createElement('div');block.className='company-provider-details';block.append(...lines);row.append(block);}
    }
    list.append(row);
   }

@@ -249,6 +249,94 @@ try{
  await page.locator('#company-profile .dialog-close').click();
  await page.locator('#company-profile').waitFor({state:'detached'});
 
+ // --- A linked provider's own details ----------------------------------------
+ // Owen's specification: under a linked provider, its own values as labelled lines. The state
+ // below is the screenshot case - two providers carrying details, one linked provider that
+ // knows nothing - and the Minecraft name is the account's own field, not the display name
+ // the player may edit and not the copy the cloud may send inside providerDetails.
+ const detailRows=()=>page.evaluate(()=>[...document.querySelectorAll('#company-profile .company-provider-link')].map(row=>({
+  label:row.querySelector('.company-provider-name')?.textContent||'',
+  lines:[...row.querySelectorAll('.company-provider-detail')].map(line=>line.innerText),
+  blocks:row.querySelectorAll('.company-provider-details').length
+ })));
+ const LINKED_ACCOUNT={id:'EC-20',username:'hannah_e',name:'Hannah Easter',roles:[],passwordRequired:false,microsoftLinked:true,providers:['microsoft','google','steam'],minecraftName:'HannahMC',picture:null};
+ await page.evaluate(account=>sendState({account:{...account,providerDetails:{microsoft:{gamertag:'Hannah Wren'},google:{email:'hannah@example.test'},steam:{persona:null}}},profile:null}),LINKED_ACCOUNT);
+ await page.locator('.desktop-account-nav').click();
+ await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
+ await page.locator('#company-profile').waitFor({state:'visible'});
+ assert.deepEqual(await detailRows(),[
+  {label:'Microsoft / Xbox · linked',lines:['Xbox Gamer Tag: Hannah Wren','Minecraft Username: HannahMC'],blocks:1},
+  {label:'Google · linked',lines:['Gmail: hannah@example.test'],blocks:1},
+  {label:'Steam · linked',lines:[],blocks:0},
+  {label:'Discord',lines:[],blocks:0}
+ ],'each linked provider draws its own labelled lines, a linked provider with nothing known draws none, and an unlinked provider has no detail block at all');
+ const detailText=await page.locator('#company-profile').innerText();
+ assert(!/undefined|\bnull\b|\{|\}/.test(detailText),'no placeholder, brace, null or undefined reaches the dialog: '+JSON.stringify(detailText.slice(detailText.indexOf('Linked accounts'))));
+ for(const line of (await detailRows()).flatMap(row=>row.lines))assert.match(line,/^[A-Za-z][^:]*: \S/,'a drawn line is a label and a value: '+JSON.stringify(line));
+ // The section keeps its shape: the sentence, the wording, and Connect only where it can work.
+ assert.match(detailText,/Links stay with this Easter Company account/);
+ assert.equal(await page.locator('#company-profile').getByRole('button',{name:'Connect Discord',exact:true}).count(),1,'the one unlinked provider still offers Connect');
+ assert.equal(await page.locator('#company-profile').getByRole('button',{name:/^Connect (Microsoft|Google|Steam)/}).count(),0,'a linked provider offers no control');
+ await page.screenshot({path:`${images}/profile-provider-details-1440.png`,animations:'disabled'});
+ for(const [width,height] of [[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  assert.equal(await page.locator('#company-profile').evaluate(el=>el.scrollWidth<=el.clientWidth),true,'the detail lines add no horizontal overflow at '+width+'px');
+  await page.screenshot({path:`${images}/profile-provider-details-${width}.png`,animations:'disabled'});
+ }
+ await page.setViewportSize({width:1440,height:900});
+ note('two providers with details and one linked provider with nothing known, at 1440, 800 and 390');
+
+ // The values are another party's text, so they are only ever text: markup in a value draws
+ // nothing, and a record this launcher cannot read renders exactly as the dialog did before
+ // providerDetails existed.
+ await page.locator('#company-profile .dialog-close').click();
+ await page.locator('#company-profile').waitFor({state:'detached'});
+ await page.evaluate(account=>sendState({account:{...account,providerDetails:{steam:{persona:'<b>Wren</b>'}}},profile:null}),LINKED_ACCOUNT);
+ await page.locator('.desktop-account-nav').click();
+ await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
+ await page.locator('#company-profile').waitFor({state:'visible'});
+ assert.equal(await page.locator('#company-profile .company-provider-detail b, #company-profile .company-provider-detail img').count(),0,'a value that looks like markup draws no element');
+ assert.deepEqual(await page.evaluate(()=>[...document.querySelectorAll('#company-profile .company-provider-detail-value')].map(node=>node.textContent)),['HannahMC','<b>Wren</b>'],'each value is shown as the text it is');
+ assert.deepEqual((await detailRows())[0],{label:'Microsoft / Xbox · linked',lines:['Minecraft Username: HannahMC'],blocks:1},'the gamertag this state does not carry draws no line, while the account\'s own Minecraft name still does');
+ await page.locator('#company-profile .dialog-close').click();
+ await page.locator('#company-profile').waitFor({state:'detached'});
+ // A document with no providerDetails at all - the live one, until the cloud ships the field -
+ // is today's dialog plus the one line the account state already answers from: the Minecraft
+ // name. Nothing else appears, and nothing breaks. (Address validation is the main process's
+ // job and is proven in tests/desktop/provider-details.test.cjs; this view shows what it is
+ // given and never judges it.)
+ const TODAY=[{label:'Microsoft / Xbox · linked',lines:['Minecraft Username: HannahMC'],blocks:1},
+  {label:'Google · linked',lines:[],blocks:0},
+  {label:'Steam · linked',lines:[],blocks:0},
+  {label:'Discord',lines:[],blocks:0}];
+ for(const broken of ['details',['microsoft'],[{gamertag:'x'}],{microsoft:'x'},{microsoft:null},{microsoft:{gamertag:5}},{microsoft:{gamertag:'   '}}]){
+  await page.evaluate(({account,broken})=>sendState({account:{...account,providerDetails:broken},profile:null}),{account:LINKED_ACCOUNT,broken});
+  await page.locator('.desktop-account-nav').click();
+  await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
+  await page.locator('#company-profile').waitFor({state:'visible'});
+  assert.deepEqual(await detailRows(),TODAY,'a record this launcher cannot read renders as today: '+JSON.stringify(broken));
+  await page.locator('#company-profile .dialog-close').click();
+  await page.locator('#company-profile').waitFor({state:'detached'});
+ }
+ await page.evaluate(account=>sendState({account,profile:null}),LINKED_ACCOUNT);
+ await page.locator('.desktop-account-nav').click();
+ await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
+ await page.locator('#company-profile').waitFor({state:'visible'});
+ assert.deepEqual(await detailRows(),TODAY,'a live document with no providerDetails renders as today');
+ await page.locator('#company-profile .dialog-close').click();
+ await page.locator('#company-profile').waitFor({state:'detached'});
+ // An account with no Minecraft profile has no Minecraft name to show, and the row falls back
+ // to nothing rather than to the display name the player may set to anything.
+ await page.evaluate(account=>sendState({account:{...account,minecraftName:null,providerDetails:{microsoft:{gamertag:'Hannah Wren'}}},profile:null}),LINKED_ACCOUNT);
+ await page.locator('.desktop-account-nav').click();
+ await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
+ await page.locator('#company-profile').waitFor({state:'visible'});
+ assert.deepEqual((await detailRows())[0].lines,['Xbox Gamer Tag: Hannah Wren'],'with no Minecraft name on the account the row shows only the gamertag - never the display name');
+ assert.deepEqual(errors,[],'rendering a malformed record raises no page error');
+ note('a value is text and never markup, and a missing or malformed record draws nothing at all');
+ await page.locator('#company-profile .dialog-close').click();
+ await page.locator('#company-profile').waitFor({state:'detached'});
+
  // The same for a Microsoft account that is not linked yet: one Connect, which links.
  await page.evaluate(()=>sendState({account:{id:'EC-9',username:'hannah_e',name:'Hannah Easter',roles:[],passwordRequired:false,microsoftLinked:false,providers:[],picture:null},profile:null}));
  await page.locator('.desktop-account-nav').click();
@@ -263,7 +351,7 @@ try{
  note('Connect Microsoft links; the control is offered only when there is something to link');
 
  assert.deepEqual(errors,[],'the launcher raises no page error');
- console.log(`IDENTITY PASS: ${notes.length} checks — display name first in the header and the account view, Minecraft skin head from state.profile.skin, initial tile last, and no provider control that can only fail. Screenshots: ${images}`);
+ console.log(`IDENTITY PASS: ${notes.length} checks — display name first in the header and the account view, Minecraft skin head from state.profile.skin, initial tile last, no provider control that can only fail, and each linked provider's own details drawn as text with no line where there is no value. Screenshots: ${images}`);
 }finally{
  await browser.close();
 }
