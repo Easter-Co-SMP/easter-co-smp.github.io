@@ -1,3 +1,15 @@
+# Easter Company launcher 1.0.30
+
+Microsoft sign-in works smoothly while the client downloads in the background.
+
+- Selecting and copying the Microsoft code now survives download progress updates.
+  A newly issued code still updates immediately.
+- The error popup's close icon is centered, including on narrow windows.
+- When the account database is waking from idle, Microsoft account setup retries
+  its explicit temporary-unavailable response once instead of failing immediately.
+  If it is still unavailable, the launcher asks you to try again in a moment.
+- Cancelling sign-in cancels the retry too. Unrelated failures are not retried.
+
 # Easter Company launcher 1.0.29
 
 The client now installs and enables Smooth Third Person Camera, Fresh Animations,

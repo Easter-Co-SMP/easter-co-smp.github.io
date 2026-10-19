@@ -81,6 +81,27 @@ try{
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   const signin=page.getByRole('dialog',{name:'Sign in with Microsoft',exact:true});
   assert.equal(await signin.isVisible(),true);
+  // Keep a real text selection and clipboard copy intact while the main process
+  // broadcasts repeated download progress through the actual isolated preload.
+  await page.locator('.desktop-code').evaluate(element=>{
+   window.__selectedDeviceText=element.firstChild;
+   const range=document.createRange();range.selectNodeContents(element);
+   const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
+  });
+  await app.evaluate(async()=>{
+   for(let n=0;n<40;n++){global.easterTestDownloadProgress();await new Promise(resolve=>setTimeout(resolve,10));}
+  });
+  assert.equal(await page.evaluate(()=>window.getSelection().toString()),'TEST-CODE','progress preserves the selected code');
+  assert.equal(await page.locator('.desktop-code').evaluate(element=>element.firstChild===window.__selectedDeviceText),true,'the code keeps its text node');
+  assert.equal(await signin.isVisible(),true,'the same sign-in dialog remains open');
+  await page.keyboard.press('Control+c');
+  assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),'TEST-CODE','the selection can actually be copied');
+  await page.evaluate(()=>window.getSelection().removeAllRanges());
+  await app.evaluate(()=>global.easterTestDevice({code:'NEW-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000}));
+  await page.locator('.desktop-code').filter({hasText:'NEW-CODE'}).waitFor();
+  assert.equal(await page.locator('.desktop-code').evaluate(element=>element.firstChild!==window.__selectedDeviceText),true,'a newly issued code is not held stale');
+  await app.evaluate(()=>{global.easterTestDevice({code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000});global.easterTestFinishDownload();});
+  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
   assert.equal(await signin.locator('.desktop-status').count(),0,'transfer status must not duplicate the sign-in instruction');
   assert.equal(await signin.locator('[data-open-microsoft]').evaluate(el=>el===document.activeElement),true,'focus goes to the Microsoft browser action');
   await app.evaluate(({shell})=>{global.__openedMicrosoft=[];shell.openExternal=async url=>{global.__openedMicrosoft.push(url);};});
