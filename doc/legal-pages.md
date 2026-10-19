@@ -92,3 +92,18 @@ in what the code actually does rather than in boilerplate. It is not legal advic
 solicitor has reviewed it. If payments, a registered company address, staff other than
 the family or a materially larger player base arrive, have it reviewed properly, and
 consider ICO registration and a data processing record.
+
+## Verification and review record
+
+- The frontend review pass (ticket 9dc0e9b0, commit f501f47) is the sign-off this
+  change needed before production. It set the prose to a 640px reading measure while
+  leaving the contents box and tables full width, raised the effective-date line from
+  3.39:1 to 5.5:1, brought the documents' footer hover in line with the site's, and
+  fixed a pre-existing 26px sideways scroll of the privacy policy at 320px.
+- Live check on 2026-10-19 after c851bcb: `/legal/privacy/` and `/legal/terms/` both
+  200 with the real documents, `legal.css` 200, the home/map/wiki footers carry both
+  links, and a missing path still serves `404.html` with its root-absolute legal links.
+- Open design question, deliberately left for its own decision: the two three-column
+  tables are strong at 1440 and become the weakest thing on the page at 390 (cells of
+  8 to 9 lines). Stacking them would cost screen-reader table semantics unless role
+  attributes go into the HTML, so it is not a CSS-only change.
