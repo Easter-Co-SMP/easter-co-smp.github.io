@@ -119,3 +119,23 @@ dialog{width:min(580px,calc(100% - 32px));max-height:calc(100dvh - 40px);overflo
 
 /* The wiki entry is a real destination in the shared navigation. */
 a.wiki-link{text-decoration:none}a.wiki-link:hover{border-color:#d7ba7d65;color:var(--gold);background:#ffffff05}
+
+/* Legal links in the page footers, and on the 404 page, have to be readable links rather than
+   the faint grey the rest of the footer uses. Colour, underline and hover match the legal
+   documents' own footer in site/legal/legal.css so all five footers read as one set; the focus
+   ring is deliberately not touched, because the base stylesheet already draws it for every link.
+   The separator owns its own space, so a footer can wrap between spans without a stray dot, and
+   the links themselves never break across lines. */
+.legal-links{white-space:nowrap}.legal-links>span[aria-hidden]{margin:0 .5em}
+.legal-links a,.not-found-footer a{color:#c8bd9e;text-decoration-color:#c8bd9e55}
+/* Spelt out for the chart too: its own `.map-bottom a` rule is earlier in this file, and a reorder
+   of these blocks must not quietly hand the legal links back to the faint footer grey. */
+.map-bottom .legal-links a{color:#c8bd9e}
+.legal-links a:hover,.legal-links a:focus-visible,.not-found-footer a:hover,.not-found-footer a:focus-visible{color:var(--gold);text-decoration-color:currentColor}
+/* The 404 page has no footer of its own; this line sits under the page's own content, on the
+   same measure, and is only ever served by the website (the launcher's easter:// handler answers
+   a missing file with plain text). */
+.not-found-footer{display:flex;align-items:center;gap:.5em;width:min(1120px,calc(100% - 96px));margin:0 auto;padding:0 0 30px;font-size:10px;letter-spacing:.04em;color:#a6b5b08f}
+.not-found-footer>span[aria-hidden]{margin:0}
+@media(max-width:900px){.not-found-footer{width:calc(100% - 70px)}}
+@media(max-width:600px){.not-found-footer{width:calc(100% - 48px);padding-bottom:24px;font-size:9px}}
