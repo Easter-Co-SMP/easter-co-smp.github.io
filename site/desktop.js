@@ -898,7 +898,12 @@
  const profileButton=document.createElement('button');profileButton.type='button';profileButton.className='desktop-account-nav';profileButton.hidden=true;profileButton.setAttribute('aria-haspopup','true');profileButton.setAttribute('aria-expanded','false');
  const profileName=document.createElement('span'),face=document.createElement('canvas');face.width=32;face.height=32;face.setAttribute('aria-hidden','true');profileButton.append(profileName,face);document.querySelector('.site-header nav').append(profileButton);
  const profileMenu=document.createElement('div');profileMenu.className='desktop-profile-menu';profileMenu.popover='auto';profileMenu.setAttribute('aria-label','Profile');
- const accountHeading=document.createElement('p');accountHeading.className='desktop-profile-heading desktop-account';profileMenu.append(accountHeading);
+ // The account view leads with the name the player is called and keeps the username as the
+ // second, smaller line: the username is the sign-in identifier, not what they are called.
+ const accountHeading=document.createElement('p');accountHeading.className='desktop-profile-heading desktop-account';
+ const accountNameNode=document.createElement('strong');accountNameNode.className='desktop-account-name';
+ const accountSignInNode=document.createElement('span');accountSignInNode.className='desktop-account-signin';
+ accountHeading.append(accountNameNode,accountSignInNode);profileMenu.append(accountHeading);
  const companyHeading=document.createElement('p');companyHeading.className='desktop-profile-heading desktop-company';profileMenu.append(companyHeading);
  // The verified email is the profile's own line: it names the address that signs this
  // account in, or states which sign-in it has instead. It is written only from the
@@ -924,7 +929,16 @@
  };
  profileMenu.addEventListener('toggle',event=>profileButton.setAttribute('aria-expanded',String(event.newState==='open')));
  window.addEventListener('resize',positionProfile);
- let skinSource=null,emailView=null;
+ let faceId=null,facePicture=null,faceSkin=null,emailView=null;
+ // The name the player is called, not the handle they type. state.account.name is the
+ // account's own displayName, then its Minecraft name, then its username (accounts.cjs
+ // publicAccount), so the username is reached only when an account carries no name at all.
+ const accountName=account=>{
+  const name=account&&typeof account.name==='string'?account.name.trim():'';
+  const username=account&&typeof account.username==='string'?account.username.trim():'';
+  return name||username;
+ };
+
  // The line the profile section last reported. It is kept with the account it was read
  // for, so switching accounts never shows the previous account's address.
  function setEmailLine(view){
@@ -935,12 +949,22 @@
   emailLine.classList.toggle('is-unavailable',Boolean(emailView?.error));
  }
  function renderProfile(state){
-  const account=state.account;
-  profileButton.hidden=false;profileName.textContent=account?account.username||account.name:'Sign in';face.hidden=!account;
+  const account=state.account,name=account?accountName(account):'';
+  // Owen's report of 2026-10-19: the header showed the username where it should show the
+  // name. The name leads and the username is only the fallback for an account with none.
+  profileButton.hidden=false;profileName.textContent=account?(name||'Account'):'Sign in';face.hidden=!account;
   profileButton.setAttribute('aria-haspopup',account?'true':'dialog');
-  // The account view names the username the player signs in with. The Company ID stays an
-  // internal handle for switching accounts and is never a label here.
-  accountHeading.textContent=account?account.username?(account.name&&account.name!==account.username?account.username+' · '+account.name:account.username):account.name:'';
+  profileButton.setAttribute('aria-label',account?'Account: '+name:'Sign in');
+  // The account view names the player, then the handle they sign in with. The Company ID
+  // stays an internal handle for switching accounts and is never a label here.
+  const username=typeof account?.username==='string'?account.username.trim():'';
+  accountNameNode.textContent=name;
+  accountNameNode.hidden=!name;
+  // "signs in as <username>" appears only when the username says something the name does
+  // not: an account whose only identifier is the username already leads with it.
+  const signIn=Boolean(username)&&username!==name;
+  accountSignInNode.textContent=signIn?'Signs in as '+username:'';
+  accountSignInNode.hidden=!signIn;
   companyHeading.hidden=!account;companyHeading.textContent=state.microsoftConnected?'Microsoft / Xbox linked'+(state.profile?' · '+state.profile.name:''):account?.microsoftLinked?'Microsoft / Xbox linked · sign in to play':'Microsoft / Xbox not connected';
   const locked=signInPending||Boolean(state.accessChecking||state.accountWorking)||['signing-in','refreshing','launching','running'].includes(phaseOf(state));
   for(const button of profileMenu.querySelectorAll('[data-profile-action]')){
@@ -951,13 +975,39 @@
   // The email line belongs to one account and to one read of it.
   if(!emailView||!account||emailView.id!==account.id){emailLine.hidden=true;emailLine.textContent='';}
   if(!account){emailView=null;if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
+  // ---- The player's face -----------------------------------------------------
+  // Precedence, in Owen's order: the picture they uploaded, then the head of the Minecraft
+  // skin their linked Microsoft account owns, then the initial tile. state.profile.skin is
+  // already the whole skin PNG as a data URL - the main process loads it - so this is canvas
+  // work only and the renderer makes no request of its own.
+  const picture=typeof account.picture==='string'?account.picture:'';
+  const skin=account.microsoftLinked&&typeof state.profile?.skin==='string'&&state.profile.skin.startsWith('data:image/png;base64,')?state.profile.skin:'';
+  // The work is skipped when nothing that decides the face has changed. The skin string is
+  // the same instance across broadcasts, so this is a reference comparison in the common case.
+  if(account.id===faceId&&picture===facePicture&&skin===faceSkin)return;
+  faceId=account.id;facePicture=picture;faceSkin=skin;
+  const stillCurrent=()=>faceId===account.id&&facePicture===picture&&faceSkin===skin;
   const ctx=face.getContext('2d');
-  const source=account.picture||'';
-  const key=account.id+source;if(key===skinSource)return;skinSource=key;
-  ctx.fillStyle='#536b66';ctx.fillRect(0,0,32,32);ctx.fillStyle='#eedbb2';ctx.font='bold 20px sans-serif';ctx.textAlign='center';ctx.fillText((account.username||account.name)[0],16,24);
-  if(source.startsWith('data:image/png;base64,')||source.startsWith('https://')){
-   const image=new Image();image.onload=()=>{if(skinSource!==key)return;ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;ctx.drawImage(image,0,0,32,32);};image.src=source;
+  ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;
+  if(!picture&&!skin){
+   // The last resort: the teal tile with the first letter of the name.
+   ctx.fillStyle='#536b66';ctx.fillRect(0,0,32,32);ctx.fillStyle='#eedbb2';ctx.font='bold 20px sans-serif';ctx.textAlign='center';
+   ctx.fillText((name||'?').slice(0,1).toUpperCase(),16,24);
+   return;
   }
+  if(picture&&(picture.startsWith('data:image/png;base64,')||picture.startsWith('https://'))){
+   const image=new Image();
+   image.onload=()=>{if(!stillCurrent())return;ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;ctx.drawImage(image,0,0,32,32);};
+   image.src=picture;
+   return;
+  }
+  // The Minecraft head: the 8x8 face at 8,8 and the 8x8 hat overlay at 40,8, each drawn
+  // nearest-neighbour into the 32px canvas with the hat over the face, which is how the
+  // game itself renders a player's head.
+  const image=new Image();
+  image.onload=()=>{if(!stillCurrent())return;ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;
+   ctx.drawImage(image,8,8,8,8,0,0,32,32);ctx.drawImage(image,40,8,8,8,0,0,32,32);};
+  image.src=skin;
  }
 
  barPrimary.onclick=()=>heroAction();

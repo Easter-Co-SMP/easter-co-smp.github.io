@@ -1324,8 +1324,9 @@ operation: the renderer sends two booleans, and the main process decides.
 ## Account menu and installation recognition
 
 Desktop Home uses Settings as its secondary hero action. The header has no client
-settings button. Once signed in it shows the username followed by the skin face;
-that control opens Add account, Switch Account and Logout. Add account keeps the
+settings button. Once signed in it shows the player's display name followed by their
+face (see "The player's own name and face (2026-10-19)" below); that control opens
+Add account, Switch Account and Logout. Add account keeps the
 previous session until sign-in succeeds. Switch Account lists app-owned accounts
 and refreshes the selected session before activation. Logout removes the active
 account, including its saved session, without deleting other accounts. Account
@@ -1338,6 +1339,44 @@ Manifest paths identify published files; JARs install under mods/ regardless of
 their public download path. Old chunk records with different installation paths
 require repair through the verified pipeline. Completion re-reads the installed
 marker before reporting ready; installed but signed-out clients request sign-in.
+
+## The player's own name and face (2026-10-19)
+
+Owen's first real sign-up with Hannah's account showed the wrong name in the header and
+no face at all, so both are now stated here as rules rather than left to the view.
+
+**The name the player is called wins.** `state.account.name` is the account's own
+`displayName`, falling back to the Minecraft name and then to the username
+(`desktop/accounts.cjs` `publicAccount`), and it is what the header button shows. The
+username is the handle the player types to sign in, so it appears only where a sign-in
+identifier belongs: as the header's fallback when an account somehow carries no name at
+all, and as the second, smaller line of the account view — "signs in as <username>". The
+account view leads with `name`; it never leads with the username and never shows the
+Company ID. A build whose main process publishes no `name` gets the username, exactly as
+before, so the header is never blank.
+
+**The avatar falls back to the Minecraft skin head.** `state.profile.skin` already
+carries the whole skin PNG as a `data:image/png;base64,` URL, loaded by the main process
+(`desktop/main.cjs` `loadSkin`, surfaced by `desktop/security.cjs` `publicProfile`), so
+the renderer draws it and makes no request of its own. The order is:
+
+| Precedence | Source | Drawing |
+|---|---|---|
+| 1 | `account.picture` (the player's uploaded picture) | the whole PNG stretched into the canvas |
+| 2 | `state.profile.skin`, when it is a data URL and the account is Microsoft-linked | the 8x8 face at 8,8 and the 8x8 hat overlay at 40,8, each nearest-neighbour into the 32px canvas, hat over face |
+| 3 | neither | the teal tile with the first letter of the name |
+
+The canvas stays 32x32 with `imageSmoothingEnabled` false, so a skin reads as pixel art
+and not as a blurred smear. The letter tile is the last resort and is never drawn under a
+picture or a skin.
+
+**A linked provider offers no control that can only fail.** The account service has no
+unlink route, so a provider that is already linked is described, never offered: the row
+reads "Microsoft / Xbox · linked" with no button. Only an unlinked provider carries
+**Connect**, which is the action that can actually succeed. A **Verify** control over an
+already-linked provider re-ran the link flow and was answered "this account is already
+linked to an Easter Company account" every time, so it is gone rather than disabled and
+re-worded.
 
 ## Launcher UI review, 2026-10-18
 

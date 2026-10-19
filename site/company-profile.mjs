@@ -2,7 +2,7 @@ const NAMES={microsoft:'Microsoft / Xbox',google:'Google',steam:'Steam',discord:
 export async function openCompanyProfile({desktop,getState,signInMicrosoft}){
  if(document.querySelector('#company-profile'))return;
  const modal=document.createElement('dialog');modal.id='company-profile';modal.className='desktop-company-dialog';modal.setAttribute('aria-labelledby','company-profile-title');
- modal.innerHTML='<button class="dialog-close" aria-label="Close profile">×</button><h2 id="company-profile-title">Your profile</h2><form><label>Display name<input name="displayName" maxlength="64" required autocomplete="nickname"></label><button type="submit">Save name</button></form><div class="company-picture-actions"><button type="button" data-picture="upload">Choose picture</button><button type="button" data-picture="remove">Remove picture</button></div><p>Your profile can be changed independently of your linked accounts.</p><h3>Linked accounts</h3><p>Links stay with this Easter Company account. Microsoft / Xbox and Minecraft ownership are required to play Minecraft.</p><div class="company-provider-links"></div><p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p>';
+ modal.innerHTML='<button class="dialog-close" aria-label="Close profile">×</button><h2 id="company-profile-title">Your profile</h2><form><label>Display name<input name="displayName" maxlength="64" required autocomplete="nickname"></label><button type="submit">Save name</button></form><div class="company-picture-actions"><button type="button" data-picture="upload">Choose picture</button><button type="button" data-picture="remove">Remove picture</button></div><p>Your profile can be changed independently of your linked accounts.</p><h3>Linked accounts</h3><p>Links stay with this Easter Company account and cannot be removed from the launcher yet. Microsoft / Xbox and Minecraft ownership are required to play Minecraft.</p><div class="company-provider-links"></div><p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p>';
  document.body.append(modal);modal.showModal();
  let busy=false,providerPending=false;
  const message=(text,error=false)=>{const node=modal.querySelector(error?'.company-error':'.company-status');node.textContent=text;node.hidden=!text;};
@@ -23,8 +23,17 @@ export async function openCompanyProfile({desktop,getState,signInMicrosoft}){
    const linked=(account.providers||[]).includes(provider)||(provider==='microsoft'&&account.microsoftLinked);
    const row=document.createElement('div');row.className='company-provider-link';
    const label=document.createElement('span');label.textContent=name+(linked?' · linked':'');
-   const button=document.createElement('button');button.type='button';button.textContent=linked?'Verify':'Connect';button.disabled=busy||(available&&!available.includes(provider));button.setAttribute('aria-label',button.textContent+' '+name);
-   button.onclick=()=>void run(()=>provider==='microsoft'?signInMicrosoft({link:true}):desktop.signInProvider(provider,true),provider!=='microsoft');row.append(label,button);list.append(row);
+   row.append(label);
+   // A linked provider is described and not offered. The account service has no unlink route,
+   // so a control over an already-linked provider could only ever fail: pressing Verify re-ran
+   // the link flow and the API answered "this account is already linked to an Easter Company
+   // account" every time. Only an unlinked provider carries Connect, the action that can work.
+   if(!linked){
+    const button=document.createElement('button');button.type='button';button.textContent='Connect';button.disabled=busy||(available&&!available.includes(provider));button.setAttribute('aria-label','Connect '+name);
+    button.onclick=()=>void run(()=>provider==='microsoft'?signInMicrosoft({link:true}):desktop.signInProvider(provider,true),provider!=='microsoft');
+    row.append(button);
+   }
+   list.append(row);
   }
  }
  paint();
