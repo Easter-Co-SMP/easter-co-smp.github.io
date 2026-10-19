@@ -8,8 +8,30 @@ const finishArrival=()=>{
  if(skipArrival)skipArrival.hidden=true;
  clearTimeout(arrivalTimer);
 };
+// The arrival is the launcher's opening moment, not a page transition. The top bar's Home link
+// is a real navigation (`href="./"`), so switching Map -> Home reloads this document and used to
+// replay the whole approach. One mark per window session fixes that without touching the
+// website, where an arrival per visit is the intended behaviour: sessionStorage survives
+// same-window navigations and dies with the window, and window.name is the fallback for a
+// context where storage is unavailable.
+const ARRIVAL_MARK='easter-arrival-shown';
+const desktopMode=window.easterDesktop?.mode==='desktop';
+const arrivalAlreadyPlayed=()=>{
+ let stored=false;
+ try{stored=sessionStorage.getItem(ARRIVAL_MARK)==='1';}catch{}
+ if(stored)return true;
+ return typeof window.name==='string'&&window.name.split(' ').includes(ARRIVAL_MARK);
+};
+const noteArrivalPlayed=()=>{
+ try{sessionStorage.setItem(ARRIVAL_MARK,'1');}catch{}
+ const parts=typeof window.name==='string'?window.name.split(' ').filter(part=>part&&part!==ARRIVAL_MARK):[];
+ parts.push(ARRIVAL_MARK);
+ window.name=parts.join(' ');
+};
 const beginArrival=()=>{
  if(motionPreference.matches)return;
+ if(desktopMode&&arrivalAlreadyPlayed()){finishArrival();return;}
+ noteArrivalPlayed();
  document.body.classList.add('is-arriving');
  if(skipArrival&&!window.easterDesktop)skipArrival.hidden=false;
  // Bounded reveal: never wait on a slow image or network request.
