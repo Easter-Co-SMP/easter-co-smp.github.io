@@ -1,9 +1,11 @@
 # Easter Company launcher 1.0.31
 
-Waiting for sign-in and account services now gives immediate, quiet feedback.
+Waiting for sign-in and account services now gives immediate, quiet feedback, and
+the launcher knows who you are.
 
 - Microsoft sign-in shows approval, verification, Minecraft access and Company
-  connection stages. The code stays selectable while approval is pending.
+  connection stages. The code stays selectable while approval is pending, and the
+  dialog stops asking for it as soon as approval lands.
 - Slow account actions show an inline activity indicator and a patient reassurance
   after ten seconds, without extra popups or invented progress percentages.
 - Account-database wakeups can retry an explicit temporary-unavailable response
@@ -11,6 +13,12 @@ Waiting for sign-in and account services now gives immediate, quiet feedback.
   request outcomes and other account changes are never automatically replayed.
 - Server startup keeps its existing three-minute readiness window and launches
   automatically once ready, with the same quiet waiting language.
+- Your display name is what the launcher calls you, in the header and on your
+  account, with your sign-in name kept as the smaller line beneath it.
+- Until you upload a picture, a connected Minecraft account shows your character's
+  own face as your avatar.
+- An account that is already linked to Microsoft now says so, instead of offering
+  a Verify button that could only ever be refused.
 - Reduced-motion settings are respected and status updates preserve form focus.
 
 Validation: automated account, desktop and browser checks plus an independent
