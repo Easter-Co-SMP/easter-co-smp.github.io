@@ -1,3 +1,33 @@
+# Easter Company launcher 1.0.34
+
+A standalone banking update, following the general client/UI release. Includes
+custom mod 2.0.2 and preserves launcher settings, caches and sign-in sessions.
+
+- The dedicated bank screen has separate transfer and coin-exchange tabs, private
+  live balances, precise previews, safe Max amounts and transaction receipts.
+  Keyboard input, focus and narration work in the native interface, including
+  smaller windows. Successful transactions clear the submitted amount.
+- Deposits, withdrawals and amount parsing refuse overflow instead of wrapping
+  balances. Failed transfers preserve the original wallet and bank amounts.
+- Coin exchanges check the exact available storage before charging. Compatible
+  offhand stacks and partial stacks count correctly; empty equipment slots and
+  incompatible named/component-bearing stacks do not create imaginary space.
+  Coins are not silently dropped when an exchange cannot fit.
+- Server-owned bank sessions reject duplicate, out-of-order, expired or invalid
+  requests. Uncertain requests are not automatically repeated, and a late response
+  cannot reopen a bank screen you closed.
+- Existing balances and coin definitions stay unchanged. Older clients keep the
+  native banker dialog and typed commands, using the same banking decisions.
+- The inherited launcher sign-in chooser remains usable in short windows: every
+  control can be reached by scrolling.
+
+Validation includes all 45 mod harnesses with 586 banking assertions, real Fabric
+keyboard/network tests of all four bank actions, replay/refusal and inventory
+edge cases, a close/response race, and persistence after a clean server restart.
+Launcher, public-export/privacy, browser and Electron release gates also run before
+packaging. Minecraft's normal save/crash-durability rules still apply; these tests
+do not represent native Windows gameplay or a fresh real-account Microsoft sign-in.
+
 # Easter Company launcher 1.0.33
 
 Signing in with your Easter Company username and password is now enough to play, on
