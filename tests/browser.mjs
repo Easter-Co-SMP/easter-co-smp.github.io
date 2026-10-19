@@ -1107,7 +1107,8 @@ try{
    await launcherPage.locator('.desktop-page-notice').filter({hasText:FAILURE}).waitFor();
    assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'closing the dialog hands the sentence to the page notice');
    // The sign-in is still held open by the stub, and Settings is withheld while one runs; settling
-   // it is what hands Settings back, exactly as a finished sign-in does.
+   // it is what hands Settings back, exactly as a finished sign-in does. A successful
+   // completion also clears the earlier failure before any later dialog can reopen it.
    await launcherPage.evaluate(()=>{window.easterRenderer.signInSettle?.resolve(undefined);window.easterRenderer.signInSettle=null;window.easterRenderer.signInHold=false;});
    await launcherPage.waitForFunction(()=>!document.querySelector('.desktop-settings-button').disabled);
    await settingsButton.click();
@@ -1115,7 +1116,7 @@ try{
    assert.deepEqual(await visibleErrors(),[],'opening Settings brings back no failure, inside it or on the page behind it');
    await launcherPage.keyboard.press('Escape');
    await dialog.waitFor({state:'hidden'});
-   assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'and closing it hands the one sentence back');
+   assert.deepEqual(await visibleErrors(),[],'a successful sign-in clears the earlier failure, including after Settings closes');
    await launcherPage.evaluate(()=>{window.easterRenderer.openMicrosoftError=null;});
    await pushState({device:null,error:null});
    if(await launcherPage.getByRole('button',{name:'Dismiss message'}).count())await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
