@@ -4,7 +4,7 @@
 // access token and the returned Easter Company session token exist in memory here
 // and in the safeStorage vault, never in the UI, a log line or an error message.
 const {apiOrigin,GAME_STATUS_TIMEOUT_MS,GAME_WAKE_REQUEST_TIMEOUT_MS}=require('./config.cjs');
-const {sanitizeGameStatus}=require('./game.cjs');
+const {sanitizeGameStatus,endpointMatches,MESSAGES:GAME_MESSAGES}=require('./game.cjs');
 const {apiFetch}=require('./security.cjs');
 const {setTimeout:wait}=require('node:timers/promises');
 const DEFAULT_TIMEOUT=30000;
@@ -308,6 +308,7 @@ class AccountClient{
  // read in that shape is refused here rather than guessed at.
  async gameStatus(token,signal){
   const found=await this.call('/v2/game/status',{token,signal,timeout:Math.min(this.timeout,GAME_STATUS_TIMEOUT_MS)});
+  if(!endpointMatches(found?.endpoint))throw new AccountError('game_target_mismatch',GAME_MESSAGES.target);
   const status=sanitizeGameStatus(found);
   if(!status)throw new AccountError('invalid_response',FALLBACK);
   return status;
@@ -318,6 +319,7 @@ class AccountClient{
  // and the launcher waits for the poll to say what happened.
  async wakeGame(token,signal){
   const found=await this.call('/v2/game/wake',{method:'POST',token,body:{client:this.client},signal,timeout:Math.min(this.timeout,GAME_WAKE_REQUEST_TIMEOUT_MS)});
+  if(!endpointMatches(found?.endpoint))throw new AccountError('game_target_mismatch',GAME_MESSAGES.target);
   return found===null?null:sanitizeGameStatus(found);
  }
  async refreshSession(token,signal){return this.signed(await this.call('/v2/accounts/session/refresh',{method:'POST',token,signal,body:{client:this.client}}));}

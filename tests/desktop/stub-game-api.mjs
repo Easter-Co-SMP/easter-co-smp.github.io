@@ -11,11 +11,11 @@
 // test can also prove the launcher authenticated with the Company session and nothing
 // else; the token itself never leaves the stub's own record.
 import http from 'node:http';
+import config from '../../desktop/config.cjs';
 
-// The endpoint this stub names in its own answer. It is deliberately NOT the address the
-// launcher targets: the launcher must publish and join its own constant regardless of what
-// the service says, so a fixture that echoed production would prove nothing.
-export const ENDPOINT='127.0.0.1:25599';
+// The default agrees with the deployment target. Mismatch tests explicitly supply
+// a different endpoint and must prove that it cannot authorise a launch.
+export const ENDPOINT=config.serverAddress();
 export const TOKEN='fixture-company-session-token';
 
 export function statusBody({state='stopped',ready=null,endpoint=ENDPOINT,since='2026-10-18T00:00:00Z',players=0,detail=''}={}){

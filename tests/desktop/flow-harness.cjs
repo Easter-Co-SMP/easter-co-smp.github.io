@@ -4,6 +4,14 @@
 // process without a real Mojang or Modrinth download.
 const {EventEmitter}=require('node:events');
 const companyFixture=require('./account-fixture.cjs');companyFixture.install();
+// A test-owned readiness fixture. It is never packaged and uses no network.
+global.easterTestServerState='running';global.easterTestWakes=0;
+const fixtureAccounts=require('../../desktop/accounts.cjs').AccountClient;
+fixtureAccounts.prototype.gameStatus=async()=>{
+ if(global.easterTestServerState==='unreachable')throw Error('Fixture service unavailable.');
+ return require('../../desktop/game.cjs').sanitizeGameStatus({state:global.easterTestServerState,ready:global.easterTestServerState==='running',endpoint:require('../../desktop/config.cjs').serverAddress()});
+};
+fixtureAccounts.prototype.wakeGame=async function(){global.easterTestWakes++;return this.gameStatus();};
 const auth=require('../../desktop/auth.cjs');
 auth.MicrosoftAuth=class{
  async signIn(notify,signal){

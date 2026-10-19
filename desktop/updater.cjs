@@ -102,8 +102,11 @@ function selected(root,{bundled,runtime,platform=process.platform,arch=process.a
   inspect(target,manifest);return target;
  }catch{return null;}
 }
-function relaunchOptions({platform=process.platform,env=process.env,execPath=process.execPath}={}){
- return {execPath:platform==='linux'&&env.APPIMAGE?env.APPIMAGE:execPath,args:process.argv.includes('--no-sandbox')?['--no-sandbox']:[]};
+function relaunchOptions({platform=process.platform,env=process.env,execPath=process.execPath,argv=process.argv}={}){
+ // A shortcut's Play request must survive the mandatory launcher update. Preserve
+ // only the two recognised switches, never arbitrary launch arguments or paths.
+ const args=['--no-sandbox','--play'].filter(argument=>argv.includes(argument));
+ return {execPath:platform==='linux'&&env.APPIMAGE?env.APPIMAGE:execPath,args};
 }
 // ---- how big a version change is, and what that change may clear --------------
 // Owen's rule of 2026-10-19: "if only the patch is incremented between current client and

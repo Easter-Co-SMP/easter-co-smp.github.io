@@ -186,9 +186,10 @@ function gameRoutes(signal){
 // them, and play() cancels it when it does not reach a launch.
 function beginGameWake(){
  if(gameWake&&!gameWake.settled)return gameWake;
- const routes=gameRoutes();
- if(!routes)return {settled:true,controller:null,promise:Promise.resolve({outcome:'unknown',status:null,woke:false})};
- const controller=new AbortController(),run={settled:false,controller,outcome:null};
+ const controller=new AbortController();
+ const routes=gameRoutes(controller.signal);
+ if(!routes)throw new GameWaitError('game_session_expired','Your Easter Company session expired. Sign in again.');
+ const run={settled:false,controller,outcome:null};
  gameWake=run;
  run.promise=wakeServer({...routes,signal:controller.signal,onUpdate:({status})=>{
   gameChecked=true;gameCheckedAt=new Date().toISOString();
@@ -262,7 +263,7 @@ function notify(patch={}){
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
 // sign-in action through `actions`, and the phase returns to the resting value.
 function settle(message,extra={}){phase=null;progress=null;control=null;notify({message,device:controller?state.device:null,...extra});}
-async function refreshClient(){client=await clientStatus(gameRoot());await readQuality();}
+async function refreshClient(){client=await clientStatus(gameRoot());await install.loadDeployment(gameRoot());await readQuality();}
 // The display the client will open on, in the pixels the player actually has. Electron
 // reports a display's size in device-independent pixels, so a 2160p screen at 200%
 // scaling reports 1920x1080 there; the client's interface is laid out in physical
@@ -671,6 +672,7 @@ async function launchThrough(){
  if(!microsoftConnected()){settle('Sign in with the Microsoft account linked to '+(company.account.username||'your Easter Company account')+'.');return {requiresMicrosoft:true};}
  // Only now, with a real launch possible, does the press start a server: a press that
  // stops at the account checks must never wake anything.
+ const prepared=await ensureClient();
  const waiting=beginGameWake();
  notify({phase:'launching',message:'Checking your Minecraft session…',device:null,progress:null});
  try{session=await withActivity('java-checking',update=>auth.refresh(session,undefined,true,false,update));}catch(error){
@@ -685,7 +687,6 @@ async function launchThrough(){
  // session the API has forgotten or revoked is reissued here instead of on launch.
  await enrolAccount({announce:false,throwOnError:true});
  if(!companyReady()){settle('Create your Easter Company password to finish setup.');return {requiresAccount:true};}
- const prepared=await ensureClient();
  const record=client.record;
  const version=prepared?.version||record?.version;
  const javaPath=settings.javaPath||prepared?.javaPath||record?.java;

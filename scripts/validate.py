@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, unquote
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.export_world import DEPENDENCIES, PUBLIC_MARKER_ICONS, PUBLIC_MARKER_KINDS, chunk_version, visual_files
+from scripts.export_world import DEPENDENCIES, PUBLIC_MARKER_ICONS, PUBLIC_MARKER_KINDS, chunk_version, visual_files, validate_deployment
 
 #: 'kind' is a public marker category, never a row type or a player faction. A payload
 #: carrying 'faction' is refused outright rather than rewritten. Older snapshots in the
@@ -28,7 +28,7 @@ REGION_KEYS = {'id', 'name', 'short_name', 'points', 'pvp_protection', 'pve_prot
 #: The published client manifest: the flat fields every shipped launcher already reads, plus
 #: the chunk list from doc/launcher-states.md. Both describe the same client, so a chunk list
 #: that disagrees with the flat fields is refused rather than published as a second truth.
-CLIENT_KEYS = {'minecraft', 'mod', 'dependencies', 'fabric', 'chunks'}
+CLIENT_KEYS = {'minecraft', 'mod', 'dependencies', 'fabric', 'chunks', 'deployment'}
 MOD_KEYS = {'name', 'version', 'sha256', 'bytes', 'url'}
 DEPENDENCY_KEYS = {'id', 'name', 'version', 'url'}
 CHUNK_KEYS = {'id', 'name', 'optional', 'immutable', 'version', 'files', 'fabric', 'java'}
@@ -182,6 +182,8 @@ def validate_data(root):
     client = json.loads((root / 'data/client.json').read_text())
     assert set(client) <= CLIENT_KEYS and {'minecraft', 'mod', 'dependencies'} <= set(client), \
         'Unexpected client manifest fields'
+    if 'deployment' in client:
+        validate_deployment(client['deployment'])
     assert {'version', 'sha256'} <= set(client['mod']) <= MOD_KEYS, 'Unexpected client mod fields'
     assert hashlib.sha256((root / 'downloads/easter-navy.jar').read_bytes()).hexdigest() == client['mod']['sha256'], \
         'The published custom mod jar does not match the manifest checksum'

@@ -5,7 +5,7 @@ const {promisify}=require('node:util');
 const {Version,generateArguments,launch}=require('@xmcl/core');
 const installer=require('@xmcl/installer');
 const {Agent,interceptors}=require('undici');
-const {locationProblem,MARKER,clientOrigin,serverAddress}=require('./config.cjs');
+const {locationProblem,MARKER,clientOrigin,serverAddress,BUNDLED_DEPLOYMENT,DEPLOYMENT_PATH,validateDeployment,configureDeployment}=require('./config.cjs');
 const {qualitySettings,applyQualitySettings,recordQuality,applyDisplayDefaults,SHADER_PACK_NAME}=require('./hardware.cjs');
 const {configureVisuals,disableShaders}=require('./visuals.cjs');
 const dispatcher=new Agent({connections:8,connect:{family:4,timeout:30000},headersTimeout:45000,bodyTimeout:90000}).compose(interceptors.retry({maxRetries:3}));
@@ -88,8 +88,10 @@ class Cancelled extends Error{constructor(){super('The download was cancelled.')
 // of downloading the file again.
 class TransferControl{
  constructor({onChange=()=>{}}={}){
-  this.paused=false;this.cancelled=false;this.waiting=[];this.task=null;this.onChange=onChange;
+  this.paused=false;this.cancelled=false;this.waiting=[];this.task=null;this.onChange=onChange;this.listeners=new Set();
  }
+ subscribe(listener){this.listeners.add(listener);return ()=>this.listeners.delete(listener);}
+ changed(){for(const listener of this.listeners)listener();this.onChange();}
  get active(){return !this.cancelled;}
  get resumable(){return this.paused&&!this.cancelled;}
  setTask(task){
@@ -101,7 +103,7 @@ class TransferControl{
   if(this.cancelled||this.paused)return false;
   this.paused=true;
   const task=this.task;if(task)Promise.resolve(task.pause?.()).catch(()=>{});
-  this.onChange();
+  this.changed();
   return true;
  }
  resume(){
@@ -109,7 +111,7 @@ class TransferControl{
   this.paused=false;
   const task=this.task;if(task)Promise.resolve(task.resume?.()).catch(()=>{});
   for(const release of this.waiting.splice(0))release();
-  this.onChange();
+  this.changed();
   return true;
  }
  cancel(){
@@ -117,7 +119,7 @@ class TransferControl{
   this.cancelled=true;this.paused=false;
   const task=this.task;if(task)Promise.resolve(task.cancel?.()).catch(()=>{});
   for(const release of this.waiting.splice(0))release();
-  this.onChange();
+  this.changed();
   return true;
  }
  async gate(){
@@ -202,12 +204,20 @@ async function downloadVerified(url,file,hash,algorithm='sha256',options={}){
  const report=()=>{if(onProgress&&meter)onProgress(meter.snapshot());};
  // A stalled transfer is still bounded, but time spent parked does not count.
  const arm=()=>{clearTimeout(idle);idle=setTimeout(()=>abort.abort(Object.assign(Error('The download stopped responding.'),{name:'TimeoutError'})),idleTimeoutMs);};
+ // Control changes must also interrupt a blocked fetch/read. A parked transfer has
+ // no idle deadline; resuming starts a fresh window and cancelling aborts immediately.
+ const unsubscribe=control?.subscribe(()=>{
+  if(control.cancelled)abort.abort(new Cancelled());
+  else if(control.paused){clearTimeout(idle);idle=null;}
+  else arm();
+ });
  try{
   // Seed the digest from the bytes already on disk, so the finished file is still
   // verified as a whole rather than trusting the prefix.
   if(prefix)for await(const chunk of require('node:fs').createReadStream(part))digest.update(chunk);
   await fs.writeFile(state,JSON.stringify({url,hash,algorithm}),{mode:0o600});
   await control?.gate();
+  arm();
   const response=await fetch(url,{signal:abort.signal,headers:prefix?{Range:'bytes='+prefix+'-'}:{}});
   if(prefix&&response.status===200){
    // The source ignored the range: start this attempt over rather than append to
@@ -237,6 +247,7 @@ async function downloadVerified(url,file,hash,algorithm='sha256',options={}){
     }
     const {done,value}=await reader.read();
     if(done)break;
+    arm();
     received+=value.length;
     if(position+received>MAX_DOWNLOAD)throw Error('Download exceeds its size limit.');
     digest.update(value);
@@ -260,6 +271,7 @@ async function downloadVerified(url,file,hash,algorithm='sha256',options={}){
   await fs.rm(state,{force:true});
   return true;
  }finally{
+  unsubscribe?.();
   clearTimeout(idle);
   try{await handle.close();}catch{}
   if(!complete)abort.abort();
@@ -439,6 +451,19 @@ async function writeMarker(root){
 }
 // ---- installed marker -------------------------------------------------------
 async function publishedManifest(origin=clientOrigin()){return json(originBase(origin)+'data/client.json');}
+async function loadDeployment(root){
+ // Play checks the published manifest before waking or launching and repairs a
+ // missing/corrupt local copy. Startup can still render the bundled deployment.
+ try{return configureDeployment(JSON.parse(await fs.readFile(path.join(root,DEPLOYMENT_PATH),'utf8')));}
+ catch{return configureDeployment(BUNDLED_DEPLOYMENT);}
+}
+async function syncDeployment(root,published){
+ const value=validateDeployment(published?.deployment??BUNDLED_DEPLOYMENT);
+ const target=path.join(root,DEPLOYMENT_PATH);
+ let previous=null;try{previous=JSON.parse(await fs.readFile(target,'utf8'));}catch{}
+ if(JSON.stringify(previous)!==JSON.stringify(value))await atomicJSON(target,value);
+ return configureDeployment(value);
+}
 async function readInstalled(root){
  try{
   const record=JSON.parse(await fs.readFile(path.join(root,'installed.json'),'utf8'));
@@ -689,6 +714,17 @@ async function installChunked({root,client,chunks,record,settings,notify,control
   if(chunk.id==='graphics'){graphicsMessageOut=chunk.name+' installed.';graphicsInstalled=true;}
  }
  const files=[...new Set(Object.values(records).flatMap(chunk=>chunk.files||[]))];
+ // A renamed or removed managed mod must not survive alongside its replacement.
+ // Retire files only from the chunks this run successfully installed, after every
+ // replacement passed verification, and preserve files another recorded chunk uses.
+ // Never sweep mods/: files the player added are not ours to remove.
+ const targetKey=target=>process.platform==='win32'?target.toLowerCase():target;
+ const retained=new Set(files.map(relative=>targetKey(chunkFileTarget(root,relative))));
+ const retired=new Set(installing.flatMap(chunk=>record?.chunks?.[chunk.id]?.files||[]));
+ for(const relative of retired){
+  const target=chunkFileTarget(root,relative);
+  if(!retained.has(targetKey(target)))await fs.rm(target,{force:true});
+ }
  const updatedAt=new Date().toISOString();
  const quality=(includeGraphics||(!record?.quality&&hardware?.tunable))?await applyQuality(root,hardware,notify,{shaders:includeGraphics&&Boolean(graphicsChunk)&&deriveQuality(hardware).shaders}):{quality:null,tuned:null,message:null};
  await seedDisplayDefaults(root,notify,guiScale);
@@ -770,6 +806,7 @@ async function installClient({root,settings={},notify=()=>{},control=null,includ
  // always be recognised again even if the install is interrupted.
  await fs.mkdir(root,{recursive:true});
  await writeMarker(root);
+ await syncDeployment(root,client);
  const record=await readInstalled(root);
  const options={root,client,chunks,record,settings,notify,control,includeGraphics,mode,origin,updating,only,hardware,guiScale};
  return chunks?installChunked(options):installFlat(options);
@@ -823,6 +860,7 @@ async function checkForUpdates({root,settings={},notify=()=>{},control=null,incl
  const record=await readInstalled(root);
  if(!record)return {checked:false,changed:true,applied:false,changes:['missing'],result:null};
  const published=await fetchManifest(origin);
+ await syncDeployment(root,published);
  const diff=installDiff(published,record,{includeGraphics,origin});
  if(!diff.changed)return {checked:true,changed:false,applied:false,changes:[],result:null};
  const result=await install({root,settings,notify,control,includeGraphics,mode:'update',published,origin,hardware,guiScale});
@@ -830,4 +868,4 @@ async function checkForUpdates({root,settings={},notify=()=>{},control=null,incl
 }
 // The Play gate, computed here in the main process and nowhere else.
 function canPlay(install,profile){return Boolean(install?.installed)&&profile!==null&&profile!==undefined;}
-module.exports={setFailureLog,downloadFault,execOptions,ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,seedDisplayDefaults,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};
+module.exports={loadDeployment,syncDeployment,setFailureLog,downloadFault,execOptions,ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,seedDisplayDefaults,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};

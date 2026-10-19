@@ -285,3 +285,13 @@ test('the decision log is bounded, redacted and rotates rather than growing',()=
  log.append({from:'1.0.27',to:'1.1.0',level:'catastrophic',cleared:[]});
  assert.match(await fs.readFile(path.join(dataRoot,'launcher-update.log'),'utf8'),/level=- from=1\.0\.27 to=1\.1\.0 cleared=-/);
 }));
+
+
+test('a shortcut Play request survives launcher-update relaunch without forwarding other arguments',()=>{
+ for(const platform of ['linux','win32']){
+  const options={platform,env:{APPIMAGE:'/apps/Launcher.AppImage'},execPath:'/bin/launcher',argv:['/bin/launcher','--play','--play','untrusted-value','--play=1','--no-sandbox']};
+  assert.deepEqual(relaunchOptions(options),{execPath:platform==='linux'?'/apps/Launcher.AppImage':'/bin/launcher',args:['--no-sandbox','--play']});
+  assert.deepEqual(relaunchOptions({...options,argv:['/bin/launcher','--play=1']}).args,[]);
+  assert.deepEqual(relaunchOptions({...options,argv:['/bin/launcher','--play']}).args,['--play']);
+ }
+});
