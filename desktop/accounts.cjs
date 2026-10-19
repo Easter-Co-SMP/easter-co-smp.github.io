@@ -8,7 +8,8 @@ const {sanitizeGameStatus}=require('./game.cjs');
 const {apiFetch}=require('./security.cjs');
 const {setTimeout:wait}=require('node:timers/promises');
 const DEFAULT_TIMEOUT=30000;
-const DATABASE_RESUME_BACKOFF_MS=750;
+const DATABASE_RESUME_BACKOFF_MS=3000;
+const DATABASE_RESUME_BUDGET_MS=90000, DATABASE_RESUME_ATTEMPTS=4;
 class AccountError extends Error{
  constructor(code,message){super(message);this.name='AccountError';this.code=code;}
 }
@@ -117,8 +118,8 @@ function verifiedEmails(payload){
  return {emails,loginEmail};
 }
 class AccountClient{
- constructor({baseUrl=apiOrigin(),client='launcher/0.0.0',request=apiFetch,timeout=DEFAULT_TIMEOUT}={}){
-  this.baseUrl=String(baseUrl).replace(/\/+$/,'');this.client=client;this.request=request;this.timeout=timeout;
+ constructor({baseUrl=apiOrigin(),client='launcher/0.0.0',request=apiFetch,timeout=DEFAULT_TIMEOUT,waitFor=wait,now=Date.now}={}){
+  this.baseUrl=String(baseUrl).replace(/\/+$/,'');this.client=client;this.request=request;this.timeout=timeout;this.waitFor=waitFor;this.now=now;
  }
  async call(pathname,{method='GET',body,token,timeout=this.timeout,signal}={}){
   // Every call is bounded: an unresponsive API must never hang sign-in or launch.
@@ -139,6 +140,7 @@ class AccountClient{
   if(response.status!==204){
    try{data=await response.json();}catch{throw new AccountError('invalid_response',FALLBACK);}
   }
+  signal?.throwIfAborted();
   if(!response.ok){
    const error=serverMessage(response.status,data);
    // Only a declared database failure is safe to retry. A lost response could
@@ -151,7 +153,7 @@ class AccountClient{
  // The Microsoft Graph token is optional in the contract and transient here: it is put in
  // this one request body, never stored, never returned and never logged. An empty or
  // missing token means the request is sent without it and the server still answers.
- async login(xboxUserToken,signal,token,microsoftAccessToken){
+ async login(xboxUserToken,signal,token,microsoftAccessToken,onWait){
   if(typeof xboxUserToken!=='string'||!xboxUserToken)throw new AccountError('invalid_request',MESSAGES.invalid_request);
   const graph=typeof microsoftAccessToken==='string'&&microsoftAccessToken?microsoftAccessToken:null;
   const options={method:'POST',body:{xboxUserToken,...(graph?{microsoftAccessToken:graph}:{}),client:this.client},signal,token};
@@ -160,11 +162,20 @@ class AccountClient{
   // verified identity while that cluster continues waking. Never retry a network
   // error or a malformed success, whose write outcome is unknown.
   let created;
-  try{created=await this.call('/v2/accounts/microsoft',options);}
-  catch(error){
-   if(!error.databaseUnavailable)throw error;
-   await wait(DATABASE_RESUME_BACKOFF_MS,undefined,{signal});
-   created=await this.call('/v2/accounts/microsoft',options);
+  const deadline=this.now()+DATABASE_RESUME_BUDGET_MS;
+  for(let attempt=1;attempt<=DATABASE_RESUME_ATTEMPTS;attempt++){
+   signal?.throwIfAborted();
+   const remaining=deadline-this.now();
+   if(remaining<=0)throw new AccountError('database_unavailable',MESSAGES.database_unavailable);
+   try{created=await this.call('/v2/accounts/microsoft',{...options,timeout:Math.min(this.timeout,DEFAULT_TIMEOUT,remaining)});break;}
+   catch(error){
+    if(!error.databaseUnavailable||attempt===DATABASE_RESUME_ATTEMPTS)throw error;
+    const delay=Math.min(DATABASE_RESUME_BACKOFF_MS*attempt,deadline-this.now());
+    if(delay<=0)throw error;
+    // Only this safe stage identifier leaves the retry path, never a response body.
+    try{onWait?.('company-waking');}catch{}
+    await this.waitFor(delay,undefined,{signal});
+   }
   }
   return this.signed(created);
  }

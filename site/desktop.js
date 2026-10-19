@@ -38,6 +38,8 @@
  let companyAuth=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
+ let heroWait=null,authWait=null,localActivity=null,serverWaitStartedAt=null;
+ const waitingUI=import('./wait-feedback.mjs').then(({createWaitFeedback})=>{heroWait=createWaitFeedback(heroWaitNode);authWait=createWaitFeedback(auth('.desktop-auth-wait'));if(current)render(current);});
  let current=null,settings,totalMemoryMB=0,heroButton=null,settingsButton=null,graphicsSection=null,graphicsSwitch=null,graphicsLabel=null,graphicsNote=null,graphicsError=null,signInPending=false;
 
  // A launcher build older than the download half exposes no install, pause, resume,
@@ -62,6 +64,7 @@
  const gameStatus=document.createElement('p');
  gameStatus.className='desktop-game-status';gameStatus.hidden=true;gameStatus.setAttribute('role','status');
  gameStatus.innerHTML='<span class="desktop-game-message"></span><span class="desktop-game-detail"></span>';
+ const heroWaitNode=document.createElement('p');heroWaitNode.className='desktop-activity';heroWaitNode.hidden=true;
  const gameMessageNode=gameStatus.querySelector('.desktop-game-message'),gameDetailNode=gameStatus.querySelector('.desktop-game-detail');
  const installOf=state=>state&&state.install&&typeof state.install==='object'?state.install:{};
  const progressOf=state=>state&&state.progress&&typeof state.progress==='object'?state.progress:null;
@@ -107,7 +110,7 @@
   // The first player of a session is waiting for a cold start: the hero says so and
   // offers no second Play, because the launch happens by itself the moment the server
   // is joinable. This is a phase of Play, and it is never an account or install state.
-  if(phase==='starting-game')return {kind:'starting',label:'Starting your server…',note:'The first player in a session waits about a minute'};
+  if(phase==='starting-game')return {kind:'starting',label:'Starting your server…',note:'Minecraft opens when your server is ready'};
   if(state&&state.canPlay&&phase!=='launching'&&phase!=='running')return {kind:'play',label:'PLAY NOW',note:'Minecraft Java Edition'};
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Please wait'};
   if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
@@ -377,6 +380,7 @@
  const signInFlowLive=()=>Boolean(signInPending||(current&&current.device&&!cancelledSignIn));
  const report=error=>showFailure(error?.message||String(error));
  const cancelSignIn=()=>{
+  if(signInPending&&['company-signing-in','company-waking','account-working'].includes(current?.activity?.stage))return;
   cancelledSignIn=true;signin.close();void desktop.cancelSignIn().catch(report);
  };
  auth('.dialog-close').onclick=cancelSignIn;auth('[data-cancel]').onclick=cancelSignIn;
@@ -578,7 +582,7 @@
   if(!show){gameMessageNode.textContent='';gameDetailNode.textContent='';return;}
   gameStatus.dataset.state=typeof game.state==='string'?game.state:'unknown';
   gameStatus.classList.toggle('is-awake',game.waking===true);
-  gameMessageNode.textContent=typeof game.message==='string'?game.message:'';
+  const message=typeof game.message==='string'?game.message:'';if(gameMessageNode.textContent!==message)gameMessageNode.textContent=message;
   // The service's own detail, when it sends one, reads below the launcher's sentence and
   // never replaces it. Nothing else from the service is printed.
   gameDetailNode.textContent=typeof game.detail==='string'?game.detail:'';
@@ -619,7 +623,7 @@
   const fromMain=state!==current;
   current={...current,...state};
   if(installRequested&&transferring(current)){installRequested=false;if(panel.open)panel.close();}
-  const busy=signInPending||Boolean(current.accessChecking||current.accountWorking)||['signing-in','refreshing','launching','running','starting-game'].includes(phaseOf(current));
+  const busy=Boolean(localActivity?.stage==='play-requested')||signInPending||Boolean(current.accessChecking||current.accountWorking)||['signing-in','refreshing','launching','running','starting-game'].includes(phaseOf(current));
   const action=primaryAction(current);
 
   document.querySelector('.home-footer>span:last-child')?.replaceChildren(document.createTextNode('Launcher '+(current.version||'')));
@@ -652,10 +656,25 @@
   accessPanel.querySelector('p').textContent=access==='missing'?'This Microsoft account does not have access to Minecraft Java Edition. Buy it using the same account, then check again.':access==='profile-required'?'This account has Java Edition access. Set up your Java player profile, then check again.':'We could not confirm Java Edition access. Check again, or sign in with the account that has Minecraft.';
   accessPanel.querySelector('[data-recheck-access]').hidden=access==='unknown';
   for(const button of accessPanel.querySelectorAll('button'))button.disabled=Boolean(current.accessChecking||current.accountWorking)||signInPending;
-  const device=current.device,wasWaiting=auth('.desktop-device').hidden;
+  if(signInPending&&current.activity)localActivity=current.activity;
+  const activity=current.activity||localActivity;
+  const title=signInPending&&activity&&!['microsoft-opening','microsoft-waiting'].includes(activity.stage)?'Finishing sign-in…':'Sign in with Microsoft';
+  if(auth('h2').textContent!==title)auth('h2').textContent=title;
+  const deviceVisible=current.device&&(!activity||['microsoft-opening','microsoft-waiting'].includes(activity.stage));
+  const device=deviceVisible?current.device:null,wasWaiting=auth('.desktop-device').hidden;
   // While Microsoft's email answer is on screen the dialog is already where it belongs and
   // has nothing left to wait for, so it neither repeats the waiting line nor closes itself.
-  auth('.desktop-device').hidden=!device;auth('.desktop-auth-wait').hidden=Boolean(device)||emailNoticeHeld;
+  auth('.desktop-device').hidden=!device;
+  const authActivity=signInPending&&!emailNoticeHeld?activity||{stage:'microsoft-opening',message:'Opening Microsoft sign-in…'}:null;
+  authWait?.set(authActivity);if(!authWait)auth('.desktop-auth-wait').hidden=!authActivity;
+  const authWorking=Boolean(authActivity)&&!['microsoft-opening','microsoft-waiting'].includes(authActivity.stage);
+  signin.classList.toggle('is-finishing',authWorking);
+  // Auth requests honour abort; Company mutations must finish before the dialog closes.
+  const companyMutation=Boolean(authActivity)&&['company-signing-in','company-waking','account-working'].includes(authActivity.stage);
+  auth('[data-cancel]').hidden=emailNoticeHeld||companyMutation;
+  auth('.dialog-close').hidden=companyMutation;
+  auth('[data-open-microsoft]').setAttribute('aria-busy',String(Boolean(authActivity)));
+
   if(device&&!cancelledSignIn){
    if(panel.open)panel.close();
    if(!signin.open)signin.showModal();
@@ -685,6 +704,7 @@
   installDetails.hidden=!needsDownload;
   if(needsDownload)renderInstallCard(current);else installError.hidden=true;
   if(heroButton){
+   heroButton.setAttribute('aria-busy',String(Boolean(activity)||phaseOf(current)==='starting-game'));
    heroButton.disabled=busy||action.kind==='busy'||action.kind==='running'||action.kind==='starting'||(needsDownload&&typeof startInstall!=='function');
    // The action kind is published on the element so a test can assert the gate without
    // reading the label back out of the copy.
@@ -697,7 +717,16 @@
    heroButton.querySelector('span').firstChild.textContent=action.label;
    heroButton.querySelector('small').textContent=action.kind==='play'?joinParts([action.note,current.profile?.name]):action.note;
   }
+  if(gameStatus.parentNode&&!heroWaitNode.parentNode)gameStatus.after(heroWaitNode);
+  const waking=gameOf(current)?.waking===true;
+  if(waking&&serverWaitStartedAt===null)serverWaitStartedAt=localActivity?.startedAt||Date.now();
+  if(!waking)serverWaitStartedAt=null;
+  const gameWait=waking?{stage:'server-starting',message:current.game.message||'Waiting for your server to be ready…',detail:current.game.detail,startedAt:serverWaitStartedAt}:null;
+  const heroActivity=!signInPending&&!signin.open&&!document.querySelector('.desktop-company-dialog[open]')&&current.startupReady!==false&&!transferring(current)?gameWait||activity:null;
+  heroWait?.set(heroActivity);
   renderGame(current);
+  // A cold start has one sentence, with its indicator and reassurance beside it.
+  if(gameWait&&heroActivity===gameWait&&heroWait)gameStatus.hidden=true;
   renderBar(current);
   if(fromMain){
    // The state's own failure, delivered once per distinct sentence, and then owned here: main
@@ -754,18 +783,18 @@
  function signInMicrosoft(options={}){
   if(signInPending)return;
   cancelledSignIn=false;clearFailure();if(panel.open)panel.close();
-  signInPending=true;render(current||{});signin.showModal();
+  signInPending=true;localActivity={stage:'microsoft-opening',message:'Opening Microsoft sign-in…',startedAt:Date.now()};render(current||{});if(!signin.open)signin.showModal();
   return Promise.resolve(desktop.signIn(options)).then(answer=>{
    clearFailure();
    if(emailStatusOf(answer)==='unavailable'){holdSignInNotice();return true;}
    closeSignIn();return true;
   }).catch(error=>{
    if(!cancelledSignIn){closeSignIn();report(error);}return false;
-  }).finally(()=>{signInPending=false;render(current||{});});
+  }).finally(()=>{signInPending=false;localActivity=null;authWait?.clear();render(current||{});});
  }
  // Play Now starts the game. It opens nothing: the dialog is for sign-in and client
  // settings. Failures appear in the visible page notice without opening Settings.
- const start=()=>{clearFailure();void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report);};
+ const start=()=>{clearFailure();localActivity={stage:'play-requested',message:'Checking your server…',startedAt:Date.now()};render(current||{});void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report).finally(()=>{localActivity=null;render(current||{});});};
  const openSettings=()=>{open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
   // The two shortcut rows say whether the files are really there, so the truth is asked
   // for as the dialog opens rather than trusted from the last broadcast.

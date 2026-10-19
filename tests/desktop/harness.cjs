@@ -3,7 +3,8 @@ const {EventEmitter}=require('node:events');
 const companyFixture=require('./account-fixture.cjs');companyFixture.install();
 const auth=require('../../desktop/auth.cjs');
 auth.MicrosoftAuth=class{
- async signIn(notify,signal){
+ async signIn(notify,signal,onStage){
+  global.easterTestAuthStage=onStage;
   global.easterTestDevice=notify;
   notify({code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000});
   await new Promise((resolve,reject)=>{

@@ -244,7 +244,8 @@ class MicrosoftAuth{
   this.record('code-completion','ok',{status:200,code:'ok'});
   return data;
  }
- async signIn(notify,signal){
+ async signIn(notify,signal,onStage){
+  onStage?.('microsoft-opening');
   const code=await this.form('/devicecode',{client_id:this.clientId,scope:SCOPE},signal,'device-code');
   if(!code.device_code||!code.user_code||!code.verification_uri){
    this.record('device-code','failed',{status:200,code:'response'});
@@ -253,13 +254,15 @@ class MicrosoftAuth{
   this.record('device-code','ok',{status:200,code:'ok'});
   // Only the short-lived user code reaches the UI; never device_code or tokens.
   notify({code:code.user_code,url:code.verification_uri,expiresAt:Date.now()+code.expires_in*1000});
+  onStage?.('microsoft-waiting');
   const deadline=Date.now()+Math.min(code.expires_in,1800)*1000;
   let interval=Math.max(1,code.interval||5)*1000;
   while(Date.now()<deadline){
    await this.wait(interval,undefined,{signal});
    try{
     const msa=await this.microsoftSession({grant_type:'urn:ietf:params:oauth:grant-type:device_code',client_id:this.clientId,device_code:code.device_code},signal,{ignoreCodes:['authorization_pending','slow_down']});
-    return await this.exchange(msa,undefined,signal);
+    onStage?.('microsoft-verifying');
+    return await this.exchange(msa,undefined,signal,onStage);
    }catch(error){
     if(error.code==='authorization_pending')continue;
     if(error.code==='slow_down'){interval+=5000;continue;}
@@ -272,10 +275,11 @@ class MicrosoftAuth{
  }
  // The saved-session route, and the one that enrols the account on every sign-in: the same
  // six steps as a fresh device code, from the refresh flow rather than from a poll.
- async refresh(session,signal,recheck=false,force=false){
-  if(!force&&session.expiresAt>Date.now()+300000)return recheck?this.checkAccess(session,signal):session;
+ async refresh(session,signal,recheck=false,force=false,onStage){
+  if(!force&&session.expiresAt>Date.now()+300000)return recheck?this.checkAccess(session,signal,onStage):session;
+  onStage?.('microsoft-verifying');
   const msa=await this.microsoftSession({grant_type:'refresh_token',client_id:this.clientId,refresh_token:session.refreshToken,scope:SCOPE},signal);
-  return {...await this.exchange(msa,session.refreshToken,signal),accountId:session.accountId||session.profile?.id||'xbox:'+session.xuid};
+  return {...await this.exchange(msa,session.refreshToken,signal,onStage),accountId:session.accountId||session.profile?.id||'xbox:'+session.xuid};
  }
  // Xbox Live needs a token minted for its own resource. The device code asks for Xbox Live
  // and Graph in one consent and Microsoft, not the launcher, decides which one an answer is
@@ -329,7 +333,7 @@ class MicrosoftAuth{
   this.record('minecraft','ok',{status:200,code:'ok'});
   return mc;
  }
- async exchange(msa,oldRefresh,signal){
+ async exchange(msa,oldRefresh,signal,onStage){
   if(!msa||typeof msa.access_token!=='string'||!msa.access_token){
    this.record('code-completion','failed',{status:200,code:'response'});
    throw new AuthError(sentence('code-completion','Microsoft answered without a session'),'response','code-completion');
@@ -342,7 +346,7 @@ class MicrosoftAuth{
   // Hash it into a stable, non-credential account key; never invent a Java profile.
   const uhs=xsts.DisplayClaims.xui[0].uhs;
   const microsoftId='msa:'+createHash('sha256').update(this.clientId+'\0'+String(uhs)).digest('hex');
-  return this.checkAccess({clientId:this.clientId,xuid,microsoftId,companySubject:createHash('sha256').update('xbox-uhs:'+String(uhs)).digest('hex'),xboxUserToken:xbox.Token,xboxExpiresAt:Date.parse(xbox.NotAfter)||0,accountId:microsoftId,refreshToken,accessToken:mc.access_token,expiresAt:Date.now()+(mc.expires_in||86400)*1000,profile:null},signal);
+  return this.checkAccess({clientId:this.clientId,xuid,microsoftId,companySubject:createHash('sha256').update('xbox-uhs:'+String(uhs)).digest('hex'),xboxUserToken:xbox.Token,xboxExpiresAt:Date.parse(xbox.NotAfter)||0,accountId:microsoftId,refreshToken,accessToken:mc.access_token,expiresAt:Date.now()+(mc.expires_in||86400)*1000,profile:null},signal,onStage);
  }
  // A transient Microsoft Graph token for the account service. The server treats it as
  // optional, so every failure here answers null and the player still signs in. It is not a
@@ -373,7 +377,8 @@ class MicrosoftAuth{
   if(!/^[a-f0-9]{32}$/i.test(profile.id)||!/^\w{1,16}$/.test(profile.name))throw new AuthError(sentence('java-profile','the profile answer was not a Java profile'),'response','java-profile');
   return {...session,minecraftAccess:'owned',profile:{id:profile.id,name:profile.name,skin:session.profile?.id===profile.id?session.profile.skin:undefined,skinURL:profile.skins?.find(s=>s.state==='ACTIVE')?.url||null}};
  }
- async checkAccess(session,signal){
+ async checkAccess(session,signal,onStage){
+  onStage?.('java-checking');
   try{
    const next=await this.javaAccess(session,signal);
    this.record('java-profile','ok',{status:200,code:clean(next.minecraftAccess)||'ok'});

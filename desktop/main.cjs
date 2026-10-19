@@ -57,7 +57,33 @@ const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalm
 // are the live pipeline's; everything else is derived from the installed client,
 // the account session and the saved settings on every broadcast, so no view has to
 // guess. canPlay is computed here and nowhere else.
-let state={message:'Download the game to get started.',error:null,device:null,progress:null,profile:null,remembered:false,account:null};
+let state={message:'Download the game to get started.',error:null,device:null,progress:null,profile:null,remembered:false,account:null,activity:null};
+// Activity is independent of installation progress. Only launcher-owned stage text
+// crosses IPC; callbacks belonging to a finished/replaced operation are ignored.
+const ACTIVITY_MESSAGES=Object.freeze({
+ 'microsoft-opening':'Opening Microsoft sign-in…',
+ 'microsoft-waiting':'Complete sign-in on Microsoft’s page.',
+ 'microsoft-verifying':'Verifying your Microsoft sign-in…',
+ 'java-checking':'Checking Minecraft Java access…',
+ 'company-signing-in':'Connecting your Easter Company account…',
+ 'company-waking':'The account service is waking up. We’ll keep trying…',
+ 'account-working':'Contacting the account service…'
+});
+let activityOwner=null;
+function beginActivity(stage,{replace=true}={}){
+ // Optional profile reads never take over an interactive sign-in or mutation.
+ // A read replaced by a newer operation cannot clear or revive that operation.
+ if(!replace&&activityOwner)return {update:()=>{},end:()=>{}};
+ const owner=Symbol('activity'),startedAt=Date.now();let currentStage=null;activityOwner=owner;
+ const update=next=>{
+  if(activityOwner!==owner||!Object.hasOwn(ACTIVITY_MESSAGES,next)||currentStage===next)return;
+  currentStage=next;
+  notify({activity:{stage:next,message:ACTIVITY_MESSAGES[next],startedAt}});
+ };
+ const end=()=>{if(activityOwner===owner){activityOwner=null;notify({activity:null});}};
+ update(stage);return {update,end};
+}
+async function withActivity(stage,action,options){const activity=beginActivity(stage,options);try{return await action(activity.update);}finally{activity.end();}}
 // The two game-shortcut entries, as they really are on this computer: the file exists or
 // it does not, which is not the same question as the saved preference. Filled before the
 // first broadcast and refreshed whenever Settings is opened or saved.
@@ -309,7 +335,7 @@ async function forgetCompany(){
 async function accountOperation(action){
  if(accountWorking||controller||game||(working&&!control))throw Error('Wait for the current operation to finish.');
  accountWorking=true;notify({});
- try{return control?await action():await exclusively(action);}
+ try{return await withActivity('account-working',()=>control?action():exclusively(action));}
  finally{accountWorking=false;notify({});}
 }
 async function renewCompany(){
@@ -320,16 +346,19 @@ async function renewCompany(){
 function companyReady(){return Boolean(company&&company.expiresAt>Date.now()&&company.account.passwordRequired===false);}
 function microsoftConnected(){return Boolean(company&&session&&company.account.microsoftSubject&&session.companySubject===company.account.microsoftSubject);}
 // Only a successful server-verified login replaces the current Company identity.
-async function enrolAccount({announce=true,throwOnError=false,candidate=session,lockCompany=true}={}){
+async function enrolAccount({announce=true,throwOnError=false,candidate=session,lockCompany=true,onStage}={}){
  if(!candidate)return;
+ const activity=onStage?null:beginActivity('company-signing-in');
+ const update=onStage||activity.update;update('company-signing-in');
  try{
-  if(!candidate.xboxUserToken||candidate.xboxExpiresAt<Date.now()+300000)candidate=await auth.refresh(candidate,controller?.signal,false,true);
+  if(!candidate.xboxUserToken||candidate.xboxExpiresAt<Date.now()+300000)candidate=await auth.refresh(candidate,controller?.signal,false,true,update);
   const expected=lockCompany?company?.account.id:null;
   // The Microsoft Graph token is what lets the account service read the Microsoft
   // account's own email. It is optional: when it cannot be obtained the sign-in carries
   // on without it, and it is put in the first account request only.
+  update('company-signing-in');
   const microsoftAccessToken=typeof auth.graphAccessToken==='function'?await auth.graphAccessToken(candidate.refreshToken,controller?.signal):null;
-  const signed=await accounts.login(candidate.xboxUserToken,controller?.signal,lockCompany&&company?.expiresAt>Date.now()?company.token:undefined,microsoftAccessToken);
+  const signed=await accounts.login(candidate.xboxUserToken,controller?.signal,lockCompany&&company?.expiresAt>Date.now()?company.token:undefined,microsoftAccessToken,update);
   // The Microsoft identity the service answered with is not the one this launcher is signed
   // in to. The sentence is the account service's own, from the one table that words these
   // refusals (accounts.cjs MESSAGES), so the player reads the same copy whichever side
@@ -354,7 +383,7 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
   if(error.name==='AbortError')throw error;
   if(throwOnError)throw error;
   notify({message:error.message||'The Easter Company account could not be signed in.'});
- }
+ }finally{activity?.end();}
 }
 function safeError(error){
  if(error.name==='AbortError')return 'Sign-in cancelled.';
@@ -460,15 +489,16 @@ async function setGraphics(enabled){
 }
 async function login(options={}){
  controller=new AbortController();
+ const activity=beginActivity('microsoft-opening');
  notify({message:'Opening Microsoft sign-in…',device:null,...(control?{}:{progress:null})});
  try{
-  const signed=await auth.signIn(device=>notify({device,message:'Enter this code on Microsoft’s sign-in page.'}),controller.signal);
-  const enrolled=await enrolAccount({candidate:signed,lockCompany:Boolean(company)||options.link===true,throwOnError:true});
+  const signed=await auth.signIn(device=>{activity.update('microsoft-waiting');notify({device,message:'Enter this code on Microsoft’s sign-in page.'});},controller.signal,activity.update);
+  const enrolled=await enrolAccount({candidate:signed,lockCompany:Boolean(company)||options.link===true,throwOnError:true,onStage:activity.update});
   notify({device:null,message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
   // The sign-in answer is the one place `emailStatus` leaves the main process, so the
   // sign-in dialog can say that Microsoft's address could not be read. No address, ever.
   return typeof enrolled?.emailStatus==='string'?{emailStatus:enrolled.emailStatus}:undefined;
- }finally{controller=undefined;}
+ }finally{activity.end();controller=undefined;}
 }
 // Install or update before launch. Returns the prepared release, or null when the
 // installed client is already current.
@@ -568,7 +598,7 @@ async function launchThrough(){
  // stops at the account checks must never wake anything.
  const waiting=beginGameWake();
  notify({phase:'launching',message:'Checking your Minecraft session…',device:null,progress:null});
- try{session=await auth.refresh(session,undefined,true);}catch(error){
+ try{session=await withActivity('java-checking',update=>auth.refresh(session,undefined,true,false,update));}catch(error){
   if(!['invalid_grant','invalid_request','unauthorized_client'].includes(error.code))throw error;
   session=null;await saveSession();settle('Sign in with your linked Microsoft account to play.');return {requiresMicrosoft:true};
  }
@@ -718,7 +748,7 @@ function registerIPC(){
   }
   return exclusively(()=>login({link:options?.link===true}));
  });
- handle('account-providers',()=>accounts.providers());
+ handle('account-providers',()=>withActivity('account-working',()=>accounts.providers(),{replace:false}));
  handle('provider-sign-in',(provider,link=false)=>accountOperation(async()=>{
   if(company&&!link)throw Error('Sign out before signing in to a different account.');
   const abort=new AbortController();controller=abort;
@@ -788,7 +818,7 @@ function foldUsername(value){
   // and typing Owen is a keyboard habit rather than a mistake worth an error.
   const folded=foldUsername(username);
   if(!folded||!USERNAME_PATTERN.test(folded))return {available:false,reason:'username_policy',message:ACCOUNT_MESSAGES.username_policy};
-  const found=await accounts.usernameAvailable(folded);
+  const found=await withActivity('account-working',()=>accounts.usernameAvailable(folded),{replace:false});
   return found.available?{available:true,reason:null,message:null}:{available:false,reason:found.reason||'username_taken',message:ACCOUNT_MESSAGES[found.reason]||ACCOUNT_MESSAGES.username_taken};
  });
  // The username is claimed with the first password and never travels again.
@@ -836,22 +866,22 @@ function foldUsername(value){
   }
   catch(error){await sessionLost(error);throw error;}
  }
- handle('profile-emails',verifiedEmails);
- handle('login-email',selectLoginEmail);
+ handle('profile-emails',()=>withActivity('account-working',verifiedEmails,{replace:false}));
+ handle('login-email',email=>withActivity('account-working',()=>selectLoginEmail(email),{replace:false}));
  handle('open-minecraft-store',()=>shell.openExternal('https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc'));
  handle('open-minecraft-profile',()=>shell.openExternal('https://www.minecraft.net/en-us/msaprofile'));
  handle('recheck-access',async()=>{
   if(!session)throw Error('Sign in with Microsoft first.');
   if(controller||accountWorking||game||(working&&!control))throw Error('Wait for the current operation to finish.');
   const run=async()=>{
-   accessChecking=true;controller=new AbortController();notify({message:'Checking Minecraft Java access…'});
+   accessChecking=true;controller=new AbortController();const activity=beginActivity('java-checking');notify({message:'Checking Minecraft Java access…'});
    try{
-    const refreshed=await auth.refresh(session,controller.signal,true);
+    const refreshed=await auth.refresh(session,controller.signal,true,false,activity.update);
     session=refreshed;
-    await loadSkin(session);await saveSession();await enrolAccount({announce:false});
+    await loadSkin(session);await saveSession();await enrolAccount({announce:false,onStage:activity.update});
     notify({message:'Minecraft Java access checked.'});
    }catch(error){session={...session,minecraftAccess:'unknown'};notify({});throw error;}
-   finally{accessChecking=false;controller=undefined;notify({});}
+   finally{activity.end();accessChecking=false;controller=undefined;notify({});}
   };
   return control?run():exclusively(run);
  });

@@ -1,3 +1,4 @@
+import {createWaitFeedback} from './wait-feedback.mjs';
 // Company credentials cross only the isolated preload and are cleared on close.
 // First-time setup runs in a fixed order: the player chooses a username in step 1 and
 // the username is claimed together with the first password in step 2, so the password
@@ -17,6 +18,7 @@ const NO_EMAILS='No verified email is recorded for this account. Sign in with a 
 const NO_LOGIN_EMAIL='No login email is selected. Sign in with a linked provider or with your username.';
 export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlineError=null}){
  let providerAvailabilityState=null,providerPending=false;
+ const providerCancellable=()=>providerPending&&!['company-signing-in','company-waking','account-working'].includes(state.activity?.stage);
  let state={},busy=false,dismissed=null,pendingUsername=null,replacePassword=false,advancing=false;
  const chooser=document.createElement('dialog'),username=document.createElement('dialog'),password=document.createElement('dialog'),emails=document.createElement('dialog');
  for(const dialog of [chooser,username,password])dialog.className='desktop-company-dialog';
@@ -32,6 +34,14 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  emails.setAttribute('aria-labelledby','company-emails-title');
  emails.innerHTML='<button class="dialog-close" type="button" aria-label="Close verified emails">×</button><h2 id="company-emails-title">Verified emails</h2><p class="company-intro">Choose the address that signs you in to Easter Company. Only the selected address is a login key; the other addresses are recorded on your account and cannot be used to sign in.</p><div class="company-emails" role="radiogroup" aria-label="Verified emails"></div><p class="company-emails-loading" role="status">Reading your verified emails…</p><p class="company-emails-empty" hidden></p><p class="company-emails-unset" hidden></p><p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p><div class="company-email-actions"><button type="button" class="company-submit">Save selection</button><button type="button" class="company-clear text-link" hidden>Clear login email</button></div>';
  document.body.append(chooser,username,password,emails);
+ const waits=new Map();
+ for(const dialog of [chooser,username,password,emails]){
+  const node=document.createElement('p');node.className='company-wait';
+  const anchor=dialog.querySelector('.company-submit');anchor.before(node);waits.set(dialog,createWaitFeedback(node));
+ }
+ let localWait=null;
+ const waitFor=(dialog,message)=>{localWait={dialog,message,startedAt:Date.now()};waits.get(dialog).set(localWait);};
+ const endWait=dialog=>{waits.get(dialog).clear();if(localWait?.dialog===dialog)localWait=null;};
  // A refusal painted into a dialog that is already open is painted where the player is not
  // looking. The chooser is taller than a phone's window, so at 390 the third line of the
  // identity conflict landed under the dialog's own bottom edge while the dialog sat at
@@ -74,7 +84,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   node.hidden=!shown.length;
   if(shown.length&&dialog.open)reveal(dialog,node);
  };
- const lock=value=>{busy=value;for(const dialog of [chooser,username,password,emails]){dialog.setAttribute('aria-busy',String(value));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}if(!value&&providerAvailabilityState)for(const button of chooser.querySelectorAll('[data-provider]'))button.disabled=!providerAvailabilityState.includes(button.dataset.provider);chooser.querySelector('.company-submit').textContent=value?'Signing in…':'Sign in';username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';emails.querySelector('.company-submit').textContent=value?'Saving…':'Save selection';};
+ const lock=value=>{busy=value;if(value&&!localWait){const dialog=[chooser,username,password,emails].find(item=>item.open);if(dialog)waitFor(dialog,dialog===username?'Checking your username…':dialog===password?'Saving your password…':dialog===emails?'Saving your email selection…':'Signing in to Easter Company…');}if(!value&&localWait)endWait(localWait.dialog);for(const dialog of [chooser,username,password,emails]){for(const button of dialog.querySelectorAll('.company-submit,.company-microsoft,.company-provider'))button.setAttribute('aria-busy',String(value&&dialog.open));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}if(!value&&providerAvailabilityState)for(const button of chooser.querySelectorAll('[data-provider]'))button.disabled=!providerAvailabilityState.includes(button.dataset.provider);chooser.querySelector('.company-submit').textContent=value?'Signing in…':'Sign in';username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';emails.querySelector('.company-submit').textContent=value?'Saving…':'Save selection';};
  // A username the server rejects is a plain sentence beside the field, never a hint
  // about any other account: taken and policy are the only two answers there are.
  const usernamePolicy='Use 3 to 20 characters: letters, numbers, underscores or dashes. Capitals become lowercase.';
@@ -91,8 +101,8 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   if(typeof at==='number')usernameField.setSelectionRange(at,at);
  });
  for(const dialog of [chooser,username,password]){
-  dialog.querySelector('.dialog-close').onclick=()=>{if(dialog===chooser&&providerPending){void desktop.cancelSignIn();return;}if(!busy)dialog.close();};
-  dialog.addEventListener('cancel',event=>{if(busy){event.preventDefault();if(dialog===chooser&&providerPending)void desktop.cancelSignIn();}});
+  dialog.querySelector('.dialog-close').onclick=()=>{if(dialog===chooser&&providerPending){if(providerCancellable())void desktop.cancelSignIn();return;}if(!busy)dialog.close();};
+  dialog.addEventListener('cancel',event=>{if(busy){event.preventDefault();if(dialog===chooser&&providerCancellable())void desktop.cancelSignIn();}});
   dialog.addEventListener('close',()=>{dialog.querySelector('form').reset();for(const input of dialog.querySelectorAll('input[name=password],input[name=confirm]'))input.type='password';error(dialog,'');if(dialog!==chooser)dismissed=state.account?.id;
    // Step 1 is the choice; closing it forgets it. Step 2 keeps the username from step 1
    // so a dismissal answers the same question rather than starting the flow over, and a
@@ -156,10 +166,10 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   const fetcher=typeof desktop.profileEmails==='function'?desktop.profileEmails.bind(desktop):null;
   if(!fetcher||!state.account){failEmails('This launcher build cannot read your verified emails.');return null;}
   emailAccount=state.account.id;
-  emailNodes.loading.hidden=false;
+  emailNodes.loading.hidden=true;waitFor(emails,'Reading your verified emails…');
   try{const found=await fetcher();showEmails(found);return found;}
   catch(cause){failEmails(cause&&cause.message);return null;}
-  finally{emailNodes.loading.hidden=true;}
+  finally{emailNodes.loading.hidden=true;endWait(emails);}
  }
  async function saveLoginEmail(address){
   if(emailBusy)return;
@@ -189,7 +199,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  emailNodes.clear.onclick=()=>{void saveLoginEmail(null);};
  emails.querySelector('.dialog-close').onclick=()=>{if(!emailBusy)emails.close();};
  emails.addEventListener('cancel',event=>{if(emailBusy)event.preventDefault();});
- emails.addEventListener('close',()=>{error(emails,'');emailNodes.status.textContent='';emailNodes.loading.hidden=true;});
+ emails.addEventListener('close',()=>{endWait(emails);error(emails,'');emailNodes.status.textContent='';emailNodes.loading.hidden=true;});
  // Opening the profile asks for the list; a bridge without the action has nothing to ask,
  // so the line simply stays out of the way rather than claiming a failure.
  async function refreshEmails(){
@@ -243,7 +253,8 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   // shortcut failing rather than the sign-in, so the player still gets the code that the
   // Forgot your password path already gives them.
   if(useSaved){
-   const answer=await continueSaved();
+   chooser.showModal();waitFor(chooser,'Connecting your saved Microsoft account…');lock(true);
+   let answer;try{answer=await continueSaved();}finally{lock(false);chooser.close();render(state);}
    if(!answer||answer.ok!==false)return;
    if(answer.code==='identity_conflict'){
     // Identity conflict is the one stop: the player has to choose the Microsoft account linked
@@ -266,7 +277,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   const button=document.createElement('button');button.type='button';button.className='company-provider';button.dataset.provider=provider;button.textContent='Sign in with '+providerName(provider);
   chooser.querySelector('.company-provider-note').before(button);providerButtons.push(button);
   button.onclick=async()=>{
-   if(busy)return;error(chooser,'');providerPending=true;let completed=false;lock(true);chooser.querySelector('.dialog-close').disabled=false;
+   if(busy)return;error(chooser,'');providerPending=true;let completed=false;waitFor(chooser,'Complete sign-in in your browser…');lock(true);chooser.querySelector('.dialog-close').disabled=false;
    try{
     const outcome=await desktop.signInProvider(provider,Boolean(state.account));
     if(outcome?.ok===false)error(chooser,outcome.error||'Sign-in could not finish.');
@@ -277,7 +288,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  }
  async function providerAvailability(){
   if(typeof desktop.accountProviders!=='function')return;
-  try{const found=await desktop.accountProviders();providerAvailabilityState=found.providers||[];for(const button of providerButtons){const available=found.providers?.includes(button.dataset.provider);button.disabled=!available;button.title=available?'':'This provider is not configured.';}}
+  try{const found=await desktop.accountProviders();providerAvailabilityState=found.providers||[];for(const button of providerButtons){const available=found.providers?.includes(button.dataset.provider);button.disabled=busy||!available;button.title=available?'':'This provider is not configured.';}}
   catch{providerAvailabilityState=[];for(const button of providerButtons){button.disabled=true;button.title='Provider availability could not be checked.';}}
  }
  chooser.querySelector('.company-recover').onclick=()=>{
@@ -379,6 +390,8 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  }
  function render(next){
   state=next||{};
+  if(localWait&&(state.activity?.stage==='company-waking'||providerPending&&state.activity))waits.get(localWait.dialog).set({...state.activity,startedAt:localWait.startedAt});
+  if(providerPending)chooser.querySelector('.dialog-close').disabled=!providerCancellable();
   if(!state.account){
    dismissed=null;pendingUsername=null;if(!busy)for(const dialog of [username,password])if(dialog.open)dialog.close();
    // The verified emails belong to one account. Leaving it closes the section and forgets
