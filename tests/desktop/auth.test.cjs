@@ -88,13 +88,34 @@ test('a full sign-in writes one line per step and carries nothing secret into ei
   assert.match(line,/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z v9\.9\.9 step=[a-z-]+ outcome=(ok|failed) http=(\d{3}|-) code=(\S+)$/,line);
  }
  assert(read(file).endsWith('\n')&&!read(file).includes('\r'),'LF endings, one line each');
- assert.equal(calls[0].options.body.get('scope'),'XboxLive.signin offline_access https://graph.microsoft.com/User.Read');
+ // One resource per request: the device-code scope must never name Microsoft Graph, or
+ // Microsoft refuses the exchange with invalid_scope after the player has already
+ // approved the sign-in. The Graph token is asked for separately, later.
+ assert.equal(calls[0].options.body.get('scope'),'XboxLive.signin offline_access');
+ assert(!/graph\.microsoft\.com/i.test(calls[0].options.body.get('scope')));
  // The waiting answers are not step outcomes: they wrote no line at all.
  assert(!read(file).includes('authorization_pending')&&!read(file).includes('slow_down'));
  // The short-lived user code is the only value that reaches the UI.
  assert.equal(messages[0].code,'TEST-CODE');
  assert(!JSON.stringify(messages).includes('device-secret'));
  scanFile(file);
+});
+
+test('the device-code scope names one resource only',()=>{
+ // The 1.0.22-1.0.25 regression: Microsoft Graph rode along in the device-code scope,
+ // Microsoft accepted the device code, and the token exchange was then refused with
+ // invalid_scope - the player was told the sign-in service refused it after Microsoft had
+ // already said yes. One resource per request; the Graph token is separate and optional.
+ const source=fs.readFileSync(path.join(__dirname,'../../desktop/auth.cjs'),'utf8');
+ const found=source.match(/const SCOPE='([^']+)'/);
+ assert.ok(found,'the device-code scope is a literal');
+ assert.equal(found[1],'XboxLive.signin offline_access');
+ assert.ok(!/graph\.microsoft\.com/i.test(found[1]),'the device-code scope may not name Graph');
+ assert.match(source,/const GRAPH_SCOPE='https:\/\/graph\.microsoft\.com\/User\.Read'/);
+ // And the Graph token is fetched on its own path, which tolerates every failure.
+ assert.match(source,/async graphAccessToken\(refreshToken,signal\)\{/);
+ const graph=source.slice(source.indexOf('async graphAccessToken('));
+ assert.match(graph.slice(0,600),/return null;/, 'a Graph failure still signs the player in');
 });
 
 test('the Microsoft sign-in steps name themselves and keep the provider code in the log',async()=>{

@@ -1,3 +1,15 @@
+# Easter Company launcher 1.0.26
+
+Microsoft sign-in works again.
+
+- A fresh sign-in with a Microsoft account was being refused by Microsoft after you had
+  already approved it in the browser: the launcher asked for the Xbox Live and Microsoft
+  Graph permissions in one request, and Microsoft refuses that combination when it hands
+  the sign-in back. The launcher now asks for Xbox Live only, and reads the account's
+  email address separately, so signing in succeeds and the email is still shown when
+  Microsoft allows it.
+- Saved sign-ins and Company passwords are unaffected.
+
 # Easter Company launcher 1.0.25
 
 The first Play of the day now wakes the server instead of giving up on it.

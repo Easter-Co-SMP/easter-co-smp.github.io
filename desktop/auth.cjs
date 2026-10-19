@@ -12,7 +12,16 @@ const AUTHORITY='https://login.microsoftonline.com/consumers/oauth2/v2.0';
 // cannot. The Graph token is requested separately, below, and is transient: it is never
 // stored, never logged and never leaves this process except on the one account request
 // that carries it.
-const SCOPE='XboxLive.signin offline_access https://graph.microsoft.com/User.Read';
+// ONE RESOURCE, ONE REQUEST. Xbox Live and Microsoft Graph are different resources, and
+// Microsoft's token endpoint refuses a device-code exchange whose granted scopes span
+// both. Measured, not guessed: this string carried the Graph scope from 1.0.22 to 1.0.25
+// and every fresh Microsoft sign-in in that window failed with `400 invalid_scope` at
+// code completion (signin.log, 2026-10-18T22:10 and 2026-10-19T06:53) - the device-code
+// request is accepted, the ticket is entered, and then the exchange is refused, which is
+// why it looked like a failure after Microsoft had already said yes. The Graph token is
+// requested on its own afterwards, with the refresh token this exchange returns, and
+// graphAccessToken tolerates every way that can fail.
+const SCOPE='XboxLive.signin offline_access';
 const GRAPH_SCOPE='https://graph.microsoft.com/User.Read';
 // The one scope a token must have been minted for before it may be presented to
 // user.auth.xboxlive.com. It is asked for on its own when the token in hand cannot
