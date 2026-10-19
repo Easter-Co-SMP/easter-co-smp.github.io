@@ -423,7 +423,7 @@ async function forgetCompany(){
  const token=company?.token;company=null;
  // Everything this launcher knew about a stored session goes with the account it belonged to:
  // the minted session, the state word, and the sign-out-everywhere control with them.
- mintedSession=null;minecraft={state:'unknown',serverHeld:false,checkedAt:null};minecraftProbe=null;
+ mintedSession=null;mintedFor=null;minecraft={state:'unknown',serverHeld:false,checkedAt:null};minecraftProbe=null;
  if(token)await accounts.logout(token);
  await vault.remove(companyFile());
 }
@@ -451,7 +451,7 @@ function microsoftConnected(){return Boolean(company&&session&&company.account.m
 // session the service minted for this launch window (`mintedSession`, never written to the
 // vault), and the five questions the gate and the launch ask together so they can never
 // disagree about which session a press would use.
-let minecraft={state:'unknown',serverHeld:false,checkedAt:null},mintedSession=null,minecraftProbe=null;
+let minecraft={state:'unknown',serverHeld:false,checkedAt:null},mintedSession=null,mintedFor=null,minecraftProbe=null;
 const MINECRAFT_REVOKED='Signed Minecraft out everywhere. The next game on any computer needs a Microsoft sign-in.';
 const MINECRAFT_NOT_REVOCABLE='The launcher cannot sign Minecraft out on other computers yet.';
 const MINECRAFT_NOTHING_STORED='No Minecraft session was stored for your account, so there was nothing to sign out.';
@@ -463,13 +463,18 @@ function sessionOfAccount(){return Boolean(company&&session&&company.account.mic
 function localRefreshable(){return Boolean(sessionOfAccount()&&typeof session.refreshToken==='string'&&session.refreshToken);}
 // The day after a hand-over: the access token the launcher already holds is still good.
 function localTokenLive(){return Boolean(sessionOfAccount()&&session.accessToken&&Number.isFinite(session.expiresAt)&&session.expiresAt>Date.now()+60000);}
+// A minted session belongs to the account it was minted for, and to no other. `mintedFor` is that
+// account id, so signing out and in as someone else — or an older account's session still sitting
+// in memory — can never be offered as this account's, and the hero can never name the previous
+// player's Minecraft profile.
+function mintedIsCurrent(){return Boolean(mintedSession&&company&&mintedFor===company.account.id);}
 // Which way a press would get its session, in the contract's order. `local`, `server`, or
 // `none` — and `server` is "the account service holds one for this account", which is a fact
 // the launcher only states after an answer, never a hope.
 function sessionSource(){
  if(!company||!company.account.microsoftSubject)return 'none';
  if(localRefreshable()||localTokenLive())return 'local';
- return minecraft.state==='server'?'server':'none';
+ return minecraft.state==='server'&&mintedFor===company.account.id?'server':'none';
 }
 // Java access, per source. A local session is checked exactly as it always was; a minted one
 // is proof in itself, because the service cannot mint a Minecraft profile for an account that
@@ -483,7 +488,7 @@ function sessionAccessOk(){
 // first, then the one the service minted. Nothing here is invented from the Company account.
 function launchProfile(){
  if(session?.profile)return publicProfile(session);
- const profile=mintedSession?.profile;
+ const profile=mintedIsCurrent()?mintedSession.profile:null;
  return profile?{name:profile.name,id:profile.id,skin:null}:null;
 }
 function minecraftSessionState(){
@@ -491,7 +496,7 @@ function minecraftSessionState(){
  if(!company.account.microsoftSubject)return 'unlinked';
  if(microsoftConnected()||localTokenLive())return 'local';
  if(minecraft.state==='checking'||minecraft.state==='reauth'||minecraft.state==='busy')return minecraft.state;
- if(minecraft.state==='server')return 'server';
+ if(minecraft.state==='server'&&mintedFor===company.account.id)return 'server';
  return 'required';
 }
 function minecraftStateField(){
@@ -524,11 +529,17 @@ function sessionFromMint(minted){
 // two different ideas of whether the account has one.
 async function mintMinecraftSession({announce=false}={}){
  if(!company||!company.account.microsoftSubject)return {outcome:'none'};
+ // This machine's own check of this very account is fresher than a mint can be, and a service
+ // answer may not be used to contradict it: an account the launcher has just found may not play
+ // Minecraft is offered the Buy Now path, never a session minted from a stored token. A machine
+ // with no session of its own (a password sign-in) asks, because then the service is the only
+ // thing that knows.
+ if(sessionOfAccount()&&identity.access(session)!=='owned')return {outcome:'none'};
  minecraft={...minecraft,state:'checking'};
  if(announce)notify({});
  try{
   const minted=await accounts.gameSession(company.token);
-  mintedSession=minted;
+  mintedSession=minted;mintedFor=company.account.id;
   minecraft={state:'server',serverHeld:true,checkedAt:new Date().toISOString()};
   // The service named this account's own Java profile. If the account's record disagreed, the
   // service is the authority: it minted the session from the Microsoft account itself. The
@@ -579,6 +590,11 @@ async function mintMinecraftSession({announce=false}={}){
 // Play press. One at a time, and never by a page, a dialog or a view.
 function probeMinecraftSession(){
  if(!company||!company.account.microsoftSubject)return null;
+ // This machine's own check is fresher and more specific than a mint can be. When the saved
+ // session of this very account already says it may not play — no Java ownership, no Java
+ // profile — asking the service would only repeat that, so nothing is asked, nothing is
+ // offered, and the access panel keeps saying exactly what it said before this feature existed.
+ if(sessionOfAccount()&&identity.access(session)!=='owned')return null;
  if(minecraftProbe)return minecraftProbe;
  const run=mintMinecraftSession({announce:true});
  minecraftProbe=run.finally(()=>{minecraftProbe=null;});
@@ -1092,9 +1108,11 @@ function registerIPC(){
    await saveSession();await saveCompany();
    if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
    notify({message:signed.created?'Account created. Choose your username and password.':'Provider connected.'});
-   // A provider sign-in can be the moment a stored Microsoft session becomes reachable, so
-   // the hero learns whether Play is available without waiting for a press.
-   void probeMinecraftSession();
+   // A provider sign-in can be the moment a stored Microsoft session becomes reachable, so the
+   // hero learns whether Play is available without waiting for a press. It is asked for AFTER
+   // this sign-in has settled, so a slow account service can never hold the sign-in open or
+   // leave its busy state behind: the account is already written and published by then.
+   setImmediate(()=>{void probeMinecraftSession();});
    return publicAccount(company);
   }finally{if(controller===abort)controller=null;}
  }));
@@ -1136,11 +1154,12 @@ function registerIPC(){
   await saveSession();await saveCompany();
   if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
   notify({message:'Signed in to '+(next.account.username||'your Easter Company account')+'.'});
-  // A password sign-in never has a Microsoft refresh token of its own, so the account service
-  // is the only place a session can come from. One mint tells the hero whether Play is
-  // available before the player presses anything, and leaves today's behaviour in place when
-  // the service has no such route.
-  void probeMinecraftSession();
+  // A password sign-in never has a Microsoft refresh token of its own, so the account service is
+  // the only place a session can come from. One mint tells the hero whether Play is available
+  // before the player presses anything, and leaves today's behaviour in place when the service
+  // holds nothing for this account. Asked for AFTER this sign-in has settled, for the same
+  // reason as above: the sign-in's own busy state belongs to the sign-in, not to the mint.
+  setImmediate(()=>{void probeMinecraftSession();});
   return publicAccount(company);
  }));
  // "Sign out of Minecraft everywhere": the one stored session every machine mints from, ended by

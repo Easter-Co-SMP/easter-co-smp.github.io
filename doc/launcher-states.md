@@ -463,7 +463,11 @@ machine was signed out on evidence it does not have.
 
 - **The hero action**, from `minecraftSession.state`: `unlinked` gives **Link Microsoft**
   (action `link-microsoft`), `required` and `reauth` give today's **Sign in to Minecraft** (action
-  `connect-microsoft`), `busy` gives **Try again** (action `retry-minecraft`, which asks the service
+  `connect-microsoft`, both with main's own sentence — *Sign in with Microsoft / Starts Minecraft as
+  <name>* — because `required` and `reauth` are the same thing to the player: this account has a
+  session and it has to be proved here. The launcher never says **why** a stored session is gone,
+  because the account service cannot tell a revoked session from one that was never stored), `busy`
+  gives **Try again** (action `retry-minecraft`, which asks the service
   once more and never opens a Microsoft prompt), `checking` gives a busy hero that says the launcher
   is asking the account service, and `server` leaves Play available with no Microsoft prompt
   anywhere on the screen.

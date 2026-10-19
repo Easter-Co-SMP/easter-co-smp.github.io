@@ -86,7 +86,30 @@ try{
  async function passwordLogin(secret){await hero('signin').click();const dialog=page.locator('#desktop-company-signin');await dialog.getByLabel('Username or Email',{exact:true}).fill(username);await dialog.getByLabel('Password',{exact:true}).fill(secret);await dialog.getByRole('button',{name:'Sign in',exact:true}).click();}
  await passwordLogin('wrong fixture passphrase');await page.locator('#desktop-company-signin .company-error').filter({hasText:'incorrect'}).waitFor();assert.equal((await status()).account,null);
  await page.locator('#desktop-company-signin').getByLabel('Password',{exact:true}).fill('fixture secret passphrase');await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in',exact:true}).click();
- await hero('connect-microsoft').waitFor();assert.equal((await status()).account.username,username);assert.equal((await status()).microsoftAccount,null);
+ // The account was created by signing in with Microsoft earlier in this journey, and the account
+ // service now stores that session (doc/launcher-states.md, "The Minecraft session the account
+ // service holds"). So this password sign-in — the same account on another machine — is ready to
+ // play with no Microsoft prompt of its own, and the account is applied either way: that is what
+ // this step exists to catch.
+ await hero('play').waitFor();
+ assert.equal((await status()).account.username,username,'the password sign-in applies the account');
+ assert.equal((await status()).microsoftAccount,null);
+ assert.equal((await status()).minecraftSession.state,'server','and plays from the session the account service stores');
+ assert.equal(await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).count(),0,'with no Microsoft sign-in of its own');
+ assert.equal((await hero('play').innerText()).includes('FixtureCaptain'),true,'and it names the Minecraft identity it will start');
+ // Signing Minecraft out everywhere is what an account with nothing stored looks like, and it is
+ // the honest hero this launcher had before the account service held anything: the same sentence
+ // main used, with no claim about why the stored session is gone.
+ await page.locator('.desktop-account-nav').click();
+ await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
+ const profileDialog=page.locator('#company-profile');await profileDialog.waitFor();
+ await profileDialog.getByRole('button',{name:'Sign out of Minecraft everywhere',exact:true}).click();
+ await profileDialog.locator('.company-status').filter({hasText:'Signed Minecraft out everywhere.'}).waitFor();
+ await page.keyboard.press('Escape');await profileDialog.waitFor({state:'hidden'});
+ await hero('connect-microsoft').waitFor();
+ const withoutSession=await hero('connect-microsoft').innerText();
+ assert(withoutSession.replace(/\s+/g,' ').includes('Sign in with Microsoft Starts Minecraft as'),'a linked account with no stored session asks for the same sign-in main always asked for: '+withoutSession);
+ assert.equal((await status()).canPlay,false,'and Play stays off until it is signed in again');
  await app.evaluate(()=>global.companyUser='2');await hero('connect-microsoft').click();await approve();await page.locator('.desktop-page-notice').waitFor();assert.equal((await status()).account.username,username);assert.equal((await status()).microsoftConnected,false,'wrong Microsoft account cannot replace Company identity');
  await page.getByRole('button',{name:'Dismiss message'}).click();await app.evaluate(()=>global.companyUser='1');await hero('connect-microsoft').click();await approve();await hero('play').waitFor();assert.equal((await status()).account.username,username);
  // Password recovery reauthenticates through a provider linked to this account. Until

@@ -125,8 +125,11 @@
   const minecraftName=typeof state?.account?.minecraftName==='string'?state.account.minecraftName.trim():'';
   if(sessionState==='unlinked')return {kind:'link-microsoft',label:'Link Microsoft',note:'Attach the Microsoft account that owns Minecraft'};
   if(sessionState==='checking')return {kind:'busy',label:'Checking your Minecraft session…',note:'Asking your Easter Company account'};
-  if(sessionState==='required')return {kind:'connect-microsoft',label:'Sign in with Microsoft',note:minecraftName?'Starts Minecraft as '+minecraftName:'Starts Minecraft with your linked Microsoft account'};
-  if(sessionState==='reauth')return {kind:'connect-microsoft',label:'Sign in with Microsoft',note:'Microsoft asked you to sign in again'};
+  // `required` and `reauth` are the same thing to the player: this account has a session and it
+  // has to be proved on this machine. They share main's sentence, and the hero never claims to
+  // know WHY a stored session is gone — the account service cannot tell a revoked session from
+  // one that was never stored, so neither does the launcher.
+  if(sessionState==='required'||sessionState==='reauth')return {kind:'connect-microsoft',label:'Sign in with Microsoft',note:minecraftName?'Starts Minecraft as '+minecraftName:'Starts Minecraft with your linked Microsoft account'};
   // The account service could not make a session just now — it is rate-limiting mints, or it
   // cannot answer. None of that is the player's Microsoft session dying, so this offers a retry
   // and never a Microsoft sign-in.
