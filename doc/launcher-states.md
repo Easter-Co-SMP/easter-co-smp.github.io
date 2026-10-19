@@ -682,15 +682,16 @@ crossing the isolated preload arrives as its name and message only and a refusal
 on its code must not be thrown. The refusal that stops the flow is `identity_conflict`:
 the Microsoft account the service answered with belongs to a different Easter Company
 account, so the chooser comes back carrying the refusal in three lines rather than one
-paragraph. The account service's own sentence comes first — `Sign in with the Microsoft
-account linked to this Easter Company account, or switch Easter Company accounts.`
+paragraph. The account service's own sentence comes first — `That provider belongs to a
+different Easter Company account, or this account already has a different link. Sign out to
+use another account.`
 (`desktop/accounts.cjs` MESSAGES.identity_conflict, which is also what the service's own
 409 is mapped to, so the wording names both routes rather than the launcher-side one).
 Then what did not happen, on its own line: `Nothing on your Easter Company account has
 changed.` Then the action, which has to start by closing the dialog it is spoken from,
 because the profile control it names is inert behind a modal: `Close this window first.
-Then open your profile at the top of the page and choose Switch Account, or Add
-account.` The sentence no longer uses "the linked account", which was an undefined noun
+Sign out from your profile before signing in to a different account.` The sentence no
+longer uses "the linked account", which was an undefined noun
 for someone who does not already understand a Company-account conflict, and it no longer
 points at a control the player cannot reach. No device code opens, no second sign-in
 starts, the signed-in account id is unchanged, and the failure is not announced on the
@@ -699,6 +700,16 @@ paints the sentence, not even for one frame. Every other failure of the saved se
 still falls through to the interactive sign-in with its device code. The account id
 comparison stays server-driven, and no account identifier, token or address appears in
 the sentence, the state or a log.
+
+The three lines above SUPERSEDE the sentences this section carried until 2026-10-19, which
+were `Sign in with the Microsoft account linked to this Easter Company account, or switch
+Easter Company accounts.` and `Close this window first. Then open your profile at the top
+of the page and choose Switch Account, or Add account.` The provider-sign-in work
+(`4341b90`) reworded both ends of the refusal in `desktop/accounts.cjs` and
+`site/company-auth.mjs` and updated the suites that speak them, but not this paragraph or
+one copy of the constant inside `tests/desktop/ui-review.electron.mjs`, which is why that
+journey stayed red past its profile assertions. Recorded here because a frozen contract
+that quietly disagrees with the product is worse than one that says what changed.
 On a window too short to show all three lines at once, the chooser scrolls the refusal
 into view rather than leaving its last line under the dialog's own edge: the least it can
 scroll for the whole refusal to be inside the box, and nothing at all when the box
