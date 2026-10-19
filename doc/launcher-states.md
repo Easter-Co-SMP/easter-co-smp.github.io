@@ -741,11 +741,100 @@ update is not.
    every broadcast from the first one onward, including development, unpackaged
    runs and the test harness, so nothing can wait forever on a phase that will
    never arrive. An unpackaged run reports `idle` with `canApply` false.
-8. **The player's data survives.** Settings, the saved session, the client tree
-   and its chunks live outside the replaced files and are never migrated,
-   rewritten or removed by a launcher update.
+8. **The player's data survives, except where the version says otherwise.** Settings,
+   the saved session, the client tree and its chunks live outside the replaced files
+   and are never migrated or rewritten by a launcher update. What the version change
+   itself clears is the next section, *What a version change clears*: nothing at all
+   for a patch, the cache for a minor, and the stored session for a major.
 9. **`version` is the launcher, `install.version` is the game client.** They are
    unrelated and must never be rendered as if they were the same thing.
+
+### What a version change clears (2026-10-19)
+
+Owen's rule: "if only the patch is incremented between current client and the target
+during the update process, preserve client side cache and user auth session. For minor
+updates, the launcher should clear cache but keep the minimum required user/auth cache.
+For major updates, clear cache, and any locally stored user session data. This also
+provides a baseline for deciding what kind of increment a new release should have."
+
+The launcher's own version number is therefore the whole statement of what an update may
+destroy. `updater.cjs` `classify(from, to)` reads the two versions and answers `patch`,
+`minor` or `major`; that answer alone picks the names that are cleared. A version it
+cannot read is refused by name (`LauncherVersionError`, code `invalid-version`) rather
+than guessed at.
+
+| Level | When | Cache | `settings.json` | `accounts.enc` and `company.enc` |
+|---|---|---|---|---|
+| `patch` | only the third number moved | nothing is removed, and no directory is even read | kept | kept |
+| `minor` | the second number moved and not the first | cleared | kept | kept |
+| `major` | the first number moved | cleared | kept | removed, so the player signs in again |
+
+Equal versions and a same-field downgrade both answer `patch`, which clears nothing: the
+level names the largest clearing the pair justifies, and a pair that moves no number up
+justifies none. A downgrade across a field is decided by that field, and clearing more is
+the safe answer. `update()` only ever applies a strictly newer release, so neither answer
+reaches the clearing code in practice.
+
+**The bump a release takes is this table's decision, not its author's judgement in the
+moment.** A change that can require a cleared cache is a `minor`. A change that can
+invalidate a stored session, or that a stored session must not survive, is a `major`.
+Anything a new bundle fixes without either is a `patch`, and that is the only level that
+promises the player an update costs them nothing at all.
+
+**Exactly what is cleared is one list, and clearing iterates it.** The table is
+`desktop/updater.cjs` `CLEAR`; each member carries the reason it is expendable. The data
+directory is never enumerated as a whole, so a file the launcher did not think about — a
+dialect dictionary Chromium keeps, `install.log`, `launcher-update.log`, anything the
+player put there — survives by not being on the list. The members cleared at `minor`:
+
+| Member | Why it may go |
+|---|---|
+| `minecraft` | The client tree the installer built: versions, libraries, assets, mods, resource packs and `installed.json`. Every file the launcher wrote into it is a copy of something the published client manifest describes, so a minor release gets a fresh client instead of a half-stale one. The tree is emptied one level deep, so three things inside it stay: `.easter-client` (the marker that proves the folder is the launcher's rather than another installation's), `saves` (the worlds the player made on this computer) and `screenshots` (the pictures they took). |
+| `launcher-updates` | The downloaded launcher payloads, except the one the update has just staged. A payload is a release asset that can be fetched again; the staged one cannot, because `bootstrap.cjs` loads it from `current.json` on the relaunch, and removing it would relaunch into the version being replaced and re-download the same update on every start. So `current.json` and the payload it names stay, every older payload goes, and a stash whose record cannot be read is left entirely alone rather than guessed at. |
+| `Cache`, `Code Cache`, `GPUCache`, `DawnGraphiteCache`, `DawnWebGPUCache`, `ShaderCache`, `GrShaderCache` | Electron's HTTP, compiled-script, GPU, pipeline and shader caches for the launcher's own pages. Their keys and artefacts belong to the bundle being replaced, and the new bundle rebuilds what it needs on the next start. |
+| `blob_storage`, `IndexedDB`, `Local Storage`, `Session Storage`, `WebStorage` | The bundled pages' renderer storage. Nothing the launcher needs across a version change lives here: settings are in `settings.json` and sessions are in the vaults. One consequence is stated plainly rather than hidden: a map drawing a player made in the launcher is stored in `IndexedDB`, so a minor update clears it with the rest. |
+| `signin.log` | The bounded redacted record of the sign-in legs. Its steps belong to the code being replaced; it carries no credential, so removing it loses diagnoses and nothing else. |
+
+A `major` adds exactly three members, the stored sessions: `accounts.enc` (the saved
+accounts and the Microsoft/Minecraft session), `company.enc` (the Company session token,
+the other half of the same sign-in) and `account.enc` (the single-account vault an install
+from before the account list may have left behind).
+
+**Nothing outside the launcher's own data directory is ever removed.** `configRoot()` is
+`app.getPath('userData')`, the per-user `Easter Company` directory, and every path is
+resolved inside it before anything is removed; a name that resolves anywhere else is
+refused by `withinDataDirectory` rather than followed. There is no rule that reaches the
+player's real `~/.minecraft`, another launcher's files, the server, the world, `Downloads`,
+or an installation folder the player chose in Settings: a client tree outside the data
+directory is the player's, and an update does not clear it. A listed entry that turns out to
+be a symbolic link is removed as a link, and its target is never entered.
+
+**One line per decision**, in `launcher-update.log` beside the other two logs. It has its
+own file because the line has to carry the from/to pair and the names it cleared, and
+`signin.log` and `install.log` are single-token-per-field logs that cannot hold that. The
+values are a validated version, one of the three level words and the constants from `CLEAR`,
+so no path, no player data and no credential can reach the line; anything else is written as
+`-`. A real minor update writes one line like:
+
+```
+2026-10-19T12:00:00.000Z v1.0.28 step=update-policy outcome=ok level=minor from=1.0.27 to=1.1.0 cleared=minecraft|launcher-updates|Cache|...
+```
+
+**An update that cannot clear still applies.** The clear runs on the relaunch path only,
+after the new bundle is staged and verified, and it is skipped while the game is running (a
+client tree removed under a live Minecraft is a broken game; an update that waits for one
+restart is not). One member that cannot be removed — a payload the old process still has open
+on Windows is the real case — is recorded and the rest of the list still happens, so one
+locked file cannot leave the session vault and the client tree behind. The line then reads
+`outcome=failed` with `failed=` naming that member, and the update proceeds either way: the
+player is never held on an old launcher by a cache the next start retries.
+
+The clearing is drivable without Electron — `clearForLevel` takes an injected filesystem and
+removal function — which is what lets `tests/desktop/updater.test.cjs` prove the matrix on a
+fixture directory: a patch asserts zero removals and zero directory reads, a minor and a
+major assert every listed member gone and every unlisted file, `settings.json`, the world
+save and the pictures still there.
+
 
 ## Home actions, Settings and enhanced graphics
 

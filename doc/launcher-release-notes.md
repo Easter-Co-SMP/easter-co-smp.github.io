@@ -1,3 +1,30 @@
+# Easter Company launcher 1.0.28
+
+Launcher updates are now sized before they act. A small update costs you nothing, and the
+bigger ones say what they will clear.
+
+- A small fix - a patch release - changes nothing on your computer except the launcher
+  itself. Your downloaded game, your settings and your sign-in are exactly where you left
+  them, and nothing at all is deleted.
+- An update that changes the launcher's own code - a minor release - clears only what the
+  launcher can download again: the copy of the game it installed, the update files it had
+  already fetched, and its own temporary caches. You keep your settings and your sign-in,
+  and your worlds and screenshots stay where they are. It does mean the game downloads once
+  more after such an update, because the client is rebuilt from scratch.
+- A major release - one a saved sign-in may no longer be good for - also signs you out, so
+  you sign in once and start clean. It removes nothing else of yours.
+- Nothing outside the launcher's own folder is ever touched: not your own `.minecraft`, not
+  a game folder you chose in Settings, not your Downloads, and not the Easter Co. server or
+  world.
+- Each launcher update writes one line to `launcher-update.log` in the launcher's folder
+  saying which version you came from, which version you are on and what it cleared. It
+  contains no account name, no password and no token.
+- Which of the three an update is comes from the version numbers themselves, and
+  `doc/launcher-states.md` publishes the table, so a release cannot quietly clear more than
+  its own number says it will.
+- One thing worth knowing: a map drawing you make in the launcher's own map is stored in the
+  launcher's page storage, which a minor update clears with the rest of it.
+
 # Easter Company launcher 1.0.27
 
 Two things about signing in with a Company username:
