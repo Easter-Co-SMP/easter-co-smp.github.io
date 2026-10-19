@@ -19,7 +19,11 @@ custom mod 2.0.2 and preserves launcher settings, caches and sign-in sessions.
 - Existing balances and coin definitions stay unchanged. Older clients keep the
   native banker dialog and typed commands, using the same banking decisions.
 - The inherited launcher sign-in chooser remains usable in short windows: every
-  control can be reached by scrolling.
+  control can be reached by scrolling. Profile changes stay locked during sign-in
+  and gameplay without discarding a focused control or draft.
+- Authenticated launcher Play can wake the cloud server. Native in-game Play joins
+  the configured public address but cannot wake a sleeping host; account credentials
+  are not copied into Minecraft.
 
 Validation includes all 45 mod harnesses with 586 banking assertions, real Fabric
 keyboard/network tests of all four bank actions, replay/refusal and inventory
