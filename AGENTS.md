@@ -70,6 +70,16 @@ Releases follow doc/releasing.md: the tag comes from package.json, the workflow 
 hand, the packaged app is checked against site/ before publishing, and /releases/latest ignores
 prereleases, so a launcher release must not be marked prerelease while it is the only one.
 
+The Privacy Policy and Terms of Service live in site/legal/privacy/ and site/legal/terms/, with
+their layout in site/legal/legal.css, and every page footer links to both. They are the public URLs
+the Google OAuth consent screen names, so they must stay reachable without signing in and keep their
+effective date current. The legal links sit in the span BEFORE the motto in .home-footer: the
+launcher writes "Launcher <version>" into `.home-footer>span:last-child`, so a legal span placed
+last is replaced by the version text on every render. tests/test_legal_pages.py guards that and the
+footers; 404.html must use root-absolute legal hrefs because GitHub Pages serves it for any missing
+path. doc/legal-pages.md records why the documents say what they say, where each factual claim was
+verified, and the retention promises Easter LTD has to be able to keep.
+
 Frontend work under site/ gets its final visual and interaction pass from the designated frontend
 reviewer before it reaches production. Passing tests, the browser suite and even the packaged-app
 bundle check are necessary but not sufficient: they prove behaviour, not design. Do not ship a
