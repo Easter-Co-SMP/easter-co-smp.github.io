@@ -28,10 +28,10 @@ const MESSAGES={
  invalid_provider_token:'Your provider sign-in was not accepted. Try again.',
  invalid_credentials:'The username or email, or the password, is incorrect.',
  username_taken:'That username is already taken. Try another.',
- username_policy:'Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.',
+ username_policy:'Use 3 to 20 characters: letters, numbers, underscores or dashes. Capitals become lowercase.',
  invalid_microsoft_token:'Your Microsoft sign-in needs to be renewed. Sign in again.',
  identity_conflict:'That provider belongs to a different Easter Company account, or this account already has a different link. Sign out to use another account.',
- password_policy:'Use a password or passphrase of 15 to 128 characters. Avoid common passwords.',
+ password_policy:'Use a password or passphrase of 8 to 128 characters. Avoid common passwords.',
  reauthentication_required:'Sign in with a linked provider to set or reset your password.',
  invalid_minecraft_token:'Microsoft signed you in, but Minecraft did not accept that session. Sign in again.',
  invalid_session:'Your Easter Company session expired. Sign in again.',
@@ -164,8 +164,9 @@ class AccountClient{
  // the player reads stays in one table and a reserved word is never reported as a name
  // someone else holds.
  async usernameAvailable(username,signal){
-  if(typeof username!=='string'||!USERNAME_PATTERN.test(username))return {available:false,reason:'username_policy'};
-  const found=await this.call('/v2/accounts/username/available',{method:'POST',body:{username},signal,timeout:Math.min(this.timeout,10000)});
+  const folded=typeof username==='string'?username.trim().toLowerCase():'';
+  if(!USERNAME_PATTERN.test(folded))return {available:false,reason:'username_policy'};
+  const found=await this.call('/v2/accounts/username/available',{method:'POST',body:{username:folded},signal,timeout:Math.min(this.timeout,10000)});
   // Anything that is not a plain yes is a refusal; an unknown reason word is reported as
   // a taken name rather than being read as availability.
   if(found?.available===true)return {available:true,reason:null};

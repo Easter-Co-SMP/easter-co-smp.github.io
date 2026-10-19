@@ -1,5 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {startStub,send,client,rejects,ACCOUNT}=require('./fixtures.cjs');
+const fs=require('node:fs'),path=require('node:path');
+const repoRoot=path.resolve(__dirname,'../..');
+const readRepo=file=>fs.readFileSync(path.join(repoRoot,file),'utf8');
 const TOKEN='mojang-access-token-private';
 const SESSION='easter-session-token-private';
 function loginBody(created){return {created,account:ACCOUNT,session:{token:SESSION,expiresAt:'2026-02-01T00:00:00Z'}};}
@@ -273,7 +276,8 @@ test('the availability probe answers one boolean and a reason the launcher under
 test('a reserved or malformed username reads as policy, not as a name someone holds',async()=>{
  // End to end through the main-process handler, because the wording lives in its table.
  const {MESSAGES}=require('../../desktop/accounts.cjs');
- assert.equal(MESSAGES.username_policy,'Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.');
+ // Capitals are folded, so the sentence promises that rather than forbidding them.
+ assert.equal(MESSAGES.username_policy,'Use 3 to 20 characters: letters, numbers, underscores or dashes. Capitals become lowercase.');
  assert.equal(MESSAGES.username_taken,'That username is already taken. Try another.');
  assert.notEqual(MESSAGES.username_policy,MESSAGES.username_taken);
  const stub=await startStub(({response,body})=>{
@@ -499,4 +503,35 @@ test('the account service email answer rides the sign-in as a status word, never
    assert(!JSON.stringify(signed).includes('captain@example.test'));
   }finally{await stub.close();}
  }
+});
+
+test('a capitalised username is folded before it is ever sent',async()=>{
+ // Owen's rule: capitals are a keyboard habit, not an error. The name is lowercased in the
+ // field, again in the client, and again on the account service, so every layer agrees and
+ // "OwenEaster" and "oweneaster" are the same account.
+ const stub=await startStub(({response})=>send(response,200,{available:true,reason:null}));
+ try{
+  const api=client(stub.origin);
+  assert.deepEqual(await api.usernameAvailable('OwenEaster'),{available:true,reason:null});
+  assert.deepEqual(await api.usernameAvailable('  MiXeD-Case_1  '),{available:true,reason:null});
+ }finally{await stub.close();}
+ assert.deepEqual(stub.calls.map(call=>JSON.parse(call.body).username),['oweneaster','mixed-case_1']);
+});
+
+test('the password floor is eight characters in every layer that states it',()=>{
+ // One rule, four places: the dialog's own limits and sentence, the main process check,
+ // the client's copy of the policy sentence, and the account service.
+ const dialog=readRepo('site/company-auth.mjs');
+ assert.equal(dialog.includes('minlength="15"'),false,'no dialog field may still demand 15');
+ assert.equal((dialog.match(/minlength="8"/g)||[]).length,2,'both password fields ask for 8');
+ assert.match(dialog,/Use 8–128 characters/);
+ assert.match(dialog,/\[\.\.\.secret\]\.length<8/);
+ const main=readRepo('desktop/main.cjs');
+ assert.match(main,/length<8/);
+ assert.equal(main.includes('length<15'),false);
+ assert.match(main,/Use a password or passphrase of 8 to 128 characters/);
+ const copy=require('../../desktop/accounts.cjs').MESSAGES;
+ assert.match(copy.password_policy,/8 to 128 characters/);
+ const service=fs.readFileSync('/root/easter-co-cloud/api/passwords.py','utf8');
+ assert.match(service,/8 <= len\(password\) <= 128/);
 });
