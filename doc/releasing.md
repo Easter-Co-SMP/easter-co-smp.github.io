@@ -136,7 +136,7 @@ needs it on **18797**, not 18796. Run it like this, from a clean start:
 Add `EASTER_FIXTURE_LOG=1` to the fixture for one line per request; that is how a request
 sequence gets settled when a journey fails.
 
-Two ways this bites, both measured on 2026-10-19:
+Three ways this bites, all measured on 2026-10-19:
 
 - **Run it alone.** This journey fails when other Electron or xvfb suites are running at
   the same time. One run failed while three other agents were starting worktrees and
