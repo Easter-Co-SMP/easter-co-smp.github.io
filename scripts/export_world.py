@@ -556,6 +556,32 @@ def default_resolution_state():
     return base / 'easter-co-pages/modrinth.json'
 
 
+def ensure_state_writable(state_path):
+    """Prove the manifest cache can be written BEFORE any tile is rendered.
+
+    The state file is written near the end of an export, so an unwritable cache used to
+    cost a full render before failing. That is exactly what happened under the systemd
+    unit: `ProtectHome=read-only` made the default `~/.local/state` path unwritable while
+    `ReadWritePaths` covered only the repository and `/var/lib/easter-co-pages`, and the
+    daily capture failed after doing all of its work. A preflight turns that class of
+    misconfiguration into a fast, named failure. It probes with a real write rather than
+    trusting permission bits, because the unit's sandbox is not visible from here.
+    """
+    state_path = Path(state_path)
+    parent = state_path.parent
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+        probe = parent / ('.write-probe-' + str(os.getpid()))
+        probe.write_text('probe')
+        probe.unlink()
+    except OSError as error:
+        raise RuntimeError(
+            f'Manifest state directory {parent} is not writable ({error}). '
+            'Set EASTER_MANIFEST_STATE to a directory this process may write, '
+            'such as /var/lib/easter-co-pages.') from error
+    return state_path
+
+
 def export_client(destination, download_module, resolver=None, now=None, state_path=None,
                   graphics_resolver=None):
     """Publish the additive client manifest: the flat fields, plus the chunk list.
@@ -583,7 +609,7 @@ def export_client(destination, download_module, resolver=None, now=None, state_p
     minecraft = download_module.facts.stack().split(' · ', 1)[0].removeprefix('MC ')
     # A resolved entry is only reused when it is still pinned to the same version, so the
     # cache can never outvote the publisher's own answer.
-    state_path = Path(state_path) if state_path else default_resolution_state()
+    state_path = ensure_state_writable(Path(state_path) if state_path else default_resolution_state())
     resolution = read_resolution_state(state_path)
     mod_entries = {}
     for ident in DEPENDENCIES:
@@ -627,6 +653,8 @@ def export_snapshot(destination, source_root=Path('/root/e-server'), now=None, p
     """Stage a complete export before touching the publishing checkout."""
     now = now or datetime.now(timezone.utc)
     destination = Path(destination)
+    # Fail in the first second, not after every tile has been rendered.
+    ensure_state_writable(default_resolution_state())
     sys.path.insert(0, str(source_root))
     terrain = importlib.import_module('core.minecraft_map')
     entities = importlib.import_module('core.minecraft_map_data')

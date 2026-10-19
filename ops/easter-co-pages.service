@@ -10,6 +10,10 @@ WorkingDirectory=/root/easter-co-smp.github.io
 ExecStart=/root/e-server/.venv/bin/python scripts/sync.py
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=GIT_TERMINAL_PROMPT=0
+# The resolution and graphics caches are runtime state. Without this the exporter defaults
+# to ~/.local/state, which ProtectHome=read-only below makes unwritable, so the capture
+# failed on that write after rendering every tile. Keep it inside StateDirectory.
+Environment=EASTER_MANIFEST_STATE=/var/lib/easter-co-pages
 StateDirectory=easter-co-pages
 StateDirectoryMode=0700
 UMask=0022

@@ -2,6 +2,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -16,7 +17,8 @@ from scripts.export_world import (FABRIC_FALLBACK, GRAPHICS_COMPANIONS, GRAPHICS
                                   GRAPHICS_PACK_VERSION, GRAPHICS_PATH_PREFIX, GRAPHICS_PROJECT_ID,
                                   COMPANION_PATH_PREFIX, MANIFEST_KEYS,
                                   MODRINTH_CDN_HOST, PUBLIC_MARKER_KINDS, chunk_version,
-                                  declared_fabric, export_client, fetch_modrinth_versions,
+                                  declared_fabric, default_resolution_state, ensure_state_writable,
+                                  export_client, fetch_modrinth_versions,
                                   manifest_text, modrinth_resolver, packages, parse_graphics_release,
                                   parse_modrinth_files, public_marker, public_marker_kind,
                                   read_resolution_state, resolve_dependencies, resolved_pins, write_json,
@@ -1021,6 +1023,35 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(self.capture())
         self.assertEqual((self.repo / 'README.md').read_text(), 'Upstream design update')
         self.assertEqual(self.count(self.remote), 3)
+
+
+class ManifestStatePreflightTests(unittest.TestCase):
+    """The export must fail in its first second when its runtime cache cannot be written.
+
+    The failure this guards against was real: the systemd unit runs with
+    ProtectHome=read-only, so the default state path under $HOME could never be written,
+    and the daily capture died *after* rendering every tile. The probe writes rather than
+    checking permission bits, because the sandbox is invisible from outside it.
+    """
+
+    def test_the_configured_state_directory_is_used_and_left_clean(self):
+        with tempfile.TemporaryDirectory() as root, \
+                mock.patch.dict(os.environ, {'EASTER_MANIFEST_STATE': root}):
+            path = default_resolution_state()
+            self.assertEqual(path, Path(root) / 'modrinth.json')
+            self.assertEqual(ensure_state_writable(path), path)
+            self.assertTrue(path.parent.is_dir())
+            self.assertEqual(list(path.parent.iterdir()), [], 'the probe file must be removed')
+
+    def test_an_unwritable_state_directory_is_refused_with_a_named_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            blocker = Path(root) / 'not-a-directory'
+            blocker.write_text('x')
+            with self.assertRaises(RuntimeError) as caught:
+                ensure_state_writable(blocker / 'easter-co-pages' / 'modrinth.json')
+            message = str(caught.exception)
+            self.assertIn('is not writable', message)
+            self.assertIn('EASTER_MANIFEST_STATE', message)
 
 
 if __name__ == '__main__':
