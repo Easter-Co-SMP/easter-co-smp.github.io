@@ -254,8 +254,11 @@ function notify(patch={}){
  state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null};
  const install=installInfo(),actions=remainingActions();
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),game:gameState(),settings,shortcuts:shortcutState,launcherUpdate}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),minecraftHead:headState(),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),game:gameState(),settings,shortcuts:shortcutState,launcherUpdate}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
+ // A head this session has to ask Mojang for is asked for after the broadcast, never before
+ // it: the state the player sees is never held open for a face (doc/launcher-states.md).
+ ensureMinecraftHead();
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
 // sign-in action through `actions`, and the phase returns to the resting value.
@@ -307,24 +310,90 @@ function saveSession(){
  });
  return sessionWrite;
 }
+// One Minecraft skin, read from Mojang's own public endpoints. Nothing here needs a
+// credential: the profile answers for any uuid, and the texture it names is a public file.
+// Both reads are bounded, the body is capped at the skin's own 128 KB, and every failure is
+// "no skin" rather than an error, because a face is never a reason to fail at anything.
+const SKIN_TEXTURE_URL=/^https?:\/\/textures\.minecraft\.net\/texture\/[a-f0-9]+$/i,SKIN_MAX_BYTES=131072;
+async function skinTextureUrl(id){
+ try{
+  const response=await net.fetch('https://sessionserver.mojang.com/session/minecraft/profile/'+id,{signal:AbortSignal.timeout(5000)});
+  if(!response.ok)return null;
+  const data=await response.json(),property=data.properties?.find(p=>p.name==='textures');
+  if(!property||typeof property.value!=='string')return null;
+  return JSON.parse(Buffer.from(property.value,'base64').toString()).textures?.SKIN?.url||null;
+ }catch{return null;}
+}
+async function skinDataUrl(url){
+ if(!SKIN_TEXTURE_URL.test(url||''))return null;
+ try{
+  const response=await net.fetch(url.replace('http:','https:'),{signal:AbortSignal.timeout(5000)});
+  if(!response.ok)return null;
+  const reader=response.body.getReader(),chunks=[];let size=0;
+  while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>SKIN_MAX_BYTES){await reader.cancel();return null;}chunks.push(Buffer.from(value));}
+  const png=Buffer.concat(chunks);
+  return png.subarray(0,8).toString('hex')==='89504e470d0a1a0a'?'data:image/png;base64,'+png.toString('base64'):null;
+ }catch{return null;}
+}
 async function loadSkin(target){
  if(!target?.profile)return;
  try{
-  let url=target.profile.skinURL;
-  if(!url){
-   const response=await net.fetch('https://sessionserver.mojang.com/session/minecraft/profile/'+target.profile.id,{signal:AbortSignal.timeout(5000)});
-   if(!response.ok)return;
-   const data=await response.json(),property=data.properties?.find(p=>p.name==='textures');
-   url=JSON.parse(Buffer.from(property.value,'base64').toString()).textures?.SKIN?.url;
-  }
-  if(!/^https?:\/\/textures\.minecraft\.net\/texture\/[a-f0-9]+$/i.test(url||''))return;
-  const response=await net.fetch(url.replace('http:','https:'),{signal:AbortSignal.timeout(5000)});
-  if(!response.ok)return;
-  const reader=response.body.getReader(),chunks=[];let size=0;
-  while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>131072){await reader.cancel();return;}chunks.push(Buffer.from(value));}
-  const png=Buffer.concat(chunks);
-  if(png.subarray(0,8).toString('hex')==='89504e470d0a1a0a')target.profile.skin='data:image/png;base64,'+png.toString('base64');
+  const skin=await skinDataUrl(target.profile.skinURL||await skinTextureUrl(target.profile.id));
+  if(skin)target.profile.skin=skin;
  }catch{} // Skin service availability never blocks playing.
+}
+// ---- The head without a live Microsoft token -----------------------------
+// doc/launcher-states.md, "A password sign-in still knows the account is linked". A Company
+// sign-in with a username and password restores no Microsoft session, so `profile.skin` is
+// null, yet the account document already carries the Minecraft identity it is linked to. That
+// uuid answers on Mojang's own public endpoints with no credential, so the head is read here
+// and cached beside the account vaults: once per account, not once per render, and never when
+// the live session's own skin already answers for the same face.
+let minecraftHead=null,minecraftHeadUuid=null,headAttempt=null;
+const headTried=new Set(),HEAD_MAX_CHARS=200000;
+const headFile=()=>path.join(configRoot(),'minecraft-head.json');
+function accountHeadUuid(){
+ const uuid=company?.account?.minecraftUuid;
+ return typeof uuid==='string'&&uuid?uuid.toLowerCase():null;
+}
+// With a live Microsoft session the head comes through profile.skin, and one face has one
+// source, so nothing is read from the uuid then.
+function wantedHeadUuid(){
+ const account=company?.account;
+ if(!account||account.microsoftLinked!==true||microsoftConnected())return null;
+ return accountHeadUuid();
+}
+// The signed-in account's own head or nothing: a head cached for a different account is never
+// published, so a second player on this computer is never shown the first one's face.
+function headState(){const uuid=accountHeadUuid();return uuid&&minecraftHeadUuid===uuid?minecraftHead:null;}
+async function readCachedHead(){
+ try{
+  const stored=JSON.parse(await fs.readFile(headFile(),'utf8'));
+  if(stored&&typeof stored.uuid==='string'&&typeof stored.head==='string'&&stored.head.length<=HEAD_MAX_CHARS&&/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(stored.head)){
+   minecraftHead=stored.head;minecraftHeadUuid=stored.uuid.toLowerCase();
+  }
+ }catch{} // No cache, an unreadable cache and a damaged cache are all "nothing cached".
+}
+// One attempt per account per run, and it starts after a broadcast rather than before one: no
+// view waits for a face. A successful read is written beside the vaults so a restart asks
+// Mojang nothing; a failed read writes nothing, raises nothing and leaves the letter tile.
+function ensureMinecraftHead(){
+ const uuid=wantedHeadUuid();
+ if(!uuid||headAttempt||headTried.has(uuid))return;
+ if(minecraftHeadUuid===uuid&&minecraftHead)return;
+ headTried.add(uuid);
+ headAttempt=(async()=>{
+  try{
+   if(minecraftHeadUuid!==uuid)await readCachedHead();
+   if(minecraftHeadUuid!==uuid){minecraftHead=null;minecraftHeadUuid=null;}
+   if(minecraftHead)return;
+   const head=await skinDataUrl(await skinTextureUrl(uuid.replace(/-/g,'')));
+   if(!head)return;
+   minecraftHead=head;minecraftHeadUuid=uuid;
+   await atomicJSON(headFile(),{uuid,head});
+  }catch{} // A face never fails an account, a launch or a render.
+  finally{headAttempt=null;notify({});}
+ })();
 }
 // The Easter Company session uses the same vault discipline as the Microsoft one:
 // OS-backed safeStorage or nothing at all.
@@ -743,7 +812,7 @@ function registerIPC(){
   // Settings asks this whenever it opens, and the answer carries the two shortcut
   // entries as they are on this computer right now rather than as last saved.
   await refreshShortcuts();
-  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
+  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),minecraftHead:headState(),sessionExpiresAt:company?.expiresAt||null,settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
  });
  handle('sign-in',async(options={})=>{
   if(controller||accountWorking)throw Error('Account sign-in is already running.');
@@ -1148,6 +1217,10 @@ if(instance){
   // launch never waits on the account API. Sign-in and play re-issue it.
   company=storedSession(await vault.readEncrypted(companyFile(),vaultOptions()));
   if(company&&company.expiresAt<=Date.now())company=null;
+  // The head a password sign-in shows, read back from its cache before the first broadcast so
+  // a restart paints the face immediately, and any read that has to ask Mojang happens after
+  // it (doc/launcher-states.md, "A password sign-in still knows the account is linked").
+  await readCachedHead();
   await refreshClient();
   // Before the window exists, so the first launch a player sees is already configured
   // and no view can observe a half-seeded tree. A no-op for a tree that has already
