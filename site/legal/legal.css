@@ -102,10 +102,6 @@
 .desktop-mode .legal-page{padding-top:52px}
 .desktop-mode .legal-footer{padding-bottom:8px}
 
-@media(prefers-reduced-motion:no-preference){
-  .legal-body section{animation:none}
-}
-
 @media print{
   .site-header,.legal-skip,.legal-toc,.legal-footer{display:none}
   .legal-page{width:auto;padding:0}
