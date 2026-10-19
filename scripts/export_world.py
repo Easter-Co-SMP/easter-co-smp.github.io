@@ -5,6 +5,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import importlib
+import ipaddress
 import json
 import math
 import os
@@ -15,6 +16,7 @@ import sys
 import urllib.parse
 import urllib.request
 import zipfile
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 ZONE = ZoneInfo('America/New_York')
@@ -619,6 +621,68 @@ def deployment_metadata():
     return validate_deployment(json.loads((Path(__file__).resolve().parents[1] / 'deployment.json').read_text()))
 
 
+CANONICAL_CLIENT_MODS = Path('/opt/minecraft/client-mods')
+
+
+def require_local_snapshot_source():
+    """Never archive the retired local world as the migrated public deployment."""
+    host = deployment_metadata()['serverAddress'].split(':', 1)[0].lower()
+    try:
+        address = ipaddress.ip_address(host)
+        local = address.is_private or address.is_loopback or address.is_link_local
+    except ValueError:
+        local = host == 'localhost'
+    if not local:
+        raise RuntimeError('Map export refused: the production game deployment is remote, '
+                           'but this exporter only reads the retired local world. '
+                           'The published snapshot is preserved; a verified remote snapshot '
+                           'source is required before map captures resume.')
+
+
+class PublishedClientArtifacts:
+    """Canonical JARs plus reviewed public release pins, independent of e-server APIs.
+
+    Keeps export_client's small source interface so fixture publishers remain useful;
+    no startup log, player installation, token or server directory is consulted.
+    """
+    def __init__(self, mods_root=CANONICAL_CLIENT_MODS, published=None):
+        self.mods_root = Path(mods_root)
+        self.published = published if published is not None else json.loads(
+            (Path(__file__).resolve().parents[1] / 'site/data/client.json').read_text())
+        minecraft, fabric = self.published.get('minecraft'), self.published.get('fabric')
+        if (not isinstance(minecraft, str) or not re.fullmatch(r'\d[\w.+-]*', minecraft)
+                or not isinstance(fabric, str) or not re.fullmatch(r'\d+[.\w+-]*', fabric)):
+            raise RuntimeError('Published game release pins are missing or invalid')
+        self.fabric = fabric
+        self.facts = SimpleNamespace(stack=lambda: f'MC {minecraft} · Fabric {fabric} (published release)')
+
+    def _mods(self):
+        paths = sorted(self.mods_root.glob('*.jar'))
+        if not paths:
+            raise RuntimeError('The canonical client artifact directory contains no JARs')
+        previous = self.published.get('mod', {})
+        for source in paths:
+            with zipfile.ZipFile(source) as jar:
+                try:
+                    meta = json.loads(jar.read('fabric.mod.json'))
+                except KeyError:
+                    continue
+            if meta.get('id') != 'easter-navy':
+                continue
+            old, new = previous.get('version'), meta.get('version')
+            if old == new:
+                if previous.get('sha256') != hashlib.sha256(source.read_bytes()).hexdigest():
+                    raise RuntimeError('Canonical custom mod differs from the published release at the same version; refusing rollback')
+            elif old:
+                def version(value):
+                    if not isinstance(value, str) or not re.fullmatch(r'\d+[.]\d+[.]\d+', value):
+                        raise RuntimeError('Cannot compare custom mod release versions; review the published release before export')
+                    return tuple(map(int, value.split('.')))
+                if version(new) < version(old):
+                    raise RuntimeError('Canonical custom mod is older than the published release; refusing rollback')
+        return paths
+
+
 def export_client(destination, download_module, resolver=None, now=None, state_path=None,
                   graphics_resolver=None):
     """Publish the additive client manifest: the flat fields, plus the chunk list.
@@ -634,6 +698,8 @@ def export_client(destination, download_module, resolver=None, now=None, state_p
                 meta = json.loads(jar.read('fabric.mod.json'))
             except KeyError:
                 continue
+        if meta['id'] in mods:
+            raise RuntimeError('Duplicate canonical mod id: ' + meta['id'])
         mods[meta['id']] = (path, meta)
     custom, meta = mods['easter-navy']
     target = destination / 'downloads/easter-navy.jar'
@@ -653,6 +719,8 @@ def export_client(destination, download_module, resolver=None, now=None, state_p
         name, version = mods[ident][1]['name'], mods[ident][1]['version']
         mod_entries[ident] = {'name': name, 'version': version}
     pins = resolved_pins(Path(__file__).resolve().parents[1], {'minecraft': minecraft})
+    if getattr(download_module, 'fabric', pins['fabric']) != pins['fabric']:
+        raise RuntimeError('Published release and launcher disagree about the Fabric pin')
     if resolver is None:
         resolver = modrinth_resolver()
     files = resolve_dependencies(resolver, mod_entries, minecraft, resolution, now=now)
@@ -689,6 +757,7 @@ def export_client(destination, download_module, resolver=None, now=None, state_p
 
 def export_snapshot(destination, source_root=Path('/root/e-server'), now=None, previous_day=None):
     """Stage a complete export before touching the publishing checkout."""
+    require_local_snapshot_source()
     now = now or datetime.now(timezone.utc)
     destination = Path(destination)
     # Fail in the first second, not after every tile has been rendered.
@@ -697,7 +766,7 @@ def export_snapshot(destination, source_root=Path('/root/e-server'), now=None, p
     terrain = importlib.import_module('core.minecraft_map')
     entities = importlib.import_module('core.minecraft_map_data')
     zones = importlib.import_module('core.map_zones')
-    downloads = importlib.import_module('api.minecraft_download')
+    downloads = PublishedClientArtifacts()
     coverage = terrain.metadata()
     if not coverage['regions']:
         raise RuntimeError('No saved terrain; refusing to erase the published world')

@@ -297,3 +297,14 @@ the same source and writes the validated published object to the app-owned game
 in-game menu consumes that file. Play checks the manifest before waking the server,
 and refuses an authenticated game-control response naming a different endpoint.
 No player setting, legacy saved address or tailnet fallback chooses the target.
+
+The scheduled map exporter currently refuses public/remote deployments because its
+terrain reader still targets the retired local world. It preserves the current
+published snapshot until a verified remote snapshot source is implemented. Client
+publication uses canonical `/opt/minecraft/client-mods` artifacts and the reviewed
+published game pins through `PublishedClientArtifacts`; it no longer imports the
+removed e-server download API or derives releases from a local startup log.
+
+The native in-game menu reads the shared deployment address but has no Company
+session and cannot wake a sleeping EC2 instance itself. Start through the launcher
+for its authenticated wake/readiness flow; no account token is copied into the mod.

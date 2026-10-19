@@ -29,6 +29,8 @@ Validation includes launcher, publishing/privacy, browser and real Electron
 journeys with isolated accounts and game-service fixtures, plus the custom mod's
 Java harnesses and rendered UI review. These checks do not claim a fresh real-account
 Microsoft sign-in, native Windows gameplay or a full multiplayer playtest.
+Start through the launcher for authenticated server wake; the native in-game menu
+can connect to the configured host but cannot wake a sleeping host by itself.
 
 # Easter Company launcher 1.0.31
 
