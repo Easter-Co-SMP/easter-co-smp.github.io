@@ -30,11 +30,15 @@
  for(const selector of ['.hero-welcome','.home-below','.home-story','.home-notes'])document.querySelectorAll(selector).forEach(node=>node.remove());
 
  const TRANSFER=['downloading','paused','verifying','installing','updating'];
- // The signed-out action starts the Microsoft sign-in, which is where an account comes from.
- // It is called the same thing in the hero, in the sticky bar and in the chooser, and it is the
- // same verb the sentences about this action already use ("Sign in again.", "Sign in with
- // Microsoft or with your username."): one action, one name.
+ // The signed-out action asks for the Easter Company account, and the chooser behind it offers that
+ // account through Microsoft, Google, Steam or Discord (doc/launcher-states.md, *Provider account
+ // state*), so it names the account and never one provider: "Sign in" over "Easter Company account
+ // required". Naming Microsoft here would ask a Discord or Google player to do something their
+ // account does not do; Microsoft is named at the step where it genuinely is the requirement, the
+ // linked-account hero's "Sign in with Microsoft / Starts Minecraft as <name>". One action, one
+ // name, and both strings live here so the hero and the sticky bar cannot disagree.
  const LOGIN_ACTION='Sign in';
+ const LOGIN_NOTE='Easter Company account required';
  let companyAuth=null,companyProfileView=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
@@ -145,7 +149,7 @@
   // cannot answer. None of that is the player's Microsoft session dying, so this offers a retry
   // and never a Microsoft sign-in.
   if(sessionState==='busy')return {kind:'retry-minecraft',label:'Try again',note:'The account service is busy right now'};
-  if(state?.companyReady===false&&!state.account&&(install.installed||state.microsoftAccount))return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account required'};
+  if(state?.companyReady===false&&!state.account&&(install.installed||state.microsoftAccount))return {kind:'signin',label:LOGIN_ACTION,note:LOGIN_NOTE};
   if(state?.minecraftAccess==='missing')return {kind:'buy',label:'Buy Now',note:'Minecraft Java Edition required'};
   if(state?.minecraftAccess==='profile-required')return {kind:'setup-profile',label:'Set up Java profile',note:'Choose your Java player name'};
   if(state?.minecraftAccess==='unknown')return {kind:'check-access',label:'Retry account check',note:'Java access could not be confirmed'};
@@ -157,12 +161,12 @@
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Please wait'};
   if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
   // A download or install under way asks for the account while the player waits.
-  if(!account&&(transferring(state)||(!actions.includes('download')&&actions.includes('signin'))))return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account required'};
+  if(!account&&(transferring(state)||(!actions.includes('download')&&actions.includes('signin'))))return {kind:'signin',label:LOGIN_ACTION,note:LOGIN_NOTE};
   if(account&&transferring(state))return {kind:'busy',label:phase==='paused'?'Download paused':'Installing Minecraft…',note:'Follow progress below'};
   // Fresh install: nothing downloaded and no account requirement to show yet.
   if(actions.includes('download')||install.installed!==true)
    return {kind:'download',label:'Download the game',note:'Easter Company client'};
-  return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account required'};
+  return {kind:'signin',label:LOGIN_ACTION,note:LOGIN_NOTE};
  }
 
  const panel=document.createElement('dialog');panel.id='desktop-launcher';panel.setAttribute('aria-labelledby','desktop-title');
