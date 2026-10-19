@@ -24,7 +24,12 @@ try{
  await page.locator('[data-desktop-play][data-action=download]').click();await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();await app.evaluate(()=>global.easterTestApprove());await page.locator('[data-desktop-play][data-action=play]').waitFor();
  const state=await page.evaluate(()=>window.easterDesktop.status());
- assert.deepEqual(state.account,{id:'EC-7',username:'captaintestbeard',name:'Captain Testbeard',roles:['crew'],passwordRequired:false,microsoftLinked:true});
+ // The exact public shape of the account the renderer receives, and nothing else: no token,
+ // no Microsoft subject, no email. Provider sign-in (4341b90) added the three fields at the
+ // end of this object — the linked providers, which one signs the player in, and the picture
+ // data URI — and the account was deep-equal to the shorter object only until then. The
+ // promise is unchanged and still exact: these eight fields, no ninth.
+ assert.deepEqual(state.account,{id:'EC-7',username:'captaintestbeard',name:'Captain Testbeard',roles:['crew'],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],primaryProvider:'microsoft',picture:null});
  assert(state.canPlay&&state.microsoftConnected);
  const request=calls.find(call=>call.path==='/v2/accounts/microsoft');
  assert.equal(request.body.xboxUserToken,'fixture-xbox:1234567890abcdef1234567890abcdef');assert.equal(request.authorization,undefined);assert(!('minecraftAccessToken' in request.body));

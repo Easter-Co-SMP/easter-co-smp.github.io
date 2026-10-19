@@ -4,8 +4,11 @@
 ## Provider account state
 
 Account state adds public providers, primaryProvider and a PNG picture data URI or null.
-Provider subjects, tokens and email addresses remain out of broadcasts. accounts is an
-empty compatibility array; switchAccount is removed from the preload and IPC handlers.
+Provider subjects, tokens and email addresses remain out of broadcasts. The state carries no
+account list: `account` is the one signed-in Easter Company account, switchAccount is removed
+from the preload and IPC handlers, and signing in while signed in is refused until the player
+signs out. (Releases 1.0.23 to 1.0.31 still published an `accounts` array, empty in every
+state; the field is deleted, and no view ever read it.)
 Only the active Microsoft game credential is retained when migrating old vaults.
 The sign-in chooser offers Microsoft, Google, Steam and Discord, with unconfigured
 providers disabled. Product access is independent of Company sign-in.

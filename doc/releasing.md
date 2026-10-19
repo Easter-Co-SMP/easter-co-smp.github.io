@@ -18,6 +18,14 @@ name from `/releases/latest/download/`. The launcher job is
    -p 'test_*.py'` (use `/root/e-server/.venv/bin/python`), `python scripts/validate.py
    site`, `npm test`, `node tests/drawings.mjs`, `node tests/browser.mjs` against a local
    preview, `xvfb-run -a node tests/desktop/electron.mjs`,
+   `xvfb-run -a node tests/desktop/company.electron.mjs` (the Company identity journey
+   against the real account handler and PostgreSQL: signup with the username chosen before
+   the password, username sign-in, wrong-provider rejection, matching Microsoft reconnect
+   and a password reset that goes through a linked provider — this one needs the fixture
+   below, and fails without it), `xvfb-run -a node tests/desktop/accounts.electron.mjs`
+   (the account transport and vault: the exact public account shape the renderer receives,
+   the proof path, no credential in the renderer, the safeStorage rule and logout
+   revocation — it starts its own loopback stub and needs no fixture),
    `xvfb-run -a node tests/desktop/launcher-identity-conflict.electron.mjs` (the identity
    conflict through the real preload: the refusal code crosses the isolated world, the
    chooser comes back with the account service's sentence, and the signed-in account is
@@ -31,6 +39,60 @@ name from `/releases/latest/download/`. The launcher job is
    carries its own copy of `site/` inside `app.asar`, so the app is only current if it was
    built from the tree being released. `scripts/verify_app_bundle.py` enforces this in the
    workflow and fails the release naming each file that differs.
+
+## The fixture `company.electron.mjs` needs
+
+That journey signs a synthetic player up end to end, so it drives the **real** account
+handler and real SQL rather than a stub: `tests/launcher_api_fixture.py` in
+`/root/easter-co-cloud`, on loopback 18796, with the disposable PostgreSQL behind it. None
+of it touches AWS, and none of it is optional — without the fixture the journey fails
+early on an unreachable account service, and the failure reads like a launcher bug.
+
+Start it, from the cloud repository, before running the journey:
+
+    # 1. the disposable PostgreSQL the handler stores into, on 127.0.0.1:15439
+    #    (container identity-fixture-pg, image postgres:17, trust auth, loopback only)
+    docker start identity-fixture-pg
+    docker exec identity-fixture-pg pg_isready -U postgres   # "accepting connections"
+
+    # 2. the fixture API itself, on 127.0.0.1:18796
+    cd /root/easter-co-cloud
+    PYTHONPATH=/root/easter-co-cloud \
+      EASTER_API_FIXTURE_PORT=18796 \
+      .venv/bin/python tests/launcher_api_fixture.py
+
+    # 3. the journey, from this repository, with the fixture running
+    xvfb-run -a node tests/desktop/company.electron.mjs
+
+The three facts that make it work, and the details that bite:
+
+- **Ports.** 18796 is the fixture's API port (`EASTER_API_FIXTURE_PORT` overrides it), and
+  the journey is hard-wired to `EASTER_API_BASE_URL=http://127.0.0.1:18796`. 15439 is the
+  disposable PostgreSQL's port, and the fixture hard-codes it, not a variable.
+- **`PYTHONPATH` must be the cloud repository**, because the fixture imports `api.*` from
+  it. Run it with that repository's `.venv/bin/python`, which is where `pg8000` lives; a
+  bare `python` fails on the import before it opens a socket. `/root/e-server/.venv/bin/python`
+  is the interpreter for *this* repository's `tests/`, not for the fixture.
+- **The PostgreSQL on 15439 must be running** before the fixture starts: it connects as
+  `postgres` on `database=postgres` at import time and the process exits if it cannot.
+- Each fixture process creates its own database (`company_launcher_<pid>`), applies every
+  migration to it and drops it on exit. That is deliberate — a shared database makes the
+  second run fail on the previous run's account — so run one fixture at a time, and expect a
+  second one on the same port to fail to bind rather than to share.
+- The fixture keeps that database for the life of the process, which is why the journey
+  claims a fresh `fixture_<token>` username per run: re-running against a long-lived
+  fixture would otherwise be refused a name it already holds.
+- `EASTER_PROVIDER_FIXTURE=1` adds the Google/Steam/Discord provider stub and
+  `EASTER_FIXTURE_LOG=1` prints one line per request. Neither is needed for
+  `company.electron.mjs`; the first is what a journey that links a non-Microsoft provider
+  needs.
+
+The other Electron journeys need no fixture. `accounts.electron.mjs` starts its own
+loopback stub and reads the account shape from it; `electron.mjs`, `flow.electron.mjs`,
+`launcher-identity-conflict.electron.mjs` and `shortcuts.electron.mjs` use their own
+harnesses. The browser and drawings suites need only the static preview:
+
+    python -m http.server --directory site 18100
 
 ## Cutting it
 

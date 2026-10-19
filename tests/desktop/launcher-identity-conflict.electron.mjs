@@ -200,7 +200,13 @@ try{
  const afterConflict=await status();
  assert.equal(afterConflict.account.id,startingAccountId,'the signed-in Easter Company account is unchanged: '+afterConflict.account.id+' (was '+startingAccountId+')');
  assert.equal(afterConflict.account.username,USERNAME);
- assert.deepEqual(afterConflict.accounts,[],'and no second account appeared in the account list');
+ // This once read state.accounts and asserted it was empty: "no second account appeared in
+ // the account list". Provider sign-in (4341b90, launcher 1.0.23) removed that list with its
+ // switch-account handler and the menu that listed it, so there is nothing to inspect and no
+ // container in which a second account could be reported. The same fact is asserted against
+ // the contract that replaced it: the one account is state.account, unchanged above, and no
+ // account list is advertised at all.
+ assert.equal('accounts' in afterConflict,false,'the state carries no account list, so no second account can appear in one');
  // The dialog is the only thing that changed: the launcher underneath is still usable and
  // still on the same account.
  await page.keyboard.press('Escape');

@@ -1296,9 +1296,18 @@ try{
    assert.equal(await launcherPage.locator('[data-desktop-play]').isDisabled(),true,'and no second Play during the cold start');
    assert.equal(await launcherPage.locator('.desktop-access').isVisible(),false,'a starting server is still not an account problem');
    // The service's own detail reads below the launcher's sentence rather than replacing it.
+   // Since 1.0.31 (bd482b4) a cold start is one sentence: the hero's wait line carries the
+   // launcher's message with the service's detail beside it, and the game's own status line
+   // steps aside rather than saying it twice while the wake runs (that suppression is
+   // asserted by tests/waits-browser.mjs). The detail used to be read off
+   // .desktop-game-detail, which is the surface for a server that is not waking; it is read
+   // where the player now reads it. What has not changed is the promise: the detail sits
+   // below the launcher's sentence and there is exactly one place to read it.
    await pushState({game:{...offline,state:'starting',waking:true,detail:'Waking the world.',message:'Starting your server… the first player in a session waits about a minute.'}});
-   await launcherPage.locator('.desktop-game-detail').filter({hasText:'Waking the world.'}).waitFor();
-   assert((await gameLine.innerText()).includes('Starting your server'),'the launcher sentence is still the first thing read');
+   const coldStartLine=launcherPage.locator('.desktop-activity');
+   await coldStartLine.filter({hasText:'Waking the world.'}).waitFor();
+   assert((await coldStartLine.innerText()).includes('Starting your server'),'the launcher sentence is still the first thing read');
+   assert.equal(await launcherPage.locator('.desktop-game-status').isVisible(),false,'and the game line does not repeat it beside the one cold-start sentence');
    // A wake that timed out is an ordinary failure on the one page notice, and Play is the retry.
    await pushState({phase:'ready',canPlay:true,game:{...offline,waking:false},error:'Your server did not become joinable within three minutes. Press Play to try it again.'});
    await launcherPage.locator('.desktop-page-notice').filter({hasText:'did not become joinable'}).waitFor();

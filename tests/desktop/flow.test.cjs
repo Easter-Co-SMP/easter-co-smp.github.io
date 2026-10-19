@@ -517,7 +517,13 @@ test('the window steps aside with a tray or a way back, and returns when the gam
  // broadcast carries no server choice beside it.
  assert.match(source,/game:gameState\(\),settings,shortcuts:shortcutState,launcherUpdate/,'the state broadcast publishes settings, the game server and the two shortcut entries');
  assert.equal(/servers:/.test(source),false,'and no server list');
- assert.match(source,/accounts:\[\],settings,totalMemoryMB/,'and so does the status the dialog reads on open');
+ // This line pinned the literal `accounts:[],settings,totalMemoryMB` in the status answer
+ // until the account list was deleted from the state contract (doc/launcher-states.md,
+ // "Provider account state"); what it was here for is that the status the Settings dialog
+ // reads on open carries the settings and the memory total. The absent account list is
+ // asserted rather than required, so the vestige cannot come back through this line.
+ assert.match(source,/sessionExpiresAt:company\?\.expiresAt\|\|null,settings,totalMemoryMB/,'and so does the status the dialog reads on open');
+ assert.equal(/accounts:\[\]/.test(source),false,'and it publishes no account list, only the one signed-in account');
  // No new privileged surface: the preferences ride on the existing settings channel.
  const preload=await fs.readFile(path.join(__dirname,'../../desktop/preload.cjs'),'utf8');
  assert.match(preload,/saveSettings:invoke\('settings'\)/);

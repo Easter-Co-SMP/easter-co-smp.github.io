@@ -246,7 +246,11 @@ function notify(patch={}){
  if(!('error' in patch))patch={...patch,error:null};
  if('progress' in patch)progress=patch.progress;
  if(typeof patch.phase==='string')phase=patch.phase;
- state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:[]};
+ // No account list. Provider sign-in refuses to replace an active account ("Sign out before
+ // signing in to a different account"), switch-account is gone from the preload and the IPC
+ // surface, and the one signed-in account is already `account`, so a list here could only
+ // repeat state.account to a UI that has nothing to do with a second entry.
+ state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null};
  const install=installInfo(),actions=remainingActions();
  const paused=Boolean(control&&control.paused&&!control.cancelled);
  state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),game:gameState(),settings,shortcuts:shortcutState,launcherUpdate}};
@@ -288,7 +292,9 @@ async function seedClientDisplay(){
 function secureStorageAvailable(){return safeStorage.isEncryptionAvailable()&&(process.platform!=='linux'||safeStorage.getSelectedStorageBackend()!=='basic_text');}
 const vaultOptions=()=>({safeStorage,platform:process.platform});
 function saveSession(){
- if(session){savedAccounts=savedAccounts.filter(entry=>identity.id(entry)!==identity.id(session)&&!(session.microsoftId&&entry.microsoftId===session.microsoftId)&&!(session.xuid&&session.xuid!=='0'&&entry.xuid===session.xuid)&&!(session.profile&&entry.profile?.id===session.profile.id));savedAccounts.push(session);}
+ // One saved Microsoft session, not a list: the multi-account store was removed with
+ // provider sign-in (only the active credential survives a migration), so the vault keeps
+ // the array shape old vaults were written in while holding at most this one entry.
  savedAccounts=session?[session]:[];
  const payload={active:identity.id(session),accounts:[...savedAccounts]};
  // Skin loading and sign-in can finish together. Serialize atomic vault writes.
@@ -736,7 +742,7 @@ function registerIPC(){
   // Settings asks this whenever it opens, and the answer carries the two shortcut
   // entries as they are on this computer right now rather than as last saved.
   await refreshShortcuts();
-  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:[],settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
+  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
  });
  handle('sign-in',async(options={})=>{
   if(controller||accountWorking)throw Error('Account sign-in is already running.');
