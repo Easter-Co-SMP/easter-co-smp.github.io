@@ -794,8 +794,14 @@ try{
    await pushState({account:{id:'EC-7',username:'captain_owen',name:'Captain Owen',roles:['crew'],passwordRequired:false,microsoftLinked:true},companyReady:true,microsoftConnected:true});
    await launcherPage.locator('.desktop-account-nav').click();
    const profileMenu=launcherPage.locator('.desktop-profile-menu');
+   // Owen's report of 2026-10-19: the header showed the username where the display name
+   // belongs. The name he is called leads in both places, and the username is kept as the
+   // sign-in identifier rather than as the label.
+   assert.equal((await launcherPage.locator('.desktop-account-nav').innerText()).trim(),'Captain Owen','the header shows the display name, not the username');
    const headed=await profileMenu.locator('.desktop-account').textContent();
-   assert(headed.startsWith('captain_owen'),'the Easter Company username leads the menu: '+headed);
+   assert(headed.startsWith('Captain Owen'),'the display name leads the account menu: '+headed);
+   assert(headed.includes('captain_owen'),'and the username is kept as the sign-in line: '+headed);
+   assert(!headed.startsWith('captain_owen'),'but never in the leading position: '+headed);
    assert(!headed.includes('EC-'),'and no Company ID is shown to the player');
    assert((await profileMenu.locator('.desktop-company').textContent()).includes('Microsoft / Xbox linked'),'Microsoft is shown as a linked provider');
    assert.equal(await profileMenu.getByRole('button',{name:'Sign out of Easter Company',exact:true}).count(),0,'one primary Logout action');
@@ -1296,18 +1302,16 @@ try{
    assert.equal(await launcherPage.locator('[data-desktop-play]').isDisabled(),true,'and no second Play during the cold start');
    assert.equal(await launcherPage.locator('.desktop-access').isVisible(),false,'a starting server is still not an account problem');
    // The service's own detail reads below the launcher's sentence rather than replacing it.
-   // Since 1.0.31 (bd482b4) a cold start is one sentence: the hero's wait line carries the
-   // launcher's message with the service's detail beside it, and the game's own status line
-   // steps aside rather than saying it twice while the wake runs (that suppression is
-   // asserted by tests/waits-browser.mjs). The detail used to be read off
-   // .desktop-game-detail, which is the surface for a server that is not waking; it is read
-   // where the player now reads it. What has not changed is the promise: the detail sits
-   // below the launcher's sentence and there is exactly one place to read it.
+   // Since the quiet-feedback pass both are carried by the one wait line the cold start owns
+   // (site/wait-feedback.mjs); the separate game-status block stands down while it is up, so
+   // the sentence pair is read from the line that is actually on screen.
    await pushState({game:{...offline,state:'starting',waking:true,detail:'Waking the world.',message:'Starting your server… the first player in a session waits about a minute.'}});
    const coldStartLine=launcherPage.locator('.desktop-activity');
    await coldStartLine.filter({hasText:'Waking the world.'}).waitFor();
-   assert((await coldStartLine.innerText()).includes('Starting your server'),'the launcher sentence is still the first thing read');
-   assert.equal(await launcherPage.locator('.desktop-game-status').isVisible(),false,'and the game line does not repeat it beside the one cold-start sentence');
+   const coldStartText=await coldStartLine.innerText();
+   assert(coldStartText.includes('Starting your server'),'the launcher sentence is still the first thing read: '+coldStartText);
+   assert(coldStartText.indexOf('Starting your server')<coldStartText.indexOf('Waking the world.'),'and the service\'s detail reads below it: '+coldStartText);
+   assert.equal(await gameLine.isVisible(),false,'the cold start has one line, not two');
    // A wake that timed out is an ordinary failure on the one page notice, and Play is the retry.
    await pushState({phase:'ready',canPlay:true,game:{...offline,waking:false},error:'Your server did not become joinable within three minutes. Press Play to try it again.'});
    await launcherPage.locator('.desktop-page-notice').filter({hasText:'did not become joinable'}).waitFor();

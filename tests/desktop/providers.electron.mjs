@@ -49,7 +49,9 @@ try{
  await profile.getByRole('button',{name:'Close profile',exact:true}).click();
  // Restart the actual process with the synthetic encrypted vault and restore the session.
  await app.close();app=await launch();page=await app.firstWindow();page.setDefaultTimeout(18000);
- await page.keyboard.press('Escape');await page.locator('.desktop-account-nav').filter({hasText:name}).waitFor();
+ // The header shows the name the player chose for themselves, which this account set to
+ // "Independent fixture profile" above; the username stays the sign-in identifier.
+ await page.keyboard.press('Escape');await page.locator('.desktop-account-nav').filter({hasText:'Independent fixture profile'}).waitFor();
  state=await page.evaluate(()=>window.easterDesktop.status());assert.equal(state.account.username,name);
  assert.deepEqual(state.account.providers,['discord','google']);
  await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Logout',exact:true}).click();
@@ -57,8 +59,13 @@ try{
  await page.locator('#desktop-company-signin').getByLabel('Username or Email',{exact:true}).fill(name);
  await page.locator('#desktop-company-signin').getByLabel('Password',{exact:true}).fill('provider fixture passphrase');
  await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in',exact:true}).click();
- await page.locator('.desktop-account-nav').filter({hasText:name}).waitFor();
+ await page.locator('.desktop-account-nav').filter({hasText:'Independent fixture profile'}).waitFor();
  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).account.username,name);
+ // The account view keeps the username as the secondary sign-in line, so signing in with it
+ // still shows which handle the player typed.
+ await page.locator('.desktop-account-nav').click();
+ assert.equal(await page.locator('.desktop-profile-heading.desktop-account .desktop-account-signin').innerText(),'Signs in as '+name,'the account view names the username as the sign-in identifier');
+ await page.keyboard.press('Escape');
  // Recover through an already linked non-Microsoft provider.
  await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Logout',exact:true}).click();
  await page.locator('.desktop-account-nav').click();

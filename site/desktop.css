@@ -107,6 +107,13 @@
 #desktop-signin [data-cancel]{font-size:12px}
 .desktop-profile-menu{position:fixed;inset:auto;margin:0;width:min(280px,calc(100vw - 24px));max-height:calc(100dvh - 90px);overflow:auto;padding:8px;border:1px solid #ffffff30;border-radius:9px;background:var(--app-panel);color:#e5e9df;box-shadow:0 12px 32px #0005}
 .desktop-profile-heading{padding:10px 12px;margin:0;font-size:11px;line-height:1.5;color:var(--app-muted);overflow-wrap:anywhere}
+/* The account view leads with the name the player is called and keeps the username as a
+   second, smaller sign-in line underneath it. Both wrap rather than overflow, because a
+   display name is the player's own text and may be up to 64 characters. */
+.desktop-profile-heading.desktop-account{display:grid;gap:2px;padding-bottom:12px}
+.desktop-account-name{font:600 14px/1.35 Inter,system-ui,sans-serif;color:#e5e9df;overflow-wrap:anywhere}
+.desktop-account-name[hidden],.desktop-account-signin[hidden]{display:none}
+.desktop-account-signin{font-size:11px;line-height:1.5;color:var(--app-muted);overflow-wrap:anywhere}
 .desktop-profile-menu button{display:block;width:100%;text-align:left;padding:11px 12px;border:0;border-radius:5px;background:transparent;color:inherit;font-size:12px;cursor:pointer}
 .desktop-profile-menu button:hover,.desktop-profile-menu button:focus-visible{background:#ffffff0a}
 .desktop-account-list{border-top:1px solid var(--app-border);margin-top:6px;padding-top:6px;font-size:12px}
