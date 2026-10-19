@@ -929,3 +929,37 @@ test('the display defaults are written alongside the graphics step, not instead 
   assert.match(await fs.readFile(path.join(tree.root,'config','iris.properties'),'utf8'),/^enableShaders:true$/m);
  }finally{await server.close();await tree.cleanup();}
 });
+
+
+test('a changed chunk retires obsolete managed files only after verified replacements arrive',async()=>{
+ const oldJar=Buffer.from('old-mod'),newJar=Buffer.from('new-mod');
+ const server=await fileServer({'/files/current.jar':Buffer.from('bad-payload')});
+ const tree=await installedTree({extraFiles:['mods/legacy.jar','mods/player-added.jar','resourcepacks/shared.zip']});
+ const oldBase={id:'base',version:'old',immutable:true,verified:true,files:['mods/legacy.jar','resourcepacks/shared.zip']};
+ const shared={id:'visuals',version:'shared',immutable:true,verified:true,files:['resourcepacks/shared.zip']};
+ const record=tree.record();record.chunks={base:oldBase,visuals:shared};
+ record.files=[...oldBase.files,'mods/player-added.jar'];
+ await fs.writeFile(path.join(tree.root,'installed.json'),JSON.stringify(record));
+ await fs.writeFile(path.join(tree.root,'mods/legacy.jar'),oldJar);
+ const base={id:'base',name:'New base',optional:false,immutable:true,version:'new',files:[entry(server.origin+'/files/current.jar','mods/current.jar',newJar)]};
+ // A second chunk still owns this file even though the new base no longer lists it.
+ const visuals={id:'visuals',name:'Shared visuals',optional:false,immutable:true,version:'shared',files:[entry(server.origin+'/unused','resourcepacks/shared.zip',Buffer.from('shared'))]};
+ const published=chunkFixture({base});published.chunks.push(visuals);
+ try{
+  await assert.rejects(installClient({root:tree.root,published,origin:server.origin}),/checksum/);
+  assert.deepEqual(await fs.readFile(path.join(tree.root,'mods/legacy.jar')),oldJar,'failed replacement keeps the old managed mod');
+  assert.deepEqual(tree.record(),record,'failed replacement keeps the installed record');
+  // Publish the correct verified replacement at the same URL.
+  await server.close();
+  const good=await fileServer({'/files/current.jar':newJar});
+  try{
+   base.files[0].url=good.origin+'/files/current.jar';
+   await installClient({root:tree.root,published,origin:good.origin});
+   await assert.rejects(fs.stat(path.join(tree.root,'mods/legacy.jar')),{code:'ENOENT'});
+   assert.deepEqual(await fs.readFile(path.join(tree.root,'mods/current.jar')),newJar);
+   assert.equal((await fs.stat(path.join(tree.root,'mods/player-added.jar'))).isFile(),true,'unmanaged files survive');
+   assert.equal((await fs.stat(path.join(tree.root,'resourcepacks/shared.zip'))).isFile(),true,'files used by another chunk survive');
+   assert(!tree.record().files.includes('mods/legacy.jar'));
+  }finally{await good.close();}
+ }finally{await server.close();await tree.cleanup();}
+});

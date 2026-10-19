@@ -88,8 +88,10 @@ class Cancelled extends Error{constructor(){super('The download was cancelled.')
 // of downloading the file again.
 class TransferControl{
  constructor({onChange=()=>{}}={}){
-  this.paused=false;this.cancelled=false;this.waiting=[];this.task=null;this.onChange=onChange;
+  this.paused=false;this.cancelled=false;this.waiting=[];this.task=null;this.onChange=onChange;this.listeners=new Set();
  }
+ subscribe(listener){this.listeners.add(listener);return ()=>this.listeners.delete(listener);}
+ changed(){for(const listener of this.listeners)listener();this.onChange();}
  get active(){return !this.cancelled;}
  get resumable(){return this.paused&&!this.cancelled;}
  setTask(task){
@@ -101,7 +103,7 @@ class TransferControl{
   if(this.cancelled||this.paused)return false;
   this.paused=true;
   const task=this.task;if(task)Promise.resolve(task.pause?.()).catch(()=>{});
-  this.onChange();
+  this.changed();
   return true;
  }
  resume(){
@@ -109,7 +111,7 @@ class TransferControl{
   this.paused=false;
   const task=this.task;if(task)Promise.resolve(task.resume?.()).catch(()=>{});
   for(const release of this.waiting.splice(0))release();
-  this.onChange();
+  this.changed();
   return true;
  }
  cancel(){
@@ -117,7 +119,7 @@ class TransferControl{
   this.cancelled=true;this.paused=false;
   const task=this.task;if(task)Promise.resolve(task.cancel?.()).catch(()=>{});
   for(const release of this.waiting.splice(0))release();
-  this.onChange();
+  this.changed();
   return true;
  }
  async gate(){
@@ -202,12 +204,20 @@ async function downloadVerified(url,file,hash,algorithm='sha256',options={}){
  const report=()=>{if(onProgress&&meter)onProgress(meter.snapshot());};
  // A stalled transfer is still bounded, but time spent parked does not count.
  const arm=()=>{clearTimeout(idle);idle=setTimeout(()=>abort.abort(Object.assign(Error('The download stopped responding.'),{name:'TimeoutError'})),idleTimeoutMs);};
+ // Control changes must also interrupt a blocked fetch/read. A parked transfer has
+ // no idle deadline; resuming starts a fresh window and cancelling aborts immediately.
+ const unsubscribe=control?.subscribe(()=>{
+  if(control.cancelled)abort.abort(new Cancelled());
+  else if(control.paused){clearTimeout(idle);idle=null;}
+  else arm();
+ });
  try{
   // Seed the digest from the bytes already on disk, so the finished file is still
   // verified as a whole rather than trusting the prefix.
   if(prefix)for await(const chunk of require('node:fs').createReadStream(part))digest.update(chunk);
   await fs.writeFile(state,JSON.stringify({url,hash,algorithm}),{mode:0o600});
   await control?.gate();
+  arm();
   const response=await fetch(url,{signal:abort.signal,headers:prefix?{Range:'bytes='+prefix+'-'}:{}});
   if(prefix&&response.status===200){
    // The source ignored the range: start this attempt over rather than append to
@@ -237,6 +247,7 @@ async function downloadVerified(url,file,hash,algorithm='sha256',options={}){
     }
     const {done,value}=await reader.read();
     if(done)break;
+    arm();
     received+=value.length;
     if(position+received>MAX_DOWNLOAD)throw Error('Download exceeds its size limit.');
     digest.update(value);
@@ -260,6 +271,7 @@ async function downloadVerified(url,file,hash,algorithm='sha256',options={}){
   await fs.rm(state,{force:true});
   return true;
  }finally{
+  unsubscribe?.();
   clearTimeout(idle);
   try{await handle.close();}catch{}
   if(!complete)abort.abort();
@@ -689,6 +701,14 @@ async function installChunked({root,client,chunks,record,settings,notify,control
   if(chunk.id==='graphics'){graphicsMessageOut=chunk.name+' installed.';graphicsInstalled=true;}
  }
  const files=[...new Set(Object.values(records).flatMap(chunk=>chunk.files||[]))];
+ // A renamed or removed managed mod must not survive alongside its replacement.
+ // Retire files only from the chunks this run successfully installed, after every
+ // replacement passed verification, and preserve files another recorded chunk uses.
+ // Never sweep mods/: files the player added are not ours to remove.
+ const retired=new Set(installing.flatMap(chunk=>record?.chunks?.[chunk.id]?.files||[]));
+ for(const relative of retired){
+  if(!files.includes(relative))await fs.rm(chunkFileTarget(root,relative),{force:true});
+ }
  const updatedAt=new Date().toISOString();
  const quality=(includeGraphics||(!record?.quality&&hardware?.tunable))?await applyQuality(root,hardware,notify,{shaders:includeGraphics&&Boolean(graphicsChunk)&&deriveQuality(hardware).shaders}):{quality:null,tuned:null,message:null};
  await seedDisplayDefaults(root,notify,guiScale);
