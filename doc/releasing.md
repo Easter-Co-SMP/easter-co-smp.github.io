@@ -51,7 +51,15 @@ name from `/releases/latest/download/`. The launcher job is
    and shows the current stage, and a long wait shows the ten-second reassurance. It needs
    its own fixture instance on 18798 — `EASTER_API_FIXTURE_PORT=18798`, same procedure as
    below — because it holds the account call open for thirteen seconds through a proxy of
-   its own; without one it fails early on an unreachable account service).
+   its own; without one it fails early on an unreachable account service), and
+   `xvfb-run -a node tests/desktop/providers.electron.mjs` (provider linking end to end
+   against the real account handler: Discord signup, the mandatory username and password,
+   Google linking, display-name and picture editing, the encrypted fixture restart,
+   password login and Discord password recovery. It needs its own fixture instance on 18797
+   started WITH `EASTER_PROVIDER_FIXTURE=1`, which is the only thing that serves the
+   provider stub; the exact commands are under "The provider journey needs its own
+   fixture" below. Until 2026-10-19 this journey was absent from this list and could not be
+   run from this document at all, which is how provider linking shipped unexercised).
 3. The version in `package.json` is higher than the published one. The tag is derived
    from it, so forgetting this step produces a release that cannot be created.
 4. Nothing is being shipped that the app bundles but does not fetch. The packaged app
@@ -107,6 +115,48 @@ The three facts that make it work, and the details that bite:
   `EASTER_FIXTURE_LOG=1` prints one line per request. Neither is needed for
   `company.electron.mjs`; the first is what a journey that links a non-Microsoft provider
   needs.
+
+### The provider journey needs its own fixture
+
+`providers.electron.mjs` is the one journey that needs `EASTER_PROVIDER_FIXTURE=1`, and it
+needs it on **18797**, not 18796. Run it like this, from a clean start:
+
+    docker start identity-fixture-pg
+    docker exec identity-fixture-pg pg_isready -U postgres   # "accepting connections"
+
+    cd /root/easter-co-cloud
+    PYTHONPATH=/root/easter-co-cloud \
+      EASTER_API_FIXTURE_PORT=18797 \
+      EASTER_PROVIDER_FIXTURE=1 \
+      .venv/bin/python tests/launcher_api_fixture.py
+
+    # in this repository, with the fixture running
+    xvfb-run -a node tests/desktop/providers.electron.mjs
+
+Add `EASTER_FIXTURE_LOG=1` to the fixture for one line per request; that is how a request
+sequence gets settled when a journey fails.
+
+Two ways this bites, both measured on 2026-10-19:
+
+- **Run it alone.** This journey fails when other Electron or xvfb suites are running at
+  the same time. One run failed while three other agents were starting worktrees and
+  browser suites, and the two runs immediately afterwards passed alone — a fresh fixture
+  plus an immediate run also passed. A failure here while anything else is using Chromium
+  or Xvfb is contention, not a product fault; re-run it by itself before diagnosing.
+- **The port matters.** Start the fixture on the default 18796 and the journey fails at its
+  first click against nothing, which reads exactly like a launcher bug. 18796 is
+  `company.electron.mjs`'s port, and the two cannot share one because each fixture process
+  makes and drops its own database.
+- **The sign-in limiter is durable and shared.** `easter.auth_limits`, key
+  `ip:fixture-electron`, allows 60 account requests per 10 minutes and guards
+  `/v2/accounts/microsoft`, `/v2/accounts/password/login` and `/v2/accounts/password`. One
+  run of `company.electron.mjs` spends about six of those, so repeated runs inside ten
+  minutes end in a correct `429` and a launcher sentence that looks like a product failure.
+  The mint budget is separate and smaller per account (30 per 10 minutes), and a 1.0.33
+  launcher spends one per password sign-in, one per Microsoft sign-in and one per Play
+  press. Because each fixture process creates its own database and drops it on exit, the
+  limiter resets when you restart the fixture — so a journey that starts failing after a
+  few green runs is asking you to restart the fixture, not to debug the launcher.
 
 The other Electron journeys need no fixture. `accounts.electron.mjs` starts its own
 loopback stub and reads the account shape from it; `electron.mjs`, `flow.electron.mjs`,
