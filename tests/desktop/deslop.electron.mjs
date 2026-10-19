@@ -56,9 +56,13 @@ try{
  await page.keyboard.press('Escape');
  assert.equal((await status()).canPlay,true);
  // The header names the one signed-in account and paints its avatar. This account has no
- // picture, so what is painted is the account's own initial over the placeholder colour --
- // the point is that the box is never empty and never carries another account's face.
- await page.waitForFunction(()=>{const canvas=document.querySelector('.desktop-account-nav canvas');if(!canvas)return false;const [r,g,b,a]=canvas.getContext('2d').getImageData(2,2,1,1).data;return a===255&&r===83&&g===107&&b===102;},null,{timeout:15000});
+ // uploaded picture but does have a Minecraft skin, so what is painted is its own character's
+ // head, drawn from the skin the launcher already holds (1.0.31, Owen's easter egg). The
+ // fixture skin's face is rgb(200,130,90) and its hat layer is transparent, so that colour at
+ // the centre of the 32px canvas is the head and not the letter tile. The full precedence -
+ // picture, then head, then the initial as the last resort, and the tile only when there is
+ // neither - is asserted pixel by pixel in tests/identity-browser.mjs.
+ await page.waitForFunction(()=>{const canvas=document.querySelector('.desktop-account-nav canvas');if(!canvas)return false;const [r,g,b,a]=canvas.getContext('2d').getImageData(2,2,1,1).data;return a===255&&r===200&&g===130&&b===90;},null,{timeout:15000});
  let state=await status();
  assert.equal(state.account.username,'captain1','the header names the account that is signed in');
  assert.equal(state.account.picture,null,'this account has no picture, so the header paints its initial');
