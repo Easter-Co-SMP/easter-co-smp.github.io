@@ -169,8 +169,10 @@ test('the renderer only ever sees a name, a username and roles',async()=>{
  assert.equal(signed.token,SESSION);
  assert.equal(signed.expiresAt,Date.parse('2026-02-01T00:00:00Z'));
  // The username is the identity the player sees; the Company ID rides along only as the
- // opaque handle the account menu switches on, and an email never leaves the server.
- assert.deepEqual(publicAccount(signed),{id:'EC-42',username:'testcaptain',name:'Captain Testbeard',roles:['crew'],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],primaryProvider:'microsoft',picture:null});
+ // opaque handle the account menu switches on, and an email never leaves the server. The
+ // Minecraft name and each linked provider's own details are published for the profile
+ // dialog; the tests for what may appear there are in provider-details.test.cjs.
+ assert.deepEqual(publicAccount(signed),{id:'EC-42',username:'testcaptain',name:'Captain Testbeard',minecraftName:'TestCaptain',roles:['crew'],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],primaryProvider:'microsoft',providerDetails:null,picture:null});
  // A response that nests the session wrongly must be refused, not stored empty.
  assert.throws(()=>companySession({created:true,account:ACCOUNT,token:SESSION,expiresAt:1}),(error)=>error.code==='invalid_response');
  assert.throws(()=>companySession({created:true,account:ACCOUNT,session:{token:'',expiresAt:1}}),(error)=>error.code==='invalid_response');

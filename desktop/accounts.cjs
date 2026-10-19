@@ -56,6 +56,40 @@ function serverMessage(status,body){
  if(status===401)return new AccountError('invalid_session',MESSAGES.invalid_session);
  return new AccountError('service_'+(status||'error'),FALLBACK);
 }
+// The fields a linked provider may describe itself with, and nothing else. Microsoft is listed
+// with its gamertag only: the Minecraft name the row shows is the account's own
+// `minecraftName`, which is already validated here and already names the account, so the copy
+// the cloud may carry inside providerDetails is never read - one source, or the two can
+// disagree and the row prints whichever arrived last.
+const PROVIDER_DETAIL_FIELDS={microsoft:['gamertag'],google:['email'],steam:['persona'],discord:['username','displayName']};
+const PROVIDER_DETAIL_MAX=64;
+// Control and bidi-override characters are dropped rather than trimmed: a gamertag is one
+// visible word, and a value that could reorder the text around it is not a gamertag.
+const PROVIDER_DETAIL_INVISIBLE=/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g;
+function providerDetailString(value){
+ if(typeof value!=='string')return null;
+ const text=value.replace(PROVIDER_DETAIL_INVISIBLE,'').trim();
+ return text?text.slice(0,PROVIDER_DETAIL_MAX):null;
+}
+// A payload this launcher cannot read is "no details", never an error: the dialog then draws
+// what it drew before providerDetails existed. Everything kept is rebuilt from the whitelist
+// above, so an unknown key, a number, an object or a provider that is not linked never reaches
+// state.
+function sanitizeProviderDetails(value,providers){
+ if(!value||typeof value!=='object'||Array.isArray(value))return null;
+ const details={};
+ for(const [provider,fields] of Object.entries(PROVIDER_DETAIL_FIELDS)){
+  if(!providers.includes(provider))continue;
+  const entry=value[provider];
+  if(!entry||typeof entry!=='object'||Array.isArray(entry))continue;
+  const detail={};
+  for(const field of fields)detail[field]=field==='email'?sanitizeEmail(entry.email):providerDetailString(entry[field]);
+  // A provider whose values are all unknown adds nothing: it is left out, so providerDetails
+  // itself is null until some linked provider actually has something to show.
+  if(Object.values(detail).some(Boolean))details[provider]=detail;
+ }
+ return Object.keys(details).length?details:null;
+}
 function sanitizeAccount(account){
  if(!account||typeof account!=='object'||Array.isArray(account))throw new AccountError('invalid_response',FALLBACK);
  const id=Number(account.id),minecraftName=String(account.minecraftName||''),uuid=String(account.minecraftUuid||'');
@@ -77,15 +111,27 @@ function sanitizeAccount(account){
  const providers=Array.isArray(account.providers)?account.providers.filter(p=>['microsoft','google','steam','discord'].includes(p)):account.microsoftLinked?['microsoft']:[];
  const primaryProvider=providers.includes(account.primaryProvider)?account.primaryProvider:providers[0]||null;
  const picture=typeof account.picture==='string'&&account.picture.length<=360000&&(account.picture.startsWith('data:image/png;base64,')||/^https:\/\//.test(account.picture))?account.picture:null;
- return {providers,primaryProvider,picture,id,companyId:'EC-'+id,username,passwordRequired,minecraftUuid:uuid?uuid.toLowerCase():null,minecraftName:minecraftName||null,displayName,roles,createdAt,microsoftLinked:account.microsoftLinked===true,microsoftSubject};
+ // What each linked provider holds. These are the first values in the launcher that came from
+ // Microsoft, Steam and Discord, so the payload's own shape is rebuilt field by field below and
+ // nothing else is kept. A provider that is not linked on this account carries no details at
+ // all, whatever the payload says; a malformed object is no details, never a refusal.
+ const providerDetails=sanitizeProviderDetails(account.providerDetails,providers);
+ return {providers,primaryProvider,providerDetails,picture,id,companyId:'EC-'+id,username,passwordRequired,minecraftUuid:uuid?uuid.toLowerCase():null,minecraftName:minecraftName||null,displayName,roles,createdAt,microsoftLinked:account.microsoftLinked===true,microsoftSubject};
 }
 // The renderer needs a name to show, nothing more. No UUID, no token, and the Company
 // ID travels only as the opaque account handle the account menu switches on: it is
-// never a label the player reads.
-function publicAccount(session){return session?.account?{id:session.account.companyId,username:session.account.username,name:session.account.displayName||session.account.minecraftName||session.account.username||'Company member',roles:session.account.roles||[],passwordRequired:session.account.passwordRequired,microsoftLinked:session.account.microsoftLinked,providers:session.account.providers||[],primaryProvider:session.account.primaryProvider||null,picture:session.account.picture?.startsWith('data:image/png;base64,')?session.account.picture:null}:null;}
+// never a label the player reads. The Minecraft name and the linked providers' own details
+// are here because the profile dialog draws them, and both are already the sanitized ones.
+function publicAccount(session){
+ if(!session?.account)return null;
+ const account=session.account,details=account.providerDetails;
+ return {id:account.companyId,username:account.username,name:account.displayName||account.minecraftName||account.username||'Company member',minecraftName:account.minecraftName||null,roles:account.roles||[],passwordRequired:account.passwordRequired,microsoftLinked:account.microsoftLinked,providers:account.providers||[],primaryProvider:account.primaryProvider||null,providerDetails:details&&Object.keys(details).length?details:null,picture:account.picture?.startsWith('data:image/png;base64,')?account.picture:null};
+}
 
-// The verified-address list is the one payload that carries an email, and it is handed
-// straight to the profile section and nowhere else. Nothing here is stored: the shape is
+// The verified-address list is the only payload the launcher asks for because of an email, and
+// it is handed straight to the profile section and nowhere else. (The account document carries
+// the Google link's own address in providerDetails; that is the provider's record of itself,
+// not this list, and it is rebuilt field by field above.) Nothing here is stored: the shape is
 // checked, the address the account service reports as its login email is the only one
 // flagged, and every other field of the response is dropped. An address the launcher could
 // not render (empty, whitespace, no @) is dropped from the list rather than shown, so the
