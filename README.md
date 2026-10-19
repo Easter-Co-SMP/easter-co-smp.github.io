@@ -110,6 +110,16 @@ origin-checked handlers with a bounded timeout. The API origin is the constant i
 override it (HTTPS required, with a loopback exception used by the tests). That hostname is
 stable while the stack exists and changes if the stack is destroyed and recreated.
 
+The game server is stopped whenever nobody plays, because the hosting credit is a limited
+one, so the first player in a session pays a cold start. Its state therefore rides on the
+same origin and the same Company session: `GET /v2/game/status` and `POST /v2/game/wake`,
+with `ready` the only field that authorises a launch. Play reads the status, wakes the
+server once when it is off, polls every three seconds and launches the moment it is
+joinable, so nobody presses Play twice; `doc/launcher-states.md` freezes those two routes,
+the `game` field of the state broadcast and every sentence the player reads. The launcher's
+side of it is `desktop/game.cjs`, and it is proven against a local stub because the cloud
+side of that contract is not deployed yet.
+
 The launcher is download-first. On a fresh machine the hero promotes downloading the game
 rather than the launcher: the player picks an installation folder or accepts the default, may
 toggle enhanced graphics and shaders, and starts a transfer they can pause and resume while
@@ -192,6 +202,10 @@ download-first flow has its own coverage: `tests/desktop/flow.test.cjs` runs in 
 and proves the Play gate, the installation-location refusals, the throughput estimator
 against a fake clock, pause/resume/cancel and the checksum gate against a loopback stub
 server that serves bytes slowly, and the update check against fixture manifests.
+`tests/desktop/wake.test.cjs` proves the game server's own two routes and the wake rule
+against `tests/desktop/stub-game-api.mjs`, a loopback server that can be told to answer any
+of the five frozen states and that records every wake call, so a test can prove exactly one
+wake per Play and none on app launch, sign-in or navigation.
 `tests/desktop/chunks.test.cjs` proves the chunk rules against fixtures and loopback stub
 servers: a repeat run fetches no chunk and re-hashes nothing, a new graphics chunk is fetched
 alone with the base chunk untouched, an optional chunk is never fetched while its toggle is

@@ -1309,11 +1309,59 @@ try{
    }
    await launcherPage.setViewportSize({width:1440,height:900});
 
+   // The game server's own field (doc/launcher-states.md, "The game server, which may be
+   // asleep"). It is a different service from the account: a server that is off, starting
+   // or stopping is said in its own line, never as an account problem, and the hero offers
+   // no second Play while the press that is already running a cold start has not launched.
+   const gameLine=launcherPage.locator('.desktop-game-status');
+   const offline={state:'stopped',ready:false,endpoint:'smp.easter.company:25565',since:null,players:0,detail:null,waking:false,checkedAt:'2026-10-18T00:00:00Z',message:'Your server is offline right now. Play starts it.'};
+   const readyAccount={id:'EC-7',username:'testcaptain',name:'TestCaptain',roles:['crew'],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],primaryProvider:'microsoft',picture:null};
+   await pushState({phase:'ready',progress:null,actions:[],canPlay:true,error:null,device:null,companyReady:true,microsoftConnected:true,minecraftAccess:'owned',profile:{name:'TestCaptain',id:'1234567890abcdef',skin:null},account:readyAccount,install:INSTALLED,game:offline});
+   await gameLine.waitFor({state:'visible'});
+   assert((await gameLine.innerText()).includes('offline'),'a stopped server is said once, in its own line');
+   heroAction({name:'server-offline',...await hero(),expect:'play'});
+   assert.equal(await launcherPage.locator('.desktop-access').isVisible(),false,'a stopped server is never an account or access problem');
+   assert.deepEqual(await visibleErrors(),[],'and it is not raised as a failure either');
+   // The press that starts it: the same Play turns into the cold start, and there is no
+   // second Play to press while the first one is waiting for the server.
+   await pushState({phase:'starting-game',game:{...offline,state:'starting',waking:true,message:'Starting your server… the first player in a session waits about a minute.'}});
+   const coldStart=await hero();
+   assert.equal(coldStart.action,'starting','the hero says the server is starting');
+   assert(/Starting your server/.test(coldStart.text),'with the cold start as its own action: '+coldStart.text);
+   assert.equal(await launcherPage.locator('[data-desktop-play]').isDisabled(),true,'and no second Play during the cold start');
+   assert.equal(await launcherPage.locator('.desktop-access').isVisible(),false,'a starting server is still not an account problem');
+   // The service's own detail reads below the launcher's sentence rather than replacing it.
+   await pushState({game:{...offline,state:'starting',waking:true,detail:'Waking the world.',message:'Starting your server… the first player in a session waits about a minute.'}});
+   await launcherPage.locator('.desktop-game-detail').filter({hasText:'Waking the world.'}).waitFor();
+   assert((await gameLine.innerText()).includes('Starting your server'),'the launcher sentence is still the first thing read');
+   // A wake that timed out is an ordinary failure on the one page notice, and Play is the retry.
+   await pushState({phase:'ready',canPlay:true,game:{...offline,waking:false},error:'Your server did not become joinable within three minutes. Press Play to try it again.'});
+   await launcherPage.locator('.desktop-page-notice').filter({hasText:'did not become joinable'}).waitFor();
+   heroAction({name:'server-timeout-retry',...await hero(),expect:'play'});
+   assert.equal(await launcherPage.locator('[data-desktop-play]').isDisabled(),false,'a wake timeout leaves Play available as the retry');
+   await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
+   assert.deepEqual(await visibleErrors(),[],'the retry leaves no failure behind');
+   // A warm server says nothing at all: no line, no prompt, nothing added to the launch.
+   await pushState({error:null,game:{...offline,state:'running',ready:true,players:0,message:'Your server is online.'}});
+   assert.equal(await gameLine.isVisible(),false,'a joinable server adds no line and no prompt');
+   heroAction({name:'server-warm',...await hero(),expect:'play'});
+   // An unreachable status is displayed as unknown and claims nothing.
+   await pushState({game:{...offline,state:'unknown',ready:false,message:'The launcher could not read the game server status just now.'}});
+   await gameLine.waitFor({state:'visible'});
+   assert.equal(await gameLine.getAttribute('data-state'),'unknown','unknown is displayed as unknown');
+   assert(!/online/i.test(await gameLine.innerText()),'and never as online');
+   heroAction({name:'server-status-unknown',...await hero(),expect:'play'});
+   // A main process that publishes no game field at all renders exactly as it did before,
+   // which is what lets an older build read a newer view and the reverse.
+   await pushState({game:null});
+   assert.equal(await gameLine.isVisible(),false,'a state with no game field paints nothing');
+   heroAction({name:'no-game-field',...await hero(),expect:'play'});
+
    // The launcher must not have broken the map or produced console errors in desktop mode.
    assert.deepEqual(launcherErrors,[],'desktop mode must not throw');
    assert.deepEqual(await launcherPage.evaluate(()=>window.easterRenderer.errors),[],'the fixture saw no page error on its last load');
    await launcherContext.close();
   }finally{await launcherContext.close().catch(()=>{});}
-  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage with a published server choice and an explained memory setting; the themed enhanced graphics toggle driving setGraphics, a refused graphics change shown once beside the toggle rather than on the page notice as well; the profile\'s verified emails listed and chosen through the owner-only actions with no address in the state; refusals shown; one failure on one visible surface with no page notice painted while any modal dialog is open (Settings and the mandatory update gate) and the same sentence handed back once when the last one closes, repeated at 1440, 800 and 390 wide with the notice reading above the hero card\'s crest and heading, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed, Microsoft\'s email answer kept as a notice an unrelated failure cannot blank, the saved-session branch falling through to a fresh sign-in except on an identity conflict, and Microsoft\'s email-unavailable answer shown as a sign-in notice; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
+  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage with a published server choice and an explained memory setting; the themed enhanced graphics toggle driving setGraphics, a refused graphics change shown once beside the toggle rather than on the page notice as well; the profile\'s verified emails listed and chosen through the owner-only actions with no address in the state; refusals shown; one failure on one visible surface with no page notice painted while any modal dialog is open (Settings and the mandatory update gate) and the same sentence handed back once when the last one closes, repeated at 1440, 800 and 390 wide with the notice reading above the hero card\'s crest and heading, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed, Microsoft\'s email answer kept as a notice an unrelated failure cannot blank, the saved-session branch falling through to a fresh sign-in except on an identity conflict, and Microsoft\'s email-unavailable answer shown as a sign-in notice; the game server\'s own field shown once under the hero action for a stopped server, the cold start as its own hero action with no second Play, the service detail below the launcher sentence, a wake timeout as one page-notice failure with Play as the retry, a warm server adding nothing at all, an unknown status never shown as online, and a state with no game field painting nothing; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
  }
 }finally{await browser.close();}

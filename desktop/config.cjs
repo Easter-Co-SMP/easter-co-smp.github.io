@@ -46,6 +46,27 @@ const MARKER='.easter-client';
 // launcher's files, the server or the world.
 const FOREIGN_ENTRIES=['.minecraft','launcher_profiles.json','launcher_accounts.json','launcher_profiles_microsoft_store.json','versions','libraries','assets','mods','saves','server.properties','eula.txt','usercache.json','banned-ips.json','banned-players.json','level.dat','world','server.jar'];
 function defaultInstallLocation(configRoot){return path.join(configRoot,CLIENT_FOLDER);}
+// ---- the game server, which may be asleep ------------------------------------
+// The game server is stopped whenever nobody plays, because the hosting credit is
+// finite, so the first player of a session pays a cold start. Two routes on the same
+// API origin answer for it, authenticated with the same Company session token:
+// GET /v2/game/status and POST /v2/game/wake. The five state words, the address the
+// service names and the two timings below are frozen in doc/launcher-states.md.
+const GAME_STATES=['running','starting','stopping','stopped','unknown'];
+const GAME_ENDPOINT='smp.easter.company:25565';
+// Readiness is polled every three seconds, so a server that becomes joinable is
+// joined within three seconds of it happening without hammering the account API.
+const GAME_POLL_MS=3000;
+// Three minutes of cold start before the wait fails honestly. Owen's figure for the
+// cold start is 60-90 seconds, so this is the failure line, not the expectation.
+const GAME_WAKE_TIMEOUT_MS=180000;
+// A status read is bounded far below the account client's 30 s: it is on the way to
+// a launch and an unanswered read is already an answer ('unknown').
+const GAME_STATUS_TIMEOUT_MS=10000;
+const GAME_WAKE_REQUEST_TIMEOUT_MS=20000;
+// The service's own `detail` sentence is shown beside the launcher's copy, so it is
+// bounded like every other sentence the state carries.
+const GAME_DETAIL_MAX=200;
 // ---- the servers the launcher offers ----------------------------------------
 // doc/launcher-states.md: the entries are published by the main process in display
 // order rather than hardcoded in the view. `address` is the value written into
@@ -129,4 +150,4 @@ function resolveLocation(requested,{saved='',defaultLocation}={}){
  if(fallback&&resolved===fallback)return resolved;
  throw Error('Choose the installation folder with the folder picker.');
 }
-module.exports={apiOrigin,DEFAULT_API_ORIGIN,clientOrigin,DEFAULT_CLIENT_ORIGIN,LOOPBACK,CLIENT_FOLDER,MARKER,FOREIGN_ENTRIES,defaultInstallLocation,DEFAULT_SERVER,LOCAL_SERVER,SERVER_ENTRIES,serverList,cleanLaunchSettings,locationProblem,checkLocation,ensureLocation,resolveLocation};
+module.exports={apiOrigin,DEFAULT_API_ORIGIN,clientOrigin,DEFAULT_CLIENT_ORIGIN,LOOPBACK,CLIENT_FOLDER,MARKER,FOREIGN_ENTRIES,defaultInstallLocation,DEFAULT_SERVER,LOCAL_SERVER,SERVER_ENTRIES,serverList,cleanLaunchSettings,locationProblem,checkLocation,ensureLocation,resolveLocation,GAME_STATES,GAME_ENDPOINT,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS,GAME_STATUS_TIMEOUT_MS,GAME_WAKE_REQUEST_TIMEOUT_MS,GAME_DETAIL_MAX};

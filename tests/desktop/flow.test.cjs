@@ -509,7 +509,7 @@ test('the window steps aside with a tray or a way back, and returns when the gam
  assert.match(source,/if\(process\.platform!=='linux'\)return Promise\.resolve\(true\)/);
  assert.match(source,/resolve\(!error&&\/\\btrue\\b\/\.test\(String\(stdout\)\)\)/);
  // The Settings dialog reads the pair from the broadcast, which now carries it.
- assert.match(source,/servers:serversState\(\),settings,shortcuts:shortcutState,launcherUpdate/,'the state broadcast publishes settings and the two shortcut entries');
+ assert.match(source,/servers:serversState\(\),game:gameState\(\),settings,shortcuts:shortcutState,launcherUpdate/,'the state broadcast publishes settings, the game server and the two shortcut entries');
  assert.match(source,/accounts:\[\],settings,totalMemoryMB/,'and so does the status the dialog reads on open');
  // No new privileged surface: the preferences ride on the existing settings channel.
  const preload=await fs.readFile(path.join(__dirname,'../../desktop/preload.cjs'),'utf8');

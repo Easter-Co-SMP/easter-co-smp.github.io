@@ -3,7 +3,8 @@
 // to this: every call comes through an origin-checked IPC handler. The Mojang
 // access token and the returned Easter Company session token exist in memory here
 // and in the safeStorage vault, never in the UI, a log line or an error message.
-const {apiOrigin}=require('./config.cjs');
+const {apiOrigin,GAME_STATUS_TIMEOUT_MS,GAME_WAKE_REQUEST_TIMEOUT_MS}=require('./config.cjs');
+const {sanitizeGameStatus}=require('./game.cjs');
 const {apiFetch}=require('./security.cjs');
 const DEFAULT_TIMEOUT=30000;
 class AccountError extends Error{
@@ -214,6 +215,33 @@ class AccountClient{
   return this.emails(token,signal);
  }
  async providers(signal){return this.call('/v2/accounts/providers',{signal});}
+ // ---- the game server, on this same origin and this same session --------------
+ // Two routes, frozen with the cloud side: the status read and the wake request. They
+ // are methods of this client rather than a second HTTP client, so a sleeping game
+ // server can never be reached by a code path that skips this module's own bounded
+ // timeout, its HTTPS-only origin rule, or its rule that a response body never
+ // reaches the renderer. The game server is a different service from the account, and
+ // nothing here is ever described to the player as an account problem: the only code
+ // that crosses into the game's own failure copy is `invalid_session`, where the
+ // account really is the news.
+ //
+ // The status is the frozen shape (state, ready, endpoint, since, players, detail) and
+ // `ready` is the only field that authorises a launch. A body this launcher cannot
+ // read in that shape is refused here rather than guessed at.
+ async gameStatus(token,signal){
+  const found=await this.call('/v2/game/status',{token,signal,timeout:Math.min(this.timeout,GAME_STATUS_TIMEOUT_MS)});
+  const status=sanitizeGameStatus(found);
+  if(!status)throw new AccountError('invalid_response',FALLBACK);
+  return status;
+ }
+ // Waking is the player's own Play press and nothing else: no launch, sign-in or page
+ // visit ever calls this. The service answers with the same status shape, which is
+ // already the first poll; an accepted request with no body is reported as no answer
+ // and the launcher waits for the poll to say what happened.
+ async wakeGame(token,signal){
+  const found=await this.call('/v2/game/wake',{method:'POST',token,body:{client:this.client},signal,timeout:Math.min(this.timeout,GAME_WAKE_REQUEST_TIMEOUT_MS)});
+  return found===null?null:sanitizeGameStatus(found);
+ }
  async refreshSession(token,signal){return this.signed(await this.call('/v2/accounts/session/refresh',{method:'POST',token,signal,body:{client:this.client}}));}
  async updateProfile(token,body){const found=await this.call('/v2/accounts/profile',{method:'POST',token,body});return sanitizeAccount(found?.account);}
  async logout(token,signal){

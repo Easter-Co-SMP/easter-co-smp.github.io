@@ -54,7 +54,7 @@ meaning. These are added or extended:
 
 | Field | Type | Meaning |
 |---|---|---|
-| `phase` | string | One of `uninstalled`, `downloading`, `paused`, `verifying`, `installing`, `updating`, `ready`, `launching`, `running` |
+| `phase` | string | One of `uninstalled`, `downloading`, `paused`, `verifying`, `installing`, `updating`, `ready`, `launching`, `starting-game`, `running` |
 | `progress` | object \| null | `{label, percent, bytesDone, bytesTotal, bytesPerSecond, etaSeconds}`; `percent` null when indeterminate, and byte fields null when the underlying task cannot report them |
 | `paused` | boolean | True only while a paused transfer can still be resumed |
 | `install` | object | `{location, defaultLocation, installed, includeGraphics, version, updatedAt}`; `location` is the chosen root, `defaultLocation` the value shown as "default" |
@@ -62,11 +62,160 @@ meaning. These are added or extended:
 | `canPlay` | boolean | Exactly `install.installed && profile !== null` |
 | `bar` | object | `{visible}`: progress/action dock availability. The renderer omits an idle dock on Home because Home already provides the action; utility pages retain it. The minimised preference stays renderer-local. |
 | `settings` | object | The saved settings, exactly as `status()` already returned them, so the Settings dialog refreshes from a broadcast as well as from a read. |
+| `game` | object | The game server's own state, always present in desktop mode: `{state, ready, endpoint, since, players, detail, message, waking, checkedAt}`. It is a different service from the account and shares no field with it; see *The game server, which may be asleep*. |
 | `error` | string \| null | Safe operation failure text, announced in the one broadcast that carries it and dropped from the next, so no later unrelated broadcast can repaint an old failure; a new account action clears it as it starts. A sign-in failure names its step (see *Sign-in steps, sentences and the redacted log*). **It has exactly one home, and the UI decides it, not the state:** while the sign-in dialog is on screen the failure belongs to that dialog's own error area and to nothing else; otherwise it belongs to the page notice, with its dismiss control — but **not while any modal dialog is open**, because a notice under a modal is a message the player can neither read nor dismiss. For that time the sentence is held with no surface at all, and the last modal to close gives it back once. The Settings dialog is never an error surface. The renderer owns the sentence once delivered — it keeps it without re-reading this field, and only a dismissal or a new action (sign-in, Play, download, save settings) takes it away. A failure already given a home is never shown again by a later broadcast, a re-open or a close. Cancellation is not an error. Older states without this field still render. |
 
 `canPlay` is the single source of truth for the Play action. No view may compute
 its own version of the gate, and no view may enable Play on install completion
 alone.
+
+## The game server, which may be asleep (2026-10-18)
+
+The game server is stopped whenever nobody is playing, because the hosting credit is a
+limited one. In any given session the first player to press Play therefore pays a cold
+start of about 60 to 90 seconds. Owen's requirement, verbatim: "we simply give the first
+person to login a cold start load period simple."
+
+The account service and the game server are two different services. Nothing about a
+sleeping, starting or stopping server may ever present as an account problem, a purchase
+problem or an installation problem, and nothing about the account may be described as a
+server problem. That separation is why the game server gets its own state field, its own
+sentence and its own failure, rather than a meaning borrowed from `actions`, `error` or
+`phase: 'launching'`.
+
+### The two routes, frozen with the cloud side
+
+Both are on the **existing account API origin** (the constant in `desktop/config.cjs`,
+overridable with `EASTER_API_BASE_URL` under the HTTPS-only rule), authenticated with the
+existing Company session token as `Authorization: Bearer <token>`. There is no new host
+and no new service. `desktop/accounts.cjs` owns the two calls, so they reuse that
+module's bounded timeout, its HTTPS-only origin rule and its rule that no response body
+ever reaches the renderer; `desktop/game.cjs` owns the rule below and its copy.
+
+```
+GET  /v2/game/status
+POST /v2/game/wake
+
+{state: "running" | "starting" | "stopping" | "stopped" | "unknown",
+ ready: bool,
+ endpoint: "smp.easter.company:25565",
+ since: ISO-8601,
+ players: int,
+ detail: string}
+```
+
+Both routes answer with that shape; the wake's answer is already the first poll, and a
+`204` with no body is accepted as "the request was taken" rather than guessed at.
+
+- **`ready` is the only field that authorises a launch.** It is true only when the
+  port answered a real Minecraft status exchange, so the launcher never infers it: a body
+  that claims `ready: true` with any state other than `running` is refused and read as
+  not ready. A ready server is joined at once.
+- **`stopping` is not `stopped`.** It is never joined and never woken: waking a server
+  that is on its way down is a second shutdown in the way, and joining it cannot work.
+- Anything the launcher cannot read — an unreachable host, a 5xx, a body that is not this
+  shape, an unrecognised `state` word — is `unknown`. It is never displayed as online,
+  and an unrecognised state word is never acted on.
+
+### The new field
+
+| Field | Type | Meaning |
+|---|---|---|
+| `game.state` | string | One of `running`, `starting`, `stopping`, `stopped`, `unknown`, exactly as the service said. `unknown` also means "the launcher could not read the status". Never a claim of being online. |
+| `game.ready` | boolean | The frozen `ready` flag, and the only thing that authorises a launch. `false` while `unknown`, while `stopping`, and whenever the answer is not `running`. |
+| `game.endpoint` | string \| null | The address the service names (`smp.easter.company:25565`), or the frozen address when it names none. **It is published, never joined:** Play keeps launching with the address in `settings.server`, exactly as it always has. |
+| `game.since` | string \| null | The service's ISO-8601 timestamp, kept as written and dropped when it is not one. |
+| `game.players` | number \| null | The service's player count, an integer or null. Published; not printed today, because a stopped server has nobody on it and the joinable case says nothing at all. |
+| `game.detail` | string \| null | The service's own detail sentence, bounded to 200 characters, shown below the launcher's sentence. Never replaces it, and the service's other fields are dropped. |
+| `game.message` | string | The launcher's own sentence for this state, from one table in `desktop/game.cjs`. The UI prints it and never composes or re-words it. |
+| `game.waking` | boolean | True while this launcher is waking the server and polling it — the first player's cold start. |
+| `game.checkedAt` | string \| null | ISO-8601 local time of the last status read attempt, or null when nothing has been asked yet in this session. |
+
+### One Play press, one answer
+
+The wake is requested **only** when the player presses Play (or the game shortcut, which
+is the same path). It is never requested on app launch, on sign-in, on page navigation or
+by a view. The only other thing the launcher does on its own is one read, at launch when
+a Company session was restored and after an interactive sign-in, so the hero can say
+honestly that the server is off before anyone presses anything.
+
+The wait starts the moment Play is pressed, so the cold start overlaps the session
+re-check and the client verification instead of being paid after them. Then:
+
+1. **Warm (`ready: true`).** The game is launched immediately with the same arguments as
+   before this change, including `--quickPlayMultiplayer <settings.server>`. No wake, no
+   prompt, no progress bar, no line on screen. This is the common case once somebody is
+   online.
+2. **`stopped`, `starting`, or the service's own `unknown`.** One `POST /v2/game/wake`,
+   then `GET /v2/game/status` **every 3 seconds**. The instant an answer is ready the
+   game is launched — inside the same Play press, so the player never presses Play twice.
+   `phase` is `starting-game` for that time, the hero offers no second Play, and the
+   sticky bar on every page says the same sentence.
+3. **`stopping`.** Polled and waited out, never woken. If it turns ready it is joined; if
+   it turns stopped it is woken, once.
+4. **No answer at all.** `game.state` is `unknown` and `game.ready` is false. The
+   launcher has no answer to respect, so it keeps the behaviour it had before this
+   feature existed: it launches the client with the configured server, wakes nothing,
+   and claims nothing. The player sees the unknown sentence, and the game's own
+   connection result is the truth. **This is the one case where a launch happens without
+   `ready`**, and it exists so that an unreachable status service can never leave the
+   family unable to play at all.
+5. **Still not joinable after 180 seconds.** The press fails honestly with
+   `Your server did not become joinable within three minutes. Press Play to try it again.` No
+   launch happens, no wake is sent a second time, and Play is the retry. A status
+   service that answers `invalid_session` fails the press with the account's own
+   sentence instead, because there the account really is the news.
+
+`canPlay` is unchanged: Play is gated on the account and the installed client, and never
+on the server, because pressing it is what starts the server. Nothing about the game
+state disables sign-in, a download, an update, Settings or any account screen.
+
+### The sentences
+
+One table, in `desktop/game.cjs`, so every surface reads the same words. The copy is
+fixed: it carries no time, no address and no number, so no view has to fill a blank in.
+
+| State | Sentence |
+|---|---|
+| running and ready | `Your server is online.` (not printed: the line is absent when the server is joinable) |
+| stopped | `Your server is offline right now. Play starts it.` |
+| starting | `Your server is starting. This takes about a minute.` |
+| stopping | `Your server is finishing its last session. It is never joined while it stops.` |
+| unknown, after a read | `The launcher could not read the game server status just now.` |
+| unknown, before any read | `Your server is checked when you press Play.` |
+| waking | `Starting your server… the first player in a session waits about a minute.` |
+| waking while stopping | `Your server is finishing its last session. It starts as soon as that is done.` |
+| timeout (a failure) | `Your server did not become joinable within three minutes. Press Play to try it again.` |
+| expired session (a failure) | `Your Easter Company session expired. Sign in again.` |
+
+### Where it is shown
+
+- **One line under the hero action** (`site/desktop.js`, `.desktop-game-status`), which
+  carries `game.message` and, below it, `game.detail` when the service sent one. It is
+  the only surface a game state is ever written on, and it is **absent** while the server
+  answers ready, so a warm server looks exactly as it did before this feature existed.
+- **The hero action** says `Starting your server…` with the note `The first player in a
+  session waits about a minute` while `phase` is `starting-game`, and offers no second
+  Play. It is disabled for that time, as it is during `launching`.
+- **The sticky bar** carries the same `game.message` while `game.waking`, so the news
+  follows the player to the map and the wiki.
+- **A wake timeout is an ordinary operation failure**: it settles through `error`, so it
+  reaches the player through the page notice with its dismiss control, exactly like every
+  other failure, and the sentence keeps its one home. It is never written into Settings.
+- The game line is never dimmed, always visible on Home, and never opens a dialog.
+
+### What is proven, and what is not
+
+The cloud side does not exist yet, so the two routes are proven against a local stub
+(`tests/desktop/stub-game-api.mjs`) that can be told to answer any of the five states, that
+records every wake call, and that refuses a request without the Company session token.
+`tests/desktop/wake.test.cjs` proves the frozen shape, the copy table, the ready rule, the
+`stopping` rule, the 3-second polling, the single wake per Play, the 180-second failure and
+the unknown fallback, against a fake clock and against that stub over a real socket.
+
+Not verified here, and not verifiable from this repository alone: the real cloud routes
+(their existence, authentication, latency and the readiness probe behind `ready`), a real
+cold start of the real server, and a real launch on Windows or macOS.
 
 ## One failure, one visible home (2026-10-18)
 

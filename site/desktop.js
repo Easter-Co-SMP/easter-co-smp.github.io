@@ -57,6 +57,13 @@
  accessPanel.innerHTML='<p class="desktop-access-copy" role="status"></p><div><button type="button" data-recheck-access>Check again</button><button type="button" data-use-account>Use a different account</button></div>';
  accessPanel.querySelector('[data-recheck-access]').onclick=()=>{void desktop.recheckAccess().catch(report);};
  accessPanel.querySelector('[data-use-account]').remove();
+ // The server's own line, under the hero's action. It is the only place a game state is
+ // ever written, it carries main's sentence word for word, and it is quiet while the
+ // server is running and joinable, so the warm case looks exactly as it always did.
+ const gameStatus=document.createElement('p');
+ gameStatus.className='desktop-game-status';gameStatus.hidden=true;gameStatus.setAttribute('role','status');
+ gameStatus.innerHTML='<span class="desktop-game-message"></span><span class="desktop-game-detail"></span>';
+ const gameMessageNode=gameStatus.querySelector('.desktop-game-message'),gameDetailNode=gameStatus.querySelector('.desktop-game-detail');
  const installOf=state=>state&&state.install&&typeof state.install==='object'?state.install:{};
  const progressOf=state=>state&&state.progress&&typeof state.progress==='object'?state.progress:null;
  const actionsOf=state=>state&&Array.isArray(state.actions)?state.actions:[];
@@ -69,6 +76,11 @@
  // renders without them rather than printing "undefined" at the player.
  const hardwareOf=state=>state&&state.hardware&&typeof state.hardware==='object'?state.hardware:{};
  const graphicsOf=state=>state&&state.graphics&&typeof state.graphics==='object'?state.graphics:null;
+ // The game server's own field (doc/launcher-states.md, "The game server, which may be
+ // asleep"). It is never the account's and never the client's: nothing here can make a
+ // sign-in, a download or an account screen look wrong, and the copy it carries is the
+ // main process's, so no view words a server state for itself.
+ const gameOf=state=>state&&state.game&&typeof state.game==='object'?state.game:null;
  // The Play Now stage: the client is on this device. Settings and the graphics
  // toggle belong to it and to nothing earlier.
  const atPlayNow=state=>installOf(state).installed===true;
@@ -93,6 +105,10 @@
   if(state?.minecraftAccess==='missing')return {kind:'buy',label:'Buy Now',note:'Minecraft Java Edition required'};
   if(state?.minecraftAccess==='profile-required')return {kind:'setup-profile',label:'Set up Java profile',note:'Choose your Java player name'};
   if(state?.minecraftAccess==='unknown')return {kind:'check-access',label:'Retry account check',note:'Java access could not be confirmed'};
+  // The first player of a session is waiting for a cold start: the hero says so and
+  // offers no second Play, because the launch happens by itself the moment the server
+  // is joinable. This is a phase of Play, and it is never an account or install state.
+  if(phase==='starting-game')return {kind:'starting',label:'Starting your server…',note:'The first player in a session waits about a minute'};
   if(state&&state.canPlay&&phase!=='launching'&&phase!=='running')return {kind:'play',label:'PLAY NOW',note:'Minecraft Java Edition'};
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Please wait'};
   if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
@@ -485,7 +501,8 @@
   const percentText=percent===null?'':Math.round(percent)+'%';
   if(minimised&&!active)barTabText.textContent=action.kind==='play'?'PLAY NOW':action.kind==='signin'?LOGIN_ACTION:action.label;
   else barTabText.textContent=percentText||'…';
-  barLabel.textContent=active?label:state.minecraftAccess==='missing'?'Minecraft Java Edition required':state.minecraftAccess==='profile-required'?'Java profile setup required':state.minecraftAccess==='unknown'?'Check Minecraft Java access':state.canPlay?'Ready to play':installOf(state).installed?'Your client is ready':label;
+  const game=gameOf(state);
+  barLabel.textContent=active?label:game&&game.waking?game.message:state.minecraftAccess==='missing'?'Minecraft Java Edition required':state.minecraftAccess==='profile-required'?'Java profile setup required':state.minecraftAccess==='unknown'?'Check Minecraft Java access':state.canPlay?'Ready to play':installOf(state).installed?'Your client is ready':label;
   barPrimary.hidden=active||!['play','signin','download','buy','setup-profile','check-access','setup-password','connect-microsoft'].includes(action.kind);
   barPrimary.textContent=action.label;
   const bytes=progressState&&typeof progressState.bytesDone==='number'&&typeof progressState.bytesTotal==='number'?formatBytes(progressState.bytesDone)+' of '+formatBytes(progressState.bytesTotal):null;
@@ -608,6 +625,24 @@
  }
 
  // ---- Hero surfaces ---------------------------------------------------------
+ // A server that is offline, starting or stopping is said plainly in its own line; a
+ // server that answers ready says nothing at all. The stopped game is not an account
+ // problem and never borrows an account surface: this line is the whole of it.
+ function renderGame(state){
+  const game=gameOf(state);
+  // The Play Now stage only: before the client is installed there is nothing to join,
+  // and the download-first screens keep the room for what the player has to do first.
+  const show=Boolean(game)&&atPlayNow(state)&&(game.waking===true||game.ready!==true||game.state!=='running');
+  gameStatus.hidden=!show;
+  if(!show){gameMessageNode.textContent='';gameDetailNode.textContent='';return;}
+  gameStatus.dataset.state=typeof game.state==='string'?game.state:'unknown';
+  gameStatus.classList.toggle('is-awake',game.waking===true);
+  gameMessageNode.textContent=typeof game.message==='string'?game.message:'';
+  // The service's own detail, when it sends one, reads below the launcher's sentence and
+  // never replaces it. Nothing else from the service is printed.
+  gameDetailNode.textContent=typeof game.detail==='string'?game.detail:'';
+  gameDetailNode.hidden=!gameDetailNode.textContent;
+ }
  // The details belong to the hero's Download the game action: they say where it will
  // install and what the machine will do about graphics, and carry no action of their own.
  function renderInstallCard(state){
@@ -643,7 +678,7 @@
   const fromMain=state!==current;
   current={...current,...state};
   if(installRequested&&transferring(current)){installRequested=false;if(panel.open)panel.close();}
-  const busy=signInPending||Boolean(current.accessChecking||current.accountWorking)||['signing-in','refreshing','launching','running'].includes(phaseOf(current));
+  const busy=signInPending||Boolean(current.accessChecking||current.accountWorking)||['signing-in','refreshing','launching','running','starting-game'].includes(phaseOf(current));
   const action=primaryAction(current);
 
   document.querySelector('.home-footer>span:last-child')?.replaceChildren(document.createTextNode('Launcher '+(current.version||'')));
@@ -706,7 +741,7 @@
   installDetails.hidden=!needsDownload;
   if(needsDownload)renderInstallCard(current);else installError.hidden=true;
   if(heroButton){
-   heroButton.disabled=busy||action.kind==='busy'||action.kind==='running'||(needsDownload&&typeof startInstall!=='function');
+   heroButton.disabled=busy||action.kind==='busy'||action.kind==='running'||action.kind==='starting'||(needsDownload&&typeof startInstall!=='function');
    // The action kind is published on the element so a test can assert the gate without
    // reading the label back out of the copy.
    heroButton.dataset.action=action.kind;
@@ -718,6 +753,7 @@
    heroButton.querySelector('span').firstChild.textContent=action.label;
    heroButton.querySelector('small').textContent=action.kind==='play'?joinParts([action.note,current.profile?.name]):action.note;
   }
+  renderGame(current);
   renderBar(current);
   if(fromMain){
    // The state's own failure, delivered once per distinct sentence, and then owned here: main
@@ -855,6 +891,9 @@
   // Download the game action.
   graphics.parentElement?.insertBefore(installDetails,graphics.nextSibling);
   graphics.parentElement?.insertBefore(accessPanel,graphics);
+  // The server's line sits directly under the hero action, above the install details
+  // and the optional graphics row.
+  graphics.parentElement?.insertBefore(gameStatus,graphics);
   graphicsSection=graphics;graphicsSwitch=graphics.querySelector('[data-graphics-toggle]');
   graphicsLabel=graphics.querySelector('.desktop-graphics-label'),graphicsNote=graphics.querySelector('.desktop-graphics-note');graphicsError=graphics.querySelector('.desktop-graphics-error');
   graphicsSwitch.addEventListener('change',async()=>{
