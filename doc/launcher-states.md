@@ -284,37 +284,46 @@ module's bounded timeout, its HTTPS-only rule and its rule that no response body
 renderer:
 
 ```
-POST   /v2/game/session   -> 200 {accessToken, expiresAt, profile: {uuid, name}}
-                          -> 401 {"error": "reauth_required"}
-DELETE /v2/game/session   -> 204, or any 2xx with no body the launcher reads
-POST   /v2/accounts/microsoft  gains one optional request field: microsoftRefreshToken
+POST   /v2/game/session         -> 200 {accessToken, expiresAt, profile: {uuid, name}}
+POST   /v2/game/session/revoke  -> 200 {"revoked": true | false}
+POST   /v2/accounts/microsoft   gains one optional request field: microsoftRefreshToken
 ```
+
+The mint's four failure answers, which are **four different owners** and may never be
+confused with one another:
+
+| Answer | What the launcher does |
+|---|---|
+| `401 reauth_required` | The Microsoft session is dead: nothing stored, revoked, refused by Microsoft, or sealed under another key version. **The interactive Microsoft flow, once per press.** |
+| `401 invalid_session` | The **Easter Company session** is not live. That is the account's own sentence and the account's own sign-in; it never opens a Microsoft prompt. |
+| `429 rate_limited` (30 mints per account per ten minutes, `Retry-After: 600`), and the three `503`s (`session_key_unconfigured`, `microsoft_not_configured`, `identity_provider_unavailable`) | The service cannot make a session *right now*. The player's stored session is fine, so nothing is re-approved: the press fails with the service's own sentence, Play stays off, and the hero offers **Try again**. |
+| `404`, no answer at all, a body this launcher cannot read | Not a state: today's behaviour, exactly as it was before this section existed. |
 
 - **The mint answers with a Minecraft session and nothing else.** No Microsoft refresh token and
   no Xbox or XSTS token is ever in that body, and this launcher stores none of it. `profile.uuid`
-  is 32 hex characters and `profile.name` is 1 to 16 word characters; a body that is not that
-  shape is refused as unreadable rather than guessed at.
+  is the dashed profile uuid the service writes and `profile.name` is 1 to 16 word characters; the
+  launcher strips the dashes itself for the client's launch arguments and never assumes the field's
+  spelling. A body that is not that shape is refused as unreadable rather than guessed at.
+- **The revoke is a POST that answers `{"revoked": true|false}`.** It is not a `DELETE`, and a
+  `false` is the service's honest "there was nothing stored": the launcher then says nothing was
+  signed out rather than claiming a machine was.
 - **`microsoftRefreshToken` is carried exactly once**, on the account sign-in request that hands
-  one over, and it is the agreed field name with the cloud half (ticket da23405f). No second
-  spelling is accepted, and the launcher never invents another field.
-- **`reauth_required` is the one refusal that is about the Microsoft session itself**: Microsoft
-  refused the refresh grant, the password changed, or the session was revoked by the player or an
-  operator. A 5xx, a network failure or a body the launcher cannot read is **not** that: it is no
-  answer, and it never costs the player the session the service stores.
-- **A route that is not there is not a state.** A `404`, a service that cannot be reached, a
-  `5xx`, or an answer in neither frozen shape leaves this launcher doing exactly what it did
-  before this section existed: the local Microsoft path and its honest refusal. It never disables
-  Play, never reports a failure and never changes a state word.
+  one over, and it is the agreed field name with the cloud half (ticket da23405f). It is optional
+  there: absent, the route answers what it always answered, and a value the service cannot use is
+  ignored rather than refused, so a launcher can ship before the cloud half does.
+- **Company logout does not touch the stored Microsoft session.** Signing out of the Easter Company
+  account on one machine, or of the launcher's own saved Microsoft session, leaves the stored one
+  where it is; only the revoke control ends it, and only the account service can do that.
 
 ### The new field
 
 | Field | Type | Meaning |
 |---|---|---|
-| `minecraftSession.state` | string | One of `local`, `server`, `checking`, `reauth`, `required`, `unlinked`. What decides the hero's action, and never a claim about a service the launcher has not asked. |
+| `minecraftSession.state` | string | One of `local`, `server`, `checking`, `reauth`, `busy`, `required`, `unlinked`. What decides the hero's action, and never a claim about a service the launcher has not asked. |
 | `minecraftSession.serverHeld` | boolean | True once the account service has answered a mint for this account in this launcher session, so the launcher knows the service holds a session. It is what offers *Sign out of Minecraft everywhere*; while it is false the control is absent, because the launcher has seen nothing to sign out. |
 | `minecraftSession.checkedAt` | string \| null | ISO-8601 local time of the last mint attempt, or null when none has been made in this session. |
 
-The six words, each of which the launcher only says when it knows it:
+The seven words, each of which the launcher only says when it knows it:
 
 - **`local`** — this process holds a Microsoft session of this account and can make a launch out
   of it. Exactly today's case, unchanged.
@@ -324,6 +333,10 @@ The six words, each of which the launcher only says when it knows it:
   a wait, not a failure, and the hero says so rather than flashing the sign-in action.
 - **`reauth`** — the account service says the stored session is dead. The interactive Microsoft
   sign-in is the way back, and Play is not offered until it succeeds.
+- **`busy`** — the service answered `429 rate_limited` or one of its three `503`s, so it cannot make
+  a session right now. The stored session is **not** dead, so this is not `reauth` and the Microsoft
+  prompt is never opened for it: the hero offers **Try again**, which asks the service once more
+  (`launcher:minecraft-session`), and Play stays off until an answer says otherwise.
 - **`required`** — the account is linked to Microsoft, and this machine has neither a local leg
   nor a minted session: the route is not on the service yet, or the service could not be reached.
   Today's `connect-microsoft` refusal, word for word.
@@ -399,15 +412,16 @@ instead.
 
 The profile dialog offers **Sign out of Minecraft everywhere** when — and only when —
 `minecraftSession.serverHeld` is true, because that is the only moment the launcher has seen a
-stored session to sign out. It calls `DELETE /v2/game/session` with the Company session and reads
-the answer as three outcomes, each said plainly:
+stored session to sign out. It calls `POST /v2/game/session/revoke` with the Company session and
+reads the answer as four outcomes, each said plainly:
 
-- **The service accepted it** (any 2xx): `Signed Minecraft out everywhere. The next game on any
-  computer needs a Microsoft sign-in.` The launcher now knows nothing is stored: `serverHeld`
-  becomes false, the minted session is dropped, and the state becomes `reauth`, because the next
-  Play needs the interactive flow. A game already running is not claimed to stop: the token it
-  holds stays valid until it closes, and the sentence says what will happen next, not what a
-  running client is doing.
+- **`{"revoked": true}`**: `Signed Minecraft out everywhere. The next game on any computer needs a
+  Microsoft sign-in.` The launcher now knows nothing is stored: `serverHeld` becomes false, the
+  minted session is dropped, and the state becomes `reauth`, because the next Play needs the
+  interactive flow. A game already running is not claimed to stop: the token it holds stays valid
+  until it closes, and the sentence says what will happen next, not what a running client is doing.
+- **`{"revoked": false}`**: `No Minecraft session was stored for your account, so there was nothing
+  to sign out.` The service's own honest answer is passed on as it is.
 - **The service has no such route** (404): `The launcher cannot sign Minecraft out on other
   computers yet.` Nothing was revoked and nothing is claimed to have been.
 - **No answer, or any other refusal**: the account service's own sentence, and `serverHeld` is
@@ -420,8 +434,10 @@ machine was signed out on evidence it does not have.
 
 - **The hero action**, from `minecraftSession.state`: `unlinked` gives **Link Microsoft to play**
   (action `link-microsoft`), `required` and `reauth` give today's **Sign in to Minecraft** (action
-  `connect-microsoft`), `checking` gives a busy hero that says the launcher is asking the account
-  service, and `server` leaves Play available with no Microsoft prompt anywhere on the screen.
+  `connect-microsoft`), `busy` gives **Try again** (action `retry-minecraft`, which asks the service
+  once more and never opens a Microsoft prompt), `checking` gives a busy hero that says the launcher
+  is asking the account service, and `server` leaves Play available with no Microsoft prompt
+  anywhere on the screen.
 - **`actions`** carries `link-microsoft` for a genuinely unlinked account and `connect-microsoft`
   for a linked one this machine cannot launch with, so a view that renders the list of remaining
   requirements says the true one.

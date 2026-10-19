@@ -33,6 +33,14 @@ contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  signOut:invoke('sign-out'),play:invoke('play'),saveSettings:invoke('settings'),
  openMinecraftStore:invoke('open-minecraft-store'),openMinecraftProfile:invoke('open-minecraft-profile'),recheckAccess:invoke('recheck-access'),
  refreshAccount:invoke('account-refresh'),signOutAccount:invoke('account-sign-out'),
+ // "Sign out of Minecraft everywhere": the player's own control over the one Microsoft
+ // session their Easter Company account stores, so it ends on every machine. It takes no
+ // argument — the account and the session come from this process — and it answers with the
+ // sentence the profile dialog prints, which says only what the launcher actually saw.
+ signOutMinecraft:invoke('sign-out-minecraft'),
+ // The hero's retry when the account service could not make a Minecraft session just now. It
+ // asks the service once more and answers with the session field, never with a token.
+ refreshMinecraftSession:invoke('minecraft-session'),
  chooseJava:invoke('choose-java'),openFolder:invoke('open-folder'),openMicrosoft:invoke('open-microsoft'),
  // Download-first flow. The location handlers take no renderer path: the picker
  // returns one, and every other request is checked against the saved setting.

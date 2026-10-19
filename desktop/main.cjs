@@ -222,15 +222,22 @@ function remainingActions(){
  if(!install.installed)actions.push('download');
  if(!company)actions.push('signin');
  else if(!companyReady())actions.push('setup-password');
- else if(!microsoftConnected())actions.push('connect-microsoft');
- else if(identity.access(session)==='missing')actions.push('buy');
- else if(identity.access(session)==='profile-required')actions.push('setup-profile');
- else if(identity.access(session)==='unknown')actions.push('check-access');
+ // An account with no Microsoft link at all cannot launch, and a linked account this machine
+ // cannot make a session for needs the interactive flow. The two are different sentences, so
+ // they are different actions: `link-microsoft` is "there is nothing to play with yet" and
+ // `connect-microsoft` is "this account has a session, prove it here".
+ else if(!company.account.microsoftSubject)actions.push('link-microsoft');
+ else if(!minecraftPlayable())actions.push('connect-microsoft');
+ else if(identity.access(session)==='missing'&&sessionSource()==='local')actions.push('buy');
+ else if(identity.access(session)==='profile-required'&&sessionSource()==='local')actions.push('setup-profile');
+ else if(identity.access(session)==='unknown'&&sessionSource()==='local')actions.push('check-access');
  return actions;
 }
+// A Minecraft session can be had: this machine's own, or one the account service mints.
+function minecraftPlayable(){return sessionSource()!=='none';}
 // The frozen Play gate. `canPlay` in the state is exactly this, and the game shortcut
 // asks the same question before it starts anything.
-function canPlayNow(){return !accountWorking&&companyReady()&&microsoftConnected()&&!accessChecking&&identity.access(session)==='owned'&&startupReady&&!backgroundUpdate&&!['downloading','paused','verifying','installing','updating','checking-client'].includes(phase)&&canPlay(installInfo(),publicProfile(session));}
+function canPlayNow(){return !accountWorking&&companyReady()&&minecraftPlayable()&&sessionAccessOk()&&!accessChecking&&startupReady&&!backgroundUpdate&&!['downloading','paused','verifying','installing','updating','checking-client'].includes(phase)&&canPlay(installInfo(),launchProfile());}
 async function readQuality(){quality=await installedQuality(gameRoot());return quality;}
 function installInfo(){
  const installed=Boolean(client.installed);
@@ -250,10 +257,10 @@ function notify(patch={}){
  // signing in to a different account"), switch-account is gone from the preload and the IPC
  // surface, and the one signed-in account is already `account`, so a list here could only
  // repeat state.account to a UI that has nothing to do with a second entry.
- state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null};
+ state={...state,...patch,profile:launchProfile(),account:publicAccount(company),minecraftSession:minecraftStateField(),sessionExpiresAt:company?.expiresAt||null};
  const install=installInfo(),actions=remainingActions();
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),game:gameState(),settings,shortcuts:shortcutState,launcherUpdate}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftSession:minecraftStateField(),minecraftAccess:sessionSource()==='server'?'owned':identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),game:gameState(),settings,shortcuts:shortcutState,launcherUpdate}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
@@ -306,6 +313,15 @@ function saveSession(){
  });
  return sessionWrite;
 }
+// What a vault entry has to be for this launcher to restore it. identity.valid() is today's
+// rule — a session with a refresh token this machine can renew. The second case is the one the
+// hand-over creates: the refresh token is gone on purpose because the account service holds it,
+// and what is left is still the player's Java profile, which is what the launcher shows and
+// what the next mint is checked against.
+function restorableSession(entry){
+ if(identity.valid(entry))return true;
+ return Boolean(entry&&entry.serverHeld===true&&identity.id(entry)&&/^[a-f0-9]{32}$/i.test(entry?.profile?.id||'')&&/^\w{1,16}$/.test(entry?.profile?.name||''));
+}
 async function loadSkin(target){
  if(!target?.profile)return;
  try{
@@ -335,6 +351,9 @@ async function saveCompany(){
 }
 async function forgetCompany(){
  const token=company?.token;company=null;
+ // Everything this launcher knew about a stored session goes with the account it belonged to:
+ // the minted session, the state word, and the sign-out-everywhere control with them.
+ mintedSession=null;minecraft={state:'unknown',serverHeld:false,checkedAt:null};minecraftProbe=null;
  if(token)await accounts.logout(token);
  await vault.remove(companyFile());
 }
@@ -350,7 +369,163 @@ async function renewCompany(){
  catch(error){if(company!==target)return;if(error.code==='invalid_session'){company=null;await vault.remove(companyFile());notify({message:ACCOUNT_MESSAGES.invalid_session});}}
 }
 function companyReady(){return Boolean(company&&company.expiresAt>Date.now()&&company.account.passwordRequired===false);}
+// What this process holds of its own: a Microsoft leg of this account. It keeps exactly the
+// meaning it always had, and it is no longer the Play gate — the contract asks a question
+// about the account, and this answers one about this computer
+// (doc/launcher-states.md, "The Minecraft session the account service holds").
 function microsoftConnected(){return Boolean(company&&session&&company.account.microsoftSubject&&session.companySubject===company.account.microsoftSubject);}
+
+// ---- The Minecraft session the account service holds ------------------------
+// doc/launcher-states.md, "The Minecraft session the account service holds". Three things
+// live here: what this launcher knows about a stored session (`minecraft`), the Minecraft
+// session the service minted for this launch window (`mintedSession`, never written to the
+// vault), and the five questions the gate and the launch ask together so they can never
+// disagree about which session a press would use.
+let minecraft={state:'unknown',serverHeld:false,checkedAt:null},mintedSession=null,minecraftProbe=null;
+const MINECRAFT_REVOKED='Signed Minecraft out everywhere. The next game on any computer needs a Microsoft sign-in.';
+const MINECRAFT_NOT_REVOCABLE='The launcher cannot sign Minecraft out on other computers yet.';
+const MINECRAFT_NOTHING_STORED='No Minecraft session was stored for your account, so there was nothing to sign out.';
+// A saved session of this account, as this machine holds it. The subject match is what makes
+// the session this account's rather than a leftover of another one.
+function sessionOfAccount(){return Boolean(company&&session&&company.account.microsoftSubject&&session.companySubject===company.account.microsoftSubject);}
+// Today's launch path: a saved refresh token can renew the session here, so nothing about this
+// press changes for the player whose Microsoft session is live on this machine.
+function localRefreshable(){return Boolean(sessionOfAccount()&&typeof session.refreshToken==='string'&&session.refreshToken);}
+// The day after a hand-over: the access token the launcher already holds is still good.
+function localTokenLive(){return Boolean(sessionOfAccount()&&session.accessToken&&Number.isFinite(session.expiresAt)&&session.expiresAt>Date.now()+60000);}
+// Which way a press would get its session, in the contract's order. `local`, `server`, or
+// `none` — and `server` is "the account service holds one for this account", which is a fact
+// the launcher only states after an answer, never a hope.
+function sessionSource(){
+ if(!company||!company.account.microsoftSubject)return 'none';
+ if(localRefreshable()||localTokenLive())return 'local';
+ return minecraft.state==='server'?'server':'none';
+}
+// Java access, per source. A local session is checked exactly as it always was; a minted one
+// is proof in itself, because the service cannot mint a Minecraft profile for an account that
+// does not own the game.
+function sessionAccessOk(){
+ const source=sessionSource();
+ if(source==='local')return identity.access(session)==='owned';
+ return source==='server';
+}
+// The Minecraft profile the launcher shows and launches with: this machine's own session
+// first, then the one the service minted. Nothing here is invented from the Company account.
+function launchProfile(){
+ if(session?.profile)return publicProfile(session);
+ const profile=mintedSession?.profile;
+ return profile?{name:profile.name,id:profile.id,skin:null}:null;
+}
+function minecraftSessionState(){
+ if(!company)return null;
+ if(!company.account.microsoftSubject)return 'unlinked';
+ if(microsoftConnected()||localTokenLive())return 'local';
+ if(minecraft.state==='checking'||minecraft.state==='reauth'||minecraft.state==='busy')return minecraft.state;
+ if(minecraft.state==='server')return 'server';
+ return 'required';
+}
+function minecraftStateField(){
+ const state=minecraftSessionState();
+ return state===null?null:{state,serverHeld:Boolean(minecraft.serverHeld),checkedAt:minecraft.checkedAt||null};
+}
+// The two spellings of a Minecraft profile id: 32 hex characters, which is what the game is
+// launched with, and the dashed form the account record holds. One helper each way, so the
+// account the service describes and the session it mints can never disagree about the player.
+function dashedUuid(id){const hex=String(id||'').replace(/-/g,'').toLowerCase();return /^[a-f0-9]{32}$/.test(hex)?[hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join('-'):null;}
+function bareUuid(id){return String(id||'').replace(/-/g,'').toLowerCase();}
+// The minted session in the shape a launch already uses, so nothing downstream has to know
+// which of the three ways it came from. No refresh token and no Xbox token: this is a
+// Minecraft access token and the profile it belongs to, and it is never persisted.
+function sessionFromMint(minted){
+ return {
+  serverMinted:true,
+  accessToken:minted.accessToken,
+  expiresAt:minted.expiresAt,
+  profile:{id:minted.profile.id,name:minted.profile.name,skin:session?.profile?.id===minted.profile.id?session.profile.skin:undefined},
+  minecraftAccess:'owned',
+  companySubject:company?.account.microsoftSubject||null,
+  accountId:minted.profile.id
+ };
+}
+// One request, three answers, and the state word each of them earns. `reauth_required` is the
+// one refusal about the Microsoft session itself; everything else — no such route, no answer,
+// a 5xx, a body this launcher cannot read — is no answer at all, and no answer never disables
+// anything. This is the only place a session is asked for, so a machine can never end up with
+// two different ideas of whether the account has one.
+async function mintMinecraftSession({announce=false}={}){
+ if(!company||!company.account.microsoftSubject)return {outcome:'none'};
+ minecraft={...minecraft,state:'checking'};
+ if(announce)notify({});
+ try{
+  const minted=await accounts.gameSession(company.token);
+  mintedSession=minted;
+  minecraft={state:'server',serverHeld:true,checkedAt:new Date().toISOString()};
+  // The service named this account's own Java profile. If the account's record disagreed, the
+  // service is the authority: it minted the session from the Microsoft account itself. The
+  // record keeps the dashed spelling its own validation requires, and the comparison is made
+  // on the bare one so the two can never disagree about punctuation.
+  const minecraftUuid=dashedUuid(minted.profile.id);
+  if(minecraftUuid&&(bareUuid(company.account.minecraftUuid)!==bareUuid(minecraftUuid)||company.account.minecraftName!==minted.profile.name)){
+   company={...company,account:{...company.account,minecraftUuid,minecraftName:minted.profile.name}};
+   await saveCompany();
+  }
+  notify({});
+  return {outcome:'server',session:minted};
+ }catch(error){
+  if(error?.name==='AbortError')throw error;
+  const code=String(error?.code||'');
+  // Four answers, four different owners (doc/launcher-states.md, "The four facts"):
+  //  * reauth_required is the only one about the Microsoft session itself, so it is the only one
+  //    answered with the interactive flow, and the stored session stops being something this
+  //    launcher claims.
+  //  * a dead Easter Company session is the ACCOUNT's news: the player signs in to their account
+  //    again, never to Microsoft for it.
+  //  * a rate limit or a service that cannot answer says nothing about the player's session: Play
+  //    stays off for that press, the sentence names the service, and no prompt is opened.
+  //  * no such route, no answer, or a body this launcher cannot read is no answer at all.
+  if(code==='reauth_required'){
+   mintedSession=null;
+   minecraft={state:'reauth',serverHeld:false,checkedAt:new Date().toISOString()};
+   notify({});
+   return {outcome:'reauth',error};
+  }
+  if(code==='invalid_session'){
+   minecraft={state:'unknown',serverHeld:Boolean(minecraft.serverHeld),checkedAt:new Date().toISOString()};
+   notify({});
+   return {outcome:'account',error};
+  }
+  if(code==='rate_limited'||code==='identity_provider_unavailable'||code==='session_key_unconfigured'||code==='microsoft_not_configured'||code==='database_unavailable'||error?.status===429||Number(error?.status)>=500){
+   minecraft={state:'busy',serverHeld:Boolean(minecraft.serverHeld),checkedAt:new Date().toISOString()};
+   notify({});
+   return {outcome:'busy',error};
+  }
+  minecraft={state:'unknown',serverHeld:Boolean(minecraft.serverHeld),checkedAt:new Date().toISOString()};
+  notify({});
+  return {outcome:code==='route_absent'?'absent':'unknown',error};
+ }
+}
+// The mint is asked for when the launcher has a reason to ask: after a sign-in that could have
+// stored a session, at startup when the saved session cannot launch on its own, and inside a
+// Play press. One at a time, and never by a page, a dialog or a view.
+function probeMinecraftSession(){
+ if(!company||!company.account.microsoftSubject)return null;
+ if(minecraftProbe)return minecraftProbe;
+ const run=mintMinecraftSession({announce:true});
+ minecraftProbe=run.finally(()=>{minecraftProbe=null;});
+ minecraftProbe.catch(()=>{});
+ return minecraftProbe;
+}
+// The hand-over is proved before it is believed: only a mint the service answered justifies
+// dropping this machine's own refresh token. From here on the local leg is the access token the
+// launcher already holds, and after that every launch mints from the service — which is the
+// point of the feature, and the honest cost of forgetting the token.
+async function dropSurrenderedRefreshToken(){
+ if(!session?.refreshToken)return;
+ const {refreshToken,...rest}=session;
+ session={...rest,serverHeld:true};
+ await saveSession();
+ notify({});
+}
 // Only a successful server-verified login replaces the current Company identity.
 async function enrolAccount({announce=true,throwOnError=false,candidate=session,lockCompany=true,onStage}={}){
  if(!candidate)return;
@@ -364,7 +539,11 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
   // on without it, and it is put in the first account request only.
   update('company-signing-in');
   const microsoftAccessToken=typeof auth.graphAccessToken==='function'?await auth.graphAccessToken(candidate.refreshToken,controller?.signal):null;
-  const signed=await accounts.login(candidate.xboxUserToken,controller?.signal,lockCompany&&company?.expiresAt>Date.now()?company.token:undefined,microsoftAccessToken,update);
+  // The hand-over (doc/launcher-states.md, "The hand-over, exactly once"): this machine's
+  // refresh token goes to the account service on this request and no other, so the account —
+  // not this computer — is what proves Microsoft from now on.
+  const surrendered=typeof candidate.refreshToken==='string'&&candidate.refreshToken?candidate.refreshToken:null;
+  const signed=await accounts.login(candidate.xboxUserToken,controller?.signal,lockCompany&&company?.expiresAt>Date.now()?company.token:undefined,microsoftAccessToken,update,surrendered);
   // The Microsoft identity the service answered with is not the one this launcher is signed
   // in to. The sentence is the account service's own, from the one table that words these
   // refusals (accounts.cjs MESSAGES), so the player reads the same copy whichever side
@@ -375,6 +554,14 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
   company=next;
   await loadSkin(session);await saveSession();await saveCompany();
   if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
+  // The hand-over is proved, never assumed: one mint, and only a session it answers justifies
+  // dropping this launcher's own copy of the refresh token. No answer at all (the route is not
+  // deployed, the service is unreachable) leaves this machine exactly as it was, which is why a
+  // launcher can ship before the routes exist.
+  if(surrendered){
+   const proved=await mintMinecraftSession();
+   if(proved?.outcome==='server')await dropSurrenderedRefreshToken();
+  }
   if(announce)notify({message:signed.created?'Easter Company account created. Set a password to finish.':'Signed in to your Easter Company account.'});
   // An interactive sign-in is the first moment the launcher can ask the game server
   // anything at all (the status read is authenticated with this session). It is a read
@@ -493,12 +680,20 @@ async function setGraphics(enabled){
   return {...installInfo(),graphics:graphicsState(),graphicsMessage:result.graphicsMessage||null};
  });
 }
-async function login(options={}){
+// The interactive Microsoft flow itself: one device code, one browser action, one enrolment.
+// It is one sequence of steps whether the player asked for it from the sign-in dialog or the
+// launcher fell back to it because the stored session was dead (doc/launcher-states.md,
+// "`reauth_required`: one sentence, one fallback, never a loop"), so both callers share it and
+// only the dialog's caller adds the operation wrapper around it.
+async function interactiveMicrosoft(options={}){
  controller=new AbortController();
  const activity=beginActivity('microsoft-opening');
+ // `reason` is how a sign-in the launcher started says why it is on screen: it leads the one
+ // sentence under the device code, and it is the main process's own copy, so no view words it.
+ const instruction=(typeof options.reason==='string'&&options.reason?options.reason+' ':'')+'Enter this code on Microsoft’s sign-in page.';
  notify({message:'Opening Microsoft sign-in…',device:null,...(control?{}:{progress:null})});
  try{
-  const signed=await auth.signIn(device=>{activity.update('microsoft-waiting');notify({device,message:'Enter this code on Microsoft’s sign-in page.'});},controller.signal,activity.update);
+  const signed=await auth.signIn(device=>{activity.update('microsoft-waiting');notify({device,message:instruction});},controller.signal,activity.update);
   const enrolled=await enrolAccount({candidate:signed,lockCompany:Boolean(company)||options.link===true,throwOnError:true,onStage:activity.update});
   notify({device:null,message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
   // The sign-in answer is the one place `emailStatus` leaves the main process, so the
@@ -506,6 +701,7 @@ async function login(options={}){
   return typeof enrolled?.emailStatus==='string'?{emailStatus:enrolled.emailStatus}:undefined;
  }finally{activity.end();controller=undefined;}
 }
+async function login(options={}){return interactiveMicrosoft(options);}
 // Install or update before launch. Returns the prepared release, or null when the
 // installed client is already current.
 async function ensureClient(){
@@ -597,25 +793,83 @@ async function play(){
  try{return await launchThrough();}
  finally{if(gameWake&&!gameWake.settled&&gameWake.controller)gameWake.controller.abort();}
 }
-async function launchThrough(){
- if(!companyReady()){settle(company?'Create your Easter Company password to finish setup.':'Sign in to your Easter Company account first.');return {requiresAccount:true};}
- if(!microsoftConnected()){settle('Sign in with the Microsoft account linked to '+(company.account.username||'your Easter Company account')+'.');return {requiresMicrosoft:true};}
- // Only now, with a real launch possible, does the press start a server: a press that
- // stops at the account checks must never wake anything.
- const waiting=beginGameWake();
- notify({phase:'launching',message:'Checking your Minecraft session…',device:null,progress:null});
- try{session=await withActivity('java-checking',update=>auth.refresh(session,undefined,true,false,update));}catch(error){
-  if(!['invalid_grant','invalid_request','unauthorized_client'].includes(error.code))throw error;
-  session=null;await saveSession();settle('Sign in with your linked Microsoft account to play.');return {requiresMicrosoft:true};
+// This press's own Microsoft session, re-checked exactly as it always was: the refresh, the
+// Java access check and the re-post of the Mojang token. Returns `{session}` when the launch
+// can go ahead with this machine's session, `{settled:true}` when the press has already been
+// settled with its own sentence, and null when this machine's copy could not be renewed at all
+// — which is not a dead end any more, because the account service may hold one instead.
+async function localLaunchSession(){
+ try{session=await withActivity('java-checking',update=>auth.refresh(session,undefined,true,false,update));}
+ catch(error){
+  if(error?.name==='AbortError')throw error;
+  if(!['invalid_grant','invalid_request','unauthorized_client','expired_token'].includes(error.code))throw error;
+  session=null;await saveSession();return null;
  }
  await saveSession();
  if(identity.access(session)!=='owned'||!session.profile){
-  settle('Minecraft Java Edition access is required to play.');return {requiresAccess:true};
+  settle('Minecraft Java Edition access is required to play.');return {settled:true};
  }
  // The Mojang token is the enrolment credential: every sign-in re-posts it, so a
  // session the API has forgotten or revoked is reissued here instead of on launch.
  await enrolAccount({announce:false,throwOnError:true});
- if(!companyReady()){settle('Create your Easter Company password to finish setup.');return {requiresAccount:true};}
+ if(!companyReady()){settle('Create your Easter Company password to finish setup.');return {settled:true};}
+ return {session};
+}
+// One Play press, three ways a session can come, in the contract's order
+// (doc/launcher-states.md, "One Play press, three ways a session can come").
+async function launchSession(){
+ if(localRefreshable()){
+  const local=await localLaunchSession();
+  if(local)return local;
+ }
+ // The day after a hand-over: the access token this machine already holds is still good, so it
+ // is used as it is, with no refresh and no re-post.
+ if(localTokenLive())return {session};
+ const minted=await mintMinecraftSession({announce:true});
+ if(minted?.outcome==='server')return {session:sessionFromMint(minted.session)};
+ if(minted?.outcome==='reauth'){
+  // One honest sentence, then the interactive flow — once. If the fresh sign-in does not end
+  // in a session this press stops there: a second prompt for the same press would be a loop.
+  settle(ACCOUNT_MESSAGES.reauth_required,{device:null});
+  await interactiveMicrosoft({link:true,reason:ACCOUNT_MESSAGES.reauth_required});
+  if(!companyReady()){settle('Create your Easter Company password to finish setup.');return {settled:true};}
+  if(identity.access(session)!=='owned'||!session.profile){settle('Minecraft Java Edition access is required to play.');return {settled:true};}
+  return {session};
+ }
+ if(minted?.outcome==='account'){
+  // The Easter Company session is not live any more. That is the account's own news, and the
+  // account's own sentence: signing in to Microsoft would not fix it.
+  settle(ACCOUNT_MESSAGES.invalid_session,{device:null,error:ACCOUNT_MESSAGES.invalid_session});
+  return {settled:true};
+ }
+ if(minted?.outcome==='busy'){
+  // The service is rate-limiting mints or cannot make one at all. The player's stored session is
+  // fine, so there is nothing to approve and nothing to sign in to: Play stays off for this press
+  // and the sentence says what the launcher can actually see.
+  const sentence=String(minted.error?.message||ACCOUNT_MESSAGES.rate_limited);
+  settle(sentence,{device:null,error:sentence});
+  return {settled:true};
+ }
+ // No session is available on this machine or from the account service. Today's sentence,
+ // unchanged, and the press stops here rather than guessing.
+ settle('Sign in with the Microsoft account linked to '+(company.account.username||'your Easter Company account')+'.');
+ return {requiresMicrosoft:true};
+}
+async function launchThrough(){
+ if(!companyReady()){settle(company?'Create your Easter Company password to finish setup.':'Sign in to your Easter Company account first.');return {requiresAccount:true};}
+ // A genuinely unlinked account is a different fact from a linked one this machine cannot make
+ // a session for, and it says so rather than asking for a sign-in that could not link anything.
+ if(!company.account.microsoftSubject){
+  settle('Link the Microsoft account you play Minecraft with to '+(company.account.username||'your Easter Company account')+'.');
+  return {requiresMicrosoft:true};
+ }
+ // Only now, with a real launch possible, does the press start a server: a press that
+ // stops at the account checks must never wake anything.
+ const waiting=beginGameWake();
+ notify({phase:'launching',message:'Checking your Minecraft session…',device:null,progress:null});
+ const obtained=await launchSession();
+ if(!obtained?.session)return obtained;
+ const sessionForLaunch=obtained.session;
  const prepared=await ensureClient();
  const record=client.record;
  const version=prepared?.version||record?.version;
@@ -631,7 +885,7 @@ async function launchThrough(){
  if(!waiting.settled)notify({phase:'starting-game',message:gameState().message,progress:null});
  await waiting.promise;
  notify({phase:'launching',message:'Starting Minecraft…',progress:null});
- const child=await launch(launchOptions({root:gameRoot(),version,javaPath,session,settings,launchEnv:launchEnvironment()}));
+ const child=await launch(launchOptions({root:gameRoot(),version,javaPath,session:sessionForLaunch,settings,launchEnv:launchEnvironment()}));
  game=child;
  // Do not store launch arguments or raw stdout; Minecraft writes its own latest.log.
  child.stdout?.on('data',()=>{});child.stderr?.on('data',()=>{});
@@ -742,7 +996,7 @@ function registerIPC(){
   // Settings asks this whenever it opens, and the answer carries the two shortcut
   // entries as they are on this computer right now rather than as last saved.
   await refreshShortcuts();
-  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
+  return {...state,shortcuts:shortcutState,profile:launchProfile(),account:publicAccount(company),minecraftSession:minecraftStateField(),sessionExpiresAt:company?.expiresAt||null,settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
  });
  handle('sign-in',async(options={})=>{
   if(controller||accountWorking)throw Error('Account sign-in is already running.');
@@ -767,6 +1021,9 @@ function registerIPC(){
    await saveSession();await saveCompany();
    if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
    notify({message:signed.created?'Account created. Choose your username and password.':'Provider connected.'});
+   // A provider sign-in can be the moment a stored Microsoft session becomes reachable, so
+   // the hero learns whether Play is available without waiting for a press.
+   void probeMinecraftSession();
    return publicAccount(company);
   }finally{if(controller===abort)controller=null;}
  }));
@@ -808,8 +1065,45 @@ function registerIPC(){
   await saveSession();await saveCompany();
   if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
   notify({message:'Signed in to '+(next.account.username||'your Easter Company account')+'.'});
+  // A password sign-in never has a Microsoft refresh token of its own, so the account service
+  // is the only place a session can come from. One mint tells the hero whether Play is
+  // available before the player presses anything, and leaves today's behaviour in place when
+  // the service has no such route.
+  void probeMinecraftSession();
   return publicAccount(company);
  }));
+ // "Sign out of Minecraft everywhere": the one stored session every machine mints from, ended by
+ // the player who owns it. The three answers are the contract's own, and each one is said as it
+ // is — the launcher never claims a machine was signed out on evidence it does not have.
+ async function revokeMinecraftEverywhere(){
+  if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
+  let answer;
+  try{answer=await accounts.revokeGameSession(company.token);}
+  catch(error){
+   // A service with no such route revoked nothing, and saying anything else would be a claim
+   // about other machines that this launcher cannot see.
+   if(error?.code==='route_absent')return {revoked:false,message:MINECRAFT_NOT_REVOCABLE};
+   throw error;
+  }
+  if(!answer?.revoked){
+   // The service's own honest "there was nothing stored": nothing was signed out on any machine,
+   // because there was nothing to sign out.
+   minecraft={...minecraft,serverHeld:false,checkedAt:new Date().toISOString()};
+   notify({message:MINECRAFT_NOTHING_STORED});
+   return {revoked:false,message:MINECRAFT_NOTHING_STORED};
+  }
+  // The stored session is gone, so nothing can be minted until the player signs in with
+  // Microsoft again: that is what the next press will ask for, and the state says so now.
+  mintedSession=null;
+  minecraft={state:'reauth',serverHeld:false,checkedAt:new Date().toISOString()};
+  notify({message:MINECRAFT_REVOKED});
+  return {revoked:true,message:MINECRAFT_REVOKED};
+ }
+ handle('sign-out-minecraft',()=>accountOperation(revokeMinecraftEverywhere));
+ // The hero's own retry for a launcher that could not make a session just now (the service was
+ // rate-limiting mints or could not answer). It is a read: one mint, no launch, and the state it
+ // leaves is the truth about whether Play can be offered.
+ handle('minecraft-session',()=>withActivity('account-working',()=>probeMinecraftSession()??Promise.resolve(minecraftStateField()),{replace:false}));
  // One boolean and one reason code, asked before the password step so the player learns a
  // A username is one canonical value: lowercase, surrounding whitespace dropped. Capitals
 // are folded here rather than refused, because typing them is a habit and the account
@@ -1134,7 +1428,7 @@ if(instance){
   }
   const saved=await vault.readEncrypted(accountsFile(),vaultOptions());
   if(saved&&Array.isArray(saved.accounts)){
-   savedAccounts=saved.accounts.filter(identity.valid);
+   savedAccounts=saved.accounts.filter(restorableSession);
    session=savedAccounts.find(entry=>identity.id(entry)===saved.active)||null;
    savedAccounts=session?[session]:[];await saveSession();
    state.remembered=Boolean(session);
@@ -1163,6 +1457,11 @@ if(instance){
   // auto-start waits for them rather than racing them.
   if(wantsAutoStart(process.argv))void autoStart();
   if(company)void renewCompany();
+  // One mint at startup when this machine's saved Microsoft session cannot launch on its own:
+  // an account whose session lives on the service is ready to play without a prompt, and the
+  // hero can only say that after asking. Never asked when nothing is saved, and never a
+  // failure the player sees when the service has no such route.
+  if(company&&company.account.microsoftSubject&&!localRefreshable()&&!localTokenLive())void probeMinecraftSession();
   // One silent status read, so the hero can say honestly that the server is offline
   // before anyone presses Play. Never a wake, and a failure leaves 'unknown' alone.
   if(company)void refreshGameStatus();

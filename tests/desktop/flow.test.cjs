@@ -429,9 +429,13 @@ test('the location guard is what the main process uses, not a second copy',async
  const source=await fs.readFile(path.join(__dirname,'../../desktop/main.cjs'),'utf8');
  assert.match(source,/require\('\.\/config\.cjs'\)/);
  assert.match(source,/ensureLocation\(resolveLocation\(/);
- // The one gate, computed in one place and reused by Play and by the game shortcut.
+ // The one gate, computed in one place and reused by Play and by the game shortcut. The
+ // Minecraft profile it checks against is the launcher's own answer — this machine's session,
+ // or the one the account service minted (doc/launcher-states.md, "The Minecraft session the
+ // account service holds") — and never a second computation in a view.
  assert.match(source,/function canPlayNow\(\)\{/);
- assert.match(source,/canPlay\(installInfo\(\),publicProfile\(session\)\)/);
+ assert.match(source,/canPlay\(installInfo\(\),launchProfile\(\)\)/);
+ assert.match(source,/function launchProfile\(\)\{/);
  assert.match(source,/properties:\['openDirectory','createDirectory'\]/);
  for(const channel of ['choose-location','set-location','start-install','pause-install','resume-install','cancel-install','check-updates'])
   assert.match(source,new RegExp("handle\\('"+channel+"'"),channel+' handler must exist');
