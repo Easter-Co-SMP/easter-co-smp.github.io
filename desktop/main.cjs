@@ -4,6 +4,10 @@ const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:
 const {MicrosoftAuth,SignInLog,DEFAULT_CLIENT_ID}=require('./auth.cjs');
 const {AccountClient,AccountError,publicAccount,companySession,storedSession,companyVaultName,MESSAGES:ACCOUNT_MESSAGES,USERNAME_PATTERN}=require('./accounts.cjs');
 const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation,serverList}=require('./config.cjs');
+// The game server's own half of the contract: the frozen status shape and the one
+// wait rule. Its two routes live on the account client (accounts.cjs), because the
+// game status is served from the account API's origin with the account's own session.
+const {GameWaitError,gameMessage,wakeServer}=require('./game.cjs');
 const vault=require('./vault.cjs');
 const {providerSignIn}=require('./providers.cjs');
 const {hydratePicture}=require('./profile.cjs');
@@ -98,6 +102,84 @@ function graphicsState(){
  return {enabled:Boolean(settings?.includeGraphics),recommended,tunable:Boolean(hardware?.tunable),tuned:quality};
 }
 function serversState(){return serverList();}
+// ---- The game server, which may be asleep --------------------------------
+// doc/launcher-states.md, "The game server, which may be asleep". This is game state,
+// not account state: it has its own field, its own copy and its own failure sentence,
+// and nothing in it can make the account, the client install or a download look wrong.
+// `gameServer` is the last answer the status service gave, `gameChecked` says whether
+// anybody has asked yet (so the launcher never calls a server offline it never asked
+// about), and `gameWake` is the wake-and-poll run a Play press started.
+let gameServer=null,gameChecked=false,gameCheckedAt=null,gameWake=null;
+function gameState(){
+ const status=gameServer;
+ const waking=Boolean(gameWake&&!gameWake.settled);
+ return {
+  state:status?status.state:'unknown',
+  ready:Boolean(status&&status.ready),
+  endpoint:status?status.endpoint:null,
+  since:status?status.since:null,
+  players:status?status.players:null,
+  detail:status?status.detail:null,
+  message:gameMessage(status||{state:'unknown',ready:false},{waking,checked:gameChecked}),
+  waking,
+  checkedAt:gameCheckedAt
+ };
+}
+// The session token is read per call rather than captured, so the renewal or reissue
+// that runs alongside a wake is used instead of failing the wait.
+function gameToken(){return company?.token||null;}
+// One route call, as the wait rule wants it: an answer it can respect, or the fact
+// that nothing answered. A refusal of the account session is the one code that keeps
+// its own sentence, because there the account really is the news; every other failure
+// is 'no answer', which is never reported as a server being online.
+async function gameAnswer(call){
+ try{return {ok:true,status:await call()};}
+ catch(error){
+  if(error?.name==='AbortError')throw error;
+  return {ok:false,code:String(error?.code||error?.name||'unreachable')};
+ }
+}
+function gameRoutes(signal){
+ const token=gameToken();
+ if(!token)return null;
+ return {
+  read:()=>gameAnswer(()=>accounts.gameStatus(gameToken(),signal)),
+  wake:()=>gameAnswer(()=>accounts.wakeGame(gameToken(),signal))
+ };
+}
+// One Play press starts at most one wake. The wait begins before the account and
+// client work in play(), so the cold start overlaps them instead of being paid after
+// them, and play() cancels it when it does not reach a launch.
+function beginGameWake(){
+ if(gameWake&&!gameWake.settled)return gameWake;
+ const routes=gameRoutes();
+ if(!routes)return {settled:true,controller:null,promise:Promise.resolve({outcome:'unknown',status:null,woke:false})};
+ const controller=new AbortController(),run={settled:false,controller,outcome:null};
+ gameWake=run;
+ run.promise=wakeServer({...routes,signal:controller.signal,onUpdate:({status})=>{
+  gameChecked=true;gameCheckedAt=new Date().toISOString();
+  if(status)gameServer=status;
+  notify({});
+ }}).then(result=>{run.outcome=result.outcome;return result;}).finally(()=>{
+  run.settled=true;
+  if(gameWake===run)gameWake=null;
+ });
+ // play() is the only caller that waits, and it may return early before it does.
+ run.promise.catch(()=>{});
+ return run;
+}
+// One silent status read, so the hero can honestly say the server is offline (or that
+// nobody has looked) before the player presses Play. It never wakes anything and never
+// announces a failure: an unreachable service leaves the state at 'unknown'.
+async function refreshGameStatus(){
+ if(gameWake&&!gameWake.settled)return;
+ const routes=gameRoutes();
+ if(!routes)return;
+ const answer=await gameAnswer(()=>accounts.gameStatus(gameToken()));
+ gameChecked=true;gameCheckedAt=new Date().toISOString();
+ if(answer.ok&&answer.status)gameServer=answer.status;
+ notify({});
+}
 // What still stands between the player and the game, in the order the launcher asks for
 // it. One list, computed here: the UI renders it, and the game shortcut reads it to
 // decide whether a launch may go ahead without stopping to ask the player anything.
@@ -133,7 +215,7 @@ function notify(patch={}){
  state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:[]};
  const install=installInfo(),actions=remainingActions();
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),settings,shortcuts:shortcutState,launcherUpdate}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),game:gameState(),settings,shortcuts:shortcutState,launcherUpdate}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
@@ -251,6 +333,10 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
   await loadSkin(session);await saveSession();await saveCompany();
   if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
   if(announce)notify({message:signed.created?'Easter Company account created. Set a password to finish.':'Signed in to your Easter Company account.'});
+  // An interactive sign-in is the first moment the launcher can ask the game server
+  // anything at all (the status read is authenticated with this session). It is a read
+  // and never a wake: pressing Play is the only thing that starts a server.
+  if(announce)void refreshGameStatus();
   // The account service's answer about the Microsoft account's own email address travels
   // back on the sign-in answer, not in the state: it is one status word ('stored',
   // 'unavailable', 'none') with no address in it, and the sign-in dialog is the only thing
@@ -460,9 +546,19 @@ function returnToLauncher(){
  trayHidden=false;
  showLauncher();
 }
+// Play and the game shortcut reach this one function. The wake a Play press may start
+// belongs to that press, so it is cancelled if the press does not end in a launch:
+// nothing is left polling behind a sign-in the player has to redo.
 async function play(){
+ try{return await launchThrough();}
+ finally{if(gameWake&&!gameWake.settled&&gameWake.controller)gameWake.controller.abort();}
+}
+async function launchThrough(){
  if(!companyReady()){settle(company?'Create your Easter Company password to finish setup.':'Sign in to your Easter Company account first.');return {requiresAccount:true};}
  if(!microsoftConnected()){settle('Sign in with the Microsoft account linked to '+(company.account.username||'your Easter Company account')+'.');return {requiresMicrosoft:true};}
+ // Only now, with a real launch possible, does the press start a server: a press that
+ // stops at the account checks must never wake anything.
+ const waiting=beginGameWake();
  notify({phase:'launching',message:'Checking your Minecraft session…',device:null,progress:null});
  try{session=await auth.refresh(session,undefined,true);}catch(error){
   if(!['invalid_grant','invalid_request','unauthorized_client'].includes(error.code))throw error;
@@ -481,6 +577,13 @@ async function play(){
  const version=prepared?.version||record?.version;
  const javaPath=settings.javaPath||prepared?.javaPath||record?.java;
  if(!version||!javaPath)throw Error('The game client is not installed yet.');
+ // Everything the account and the client needed is ready; the server is the only thing
+ // left. The cold start began when Play was pressed, so this normally finds it already
+ // running — but if it is still coming up, the state says so in its own phase and its
+ // own sentence, and the launch follows the moment it answers ready. The player is never
+ // asked to press Play a second time, and `starting-game` is never an account state.
+ if(!waiting.settled)notify({phase:'starting-game',message:gameState().message,progress:null});
+ await waiting.promise;
  notify({phase:'launching',message:'Starting Minecraft…',progress:null});
  const child=await launch(launchOptions({root:gameRoot(),version,javaPath,session,settings,launchEnv:launchEnvironment()}));
  game=child;
@@ -593,7 +696,7 @@ function registerIPC(){
   // Settings asks this whenever it opens, and the answer carries the two shortcut
   // entries as they are on this computer right now rather than as last saved.
   await refreshShortcuts();
-  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:[],settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
+  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:[],settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
  });
  handle('sign-in',async(options={})=>{
   if(controller||accountWorking)throw Error('Account sign-in is already running.');
@@ -989,6 +1092,9 @@ if(instance){
   // auto-start waits for them rather than racing them.
   if(wantsAutoStart(process.argv))void autoStart();
   if(company)void renewCompany();
+  // One silent status read, so the hero can say honestly that the server is offline
+  // before anyone presses Play. Never a wake, and a failure leaves 'unknown' alone.
+  if(company)void refreshGameStatus();
   const renewal=setInterval(()=>{if(company&&!accountWorking&&!controller)void renewCompany();},6*60*60*1000);renewal.unref();
   if(session?.profile&&!session.profile.skin){const target=session;void loadSkin(target).then(async()=>{if(session===target)await saveSession();});}
  });

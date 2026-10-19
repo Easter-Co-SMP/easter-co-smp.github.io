@@ -27,6 +27,12 @@ function install(){
    return {created:false,account,session:{token:'fixture-company-session',expiresAt:Date.now()+86400000}};
   }
   async logout(){}
+  // The game-server routes of the same frozen service. The fixture server is warm, so
+  // Play takes the path it always took: the status answers ready, no wake is sent and
+  // nothing waits. The cold-start rule itself is proven in tests/desktop/wake.test.cjs
+  // against tests/desktop/stub-game-api.mjs, which can be told to return any state.
+  async gameStatus(){return {state:'running',ready:true,endpoint:'smp.easter.company:25565',since:'2026-10-18T00:00:00Z',players:1,detail:null};}
+  async wakeGame(){return this.gameStatus();}
   // The owner-only verified email pair, answering the contract shape. A test that wants
   // the empty state or a refusal sets it on this fixture rather than on the UI.
   async emails(){return emailPayload();}
