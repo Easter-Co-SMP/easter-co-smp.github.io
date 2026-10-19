@@ -188,6 +188,21 @@ fixed: it carries no time, no address and no number, so no view has to fill a bl
 | timeout (a failure) | `Your server did not become joinable within three minutes. Press Play to try it again.` |
 | expired session (a failure) | `Your Easter Company session expired. Sign in again.` |
 
+### The username and the password, as of 1.0.27
+
+Two of Owen's rules, applied in every layer that states them:
+
+- **A capital letter in a username is folded, never refused.** The username is stored and
+  matched in lowercase, so the field converts as the player types (keeping the caret where
+  it was), the client folds again before the availability probe, and the main process folds
+  before validating. The help text says capitals are saved as lowercase. A name that is
+  genuinely illegal is still refused with its own sentence; case alone never is.
+- **The password floor is 8 characters, not 15.** The dialog's own `minlength`, the main
+  process check, the client's copy of the sentence and the account service all say 8, and
+  `tests/desktop/accounts.test.cjs` fails if any layer drifts. The service refuses the
+  obvious short passwords by name (password, 12345678, qwertyui, minecraft and their
+  neighbours), which a 15 character floor made unnecessary.
+
 ### How long each call is given, and why (1.0.25)
 
 Two client ceilings, both owned here rather than derived, and both larger than the

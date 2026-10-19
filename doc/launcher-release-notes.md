@@ -1,3 +1,12 @@
+# Easter Company launcher 1.0.27
+
+Two things about signing in with a Company username:
+
+- Capitals are no longer refused. Typing `OwenEaster` becomes `oweneaster` as you type,
+  and the field tells you so, because that is the form you sign in with.
+- The password minimum is 8 characters instead of 15, so a short password or a password
+  manager's default both work. Very common passwords are still refused.
+
 # Easter Company launcher 1.0.26
 
 Microsoft sign-in works again.

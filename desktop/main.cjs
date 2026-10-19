@@ -767,21 +767,32 @@ function registerIPC(){
   return publicAccount(company);
  }));
  // One boolean and one reason code, asked before the password step so the player learns a
- // username is taken before typing a password. No account data and no email come back.
+ // A username is one canonical value: lowercase, surrounding whitespace dropped. Capitals
+// are folded here rather than refused, because typing them is a habit and the account
+// service stores the lowercase form anyway. Everything else is left to the pattern, so a
+// name that really is illegal is still refused with its own sentence.
+function foldUsername(value){
+  return typeof value==='string'?value.trim().toLowerCase():'';
+}
+// username is taken before typing a password. No account data and no email come back.
  handle('company-username-check',async username=>{
-  if(typeof username!=='string'||!USERNAME_PATTERN.test(username))return {available:false,reason:'username_policy',message:ACCOUNT_MESSAGES.username_policy};
-  const found=await accounts.usernameAvailable(username);
+  // Capitals are folded, never refused: a username is stored and matched in lowercase,
+  // and typing Owen is a keyboard habit rather than a mistake worth an error.
+  const folded=foldUsername(username);
+  if(!folded||!USERNAME_PATTERN.test(folded))return {available:false,reason:'username_policy',message:ACCOUNT_MESSAGES.username_policy};
+  const found=await accounts.usernameAvailable(folded);
   return found.available?{available:true,reason:null,message:null}:{available:false,reason:found.reason||'username_taken',message:ACCOUNT_MESSAGES[found.reason]||ACCOUNT_MESSAGES.username_taken};
  });
  // The username is claimed with the first password and never travels again.
  handle('company-password',(password,replace=false,username)=>accountOperation(async()=>{
   if(!company)throw Error('Sign in with a provider first.');
-  if(typeof password!=='string'||[...password].length<15||[...password].length>128)throw Error('Use a password or passphrase of 15 to 128 characters.');
+  if(typeof password!=='string'||[...password].length<8||[...password].length>128)throw Error('Use a password or passphrase of 8 to 128 characters.');
   let claim=null;
   if(username!==undefined&&username!==null&&username!==''){
    if(company.account.username)throw Error('Your Easter Company username cannot be changed.');
-   if(typeof username!=='string'||!USERNAME_PATTERN.test(username))throw Error(ACCOUNT_MESSAGES.username_policy);
-   claim=username;
+   const folded=foldUsername(username);
+   if(!folded||!USERNAME_PATTERN.test(folded))throw Error(ACCOUNT_MESSAGES.username_policy);
+   claim=folded;
   }
   if(!company.account.username&&!claim)throw Error('Choose your Easter Company username first.');
   const signed=await accounts.setPassword(company.token,password,replace===true,claim);

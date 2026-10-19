@@ -23,8 +23,8 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  chooser.id='desktop-company-signin';username.id='desktop-company-username';password.id='desktop-company-password';
  chooser.setAttribute('aria-labelledby','company-signin-title');username.setAttribute('aria-labelledby','company-username-title');password.setAttribute('aria-labelledby','company-password-title');
  chooser.innerHTML='<button class="dialog-close" type="button" aria-label="Close account sign-in">×</button><h2 id="company-signin-title">Easter Company account</h2><button type="button" class="company-microsoft">Sign in with Microsoft</button><p class="company-provider-note">Please sign up using an existing online account provider, and then create an Easter Company account username &amp; password.</p><form><label>Username or Email<input name="identifier" autocomplete="username" maxlength="254" required spellcheck="false"></label><label>Password<input type="password" name="password" autocomplete="current-password" maxlength="128" required></label><div class="company-error" role="alert" hidden></div><button type="submit" class="company-submit">Sign in</button><button type="button" class="company-recover text-link">Forgot your password?</button></form>';
- username.innerHTML='<button class="dialog-close" type="button" aria-label="Close username setup">×</button><h2 id="company-username-title">Choose your Easter Company username</h2><p class="company-step">Step 1 of 2</p><form><label>Username<input name="username" autocomplete="username" maxlength="20" required spellcheck="false" aria-describedby="company-username-help"></label><p id="company-username-help">This is the name you sign in with, and it cannot be changed later. Use 3–20 characters: lowercase letters, numbers, underscores or dashes.</p><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Continue</button></form>';
- password.innerHTML='<button class="dialog-close" type="button" aria-label="Close password setup">×</button><h2 id="company-password-title">Create your Easter Company password</h2><p class="company-step">Step 2 of 2</p><p class="company-username"></p><p class="company-intro">Use your username or email and password to sign in directly next time.</p><form><label>New password<input name="password" type="password" minlength="15" maxlength="128" autocomplete="new-password" required aria-describedby="company-password-help"></label><p id="company-password-help">Use 15–128 characters. A long passphrase works well.</p><label>Confirm password<input name="confirm" type="password" minlength="15" maxlength="128" autocomplete="new-password" required></label><label class="company-show"><input type="checkbox" name="show">Show passwords</label><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Save password</button><button type="button" class="company-verify text-link" hidden>Verify with Microsoft</button></form>';
+ username.innerHTML='<button class="dialog-close" type="button" aria-label="Close username setup">×</button><h2 id="company-username-title">Choose your Easter Company username</h2><p class="company-step">Step 1 of 2</p><form><label>Username<input name="username" autocomplete="username" maxlength="20" required spellcheck="false" aria-describedby="company-username-help"></label><p id="company-username-help">This is the name you sign in with, and it cannot be changed later. Use 3–20 characters: letters, numbers, underscores or dashes. Capitals are saved as lowercase.</p><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Continue</button></form>';
+ password.innerHTML='<button class="dialog-close" type="button" aria-label="Close password setup">×</button><h2 id="company-password-title">Create your Easter Company password</h2><p class="company-step">Step 2 of 2</p><p class="company-username"></p><p class="company-intro">Use your username or email and password to sign in directly next time.</p><form><label>New password<input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required aria-describedby="company-password-help"></label><p id="company-password-help">Use 8–128 characters. A long passphrase works well.</p><label>Confirm password<input name="confirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></label><label class="company-show"><input type="checkbox" name="show">Show passwords</label><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Save password</button><button type="button" class="company-verify text-link" hidden>Verify with Microsoft</button></form>';
  // The verified emails section. The list renders whatever the account service reports, so
  // a provider that does not exist yet needs no new code here. Only the selected address is
  // a login key, and that is said in the section itself rather than implied.
@@ -77,9 +77,19 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  const lock=value=>{busy=value;for(const dialog of [chooser,username,password,emails]){dialog.setAttribute('aria-busy',String(value));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}if(!value&&providerAvailabilityState)for(const button of chooser.querySelectorAll('[data-provider]'))button.disabled=!providerAvailabilityState.includes(button.dataset.provider);chooser.querySelector('.company-submit').textContent=value?'Signing in…':'Sign in';username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';emails.querySelector('.company-submit').textContent=value?'Saving…':'Save selection';};
  // A username the server rejects is a plain sentence beside the field, never a hint
  // about any other account: taken and policy are the only two answers there are.
- const usernamePolicy='Use 3 to 20 characters: lowercase letters, numbers, underscores or dashes.';
+ const usernamePolicy='Use 3 to 20 characters: letters, numbers, underscores or dashes. Capitals become lowercase.';
  const usernameTaken='That username is already taken. Try another.';
  const checkUsername=typeof desktop.checkCompanyUsername==='function'?desktop.checkCompanyUsername.bind(desktop):null;
+ // Capitals are converted as they are typed rather than refused on submit: the help text
+ // says they are saved as lowercase, and the field shows that immediately. The caret is
+ // kept where it was, so folding mid-word does not jump the cursor to the end.
+ const usernameField=username.querySelector('[name=username]');
+ usernameField.addEventListener('input',()=>{
+  const at=usernameField.selectionStart,typed=usernameField.value,folded=typed.toLowerCase();
+  if(typed===folded)return;
+  usernameField.value=folded;
+  if(typeof at==='number')usernameField.setSelectionRange(at,at);
+ });
  for(const dialog of [chooser,username,password]){
   dialog.querySelector('.dialog-close').onclick=()=>{if(dialog===chooser&&providerPending){void desktop.cancelSignIn();return;}if(!busy)dialog.close();};
   dialog.addEventListener('cancel',event=>{if(busy){event.preventDefault();if(dialog===chooser&&providerPending)void desktop.cancelSignIn();}});
@@ -297,7 +307,9 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  }
  username.querySelector('form').onsubmit=async event=>{
   event.preventDefault();if(busy)return;
-  const chosen=event.currentTarget.elements.username.value.trim();
+  // One canonical value: the field is folded as it is typed (below) and again here, so a
+  // capital can never reach the server as a reason to refuse a name the player chose.
+  const chosen=event.currentTarget.elements.username.value.trim().toLowerCase();
   if(!/^[a-z0-9_-]{3,20}$/.test(chosen)){error(username,usernamePolicy);return;}
   error(username,'');lock(true);
   let verdict=null;
@@ -323,7 +335,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  password.querySelector('form').onsubmit=async event=>{
   event.preventDefault();if(busy)return;
   const form=event.currentTarget,secret=form.elements.password.value,claimed=pendingUsername;
-  if([...secret].length<15||[...secret].length>128){error(password,'Use 15 to 128 characters.');return;}
+  if([...secret].length<8||[...secret].length>128){error(password,'Use 8 to 128 characters.');return;}
   if(secret!==form.elements.confirm.value){error(password,'The passwords do not match.');form.elements.confirm.focus();return;}
   error(password,'');lock(true);
   let walkBack=null;
