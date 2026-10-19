@@ -85,8 +85,9 @@
         <li><strong>Linkage records used for moderation</strong> — which Company account, Microsoft identity and Minecraft UUID are connected. We keep this so a ban cannot be evaded by switching between them, and so we can help you if you lose access.</li>
       </ul>
 
-      <h3>3.4 Your Microsoft session, if you ask us to keep it</h3>
-      <p>Signing in with Microsoft gives the launcher a Minecraft session. So that you do not have to approve the same Microsoft account again on every machine, the account service can hold <strong>one</strong> Microsoft refresh token per Company account, encrypted with AES-256-GCM using a key held outside the database. Choosing <strong>Sign out of Minecraft everywhere</strong> in the launcher revokes it and erases the encrypted value. Without that choice nothing is kept server-side and your Microsoft session stays on your own device.</p>
+      <h3>3.4 Your Microsoft session</h3>
+      <p>Signing in with Microsoft gives the launcher a Minecraft session. So that you do not have to approve the same Microsoft account again on every machine, or after every restart, the account service keeps <strong>one</strong> Microsoft refresh token for your account, encrypted with AES-256-GCM using a key held outside the database and bound to your account identifier. A later Microsoft sign-in replaces it with the newer token. It is erased when you choose <strong>Sign out of Minecraft everywhere</strong> in the launcher, when Microsoft itself refuses it, or when you ask us to delete your account. We never see or store your Microsoft password.</p>
+      <p>If you would rather keep that session only on your own device, choose Sign out of Minecraft everywhere on each machine you have used. Your launcher's own copy of the session lives in your operating system's encrypted store, and Play will then ask you to sign in with Microsoft again.</p>
 
       <h3>3.5 If you play on the server</h3>
       <p>Operating a Minecraft server means recording what the game and its moderation require:</p>
