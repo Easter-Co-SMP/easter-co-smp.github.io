@@ -67,8 +67,11 @@ requirements; the main process never decides what the hero looks like.
    the download is what creates investment.
 2. **Once the download starts**, a sticky bottom bar appears (bottom centre,
    contents left aligned, themed progress bar, pause and resume, transfer speed,
-   percentage). The hero simultaneously switches to **Sign in with Microsoft**,
-   so the account request lands while the user is already waiting.
+   percentage). The hero simultaneously switches to **Sign in**, over
+   **Easter Company account required**, so the account request lands while the
+   user is already waiting. (It read **Sign in with Microsoft** — with
+   "Microsoft account required" — while Microsoft was the only provider; see
+   *The signed-out hero's own sentence*.)
 3. **Play is gated on both.** The Play action must not become available until the
    account is connected *and* the client is fully downloaded, verified and
    installed. Either alone is not enough.
@@ -82,26 +85,31 @@ requirements; the main process never decides what the hero looks like.
 ### The signed-out hero's own sentence (2026-10-19)
 
 The signed-out state — no Easter Company account at all, which is what *Required flow*
-step 2 describes once the download starts — reads **Sign in with Microsoft** over
-**Microsoft account required**. `site/desktop.js` owns both strings, as `LOGIN_ACTION`
-and `LOGIN_NOTE`, and the hero and the sticky bar read them from there:
-`tests/desktop/company-username.electron.mjs` asserts the pair.
+step 2 describes once the download starts — reads **Sign in** over **Easter Company
+account required**. `site/desktop.js` owns both strings, as `LOGIN_ACTION` and
+`LOGIN_NOTE`, so the hero and the sticky bar cannot disagree, and
+`tests/desktop/company-username.electron.mjs` asserts the pair and that the hero is
+*not* one provider's button.
 
-It is written down because it was briefly not that, and this record is what makes the
-next change to it deliberate. Commit 4341b90 (the provider-accounts change of
-2026-10-18) put the bare `Sign in` over `Easter Company account required` without
-amending this document, which *One verb, and sentences that carry no status* requires:
-the hero's own action while a download runs is one of the places that reads **Sign in
-with Microsoft**, and the journey had been changed to follow that section on purpose
-(commit 3f857a6, "the hero names where the account comes from rather than offering the
-chooser form's own bare Sign in"). Neither the bare label nor the Easter Company note
-appears anywhere in this contract.
+**Why the account and not Microsoft.** The chooser this action opens is titled **Easter
+Company account** and offers that account through Microsoft, Google, Steam or Discord
+(*Provider account state*, above, which supersedes the Microsoft-only descriptions here).
+A player who signed up with Discord and reads **Sign in with Microsoft** is being told to
+do something their account does not do. Microsoft is named at the step where it genuinely
+is the requirement: the linked-account hero's **Sign in with Microsoft / Starts Minecraft
+as <name>**, and the chooser's own Microsoft button — both unchanged, and both still
+asserted by the suites.
 
-Naming Microsoft in the hero is not a claim that Microsoft is the only way in. The
-chooser behind this action is titled **Easter Company account** and offers Microsoft,
-Google, Steam and Discord (*Provider accounts*), so a player who signed up with another
-provider finds their own button there; the hero names Microsoft because Minecraft itself
-requires the linked Microsoft/Xbox identity.
+**The two sentences this corrects, so nobody is led here again.** *Required flow* step 2
+and *One verb, and sentences that carry no status* both used to name the hero as one of
+the places that reads **Sign in with Microsoft**. Both were written before provider
+sign-in existed (commit 8b9971b, 2026-10-18 06:20) and neither was amended when it landed
+(4341b90, 18:44 the same day); read together with the supersede note at the top of this
+document and with *Provider account state*, the older wording is the superseded part, and
+the account's own words are what this contract now says. The journey had been changed to
+follow the older wording on purpose (3f857a6), which is why it was asserting a sentence
+the product had already stopped saying. Recorded here because the next change to this
+copy should be a deliberate one.
 
 ## State fields
 
@@ -1898,11 +1906,14 @@ code.
 
 **One verb for the Microsoft action.** One action was called *Link Microsoft Account* on
 the hero, *Login with Microsoft Account* in the chooser and *Login with Microsoft* in the
-sign-in dialog, all on one screen. It is **Sign in with Microsoft** now, everywhere the
-account is what the action is about — which is what *Required flow* has said since its
-first draft: the hero's own action while a download runs, the chooser's Microsoft button,
-and the sign-in dialog's title. The one button that is not that action is **Open the
-Microsoft page**, because that is all it does: it opens Microsoft's page in the browser
+sign-in dialog, all on one screen. It is **Sign in with Microsoft** now, everywhere that
+action itself is what is being named: the chooser's Microsoft button and the sign-in
+dialog's title. The signed-out hero is *not* that action — it asks for the Easter Company
+account, which any of the four providers supplies, and it reads **Sign in** (*The
+signed-out hero's own sentence*, 2026-10-19; this paragraph named the hero here until
+then, which was true only while Microsoft was the only provider). The one button that is
+not that action is **Open the Microsoft page**, because that is all it does: it opens
+Microsoft's page in the browser
 and signs nobody in by itself. The sentences around the action already used the same verb
 and are unchanged (`Sign in again.`, `Sign in with Microsoft or with your username.`,
 `Sign in with Microsoft to continue.`), and so is the setup copy that names the account

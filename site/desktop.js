@@ -30,16 +30,15 @@
  for(const selector of ['.hero-welcome','.home-below','.home-story','.home-notes'])document.querySelectorAll(selector).forEach(node=>node.remove());
 
  const TRANSFER=['downloading','paused','verifying','installing','updating'];
- // The signed-out action starts the Microsoft sign-in, which is where an account comes from, and
- // the hero says so: doc/launcher-states.md, *Required flow* step 2 — "The hero simultaneously
- // switches to **Sign in with Microsoft**" — and *One verb, and sentences that carry no status*,
- // which names "the hero's own action while a download runs" among the places that read it.
- // The chooser behind this action belongs to the Easter Company account, and it is where a player
- // who signed up with Google, Steam or Discord finds their own button; Minecraft still requires
- // the linked Microsoft identity, so the hero names where the account comes from. One action, one
- // name, in the hero and in the sticky bar. Both strings live here and nowhere else.
- const LOGIN_ACTION='Sign in with Microsoft';
- const LOGIN_NOTE='Microsoft account required';
+ // The signed-out action asks for the Easter Company account, and the chooser behind it offers that
+ // account through Microsoft, Google, Steam or Discord (doc/launcher-states.md, *Provider account
+ // state*), so it names the account and never one provider: "Sign in" over "Easter Company account
+ // required". Naming Microsoft here would ask a Discord or Google player to do something their
+ // account does not do; Microsoft is named at the step where it genuinely is the requirement, the
+ // linked-account hero's "Sign in with Microsoft / Starts Minecraft as <name>". One action, one
+ // name, and both strings live here so the hero and the sticky bar cannot disagree.
+ const LOGIN_ACTION='Sign in';
+ const LOGIN_NOTE='Easter Company account required';
  let companyAuth=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
