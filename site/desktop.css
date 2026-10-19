@@ -116,7 +116,6 @@
 .desktop-account-signin{font-size:11px;line-height:1.5;color:var(--app-muted);overflow-wrap:anywhere}
 .desktop-profile-menu button{display:block;width:100%;text-align:left;padding:11px 12px;border:0;border-radius:5px;background:transparent;color:inherit;font-size:12px;cursor:pointer}
 .desktop-profile-menu button:hover,.desktop-profile-menu button:focus-visible{background:#ffffff0a}
-.desktop-account-list{border-top:1px solid var(--app-border);margin-top:6px;padding-top:6px;font-size:12px}
 .launcher-bar{position:fixed;left:0;right:0;bottom:var(--launcher-bar-offset,16px);z-index:60;width:min(760px,calc(100vw - 32px));margin:0 auto;border:1px solid #ffffff30;border-radius:10px;background:#11252dfc;color:#e5e9df;box-shadow:0 10px 30px #0005;font-size:12px}
 .launcher-bar-body{display:flex;align-items:center;gap:20px;padding:16px 50px 16px 18px}
 .launcher-bar-info{flex:1;min-width:0}.launcher-bar-label{margin:0;font-size:12px;font-weight:600;overflow-wrap:anywhere}

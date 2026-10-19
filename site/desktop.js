@@ -917,11 +917,11 @@
   ['Verified emails',()=>{profileMenu.hidePopover();void companyUI.then(ui=>ui.emails()).catch(report);},'companyEmails']]){
   const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.profileAction=key;button.onclick=action;profileMenu.append(button);
  }
- const accountList=document.createElement('div');accountList.className='desktop-account-list';accountList.hidden=true;profileMenu.append(accountList);document.body.append(profileMenu);
+ document.body.append(profileMenu);
  const positionProfile=()=>{const rect=profileButton.getBoundingClientRect();profileMenu.style.top=rect.bottom+8+'px';profileMenu.style.right=Math.max(12,innerWidth-rect.right)+'px';};
  profileButton.onclick=()=>{
   if(!current?.account){signIn();return;}
-  accountList.hidden=true;profileMenu.togglePopover();positionProfile();
+  profileMenu.togglePopover();positionProfile();
   // The profile section asks for the account's own verified emails when it opens, which is
   // the only read of an address in the launcher. A failure is reported inside the section;
   // the line simply says what it knows.

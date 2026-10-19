@@ -234,10 +234,18 @@ try{
   if(width>=800){
    // At the window sizes the launcher itself can take, the sentence is on screen where it
    // is read: it must not be pushed below the dialog's own scroll area by the copy added
-   // around it.
-   const visible=await chooser.evaluate(dialog=>{
-    const node=dialog.querySelector('.company-error'),outer=dialog.getBoundingClientRect(),inner=node.getBoundingClientRect();
-    return inner.top>=outer.top&&inner.bottom<=outer.bottom;
+   // around it. The product makes that true by scrolling the chooser there, and it does so
+   // one task after the resize, so this waits for the reveal rather than sampling the tick
+   // before it - measuring immediately was a race in the journey, not a product defect
+   // (at 800x600 the chooser is 566px tall with 742px of content, and the sentence is
+   // inside it only once its scrollTop is 68).
+   const visible=await chooser.evaluate(async dialog=>{
+    const inside=()=>{
+     const node=dialog.querySelector('.company-error'),outer=dialog.getBoundingClientRect(),inner=node.getBoundingClientRect();
+     return inner.top>=outer.top&&inner.bottom<=outer.bottom;
+    };
+    for(let attempt=0;attempt<40&&!inside();attempt+=1)await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve,10)));
+    return inside();
    });
    assert.equal(visible,true,'the whole sentence is inside the chooser on screen at '+width+'px');
   }
