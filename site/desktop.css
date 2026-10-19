@@ -253,9 +253,16 @@
 #company-profile form button{width:100%;border-color:var(--app-gold)}
 .company-picture-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .company-provider-links{display:grid;gap:8px}
-.company-provider-link{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #ffffff18;font:13px/1.5 system-ui}
-.company-provider-link span{min-width:0;overflow-wrap:anywhere}
-.company-provider-link button{flex-shrink:0}
+.company-provider-link{display:grid;gap:3px;padding:8px 0;border-bottom:1px solid #ffffff18;font:13px/1.5 system-ui}
+.company-provider-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.company-provider-name{min-width:0;overflow-wrap:anywhere}
+.company-provider-head button{flex-shrink:0}
+/* What a linked provider itself holds: one line per value that exists. The block is drawn only
+   around lines that are there, so a provider with nothing known adds no space and no rule. */
+.company-provider-details{display:grid;gap:2px;margin:2px 0 2px;padding-left:10px;border-left:2px solid #ffffff20}
+.company-provider-detail{margin:0;font:12px/1.5 system-ui;color:var(--app-muted);overflow-wrap:anywhere}
+.company-provider-detail-label{color:#8fa39d}
+.company-provider-detail-value{color:#e5e9df}
 
 /* API waits stay beside the action and reserve no overlay or attention-grabbing toast. */
 .wait-feedback{display:flex;align-items:flex-start;gap:9px;color:var(--app-muted);font:12px/1.6 system-ui;text-align:left;overflow-wrap:anywhere}

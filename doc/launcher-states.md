@@ -3,9 +3,11 @@
 
 ## Provider account state
 
-Account state adds public providers, primaryProvider and a PNG picture data URI or null.
-Provider subjects, tokens and email addresses remain out of broadcasts. The state carries no
-account list: `account` is the one signed-in Easter Company account, switchAccount is removed
+Account state adds public providers, primaryProvider, public providerDetails and a PNG
+picture data URI or null. Provider subjects and tokens remain out of broadcasts, and so does
+every address of the verified-email route: the one address state carries is the Google
+provider link's own, inside `providerDetails`, bounded by *A linked provider's own details*.
+The state carries no account list: `account` is the one signed-in Easter Company account, switchAccount is removed
 from the preload, the IPC handlers and the renderer's own sign-in code (no caller may pass it,
 and the sign-in chooser has no such option), and signing in while signed in is refused until
 the player signs out. (Releases 1.0.23 to 1.0.31 still published an `accounts` array, empty in
@@ -1382,6 +1384,97 @@ already-linked provider re-ran the link flow and was answered "this account is a
 linked to an Easter Company account" every time, so it is gone rather than disabled and
 re-worded.
 
+## A linked provider's own details (2026-10-19)
+
+Owen's specification, verbatim: under each linked provider in the profile dialog's Linked
+accounts section, Microsoft / Xbox shows "Xbox Gamer Tag: <tag>" and "Minecraft Username:
+<name>", Google shows "Gmail: <address>", Steam shows "Username: <persona>" and Discord shows
+"Username: <username or display name>".
+
+**The account document carries them, and the dialog reads nothing else.** `providerDetails`
+is the account service's own record of what each linked provider holds:
+
+```
+providerDetails: {
+  microsoft: {gamertag: string|null, minecraftName: string|null},
+  google:    {email: string|null},
+  steam:     {persona: string|null},
+  discord:   {username: string|null, displayName: string|null}
+}
+```
+
+Every provider key is present with nulls where the value is unknown. The cloud side ships
+that field; until it does, a live account document has no `providerDetails` at all, which is
+"no details": nothing is drawn from it, every row keeps today's shape, and the dialog is
+never broken by its absence. A missing, malformed or non-object `providerDetails` is never an
+error, never a broken row and never a visible failure. The dialog adds no request of its own
+for any of these values. The Minecraft Username line is the exception in one direction only:
+it is drawn from the account state that already exists, so it appears for a linked Microsoft
+account whether or not `providerDetails` has arrived.
+
+| Row | Line drawn | Source |
+|---|---|---|
+| Microsoft / Xbox | `Xbox Gamer Tag: <tag>` | `account.providerDetails.microsoft.gamertag` |
+| Microsoft / Xbox | `Minecraft Username: <name>` | `account.minecraftName` |
+| Google | `Gmail: <address>` | `account.providerDetails.google.email` |
+| Steam | `Username: <persona>` | `account.providerDetails.steam.persona` |
+| Discord | `Username: <username or display name>` | `account.providerDetails.discord.username`, then `.displayName` |
+
+`account.minecraftName` and `account.providerDetails` are published by `publicAccount`
+(`desktop/accounts.cjs`) next to the fields it already publishes.
+
+**No value, no line.** A detail line is drawn only when the value exists. An unlinked
+provider has no detail block at all, and a linked provider with no known value draws no line:
+never a label with an empty value, a colon on its own, a brace, a placeholder, "null" or
+"undefined". A line is a label and a value and nothing else, so the row keeps today's shape
+around it: the label "Microsoft / Xbox · linked" with no button, the explanatory sentence
+above the list, and **Connect** only for a provider that is not linked.
+
+**The Minecraft name has exactly one source, and it is the account state's own.**
+`account.minecraftName` is the account document's field that `sanitizeAccount` already
+validates (`\w{1,16}`) and that already feeds the account's name. The `minecraftName` copy the
+cloud also carries inside `providerDetails.microsoft` is not read and is not published: the
+row would then have two sources that can disagree, and the one the launcher already trusts is
+the right one. The line falls back to nothing — never to the editable display name, which the
+player may set to anything.
+
+**Discord is one line with two possible sources**, in order: the username, then the display
+name. The first value that exists is the one shown, and if neither is known the row draws no
+line. No second Discord line is invented.
+
+**Every value is rebuilt in the main process before it can reach the DOM.** `sanitizeAccount`
+whitelists `providerDetails` field by field, because these are values that came from
+Microsoft, Steam and Discord:
+
+- a `providerDetails` that is not a plain object (a string, an array, a number, null) is
+  dropped entirely and the account is still valid — it is "no details", not a refusal;
+- a provider entry that is not a plain object is dropped, and so is any provider key that is
+  not linked on this account: state never carries details for a provider the account does not
+  claim. A linked provider whose values are all unknown is left out too, so
+  `account.providerDetails` is null until some linked provider has something to show;
+- every value must be a string. A number, a boolean, an object or an array is an unknown
+  value and becomes null rather than being coerced and printed;
+- a kept value is stripped of control and bidi-override characters, trimmed, and a handle is
+  capped at 64 characters;
+- the Google address must pass the launcher's existing email validator (a non-empty
+  `local@domain` of at most 254 characters, `sanitizeEmail`) or it is dropped rather than
+  shown, so the line can never print something that is not an address;
+- nothing else from the payload is kept: no unknown key, no nested object, no number.
+
+**The view renders text and only text.** `site/company-profile.mjs` builds each line with
+`textContent` on a label span and a value span, which is the only thing it does with a value:
+no `innerHTML`, no attribute, no URL, no markup interpretation. The view checks presence only;
+whether a value is fit to show was decided in the main process.
+
+**The Google address is the link's own, and it is not the verified-email list.** It is the
+address that Google link holds. It is not a sign-in key, it is not the list
+`GET /v2/accounts/emails` reports, and it does not enter the login-email selection: those
+addresses keep their owner-only route and their rule, and only this one provider-held address
+travels in state. It is never logged and never part of an error message. It travels with the
+account document, which means the existing encrypted account vault holds it exactly as it
+holds the account's other fields; the verified-email list is still asked for and never
+stored.
+
 ## Launcher UI review, 2026-10-18
 
 Home keeps the crest and small name in one compact control surface over the harbour.
@@ -1677,12 +1770,15 @@ one per linked provider, so a second provider (Steam, Discord) needs no launcher
 here beyond the provider's own name. The launcher renders whatever the server reports and
 groups no provider specially.
 
-**No address enters the state contract.** `launcher:state`, `status()` and every other
-broadcast carry no email: the account list, account switching, the skin cache, the profile
-heading and every other renderer path keep using the account id, the username and the
-display name. An address is asked for on demand, only for the profile section, through the
-two account actions below; it is never written to the settings file or the vault, never
-logged, never part of an error message, and never sent anywhere except the selection call.
+**No address of this list enters the state contract.** `launcher:state`, `status()` and every
+other broadcast carry none of these addresses: the account list, account switching, the skin
+cache, the profile heading and every other renderer path keep using the account id, the
+username and the display name. This list's addresses are asked for on demand, only for the
+profile section, through the two account actions below; they are never written to the
+settings file or the account vault, never logged, never part of an error message, and never
+sent anywhere except the selection call. The one address the launcher does carry is the Google
+link's own, published as `account.providerDetails.google.email`; see *A linked provider's own
+details*, which says why it is a different datum from this list's.
 
 **The routes are owner-only and are the only place an address comes back.**
 
@@ -1695,7 +1791,9 @@ logged, never part of an error message, and never sent anywhere except the selec
   not one of the player's own verified addresses is refused with `400 email_not_yours`.
 
 The launcher sends the chosen address and the session and nothing else. There is no route
-by which a renderer names an account, and no other call returns an address.
+by which a renderer names an account, and no other call returns an address of this list. (The
+account document does carry the Google link's own address in `providerDetails`; that is the
+provider's record, not this list's.)
 
 **Only the selected address is a sign-in key.** The selected address plus the password
 signs in; the other verified addresses stay recorded on the account and cannot be used to
