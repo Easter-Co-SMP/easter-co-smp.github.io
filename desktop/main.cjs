@@ -188,7 +188,7 @@ function beginGameWake(){
  if(gameWake&&!gameWake.settled)return gameWake;
  const controller=new AbortController();
  const routes=gameRoutes(controller.signal);
- if(!routes)return {settled:true,controller:null,promise:Promise.resolve({outcome:'unknown',status:null,woke:false})};
+ if(!routes)throw new GameWaitError('game_session_expired','Your Easter Company session expired. Sign in again.');
  const run={settled:false,controller,outcome:null};
  gameWake=run;
  run.promise=wakeServer({...routes,signal:controller.signal,onUpdate:({status})=>{

@@ -1,3 +1,12 @@
+## Readiness gate (2026-10-19)
+
+The deployed game-control service must confirm `ready: true` for the current
+published target before Play invokes Java. An unreachable, unreadable or `unknown`
+initial status stops with `game_status_unavailable`: "The game server status could
+not be checked. Try Play again shortly." No wake or bare join follows. Play stays
+available as the retry. This supersedes the legacy bare-join fallback below.
+An accepted wake without a body keeps polling from the last known state.
+
 ## Deployment metadata (2026-10-19)
 
 The versioned repository-root `deployment.json` is the production deployment source:

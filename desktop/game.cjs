@@ -35,7 +35,8 @@ const MESSAGES={
  // through the page notice, with Play as the retry.
  timeout:'Your server did not become joinable within three minutes. Press Play to try it again.',
  session:'Your Easter Company session expired. Sign in again.',
- target:'The game server address could not be confirmed. Try again shortly.'
+ target:'The game server address could not be confirmed. Try again shortly.',
+ unavailable:'The game server status could not be checked. Try Play again shortly.'
 };
 // ISO-8601 only, kept as the string the service wrote: the launcher never re-times a
 // server's own clock, and a value it cannot parse is dropped rather than shown.
@@ -109,9 +110,8 @@ function defaultSleep(ms,signal){
 //
 // 1. Ask once. A server that answers ready is joined immediately, exactly as the
 //    launcher joined it before this feature existed: no wake, no prompt, no wait.
-// 2. Nothing answered at all: the launcher has no answer to respect, so it returns
-//    'unknown' and the caller keeps its previous behaviour (the bare join). It never
-//    claims the server is online and never invents a cold start.
+// 2. An unreadable or unknown answer refuses launch and leaves Play as the retry.
+//    The deployed control service must confirm readiness; there is no bare join.
 // 3. An answer that is not ready is respected. `stopping` is waited out and never
 //    woken and never joined; everything else is woken exactly once, then polled every
 //    GAME_POLL_MS until the server answers ready, and the caller launches straight
@@ -132,14 +132,16 @@ async function wakeServer({read,wake,onUpdate=()=>{},signal,now=Date.now,sleep=d
    if(result?.code==='invalid_session')throw new GameWaitError('game_session_expired',MESSAGES.session);
    return false;
   }
+  if(!result.status)return false;
   answered=true;
-  known=result.status||{state:'unknown',ready:false,endpoint:serverAddress(),since:null,players:null,detail:null};
+  known=result.status;
   return true;
  };
  await call(read);
  report(false);
- if(!answered)return {outcome:'unknown',status:null,woke:false};
+ if(!answered)throw new GameWaitError('game_status_unavailable',MESSAGES.unavailable);
  while(true){
+  if(known.state==='unknown')throw new GameWaitError('game_status_unavailable',MESSAGES.unavailable);
   if(known.ready)return {outcome:'ready',status:known,woke:sent};
   // `stopping` is a server on its way down: waking it would be a second shutdown in
   // the way, and joining it is not possible. Wait for the state to change instead.
