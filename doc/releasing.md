@@ -26,6 +26,20 @@ name from `/releases/latest/download/`. The launcher job is
    (the account transport and vault: the exact public account shape the renderer receives,
    the proof path, no credential in the renderer, the safeStorage rule and logout
    revocation — it starts its own loopback stub and needs no fixture),
+   `xvfb-run -a node tests/desktop/company-username.electron.mjs` (the username journey,
+   against its own loopback stub that speaks the frozen account contract and records every
+   request body: the signed-out hero asking for the Easter Company account with no Company
+   ID anywhere, Microsoft signup with no username landing on step 1, the availability
+   probe's taken and policy refusals each keeping the player on step 1 and writing nothing,
+   the username chosen before the password in one call, a lost race walking back to step 1
+   with the typed name kept, username or email sign-in, the verified login email saved,
+   re-read, cleared and kept across a restart, a password change that reauthenticates
+   through the provider linked to the account, and Play appearing only once the account is
+   ready — it starts its own stub and needs no fixture. It was absent from this list until
+   2026-10-19, and that is how two of its expectations drifted from the product unnoticed:
+   the signed-out hero's sentence, and the username-policy refusal, which the product
+   reworded in 1.0.27 when capitals started being folded instead of refused while the
+   journey kept the older words),
    `xvfb-run -a node tests/desktop/launcher-identity-conflict.electron.mjs` (the identity
    conflict through the real preload: the refusal code crosses the isolated world, the
    chooser comes back with the account service's sentence, and the signed-in account is
@@ -159,9 +173,10 @@ Three ways this bites, all measured on 2026-10-19:
   few green runs is asking you to restart the fixture, not to debug the launcher.
 
 The other Electron journeys need no fixture. `accounts.electron.mjs` starts its own
-loopback stub and reads the account shape from it; `electron.mjs`, `flow.electron.mjs`,
-`launcher-identity-conflict.electron.mjs`, `ownership.electron.mjs`, `deslop.electron.mjs`
-and `shortcuts.electron.mjs` use their own harnesses. The exception is
+loopback stub and reads the account shape from it, and `company-username.electron.mjs`
+does the same and drives the whole username flow against it; `electron.mjs`,
+`flow.electron.mjs`, `launcher-identity-conflict.electron.mjs`, `ownership.electron.mjs`,
+`deslop.electron.mjs` and `shortcuts.electron.mjs` use their own harnesses. The exception is
 `wait-post-approval.electron.mjs`, which is the one journey needing a real fixture instance
 of its own (18798) with no harness around it. The browser, waits and drawings
 suites need only the static preview of `site/` (run them from the repository root, and note
