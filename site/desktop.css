@@ -265,5 +265,11 @@
 .desktop-activity{margin:14px 0 0}.desktop-auth-wait.wait-feedback{padding:4px 0;margin:0 0 18px}
 .desktop-company-dialog .company-wait{margin:12px 0;font-size:12px}.desktop-company-dialog .company-wait small{font-size:11px}
 #desktop-signin:has(.desktop-device:not([hidden])) .desktop-auth-wait{margin:0 0 18px;font-size:11px}
+/* The sign-in dialog is centred, so its wait line is centred too. The shared
+   .wait-feedback component is left-aligned for the hero, where it sits under a
+   left-aligned action; here that left the spinner and its sentence 108px left of
+   the dialog's centre line, reading as a stray block rather than as the status of
+   the step above it. */
+#desktop-signin .desktop-auth-wait{justify-content:center;text-align:center;text-wrap:balance}
 #desktop-signin.is-finishing{padding-top:34px;padding-bottom:28px}
 @media(prefers-reduced-motion:reduce){.wait-feedback-mark{animation:none;border-color:var(--app-gold);opacity:.7}}
