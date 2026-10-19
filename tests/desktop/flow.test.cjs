@@ -394,8 +394,13 @@ test('the graphics toggle is exposed on the isolated preload and handled origin-
  // The state the contract publishes, merged into the object status() already returns.
  // status() is what Settings asks when it opens, so it refreshes the two shortcut entries
  // before answering, and answers with everything the contract carries.
- assert.match(main,/handle\('status',async\(\)=>\{[\s\S]{0,300}?await refreshShortcuts\(\);[\s\S]{0,400}?return \{\.\.\.state,shortcuts:shortcutState,/,'status() refreshes the real shortcut state and spreads the state that carries hardware, graphics and servers');
- assert.match(main,/hardware:hardwareState\(\),graphics:graphicsState\(\),servers:serversState\(\)/,'every broadcast carries hardware, graphics and servers');
+ assert.match(main,/handle\('status',async\(\)=>\{[\s\S]{0,300}?await refreshShortcuts\(\);[\s\S]{0,400}?return \{\.\.\.state,shortcuts:shortcutState,/,'status() refreshes the real shortcut state and spreads the state that carries hardware and graphics');
+ assert.match(main,/hardware:hardwareState\(\),graphics:graphicsState\(\)/,'every broadcast carries hardware and graphics');
+ // There is no server list in the state: the launcher targets one fixed production server
+ // and the player has no address to choose (doc/launcher-states.md, "The one server the
+ // launcher targets").
+ assert.equal(/serversState|servers:/.test(main),false,'no state broadcast carries a server choice');
+ assert.equal(/serverList|SERVER_ENTRIES/.test(main),false,'main.cjs publishes no server entries');
  assert.match(main,/function chooseGraphicsDefault\(stored,recommended\)/,'the first-run default is decided once');
  assert.match(main,/require\('\.\/hardware\.cjs'\)/,'detection lives in its own module');
  assert.match(main,/app\.getGPUInfo\('complete'\)/);
@@ -508,8 +513,10 @@ test('the window steps aside with a tray or a way back, and returns when the gam
  assert.match(source,/if\(!process\.env\.DBUS_SESSION_BUS_ADDRESS\)return Promise\.resolve\(false\)/);
  assert.match(source,/if\(process\.platform!=='linux'\)return Promise\.resolve\(true\)/);
  assert.match(source,/resolve\(!error&&\/\\btrue\\b\/\.test\(String\(stdout\)\)\)/);
- // The Settings dialog reads the pair from the broadcast, which now carries it.
- assert.match(source,/servers:serversState\(\),game:gameState\(\),settings,shortcuts:shortcutState,launcherUpdate/,'the state broadcast publishes settings, the game server and the two shortcut entries');
+ // The Settings dialog reads the pair from the broadcast, which now carries it, and the
+ // broadcast carries no server choice beside it.
+ assert.match(source,/game:gameState\(\),settings,shortcuts:shortcutState,launcherUpdate/,'the state broadcast publishes settings, the game server and the two shortcut entries');
+ assert.equal(/servers:/.test(source),false,'and no server list');
  assert.match(source,/accounts:\[\],settings,totalMemoryMB/,'and so does the status the dialog reads on open');
  // No new privileged surface: the preferences ride on the existing settings channel.
  const preload=await fs.readFile(path.join(__dirname,'../../desktop/preload.cjs'),'utf8');

@@ -151,22 +151,14 @@ try{
    assert(!settingsText.includes(forbidden),'the settings dialog must not carry "'+forbidden+'"');
   assert.equal(await dialog.locator('.desktop-install-details,.desktop-progress,.desktop-play').count(),0,'the dialog carries no install section, progress bar or play button');
   assert.equal(await dialog.locator('[data-choose-location]').count(),0,'the installation folder is not a settings row');
-  const serverSelect=dialog.locator('select[name=serverSelect]');
-  // The options are filled from the state the main process broadcasts, so wait for them
-  // rather than reading a select that may still be empty.
-  await serverSelect.locator('option').first().waitFor({state:'attached'});
-  assert.equal(await serverSelect.inputValue(),'100.100.1.0:25565','the published default server is selected');
-  const pendingOption=serverSelect.locator('option[value="smp.easter.company:25565"]');
-  await pendingOption.waitFor({state:'attached'});
-  // The dialog re-renders as state arrives, so wait for the pending entry to settle as
-  // unusable instead of sampling a render that is still in flight.
-  await page.waitForFunction(()=>document.querySelector('#desktop-launcher select[name=serverSelect] option[value="smp.easter.company:25565"]')?.disabled===true,{timeout:20000});
-  // Playwright's isDisabled() reflects form controls, not <option disabled>, so read the
-  // property the browser actually enforces.
-  assert.equal(await pendingOption.evaluate(el=>el.disabled),true,'the pending server is shown as unavailable');
-  // A custom address is the player's own, and it round-trips through main's settings.
-  await serverSelect.selectOption('__custom__');
-  await dialog.locator('input[name=server]').fill('test.example:25565');
+  // No server address is offered anywhere: the launcher targets one fixed production
+  // server (doc/launcher-states.md, "The one server the launcher targets"), so the dialog
+  // and the state the real main process broadcasts both carry none.
+  assert.equal(await dialog.locator('select[name=serverSelect],input[name=server]').count(),0,'the real window offers no server address');
+  assert(!/server/i.test(settingsText),'and the dialog does not mention a server at all: '+settingsText);
+  const liveState=await page.evaluate(()=>window.easterDesktop.status());
+  assert.equal('servers' in liveState,false,'the state the real main process publishes carries no server list');
+  assert.equal('server' in liveState.settings,false,'and the settings it publishes carry no address: '+JSON.stringify(liveState.settings));
   const advanced=dialog.locator('.desktop-advanced');
   await advanced.locator('summary').click();
   await advanced.locator('input[name=memoryMB]').fill('3072');
@@ -215,11 +207,12 @@ try{
   assert.equal(await page.locator('.desktop-account-nav').textContent(),'Sign in');
  });
  const savedCustom=JSON.parse(await fs.readFile(path.join(temp,'settings.json'),'utf8'));
- assert.equal(savedCustom.server,'test.example:25565','a custom server address is saved exactly as typed');
+ // The save writes settings and no address: there is no longer a field to save.
+ assert.equal('server' in savedCustom,false,'the settings file carries no server address: '+JSON.stringify(savedCustom));
  assert.equal(savedCustom.memoryMB,3072,'the advanced memory setting reaches the settings file');
  // The graphics choice is persisted when the toggle could actually be driven (the fixture
  // may report an installed client whose marker file is absent, and the toggle then refuses
  // honestly instead of writing a choice it cannot honour).
  assert.equal(typeof savedCustom.includeGraphics,'boolean','the settings file records a graphics choice, never a missing field');
- console.log('DESKTOP PASS: no Skip intro control in the desktop DOM (Escape and the 4.6s bound still end the arrival), real Electron, isolated renderer, shared Home/Map, a single download action with the folder choice beside it, a settings-only dialog at the Play Now stage with a published server choice, the themed enhanced graphics toggle, native settings persistence, sign-in cancellation, device-code UI, authenticated Play, game lifecycle, no tokens in UI');
+ console.log('DESKTOP PASS: no Skip intro control in the desktop DOM (Escape and the 4.6s bound still end the arrival), real Electron, isolated renderer, shared Home/Map, a single download action with the folder choice beside it, a settings-only dialog at the Play Now stage that offers no server address at all, the themed enhanced graphics toggle, native settings persistence, sign-in cancellation, device-code UI, authenticated Play, game lifecycle, no tokens in UI');
 }finally{await fs.rm(temp,{recursive:true,force:true});}

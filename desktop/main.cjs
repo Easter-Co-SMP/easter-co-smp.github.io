@@ -3,7 +3,7 @@ const {app,BrowserWindow,protocol,net,ipcMain,shell,safeStorage,dialog,screen,Tr
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),{pathToFileURL}=require('node:url'),{execFile}=require('node:child_process');
 const {MicrosoftAuth,SignInLog,DEFAULT_CLIENT_ID}=require('./auth.cjs');
 const {AccountClient,AccountError,publicAccount,companySession,storedSession,companyVaultName,MESSAGES:ACCOUNT_MESSAGES,USERNAME_PATTERN}=require('./accounts.cjs');
-const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation,serverList}=require('./config.cjs');
+const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocation}=require('./config.cjs');
 // The game server's own half of the contract: the frozen status shape and the one
 // wait rule. Its two routes live on the account client (accounts.cjs), because the
 // game status is served from the account API's origin with the account's own session.
@@ -48,7 +48,10 @@ const clientId=process.env.EASTER_MICROSOFT_CLIENT_ID||DEFAULT_CLIENT_ID;
 // can be read back as which leg failed rather than guessed at. Nothing else writes it.
 const auth=new MicrosoftAuth({clientId,logPath:path.join(configRoot(),'signin.log'),version:APP_VERSION});
 const accounts=new AccountClient({baseUrl:apiOrigin(),client:'launcher/'+APP_VERSION});
-const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',server:'100.100.1.0:25565',location:'',includeGraphics:false,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false,desktopShortcut:false,startMenuShortcut:false};
+// No server field: the one address the launcher uses is config.cjs serverAddress(), a
+// fixed production target, and a settings file that still carries an older `server` value
+// is accepted and ignored (doc/launcher-states.md, "The one server the launcher targets").
+const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalmem()/1024/1024/2048)*1024)),javaPath:'',location:'',includeGraphics:false,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false,desktopShortcut:false,startMenuShortcut:false};
 // The launcher state contract in doc/launcher-states.md. `phase` and `progress`
 // are the live pipeline's; everything else is derived from the installed client,
 // the account session and the saved settings on every broadcast, so no view has to
@@ -101,7 +104,6 @@ function graphicsState(){
  const recommended=hardware?hardware.recommended:true;
  return {enabled:Boolean(settings?.includeGraphics),recommended,tunable:Boolean(hardware?.tunable),tuned:quality};
 }
-function serversState(){return serverList();}
 // ---- The game server, which may be asleep --------------------------------
 // doc/launcher-states.md, "The game server, which may be asleep". This is game state,
 // not account state: it has its own field, its own copy and its own failure sentence,
@@ -215,7 +217,7 @@ function notify(patch={}){
  state={...state,...patch,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:[]};
  const install=installInfo(),actions=remainingActions();
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),game:gameState(),settings,shortcuts:shortcutState,launcherUpdate}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftAccess:identity.access(session),microsoftAccount:identity.publicIdentity(session),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),game:gameState(),settings,shortcuts:shortcutState,launcherUpdate}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
@@ -696,7 +698,7 @@ function registerIPC(){
   // Settings asks this whenever it opens, and the answer carries the two shortcut
   // entries as they are on this computer right now rather than as last saved.
   await refreshShortcuts();
-  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:[],settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),servers:serversState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
+  return {...state,shortcuts:shortcutState,profile:publicProfile(session),account:publicAccount(company),sessionExpiresAt:company?.expiresAt||null,accounts:[],settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
  });
  handle('sign-in',async(options={})=>{
   if(controller||accountWorking)throw Error('Account sign-in is already running.');

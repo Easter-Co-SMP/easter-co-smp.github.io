@@ -66,9 +66,12 @@ try{
  for(const field of ['enabled','recommended','tunable','tuned'])check(field in initial.graphics,'graphics.'+field+' is present');
  check(initial.graphics.enabled===initial.install.includeGraphics,'graphics.enabled is install.includeGraphics under its player-facing name');
  check(typeof initial.graphics.recommended==='boolean','graphics.recommended is the automatic answer for this machine');
- check(Array.isArray(initial.servers)&&initial.servers.length>0,'status() publishes the server list');
- check(JSON.stringify(initial.servers.map(entry=>entry.address))===JSON.stringify(['100.100.1.0:25565','127.0.0.1:25565','smp.easter.company:25565']),'the servers are in display order: '+JSON.stringify(initial.servers.map(entry=>entry.address)));
- check(initial.servers.filter(entry=>entry.pending).length===1&&initial.servers[2].pending===true,'the entry with no DNS record is marked pending');
+ // The launcher targets one fixed production server, so the state carries no server list
+ // and the settings carry no address (doc/launcher-states.md, "The one server the
+ // launcher targets"). What the wake flow targets is the same one address.
+ check(!('servers' in initial),'status() publishes no server list');
+ check(!('server' in initial.settings),'the settings carry no server address: '+JSON.stringify(initial.settings));
+ check(initial.game&&initial.game.endpoint===null,'no host is named before anything has asked the status service: '+JSON.stringify(initial.game&&initial.game.endpoint));
  check(initial.install.location===initial.install.defaultLocation,'the app-owned directory is the default location');
  check(path.resolve(initial.install.location)===path.resolve(path.join(temp,'minecraft')),'the default location is inside the app data directory');
  check(initial.install.installed===false&&initial.install.version===null&&initial.install.updatedAt===null,'an uninstalled client reports no version and no timestamp');

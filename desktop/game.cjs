@@ -8,11 +8,15 @@
 // is one HTTP client in this launcher, not two.
 // Everything in this module is pure or clock-injected, so tests/desktop/wake.test.cjs
 // can prove the whole wake rule without a network and without Electron.
-const {GAME_STATES,GAME_ENDPOINT,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS,GAME_DETAIL_MAX}=require('./config.cjs');
-// The host the status service is frozen on (the cloud contract's `endpoint`). It is
-// published in the state and never substituted for the address the player saved:
-// Play keeps joining settings.server exactly as it always has.
-const ENDPOINT_PATTERN=/^[a-z0-9](?:[a-z0-9.-]{0,250}[a-z0-9])?:[0-9]{1,5}$/i;
+const {GAME_STATES,serverAddress,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS,GAME_DETAIL_MAX}=require('./config.cjs');
+// The address the launcher joins is published under `game.endpoint`, and it is the
+// launcher's own fixed target (config.cjs serverAddress()) rather than whatever the
+// status service names. One source of truth means the wake flow and the launch cannot
+// be aimed at two different hosts, which a launcher that woke one server and joined
+// another would be. doc/launcher-states.md, "The one server the launcher targets",
+// says why a service-supplied endpoint is ignored rather than published.
+// The account service's own wording for an expired session is restated in this table,
+// so this module needs no import from accounts.cjs (which imports this one).
 // One table of copy, so every surface reads the same sentence and no view composes
 // its own. These are the launcher's words about the game server; none of them says
 // anything about an account, a purchase or a client install, because a server that is
@@ -36,14 +40,6 @@ const MESSAGES={
  timeout:'Your server did not become joinable within three minutes. Press Play to try it again.',
  session:'Your Easter Company session expired. Sign in again.'
 };
-// The account service's own wording for an expired session, restated here so this
-// module needs no import from accounts.cjs (which imports this one).
-function sanitizeEndpoint(value){
- const endpoint=typeof value==='string'?value.trim():'';
- if(!endpoint||endpoint.length>256||!ENDPOINT_PATTERN.test(endpoint))return null;
- const port=Number(endpoint.split(':').pop());
- return port>=1&&port<=65535?endpoint:null;
-}
 // ISO-8601 only, kept as the string the service wrote: the launcher never re-times a
 // server's own clock, and a value it cannot parse is dropped rather than shown.
 function sanitizeSince(value){
@@ -72,7 +68,11 @@ function sanitizeGameStatus(payload){
  return {
   state,
   ready:payload.ready===true&&state==='running',
-  endpoint:sanitizeEndpoint(payload.endpoint)||GAME_ENDPOINT,
+  // The launcher's own target, never `payload.endpoint`. A service that named a
+  // different host must not be able to move where Play connects, and publishing an
+  // address the launcher will not join is a claim waiting to be believed, so the
+  // answer's own endpoint is not read at all.
+  endpoint:serverAddress(),
   since:sanitizeSince(payload.since),
   players,
   detail:sanitizeDetail(payload.detail)
@@ -130,7 +130,7 @@ async function wakeServer({read,wake,onUpdate=()=>{},signal,now=Date.now,sleep=d
    return false;
   }
   answered=true;
-  known=result.status||{state:'unknown',ready:false,endpoint:GAME_ENDPOINT,since:null,players:null,detail:null};
+  known=result.status||{state:'unknown',ready:false,endpoint:serverAddress(),since:null,players:null,detail:null};
   return true;
  };
  await call(read);
@@ -153,4 +153,4 @@ async function wakeServer({read,wake,onUpdate=()=>{},signal,now=Date.now,sleep=d
   if(!known.ready&&now()>=deadline)throw new GameWaitError('game_wake_timeout',MESSAGES.timeout);
  }
 }
-module.exports={GameWaitError,sanitizeGameStatus,sanitizeEndpoint,sanitizeSince,gameMessage,wakeServer,MESSAGES,GAME_STATES,GAME_ENDPOINT,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS};
+module.exports={GameWaitError,sanitizeGameStatus,sanitizeSince,gameMessage,wakeServer,MESSAGES,GAME_STATES,serverAddress,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS};

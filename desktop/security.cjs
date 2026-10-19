@@ -49,10 +49,11 @@ function apiFetch(url,{method='GET',headers={},body,signal}={}){
   request.end();
  });
 }
-// The server setting stays one plain string, and the launcher's own published
-// entries are just strings of the same shape. A value the player typed is kept
-// exactly as they typed it: nothing here rewrites it to an entry id, because the
-// launcher has no business replacing a server someone chose with its own list.
+// What a server address may look like: a hostname or IPv4 address, with an optional
+// port. The launcher no longer accepts an address from a player, so this rule is no
+// longer a settings rule at all: it guards the one test/development override
+// (EASTER_SERVER_ADDRESS in config.cjs) and nothing else. It stays here, one rule in
+// one place, because it was already the only description of the shape.
 const SERVER_ADDRESS=/^(?:[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?)(?::[0-9]{1,5})?$/i;
 function checkServer(value){
  const server=String(value||'').trim();
@@ -63,10 +64,16 @@ function checkServer(value){
 function cleanSettings(input,totalMB=16384){
  const memoryMB=Number(input.memoryMB);
  if(!Number.isInteger(memoryMB)||memoryMB<2048||memoryMB>Math.min(16384,Math.floor(totalMB)))throw Error('Choose a memory limit between 2 GB and the available memory.');
- const server=checkServer(input.server);
+ // The server address is not a setting any more (doc/launcher-states.md, "The one
+ // server the launcher targets"): the launcher targets one fixed production host, so
+ // there is nothing here to validate, nothing to store and nothing to reject. A
+ // settings file an older build wrote still carries `server`, and that value is
+ // accepted and dropped rather than argued with: refusing the file would send a player
+ // through setup again for a field they can no longer edit. An unreadable address in
+ // that field is equally irrelevant — the launcher never reads it.
  const javaPath=String(input.javaPath||'').trim();
  if(javaPath&&(!path.isAbsolute(javaPath)||!/^java(?:\.exe)?$/i.test(path.basename(javaPath))))throw Error('Select a Java executable named java or java.exe.');
- return {memoryMB,server,javaPath,autoUpdateLauncher:true,autoUpdateGame:true,...cleanLaunchPreferences(input),...cleanShortcutPreferences(input)};
+ return {memoryMB,javaPath,autoUpdateLauncher:true,autoUpdateGame:true,...cleanLaunchPreferences(input),...cleanShortcutPreferences(input)};
 }
 // The two game-shortcut preferences. Both are absent from every settings file written
 // before them, so both default to off: an existing install gets no new icon on the

@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {GameWaitError,sanitizeGameStatus,sanitizeEndpoint,sanitizeSince,gameMessage,MESSAGES,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS}=require('../../desktop/game.cjs');
+const {GameWaitError,sanitizeGameStatus,sanitizeSince,gameMessage,MESSAGES,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS}=require('../../desktop/game.cjs');
 const {AccountClient}=require('../../desktop/accounts.cjs');
-const {GAME_ENDPOINT}=require('../../desktop/config.cjs');
+const {PRODUCTION_SERVER,serverAddress}=require('../../desktop/config.cjs');
 // The cloud side of the game-server contract does not exist yet, so the two routes are
 // proven against a loopback stub (tests/desktop/stub-game-api.mjs) and the wait rule is
 // proven against a fake clock. Nothing here touches the account API origin or a real
@@ -67,13 +67,19 @@ test('a body that is not the frozen shape is no answer at all',()=>{
  assert.equal(sanitizeGameStatus({state:'hibernating',ready:true}).ready,false);
 });
 
-test('endpoint, since, players and detail are bounded, and nothing else is kept',()=>{
- assert.equal(sanitizeEndpoint('smp.easter.company:25565'),'smp.easter.company:25565');
- assert.equal(sanitizeEndpoint('127.0.0.1:25565'),'127.0.0.1:25565');
- for(const value of ['smp.easter.company','smp.easter.company:0','smp.easter.company:70000','http://smp.easter.company:25565','',null,'a'.repeat(300)+':25565'])assert.equal(sanitizeEndpoint(value),null,String(value));
+test('the published endpoint is the launcher\'s own target, and the service cannot move it',()=>{
+ // The launcher joins one address and it is the constant. A status answer that names a
+ // different host is not read at all: a launcher that woke one server and joined another
+ // would be worse than one that woke nothing (doc/launcher-states.md, "The one server the
+ // launcher targets").
+ assert.equal(sanitizeGameStatus({state:'running'}).endpoint,PRODUCTION_SERVER,'no endpoint in the answer still means the launcher\'s own');
+ for(const named of ['elsewhere.example:25565','127.0.0.1:25599','nonsense','http://smp.easter.company:25565','',null,42])
+  assert.equal(sanitizeGameStatus({state:'running',endpoint:named}).endpoint,PRODUCTION_SERVER,JSON.stringify(named)+' is never published, let alone launched');
+ // The wake engine\'s own fallback status agrees, so the two paths cannot disagree.
+ assert.equal(PRODUCTION_SERVER,serverAddress());
  assert.equal(sanitizeSince('2026-10-18T00:00:00Z'),'2026-10-18T00:00:00Z');
  for(const value of ['whenever','2026-10-18',123])assert.equal(sanitizeSince(value),null,String(value));
- const status=sanitizeGameStatus({state:'running',players:3,since:'2026-10-18T00:00:00Z',endpoint:GAME_ENDPOINT,detail:'  Warming up  ',token:'must-not-travel'});
+ const status=sanitizeGameStatus({state:'running',players:3,since:'2026-10-18T00:00:00Z',endpoint:PRODUCTION_SERVER,detail:'  Warming up  ',token:'must-not-travel'});
  assert.deepEqual(Object.keys(status).sort(),['detail','endpoint','players','ready','since','state']);
  assert.equal(status.players,3);
  assert.equal(status.detail,'Warming up');
@@ -81,8 +87,31 @@ test('endpoint, since, players and detail are bounded, and nothing else is kept'
  const odd=sanitizeGameStatus({state:'running',players:-1,detail:42,endpoint:'nonsense'});
  assert.equal(odd.players,null);
  assert.equal(odd.detail,null);
- assert.equal(odd.endpoint,GAME_ENDPOINT,'an unusable endpoint falls back to the frozen address');
+ assert.equal(odd.endpoint,PRODUCTION_SERVER);
  assert.equal(sanitizeGameStatus({state:'running',detail:'x'.repeat(400)}).detail.length,200);
+});
+
+test('the wake state and the launch target are one address, override included',()=>{
+ // The one thing this whole change is for: a launcher must never wake one host and join
+ // another. Both sides read config.cjs serverAddress(), so the only way they differ is
+ // if one of them starts reading something else.
+ const {launchOptions}=require('../../desktop/install.cjs');
+ const session={profile:{id:'1234567890abcdef1234567890abcdef',name:'Captain'},accessToken:'test-secret'};
+ const previous=process.env.EASTER_SERVER_ADDRESS;
+ try{
+  delete process.env.EASTER_SERVER_ADDRESS;
+  assert.equal(sanitizeGameStatus({state:'running'}).endpoint,PRODUCTION_SERVER);
+  assert.deepEqual(launchOptions({root:'/tmp/easter-game',version:null,javaPath:'/java/bin/java',session}).extraMCArgs,['--quickPlayMultiplayer',PRODUCTION_SERVER]);
+  // The suites\' override moves both of them together, which is what a loopback fixture
+  // needs and what a settings file can no longer do.
+  process.env.EASTER_SERVER_ADDRESS='127.0.0.1:25598';
+  assert.equal(serverAddress(),'127.0.0.1:25598');
+  assert.equal(sanitizeGameStatus({state:'running',endpoint:stubApi.ENDPOINT}).endpoint,'127.0.0.1:25598');
+  assert.deepEqual(launchOptions({root:'/tmp/easter-game',version:null,javaPath:'/java/bin/java',session}).extraMCArgs,['--quickPlayMultiplayer','127.0.0.1:25598']);
+ }finally{
+  if(previous===undefined)delete process.env.EASTER_SERVER_ADDRESS;
+  else process.env.EASTER_SERVER_ADDRESS=previous;
+ }
 });
 
 test('the copy says what is true and never calls an unlooked-at server offline',()=>{
@@ -197,7 +226,10 @@ test('the account client reads the status with the Company session and no other 
  const stub=await stubApi.startGameStub({state:'running',players:2});
  try{
   const status=await client(stub.origin).gameStatus(stubApi.TOKEN);
-  assert.deepEqual(status,{state:'running',ready:true,endpoint:stubApi.ENDPOINT,since:'2026-10-18T00:00:00Z',players:2,detail:null});
+  // The stub answers with an endpoint of its own; the launcher publishes the address it
+  // will actually join instead, so a service answer can never become a launch target.
+  assert.equal(stubApi.ENDPOINT!==PRODUCTION_SERVER,true,'the fixture deliberately names another host');
+  assert.deepEqual(status,{state:'running',ready:true,endpoint:PRODUCTION_SERVER,since:'2026-10-18T00:00:00Z',players:2,detail:null});
   assert.equal(stub.calls.length,1);
   assert.equal(stub.calls[0].method,'GET');
   assert.equal(stub.calls[0].url,'/v2/game/status');

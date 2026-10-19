@@ -3,6 +3,7 @@ const {downloadVerified,publishedManifest,setFailureLog,launchOptions,generateAr
 const updater=require('../../desktop/updater.cjs');
 const {SignInLog}=require('../../desktop/auth.cjs');
 const {localFile,cleanSettings,publicProfile,externalURL,trustedFrame}=require('../../desktop/security.cjs');
+const {PRODUCTION_SERVER}=require('../../desktop/config.cjs');
 test('download checksum mismatch preserves last good file; retries atomically replace it',async()=>{
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'easter-download-test-'));const file=path.join(dir,'client.jar'),original=global.fetch;
  await fs.writeFile(file,'previous');const data=Buffer.from('verified'),hash=crypto.createHash('sha256').update(data).digest('hex');
@@ -24,7 +25,9 @@ test('only safe app paths and HTTPS external links are accepted',()=>{
  const main={url:'easter://easter/'};assert(trustedFrame({senderFrame:main,sender:{mainFrame:main}}));assert(!trustedFrame({senderFrame:{url:'easter://easter/'},sender:{mainFrame:main}}));
 });
 test('settings reject command strings; public account view omits all tokens',()=>{
- assert.deepEqual(cleanSettings({memoryMB:4096,server:'play.example.com:25565',javaPath:''}),{memoryMB:4096,server:'play.example.com:25565',javaPath:'',autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false,desktopShortcut:false,startMenuShortcut:false});
+ // No server field comes out of the settings any more, and one going in is ignored
+ // rather than validated (doc/launcher-states.md, "The one server the launcher targets").
+ assert.deepEqual(cleanSettings({memoryMB:4096,server:'play.example.com:25565',javaPath:''}),{memoryMB:4096,javaPath:'',autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false,trayOnLaunch:false,desktopShortcut:false,startMenuShortcut:false});
  // Update opt-outs, including legacy false values, cannot disable mandatory updates.
  assert.deepEqual(
   (({autoUpdateLauncher,autoUpdateGame,exitOnLaunch})=>({autoUpdateLauncher,autoUpdateGame,exitOnLaunch}))(
@@ -34,16 +37,25 @@ test('settings reject command strings; public account view omits all tokens',()=
   (({autoUpdateLauncher,autoUpdateGame,exitOnLaunch})=>({autoUpdateLauncher,autoUpdateGame,exitOnLaunch}))(
    cleanSettings({memoryMB:4096,server:'',autoUpdateLauncher:'yes',autoUpdateGame:0,exitOnLaunch:null})),
   {autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:false});
- for(const server of ['host;rm -rf /','$(command)','server:65536','--argument'])assert.throws(()=>cleanSettings({memoryMB:4096,server}));
+ // A stored address is not cleaned, because it is not used: it is dropped, whatever it
+ // says, and command strings in it reach no argument list.
+ for(const server of ['host;rm -rf /','$(command)','server:65536','--argument'])assert.equal('server' in cleanSettings({memoryMB:4096,server}),false);
  assert.throws(()=>cleanSettings({memoryMB:90000,server:''}));assert.throws(()=>cleanSettings({memoryMB:4096,server:'',javaPath:'/bin/bash'}));
  const profile=publicProfile({profile:{id:'test',name:'Captain',accessToken:'private'},accessToken:'secret'});assert.deepEqual(profile,{id:'test',name:'Captain',skin:null});
 });
 test('launch arguments carry the authenticated identity and Quick Play without a shell',async()=>{
  const session={profile:{id:'1234567890abcdef1234567890abcdef',name:'Captain'},accessToken:'test-secret',clientId:'easter-app',xuid:'1234'};
  const version={id:'fabric-test',minecraftVersion:'26.2',type:'release',assets:'26',mainClass:'net.fabricmc.loader.impl.launch.knot.KnotClient',libraries:[],arguments:{jvm:['-cp','${classpath}'],game:['--username','${auth_player_name}','--accessToken','${auth_access_token}','--clientId','${clientid}','--xuid','${auth_xuid}']}};
+ // The join target is the launcher's own constant, never a value from settings: a
+ // settings payload that names another server (as an existing install's file does) is
+ // ignored, and the client is sent to the production host the wake flow targets.
  const options=launchOptions({root:'/tmp/easter-game',version,javaPath:'/java/bin/java',session,settings:{memoryMB:4096,server:'server.example:25565'}});
  const args=await generateArguments(options);
- assert.equal(options.extraExecOption.shell,false);assert(args.includes('test-secret'));assert(args.includes('Captain'));assert(args.includes('easter-app'));assert(args.includes('1234'));assert(args.includes('--quickPlayMultiplayer'));assert(args.includes('server.example:25565'));assert(!args.some(arg=>arg.includes('${')));
+ assert.equal(options.extraExecOption.shell,false);assert(args.includes('test-secret'));assert(args.includes('Captain'));assert(args.includes('easter-app'));assert(args.includes('1234'));assert(args.includes('--quickPlayMultiplayer'));assert(args.includes(PRODUCTION_SERVER));assert(!args.includes('server.example:25565'),'a stored address never becomes the launch target');assert(!args.some(arg=>arg.includes('${')));
+ // The same address reaches the argument list through the override, so what the suites
+ // launch against is the one place that decides it.
+ const overridden=launchOptions({root:'/tmp/easter-game',version,javaPath:'/java/bin/java',session,server:'127.0.0.1:25599'});
+ assert((await generateArguments(overridden)).includes('127.0.0.1:25599'));
 });
 // The player reads what stopped and what to do about it; the status they cannot act on is kept where
 // a failure is diagnosable instead (doc/launcher-states.md, "One verb, and sentences that carry no

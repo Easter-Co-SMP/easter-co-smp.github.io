@@ -61,7 +61,7 @@ meaning. These are added or extended:
 | `actions` | array | Ordered remaining requirements, each `download` or `signin`. Empty means nothing is required |
 | `canPlay` | boolean | Exactly `install.installed && profile !== null` |
 | `bar` | object | `{visible}`: progress/action dock availability. The renderer omits an idle dock on Home because Home already provides the action; utility pages retain it. The minimised preference stays renderer-local. |
-| `settings` | object | The saved settings, exactly as `status()` already returned them, so the Settings dialog refreshes from a broadcast as well as from a read. |
+| `settings` | object | The saved settings, exactly as `status()` already returned them, so the Settings dialog refreshes from a broadcast as well as from a read. It carries no server address: the launcher's target is a constant, not a setting (*The one server the launcher targets*). |
 | `game` | object | The game server's own state, always present in desktop mode: `{state, ready, endpoint, since, players, detail, message, waking, checkedAt}`. It is a different service from the account and shares no field with it; see *The game server, which may be asleep*. |
 | `error` | string \| null | Safe operation failure text, announced in the one broadcast that carries it and dropped from the next, so no later unrelated broadcast can repaint an old failure; a new account action clears it as it starts. A sign-in failure names its step (see *Sign-in steps, sentences and the redacted log*). **It has exactly one home, and the UI decides it, not the state:** while the sign-in dialog is on screen the failure belongs to that dialog's own error area and to nothing else; otherwise it belongs to the page notice, with its dismiss control — but **not while any modal dialog is open**, because a notice under a modal is a message the player can neither read nor dismiss. For that time the sentence is held with no surface at all, and the last modal to close gives it back once. The Settings dialog is never an error surface. The renderer owns the sentence once delivered — it keeps it without re-reading this field, and only a dismissal or a new action (sign-in, Play, download, save settings) takes it away. A failure already given a home is never shown again by a later broadcast, a re-open or a close. Cancellation is not an error. Older states without this field still render. |
 
@@ -123,7 +123,7 @@ Both routes answer with that shape; the wake's answer is already the first poll,
 |---|---|---|
 | `game.state` | string | One of `running`, `starting`, `stopping`, `stopped`, `unknown`, exactly as the service said. `unknown` also means "the launcher could not read the status". Never a claim of being online. |
 | `game.ready` | boolean | The frozen `ready` flag, and the only thing that authorises a launch. `false` while `unknown`, while `stopping`, and whenever the answer is not `running`. |
-| `game.endpoint` | string \| null | The address the service names (`smp.easter.company:25565`), or the frozen address when it names none. **It is published, never joined:** Play keeps launching with the address in `settings.server`, exactly as it always has. |
+| `game.endpoint` | string \| null | Unless nothing has been asked yet, the address the launcher will join: the one fixed target in `desktop/config.cjs` (`smp.easter.company:25565`, or the test-only override). **It is the launch target, not an echo of the answer:** a value the status service names is not read at all, because a launcher that woke one host and joined another would be worse than one that woke nothing. See *The one server the launcher targets*. |
 | `game.since` | string \| null | The service's ISO-8601 timestamp, kept as written and dropped when it is not one. |
 | `game.players` | number \| null | The service's player count, an integer or null. Published; not printed today, because a stopped server has nobody on it and the joinable case says nothing at all. |
 | `game.detail` | string \| null | The service's own detail sentence, bounded to 200 characters, shown below the launcher's sentence. Never replaces it, and the service's other fields are dropped. |
@@ -143,9 +143,9 @@ The wait starts the moment Play is pressed, so the cold start overlaps the sessi
 re-check and the client verification instead of being paid after them. Then:
 
 1. **Warm (`ready: true`).** The game is launched immediately with the same arguments as
-   before this change, including `--quickPlayMultiplayer <settings.server>`. No wake, no
-   prompt, no progress bar, no line on screen. This is the common case once somebody is
-   online.
+   before this change, including `--quickPlayMultiplayer <the launcher's one address>`.
+   No wake, no prompt, no progress bar, no line on screen. This is the common case once
+   somebody is online.
 2. **`stopped`, `starting`, or the service's own `unknown`.** One `POST /v2/game/wake`,
    then `GET /v2/game/status` **every 3 seconds**. The instant an answer is ready the
    game is launched — inside the same Play press, so the player never presses Play twice.
@@ -155,7 +155,7 @@ re-check and the client verification instead of being paid after them. Then:
    it turns stopped it is woken, once.
 4. **No answer at all.** `game.state` is `unknown` and `game.ready` is false. The
    launcher has no answer to respect, so it keeps the behaviour it had before this
-   feature existed: it launches the client with the configured server, wakes nothing,
+   feature existed: it launches the client with its one fixed address, wakes nothing,
    and claims nothing. The player sees the unknown sentence, and the game's own
    connection result is the truth. **This is the one case where a launch happens without
    `ready`**, and it exists so that an unreachable status service can never leave the
@@ -217,6 +217,95 @@ Not verified here, and not verifiable from this repository alone: the real cloud
 (their existence, authentication, latency and the readiness probe behind `ready`), a real
 cold start of the real server, and a real launch on Windows or macOS.
 
+## The one server the launcher targets (2026-10-18)
+
+Owen's instruction, verbatim: *"The launcher has a 'server address' settings option,
+remove that, and make it only target the new production 'smp.easter.company' or ip
+directly."* This supersedes the earlier published server choice — the `servers` state
+field, the three bundled entries and the settings row that offered them — which is gone
+from the contract, the state and the view.
+
+**One address, in one place.** `desktop/config.cjs` owns it:
+
+```js
+const PRODUCTION_SERVER='smp.easter.company:25565';
+function serverAddress(override=process.env.EASTER_SERVER_ADDRESS){ … }
+```
+
+The production host is live at `smp.easter.company:25565` (Elastic IP `3.151.255.100`,
+DNS verified 2026-10-18), and the **hostname is the constant, not the IP**: the name
+survives the address changing, and a number baked into a launcher release does not.
+
+Two things read it and nothing else does: `desktop/install.cjs`'s `launchOptions()`, which
+is what becomes `--quickPlayMultiplayer`, and `desktop/game.cjs`, which publishes it as
+`game.endpoint`. That is the whole point of the change: the wake/cold-start path and the
+launch path cannot be aimed at two different hosts, which a launcher that woke one server
+and joined another would be. `tests/desktop/wake.test.cjs` asserts both sides together,
+override included.
+
+**A status answer never moves the launch target.** The two game routes answer with an
+`endpoint`, and this launcher ignores it: the field is not read, `game.endpoint` is the
+launcher's own address, and Play joins that. A service that named a different host — a
+stale task definition, a second server, a mistake — must not be able to send a player's
+client somewhere the launcher did not wake, and publishing an address the launcher will
+not join is a claim waiting to be believed. If the service ever needs to serve two hosts,
+that is a decision for this document and a second launcher release, not something an
+HTTP response decides on its own.
+
+**What was removed, everywhere.** No user-facing control lets a player choose or type an
+address:
+
+- the settings dialog's server row (`select[name=serverSelect]`, `input[name=server]`), its
+  Custom-address option and its pending-entry note;
+- the three bundled entries: `100.100.1.0:25565` (the tailnet address) as the default,
+  `127.0.0.1:25565` as "This machine", and the `smp.easter.company:25565` placeholder that
+  was `pending` because that name had no DNS record yet;
+- the `servers` field of the state, so the renderer has nothing to build a choice from.
+  A renderer handed a stale `servers` list by an older main process paints nothing: the
+  browser suite asserts that;
+- `server` from the saved settings, so `settings` in the state and in the settings file
+  carries no address, and a save from the dialog sends none.
+
+**An existing install keeps working, and its stored address is ignored.** Both household
+settings files carry `"server": "100.100.1.0:25565"`. `cleanSettings` no longer validates
+or returns that field: it is dropped, whatever it holds. It is deliberately *not* an error
+case — a refused settings file would send a player through first-run setup again for a
+field they can no longer edit — so a damaged or nonsensical value there is equally
+harmless, because nothing reads it. The launcher starts normally, launches the client at
+the production address, and drops the field the next time it writes the file. The
+`settings` field of the state carries the same shape the file does: no address.
+
+**The environment override is for tests and development only.** `EASTER_SERVER_ADDRESS`
+exists because the suites need an address that is not production — the wake tests and the
+loopback journey set it. It is read from the process environment, validated by the same
+hostname/port rule that used to guard the settings field (`SERVER_ADDRESS` and
+`checkServer` in `desktop/security.cjs`, now kept for this one caller), and it is:
+
+- never exposed to the renderer: it is absent from `desktop/preload.cjs`, from
+  `site/desktop.js`, and from every state field, so no view can read or set it;
+- never a settings field: it is not written to `settings.json`, not sent by the dialog and
+  not part of `settings` in the state;
+- never set by a released launcher: an ordinary install always targets `PRODUCTION_SERVER`.
+
+An invalid value is refused at the moment it is read, with
+`EASTER_SERVER_ADDRESS must be a hostname or IPv4 address, with an optional port.`, so a
+typo in a test run fails loudly instead of launching at a host nobody meant to name.
+
+**What is proven, and what is not.** `tests/desktop/config.test.cjs` asserts the constant,
+the removal of the three entries and `serverList`, the override's validation, that the
+override is not reachable from the preload or the view, and that a stored address is
+accepted and dropped. `tests/desktop/install.test.cjs` proves a settings payload naming
+another server never becomes the launch argument. `tests/desktop/wake.test.cjs` proves the
+wake state and the launch target are one value, with and without the override.
+`tests/browser.mjs` proves the settings dialog has no address row and no mention of a
+server at all, and that the save carries none. `tests/desktop/loopback.electron.mjs` starts
+the real main process over a settings file that still holds the legacy address and asserts
+the state carries no address and the file is not written back with one.
+
+Not verified here: that the production host answers a real Minecraft join from a real
+client. That is a playtest on a machine with an account, not something a suite can prove,
+and the DNS record existing is not the same claim.
+
 ## One failure, one visible home (2026-10-18)
 
 A single failed operation reaches the UI through two channels: `exclusively()` settles
@@ -251,8 +340,9 @@ that returns.
   dismissed failure never comes back, and a modal opening again never duplicates it.
   The rule holds for every modal, not only Settings, and it is decided by the
   document's own open dialogs rather than by any one dialog's bookkeeping.
-- **Settings is never an error surface.** The settings dialog carries the server,
-  the preferences and the shortcuts, and no status or failure area of any kind. A
+- **Settings is never an error surface.** The settings dialog carries the launch
+  preferences, the shortcuts and the advanced client fields, and no status or failure
+  area of any kind. A
   failure is never moved into it because it happened to be open, and opening or
   closing it never shows, repeats or brings back a failure — it takes the page notice
   away while it is open, and gives the same sentence back once when it closes.
@@ -631,8 +721,11 @@ install form.
 **Settings is a settings-only dialog, and only the Play Now stage has it.** It is
 the hero's secondary action, exactly as *Account menu and installation recognition*
 already said; the header has no client settings button and never had one in the
-contract. The dialog contains client settings and nothing else: the server choice,
-memory and Java as client settings, preferences and the version footer. Account
+contract. The dialog contains client settings and nothing else: launch preferences,
+the shortcuts and memory and Java as client settings, and the version footer. There is
+no server address row at all — the launcher targets one fixed production server, see
+*The one server the launcher targets* — and an existing file's stored address is never
+offered back. Account
 management belongs to the profile popover. The
 installation folder is not one of them: choosing where the client lives belongs to
 the download details that do the installing, and offering it in a dialog that cannot
@@ -860,18 +953,9 @@ stores the value that was applied, and a repair reuses it: a launcher moved to a
 screen never re-decides a tree that has already been seeded, and a player who changes the
 scale in game keeps their choice.
 
-The server field becomes a choice with a working default, and the entries are
-published by the main process rather than hardcoded in the view:
-
-| Field | Type | Meaning |
-|---|---|---|
-| `servers` | array | `{id, label, address, note, pending}` in display order |
-
-`100.100.1.0:25565` is the default, `127.0.0.1:25565` is the local server, and
-`smp.easter.company:25565` is listed as `pending` because that name has no DNS
-record yet; a pending entry is shown as unavailable rather than silently failing to
-connect. An entry the player types is kept as their own choice and is never
-rewritten to an entry id.
+There is no server field and no `servers` list. The launcher targets one fixed
+production server, published by nothing and editable by no one: see *The one server the
+launcher targets*.
 
 **Easter Company is the primary identity.** The profile popover leads with the
 Easter Company username, then names Microsoft/Xbox as its linked provider.
@@ -1130,8 +1214,9 @@ It has one state-driven primary action. Graphics diagnostics are collapsed under
 the graphics switch; the first-run folder and automatic graphics choice remain
 visible. The marketing page and its large heading remain website-only.
 
-Settings and Microsoft sign-in use separate dialogs. Settings contains the server,
-preferences and collapsed advanced fields, with one Save action; account management
+Settings and Microsoft sign-in use separate dialogs. Settings contains preferences,
+the shortcuts and collapsed advanced fields, with one Save action, and carries no
+server address; account management
 belongs to the header profile popover. The popover labels Microsoft and Easter
 Company identity separately when present and disables account changes during
 authentication or gameplay. The profile name and skin face retain their order.

@@ -5,7 +5,7 @@ const {promisify}=require('node:util');
 const {Version,generateArguments,launch}=require('@xmcl/core');
 const installer=require('@xmcl/installer');
 const {Agent,interceptors}=require('undici');
-const {locationProblem,MARKER,clientOrigin}=require('./config.cjs');
+const {locationProblem,MARKER,clientOrigin,serverAddress}=require('./config.cjs');
 const {qualitySettings,applyQualitySettings,recordQuality,applyDisplayDefaults,SHADER_PACK_NAME}=require('./hardware.cjs');
 const dispatcher=new Agent({connections:8,connect:{family:4,timeout:30000},headersTimeout:45000,bodyTimeout:90000}).compose(interceptors.retry({maxRetries:3}));
 const ORIGIN='https://easter-co-smp.github.io/';
@@ -413,9 +413,14 @@ async function installAssets(root,assetIndex,notify,{control=null,mode='install'
  // Nothing had to be fetched: this was verification, not a download.
  if(!moved)notify({phase:mode==='update'?'updating':'verifying',message:label,progress:countProgress(label,100)});
 }
-function launchOptions({root,version,javaPath,session,settings,launchEnv=null}){
+// Play joins one address, and it is the launcher's own constant, not a setting: the
+// player no longer has a server field to read (doc/launcher-states.md, "The one server
+// the launcher targets"). `server` is a parameter only so a test can pass the same
+// value explicitly; the default is config.cjs serverAddress(), which is also what the
+// wake flow targets, so the client is sent to the host that was just started.
+function launchOptions({root,version,javaPath,session,settings={},server=serverAddress(),launchEnv=null}){
  const extraMCArgs=[];
- if(settings.server)extraMCArgs.push('--quickPlayMultiplayer',settings.server);
+ if(server)extraMCArgs.push('--quickPlayMultiplayer',server);
  return {gamePath:root,resourcePath:root,version,javaPath,gameProfile:session.profile,accessToken:session.accessToken,userType:'msa',launcherName:'Easter Company',launcherBrand:'1.0.0',maxMemory:settings.memoryMB,minMemory:1024,extraMCArgs,features:{easter_identity:{clientid:session.clientId||require('./auth.cjs').DEFAULT_CLIENT_ID,auth_xuid:session.xuid||'0'}},extraExecOption:execOptions(launchEnv)};
 }
 // spawn replaces the whole environment when one is given, so the launched client gets
