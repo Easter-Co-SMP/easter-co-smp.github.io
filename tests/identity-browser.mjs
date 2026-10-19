@@ -24,9 +24,13 @@ const context=await browser.newContext({viewport:{width:1440,height:900}});
 const errors=[];
 const notes=[];
 const note=text=>{notes.push(text);console.log('  ok  '+text);};
+// Nothing the header or the hero draws may be fetched by the view: the head arrives as a data
+// URL in state, exactly like the skin, so no request of any kind leaves the renderer for it.
+const requests=[];
 try{
  const page=await context.newPage();
  page.on('pageerror',error=>errors.push(error.message));
+ page.on('request',request=>requests.push(request.url()));
  await page.addInitScript(({skin,picture})=>{
   const state={version:'1.0.31',totalMemoryMB:16384,phase:'ready',startupReady:true,companyReady:true,microsoftConnected:true,canPlay:true,
    account:null,profile:null,device:null,activity:null,settings:{memoryMB:4096,javaPath:''},
@@ -181,6 +185,90 @@ try{
   return pixel[0]===83&&pixel[1]===107&&pixel[2]===102;
  });
  note('an account with no Microsoft link keeps the letter tile rather than borrowing a skin');
+
+ // --- The head a password sign-in still has ----------------------------------
+ // Owen's report of 2026-10-19: he signed in with his Easter Company username and password,
+ // and the header fell back to the letter tile because a password sign-in restores no
+ // Microsoft session and therefore no skin. The account document knows the Minecraft uuid, so
+ // main fetches the head and publishes it as state.minecraftHead. The renderer draws a data
+ // URL and asks nobody anything, exactly as it does for state.profile.skin.
+ const PASSWORD_ACCOUNT={id:'EC-30',username:'owen_e',name:'Owen Easter',minecraftName:'OwenMC',roles:[],passwordRequired:false,microsoftLinked:true,picture:null};
+ const awaitingFace=async(colour,point=[0,0])=>page.waitForFunction(({colour,point})=>{
+  const pixel=[...document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(point[0],point[1],1,1).data];
+  return pixel[0]===colour[0]&&pixel[1]===colour[1]&&pixel[2]===colour[2];
+ },{colour,point});
+ await page.evaluate(({account,head})=>sendState({account,profile:null,minecraftHead:head}),{account:PASSWORD_ACCOUNT,head:SKIN});
+ await awaitingFace(faceColour(8,8));
+ const stateHead=await facePixels();
+ assert.deepEqual(stateHead.size,[32,32],'the header canvas stays 32x32');
+ for(let column=0;column<32;column++){
+  const got=stateHead.row0.slice(column*4,column*4+4),want=expected(0,column);
+  for(let channel=0;channel<3;channel++)assert(Math.abs(got[channel]-want[channel])<=2,'the head from state.minecraftHead is drawn nearest-neighbour ('+column+') in channel '+channel+': got '+[...got]+' want '+want);
+ }
+ await page.screenshot({path:`${images}/header-minecraft-head-1440.png`,animations:'disabled',clip:await page.locator('.site-header').boundingBox()});
+ note('with no session skin the Minecraft head is drawn from state.minecraftHead, by the same crop and the same pixels');
+
+ // A picture still wins, and nothing else is invented from a head that is not this account's.
+ await page.evaluate(({account,head,picture})=>sendState({account:{...account,picture},profile:null,minecraftHead:head}),{account:PASSWORD_ACCOUNT,head:SKIN,picture:PICTURE});
+ await awaitingFace([180,60,120],[16,16]);
+ note('an uploaded picture still wins over the head from state');
+
+ // A read that failed, an account with no Microsoft link, and a value that is not a data URL
+ // all leave the tile: the head is never borrowed, guessed at or fetched by the view.
+ await page.evaluate(account=>sendState({account,profile:null,minecraftHead:null}),PASSWORD_ACCOUNT);
+ await awaitingFace([83,107,102],[1,1]);
+ await page.evaluate(({account,head})=>sendState({account:{...account,microsoftLinked:false,minecraftName:null},profile:null,minecraftHead:head}),{account:PASSWORD_ACCOUNT,head:SKIN});
+ await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='Owen Easter');
+ await awaitingFace([83,107,102],[1,1]);
+ await page.evaluate(({account})=>sendState({account,profile:null,minecraftHead:'https://textures.minecraft.net/texture/deadbeef'}),{account:PASSWORD_ACCOUNT});
+ await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='Owen Easter');
+ await awaitingFace([83,107,102],[1,1]);
+ note('a failed read, an unlinked account and a value that is not a data URL all leave the letter tile');
+
+ // --- What a password sign-in says -------------------------------------------
+ // The hero used to read "Sign in to Minecraft / Use your linked Microsoft account", which is
+ // the first-time-connect sentence. Two situations, two sentences: the linked one names the
+ // identity that starts the game, and the unlinked one says what it will attach.
+ const heroNow=()=>page.locator('[data-desktop-play]').evaluate(node=>({action:node.dataset.action,text:node.innerText.replace(/\s+/g,' ').trim()}));
+ const heroFor=async(patch,action)=>{
+  await page.evaluate(values=>sendState(values),patch);
+  await page.waitForFunction(action=>document.querySelector('[data-desktop-play]')?.dataset.action===action,action);
+  return heroNow();
+ };
+ const linkedHero=await heroFor({account:PASSWORD_ACCOUNT,profile:null,minecraftHead:null,microsoftConnected:false,canPlay:false,actions:['connect-microsoft']},'connect-microsoft');
+ assert.deepEqual(linkedHero,{action:'connect-microsoft',text:'Sign in with Microsoft Starts Minecraft as OwenMC'},'a linked account with no live token says signing in starts Minecraft, and names it');
+ assert(!/sign in to minecraft|use your linked microsoft account/i.test(linkedHero.text),'the first-time-connect sentence is gone: '+linkedHero.text);
+ await page.screenshot({path:`${images}/hero-linked-password-1440.png`,animations:'disabled',clip:await page.locator('.hero-copy').boundingBox()});
+ const namelessHero=await heroFor({account:{...PASSWORD_ACCOUNT,minecraftName:null},profile:null,minecraftHead:null,microsoftConnected:false,canPlay:false,actions:['connect-microsoft']},'connect-microsoft');
+ assert.deepEqual(namelessHero,{action:'connect-microsoft',text:'Sign in with Microsoft Starts Minecraft with your linked Microsoft account'},'a linked account with no Minecraft name gets the same sentence with no blank in it');
+ const unlinkedHero=await heroFor({account:{...PASSWORD_ACCOUNT,microsoftLinked:false,minecraftName:null},profile:null,minecraftHead:null,microsoftConnected:false,canPlay:false,actions:['connect-microsoft']},'link-microsoft');
+ assert.deepEqual(unlinkedHero,{action:'link-microsoft',text:'Link Microsoft Attach the Microsoft account that owns Minecraft'},'an account with no Microsoft link offers the action that links one');
+ await page.screenshot({path:`${images}/hero-unlinked-1440.png`,animations:'disabled',clip:await page.locator('.hero-copy').boundingBox()});
+ for(const [width,height] of [[800,600],[390,568]]){
+  await page.setViewportSize({width,height});
+  await page.screenshot({path:`${images}/hero-unlinked-${width}.png`,animations:'disabled',clip:await page.locator('.hero-copy').boundingBox()});
+  const unlinkedBox=await page.locator('[data-desktop-play]').boundingBox();
+  assert(unlinkedBox.x>=0&&unlinkedBox.x+unlinkedBox.width<=width+1,'the unlinked action fits '+width+'px');
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'the longer note adds no horizontal overflow at '+width+'px');
+ }
+ await page.setViewportSize({width:1440,height:900});
+ assert.notEqual(linkedHero.text,unlinkedHero.text,'the two situations can never produce the same words');
+ assert.notEqual(linkedHero.action,unlinkedHero.action,'and they are not the same action either');
+ note('a linked account and an unlinked one read differently and offer different actions');
+
+ // Both kinds run the Microsoft link sign-in, because signing in again and linking are the
+ // same flow: one attaches the account that is already known, the other attaches a new one.
+ await page.locator('[data-desktop-play]').click();
+ await page.waitForFunction(()=>window.__fixture.calls.some(call=>call.name==='signIn'));
+ assert.deepEqual(await page.evaluate(()=>window.__fixture.calls.filter(call=>call.name==='signIn').at(-1)),{name:'signIn',payload:{link:true}},'the unlinked action runs the Microsoft link sign-in');
+ await page.keyboard.press('Escape');
+ await page.evaluate(values=>sendState(values),{account:PASSWORD_ACCOUNT,profile:null,minecraftHead:null,microsoftConnected:false,canPlay:false,actions:['connect-microsoft']});
+ await page.waitForFunction(()=>document.querySelector('[data-desktop-play]')?.dataset.action==='connect-microsoft');
+ await page.locator('[data-desktop-play]').click();
+ await page.waitForFunction(()=>window.__fixture.calls.filter(call=>call.name==='signIn').length>=2);
+ assert.equal(await page.evaluate(()=>window.__fixture.calls.filter(call=>call.name==='signIn').length),2,'the linked action runs the same sign-in, once');
+ for(const dialog of await page.locator('dialog[open]').all())await dialog.evaluate(node=>node.close());
+ note('both hero actions run the same Microsoft sign-in with the link intent');
 
  // The recorded visual pass: the header with a skin and without, at 1440 and 390.
  for(const [width,height] of [[1440,900],[390,568]]){
@@ -351,7 +439,8 @@ try{
  note('Connect Microsoft links; the control is offered only when there is something to link');
 
  assert.deepEqual(errors,[],'the launcher raises no page error');
- console.log(`IDENTITY PASS: ${notes.length} checks — display name first in the header and the account view, Minecraft skin head from state.profile.skin, initial tile last, no provider control that can only fail, and each linked provider's own details drawn as text with no line where there is no value. Screenshots: ${images}`);
+ assert.deepEqual(requests.filter(url=>!/^data:/.test(url)&&!url.startsWith(origin)),[],'the renderer reads nothing over the network of its own: every request it made was for the page itself');
+ console.log(`IDENTITY PASS: ${notes.length} checks — display name first in the header and the account view, the Minecraft head from state.profile.skin or state.minecraftHead with the initial tile last, the two password sign-in sentences, no provider control that can only fail, and each linked provider's own details drawn as text with no line where there is no value. Screenshots: ${images}`);
 }finally{
  await browser.close();
 }
