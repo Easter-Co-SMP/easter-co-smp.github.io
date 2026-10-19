@@ -50,9 +50,11 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  // the dialog scrolls to it instead — the least it can scroll for the whole refusal to be
  // inside the box. At 390 that is the three lines read in full with the heading still above
  // them, and Sign in and Forgot your password below the fold, which is the order a refusal is
- // read in. A refusal taller than the box is read from its first line. A dialog that already
- // shows its refusal in whole — every size the launcher itself can take — is not scrolled at
- // all, and a dialog with no refusal opens at the top.
+ // read in. A refusal taller than the box is read from its first line. A dialog that can show
+ // the whole refusal at once is not scrolled at all — at 800x600 it no longer can, because
+ // Google, Steam and Discord sit above the form and the chooser scrolls there whether or not a
+ // refusal is painted (doc/launcher-states.md, *A chooser may scroll when the window is
+ // short*) — and a dialog with no refusal opens at the top.
  const reveal=(dialog,node)=>{
   const box=dialog.getBoundingClientRect(),rect=node.getBoundingClientRect();
   const top=box.top+dialog.clientTop,bottom=top+dialog.clientHeight;

@@ -196,15 +196,15 @@
    dialog reads as one answer and each part is separately scannable. */
 .desktop-company-dialog .company-error p{margin:0;color:inherit}
 .desktop-company-dialog .company-error p+p{margin-top:9px}
-/* The launcher's own minimum window is 800x600, and there the three-line refusal makes the
-   chooser exactly as tall as the window has room for: the box is capped, every element fits
-   inside it, and the 28px bottom inset is then 12px more than the cap can show — a scrollbar
-   with twelve pixels of travel over space that is already off screen. On a short window, the
-   same breakpoint the settings dialog closes its own spacing up at, the dialog carrying a
-   refusal keeps the 16px inset it was showing rather than the 28 it cannot: at 800x600 the
-   box, the three lines and both controls then stay at exactly the pixels they were drawn at
-   and the dead scroll is gone. A chooser with no refusal has room to spare and is left alone,
-   and at a window tall enough to hold the dialog nothing changes at all. */
+/* The launcher's own minimum window is 800x600. Since provider sign-in put Google, Steam and
+   Discord above the provider note, the chooser's 621px of content is taller than the 566px box
+   that window gives it, so the box scrolls there with or without a refusal and nothing needs
+   this rule to stay reachable (doc/launcher-states.md, *A chooser may scroll when the window is
+   short*). It is kept for the smaller reason it is worth: on a short window,
+   the same breakpoint the settings dialog closes its own spacing up at, a dialog carrying a
+   refusal trims its bottom inset from 28px to 16px, which is 12px less travel to the refusal
+   and to the controls under it. A chooser with no refusal keeps its full padding, and at a
+   window tall enough to hold the dialog nothing changes at all. */
 @media(max-height:700px){.desktop-company-dialog:has(.company-error:not([hidden])){padding-bottom:16px}}
 
 
