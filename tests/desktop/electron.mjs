@@ -14,7 +14,8 @@ const run=async(entry,exercise,manageArrival)=>{
   await exercise(app,page,arriving);assert.deepEqual(errors,[]);}finally{await app.close();}
 };
 // The Skip intro control must not exist in the desktop DOM at all, and the arrival must still be
-// skippable and bounded without it. Launch one runs the arrival both ways; launch two runs the shell.
+// skippable and bounded without it. Separate fresh sessions prove Escape and the timer;
+// reloading the same session must not replay the arrival.
 const noSkipControl=async page=>{
  assert.equal(await page.locator('.skip-arrival').count(),0);
  assert.equal(await page.getByRole('button',{name:'Skip intro'}).count(),0);
@@ -26,15 +27,22 @@ const arrival=async()=>await run(path.join(root,'desktop/main.cjs'),async(app,pa
  await page.keyboard.press('Escape');
  await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
  await noSkipControl(page);
- // Left untouched after a fresh load, the bounded 4.6s timer still ends the arrival.
+ // The opening belongs to this window session, so a reload must not replay it.
  await page.reload();
- await page.waitForFunction(()=>document.body.classList.contains('is-arriving'));
- await noSkipControl(page);
- await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
+ await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');
+ await page.waitForTimeout(300);
+ assert.equal(await page.evaluate(()=>document.body.classList.contains('is-arriving')),false,'reload keeps the completed arrival');
  await noSkipControl(page);
 },true);
 try{
  await arrival();
+ // A new launcher window gets its own opening, which must end within its bound.
+ await run(path.join(root,'desktop/main.cjs'),async(app,page,arriving)=>{
+  assert(arriving,'a fresh launcher window plays the arrival');
+  await noSkipControl(page);
+  await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'),{},{timeout:6500});
+  await noSkipControl(page);
+ },true);
  await run(path.join(root,'desktop/main.cjs'),async(app,page)=>{
   // Settings is the hero's secondary action, and the header has no client settings
   // button at all. With nothing installed yet, Settings is not offered.

@@ -28,8 +28,9 @@ try{
  // no Microsoft subject, no email. Provider sign-in (4341b90) added the three fields at the
  // end of this object — the linked providers, which one signs the player in, and the picture
  // data URI — and the account was deep-equal to the shorter object only until then. The
- // promise is unchanged and still exact: these eight fields, no ninth.
- assert.deepEqual(state.account,{id:'EC-7',username:'captaintestbeard',name:'Captain Testbeard',roles:['crew'],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],primaryProvider:'microsoft',picture:null});
+ // linked-provider details now add minecraftName and providerDetails (null when no
+ // provider-owned details were returned). The allowlist stays exact.
+ assert.deepEqual(state.account,{id:'EC-7',username:'captaintestbeard',name:'Captain Testbeard',minecraftName:'TestCaptain',roles:['crew'],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],primaryProvider:'microsoft',providerDetails:null,picture:null});
  assert(state.canPlay&&state.microsoftConnected);
  const request=calls.find(call=>call.path==='/v2/accounts/microsoft');
  assert.equal(request.body.xboxUserToken,'fixture-xbox:1234567890abcdef1234567890abcdef');assert.equal(request.authorization,undefined);assert(!('minecraftAccessToken' in request.body));
