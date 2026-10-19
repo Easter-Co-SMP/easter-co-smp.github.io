@@ -37,9 +37,11 @@ try{
  await page.clock.fastForward(11000);assert.deepEqual(await chooser.locator('.company-submit').boundingBox(),beforeWait);assert.match(await chooser.locator('.company-wait').innerText(),/Still working/);
  for(const width of [1440,800,390,320]){await page.setViewportSize({width,height:width<500?740:800});await page.screenshot({path:`/tmp/easter-wait-login-${width}.png`,fullPage:true});assert.equal(await chooser.evaluate(el=>el.scrollWidth<=el.clientWidth),true);}
  await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await chooser.locator('.wait-feedback-mark').evaluate(el=>getComputedStyle(el).animationName),'none');
- await page.evaluate(()=>{finishSlow({ok:true});sendState({account:{id:'fixture-account',name:'Fixture',username:'fixture',passwordRequired:false},canPlay:true,companyReady:true,phase:'starting-game',game:{state:'starting',ready:false,waking:true,message:'Your server is starting.'}});});
- await chooser.waitFor({state:'hidden'});await page.evaluate(()=>sendState({game:{state:'starting',ready:false,waking:true,message:'Your server is starting.'}}));
- await page.clock.fastForward(11000);for(let i=0;i<10;i++)await page.evaluate(()=>sendState({game:{state:'starting',ready:false,waking:true,message:'Your server is starting.'}}));
+ await page.evaluate(()=>{finishSlow({ok:true});sendState({account:{id:'fixture-account',name:'Fixture',username:'fixture',passwordRequired:false},canPlay:true,companyReady:true,phase:'starting-game',game:{state:'starting',ready:false,waking:true,message:'Starting your server… the first player in a session waits about a minute.',tone:'starting'}});});
+ await chooser.waitFor({state:'hidden'});await page.evaluate(()=>sendState({game:{state:'starting',ready:false,waking:true,message:'Starting your server… the first player in a session waits about a minute.',tone:'starting'}}));
+ await page.clock.fastForward(11000);for(let i=0;i<10;i++)await page.evaluate(()=>sendState({game:{state:'starting',ready:false,waking:true,message:'Starting your server… the first player in a session waits about a minute.',tone:'starting'}}));
+ // The cold start owns one line: the wait feedback carries its sentence and the reassurance,
+ // so the server's own LED row stands down rather than saying the same thing twice.
  assert.match(await page.locator('.desktop-activity').innerText(),/Still working/);assert.equal(await page.locator('.desktop-game-status').isVisible(),false);
  await page.screenshot({path:'/tmp/easter-wait-server-320.png'});
  const forms=await browser.newPage({viewport:{width:800,height:600}});await forms.goto((process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18107')+'/wiki/');

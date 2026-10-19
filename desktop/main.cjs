@@ -7,7 +7,7 @@ const {apiOrigin,clientOrigin,defaultInstallLocation,ensureLocation,resolveLocat
 // The game server's own half of the contract: the frozen status shape and the one
 // wait rule. Its two routes live on the account client (accounts.cjs), because the
 // game status is served from the account API's origin with the account's own session.
-const {GameWaitError,gameMessage,wakeServer}=require('./game.cjs');
+const {GameWaitError,gameStatusLine,wakeServer}=require('./game.cjs');
 const vault=require('./vault.cjs');
 const {providerSignIn}=require('./providers.cjs');
 const {hydratePicture}=require('./profile.cjs');
@@ -147,6 +147,10 @@ let gameServer=null,gameChecked=false,gameCheckedAt=null,gameWake=null;
 function gameState(){
  const status=gameServer;
  const waking=Boolean(gameWake&&!gameWake.settled);
+ // One call decides both halves of the row the player sees: `message` is every word of the
+ // status line and `tone` is what the LED dot repeats, so the view prints a sentence and
+ // paints a dot without inventing or re-deriving either of them.
+ const line=gameStatusLine(status||{state:'unknown',ready:false},{waking,checked:gameChecked});
  return {
   state:status?status.state:'unknown',
   ready:Boolean(status&&status.ready),
@@ -154,7 +158,8 @@ function gameState(){
   since:status?status.since:null,
   players:status?status.players:null,
   detail:status?status.detail:null,
-  message:gameMessage(status||{state:'unknown',ready:false},{waking,checked:gameChecked}),
+  message:line.message,
+  tone:line.tone,
   waking,
   checkedAt:gameCheckedAt
  };

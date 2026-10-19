@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {GameWaitError,sanitizeGameStatus,sanitizeSince,gameMessage,MESSAGES,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS}=require('../../desktop/game.cjs');
+const {GameWaitError,sanitizeGameStatus,sanitizeSince,gameStatusLine,MESSAGES,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS}=require('../../desktop/game.cjs');
 const {AccountClient}=require('../../desktop/accounts.cjs');
 const {PRODUCTION_SERVER,serverAddress}=require('../../desktop/config.cjs');
 // The cloud side of the game-server contract does not exist yet, so the two routes are
@@ -114,15 +114,48 @@ test('the wake state and the launch target are one address, override included',(
  }
 });
 
-test('the copy says what is true and never calls an unlooked-at server offline',()=>{
- assert.equal(gameMessage({state:'unknown'},{checked:false}),MESSAGES.unchecked);
- assert.equal(gameMessage({state:'unknown'},{checked:true}),MESSAGES.unknown);
- assert.equal(gameMessage({state:'stopped'},{checked:true}),MESSAGES.stopped);
- assert.equal(gameMessage({state:'starting'},{checked:true}),MESSAGES.starting);
- assert.equal(gameMessage({state:'stopping'},{checked:true}),MESSAGES.stopping);
- assert.equal(gameMessage({state:'running',ready:true},{checked:true}),MESSAGES.running);
- assert.equal(gameMessage({state:'stopped'},{checked:true,waking:true}),MESSAGES.waking);
- assert.equal(gameMessage({state:'stopping'},{checked:true,waking:true}),MESSAGES.wakingStopping);
+test('the status line says what is true, and never calls an unlooked-at server offline',()=>{
+ const line=(status,options={checked:true})=>gameStatusLine(status,options);
+ // Owen's three sentences, character for character, in the states that produce them.
+ assert.equal(line({state:'running',ready:true,players:2}).message,'Server Online (2 Active Players)');
+ assert.equal(line({state:'stopped',players:0}).message,'Server Asleep Zzz (0 Active Players)');
+ assert.equal(line({state:'stopped',detail:'Update in progress...'}).message,'Server Offline (Update in progress...)');
+ // The count is the service's own integer: singular for one, plural otherwise, and silence
+ // rather than a false zero when it sent none.
+ assert.equal(line({state:'running',ready:true,players:1}).message,'Server Online (1 Active Player)');
+ assert.equal(line({state:'running',ready:true,players:0}).message,'Server Online (0 Active Players)');
+ assert.equal(line({state:'running',ready:true,players:null}).message,'Server Online');
+ assert(!line({state:'running',ready:true,players:null}).message.includes('('),'a null count prints no parenthetical at all');
+ // A stopped server has nobody on it whatever it last reported, and a service detail is the
+ // one thing that makes it offline rather than asleep: the service's words, not invented
+ // ones. That is also why a bare 'Server Offline' is never printed — a stopped server the
+ // service said nothing about is the ordinary sleep, two assertions up.
+ assert.equal(line({state:'stopped',players:null}).message,'Server Asleep Zzz (0 Active Players)');
+ assert.equal(line({state:'stopped',players:7}).message,'Server Asleep Zzz (0 Active Players)');
+ assert.equal(line({state:'stopped',detail:'Update in progress...'}).tone,'offline');
+ // A cold start is normal behaviour: its own words, amber, and never red or offline.
+ assert.equal(line({state:'starting'}).message,MESSAGES.starting);
+ assert.equal(line({state:'starting'}).tone,'starting');
+ assert.equal(line({state:'stopping'}).message,MESSAGES.stopping);
+ assert.equal(line({state:'stopping'}).tone,'stopping');
+ // `running` without `ready` is a server Play would refuse to join, so it is never Online.
+ assert.equal(line({state:'running',ready:false,players:0}).tone,'starting');
+ assert(!/online/i.test(line({state:'running',ready:false,players:0}).message));
+ // The tones are meaning and the dot only repeats them.
+ assert.equal(line({state:'running',ready:true,players:2}).tone,'online');
+ assert.equal(line({state:'stopped',players:0}).tone,'asleep');
+ assert.equal(line({state:'stopped',detail:'Update in progress...'}).tone,'offline');
+ // The unknown states claim nothing at all, and read as neither online nor offline.
+ for(const [options,sentence] of [[{checked:false},MESSAGES.unchecked],[{checked:true},MESSAGES.unknown]]){
+  const unknown=line({state:'unknown'},options);
+  assert.equal(unknown.message,sentence);
+  assert.equal(unknown.tone,'unknown');
+  assert(!/online|offline/i.test(unknown.message),unknown.message);
+ }
+ // The cold start's own wait line keeps its sentence, and its tone is not a failure either.
+ assert.equal(line({state:'stopped'},{checked:true,waking:true}).message,MESSAGES.waking);
+ assert.equal(line({state:'stopping'},{checked:true,waking:true}).message,MESSAGES.wakingStopping);
+ assert.equal(line({state:'stopping'},{checked:true,waking:true}).tone,'stopping');
  // No sentence about the server may name an account, a purchase or an install: a
  // stopped server is never presented as an account problem. The one exception is the
  // expired session, which really is the account's news and keeps the account's words.

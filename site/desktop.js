@@ -62,14 +62,18 @@
  accessPanel.innerHTML='<p class="desktop-access-copy" role="status"></p><div><button type="button" data-recheck-access>Check again</button><button type="button" data-use-account>Use a different account</button></div>';
  accessPanel.querySelector('[data-recheck-access]').onclick=()=>{void desktop.recheckAccess().catch(report);};
  accessPanel.querySelector('[data-use-account]').remove();
- // The server's own line, under the hero's action. It is the only place a game state is
- // ever written, it carries main's sentence word for word, and it is quiet while the
- // server is running and joinable, so the warm case looks exactly as it always did.
+ // The server's row, under the hero's action: a small LED and one status line. It is the
+ // only place a game state is ever written, and both halves of it are main's — the words in
+ // `game.message` and the meaning the dot repeats in `game.tone` — so the sentence is
+ // readable, and assertable, as text: the dot is aria-hidden and never the only signal. The
+ // row shows while the server is online too, because 'Server Online (2 Active Players)' is
+ // one of the three sentences it exists for.
  const gameStatus=document.createElement('p');
- gameStatus.className='desktop-game-status';gameStatus.hidden=true;gameStatus.setAttribute('role','status');
- gameStatus.innerHTML='<span class="desktop-game-message"></span><span class="desktop-game-detail"></span>';
+ gameStatus.className='desktop-game-status';gameStatus.hidden=true;
+ gameStatus.setAttribute('role','status');gameStatus.setAttribute('aria-live','polite');gameStatus.setAttribute('aria-atomic','true');
+ gameStatus.innerHTML='<span class="desktop-game-led" aria-hidden="true"></span><span class="desktop-game-line"></span>';
  const heroWaitNode=document.createElement('p');heroWaitNode.className='desktop-activity';heroWaitNode.hidden=true;
- const gameMessageNode=gameStatus.querySelector('.desktop-game-message'),gameDetailNode=gameStatus.querySelector('.desktop-game-detail');
+ const gameLineNode=gameStatus.querySelector('.desktop-game-line');
  const installOf=state=>state&&state.install&&typeof state.install==='object'?state.install:{};
  const progressOf=state=>state&&state.progress&&typeof state.progress==='object'?state.progress:null;
  const actionsOf=state=>state&&Array.isArray(state.actions)?state.actions:[];
@@ -616,23 +620,27 @@
  }
 
  // ---- Hero surfaces ---------------------------------------------------------
- // A server that is offline, starting or stopping is said plainly in its own line; a
- // server that answers ready says nothing at all. The stopped game is not an account
- // problem and never borrows an account surface: this line is the whole of it.
- function renderGame(state){
+ // One LED and one status line under the hero action. A server that is online, asleep,
+ // offline, starting, stopping or unreadable is said in exactly one sentence, and both the
+ // words and the tone come from the main process, so a view never words a state for itself
+ // and never re-derives which dot goes with which words. The stopped game is not an account
+ // problem and never borrows an account surface: this row is the whole of it.
+ function renderGame(state,standDown=false){
   const game=gameOf(state);
-  // The Play Now stage only: before the client is installed there is nothing to join,
-  // and the download-first screens keep the room for what the player has to do first.
-  const show=Boolean(game)&&atPlayNow(state)&&(game.waking===true||game.ready!==true||game.state!=='running');
+  // The Play Now stage only: before the client is installed there is nothing to join, and
+  // the download-first screens keep the room for what the player has to do first. `standDown`
+  // is the one exception in the other direction: while the cold start's wait line is carrying
+  // the same sentence, this row gives way to it instead of repeating it.
+  const show=Boolean(game)&&atPlayNow(state)&&!standDown;
   gameStatus.hidden=!show;
-  if(!show){gameMessageNode.textContent='';gameDetailNode.textContent='';return;}
+  if(!show){gameLineNode.textContent='';gameStatus.removeAttribute('data-state');gameStatus.removeAttribute('data-tone');return;}
   gameStatus.dataset.state=typeof game.state==='string'?game.state:'unknown';
-  gameStatus.classList.toggle('is-awake',game.waking===true);
-  const message=typeof game.message==='string'?game.message:'';if(gameMessageNode.textContent!==message)gameMessageNode.textContent=message;
-  // The service's own detail, when it sends one, reads below the launcher's sentence and
-  // never replaces it. Nothing else from the service is printed.
-  gameDetailNode.textContent=typeof game.detail==='string'?game.detail:'';
-  gameDetailNode.hidden=!gameDetailNode.textContent;
+  // Meaning, not colour: the stylesheet turns the tone into a dot, and the sentence below
+  // stands on its own if the dot is unseen. An older main process publishes no tone, and
+  // then the dot is neutral rather than guessed at.
+  gameStatus.dataset.tone=typeof game.tone==='string'?game.tone:'unknown';
+  const line=typeof game.message==='string'?game.message:'';
+  if(gameLineNode.textContent!==line)gameLineNode.textContent=line;
  }
  // The details belong to the hero's Download the game action: they say where it will
  // install and what the machine will do about graphics, and carry no action of their own.
@@ -776,9 +784,9 @@
   const gameWait=waking?{stage:'server-starting',message:current.game.message||'Waiting for your server to be ready…',detail:current.game.detail,startedAt:serverWaitStartedAt}:null;
   const heroActivity=!signInPending&&!signin.open&&!document.querySelector('.desktop-company-dialog[open]')&&current.startupReady!==false&&!transferring(current)?gameWait||activity:null;
   heroWait?.set(heroActivity);
-  renderGame(current);
-  // A cold start has one sentence, with its indicator and reassurance beside it.
-  if(gameWait&&heroActivity===gameWait&&heroWait)gameStatus.hidden=true;
+  // The row stands down while the cold start's own wait line is carrying the same sentence,
+  // so one live region says it rather than two. That is the only case it gives way to.
+  renderGame(current,Boolean(gameWait)&&heroActivity===gameWait);
   renderBar(current);
   if(fromMain){
    // The state's own failure, delivered once per distinct sentence, and then owned here: main
