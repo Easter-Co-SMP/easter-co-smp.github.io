@@ -228,7 +228,7 @@ test('the account client reads the status with the Company session and no other 
   const status=await client(stub.origin).gameStatus(stubApi.TOKEN);
   // The stub answers with an endpoint of its own; the launcher publishes the address it
   // will actually join instead, so a service answer can never become a launch target.
-  assert.equal(stubApi.ENDPOINT!==PRODUCTION_SERVER,true,'the fixture deliberately names another host');
+  assert.equal(stubApi.ENDPOINT,PRODUCTION_SERVER,'the ready fixture agrees with the deployment target');
   assert.deepEqual(status,{state:'running',ready:true,endpoint:PRODUCTION_SERVER,since:'2026-10-18T00:00:00Z',players:2,detail:null});
   assert.equal(stub.calls.length,1);
   assert.equal(stub.calls[0].method,'GET');

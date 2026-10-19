@@ -286,3 +286,13 @@ Wiki checks: `node --test tests/wiki.test.mjs`, `node tests/wiki-browser.mjs`
 cover search, navigation, deep links, narrow layouts and the bundled offline wiki.
 
 Editorial rules and evidence for the real wiki are recorded in `doc/wiki-content-sources.md`. Keep the public guide focused on custom differences and recheck affected claims when rules change.
+
+## Deployment metadata
+
+`deployment.json` is the public, versioned production-target source. The client
+export includes it as `deployment` in `site/data/client.json`; the launcher packages
+the same source and writes the validated published object to the app-owned game
+`config/easter-company/deployment.json`, even when no content chunk changed. The
+in-game menu consumes that file. Play checks the manifest before waking the server,
+and refuses an authenticated game-control response naming a different endpoint.
+No player setting, legacy saved address or tailnet fallback chooses the target.

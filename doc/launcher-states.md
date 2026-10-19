@@ -1,3 +1,21 @@
+## Deployment metadata (2026-10-19)
+
+The versioned repository-root `deployment.json` is the production deployment source:
+`{"schema":1,"serverAddress":"smp.easter.company:25565"}`. The public client
+manifest includes this object as `deployment`. The launcher validates and persists
+it to the app-owned client `config/easter-company/deployment.json`, including during
+a quiet manifest check when no content chunk changed. The in-game menu reads the
+same file. A missing field in an older manifest uses the bundled copy of that same
+source; malformed metadata is refused, never replaced with a private/LAN address.
+Before Play the manifest check completes before the wake request, so waking, launch
+arguments and the in-game menu share the current published target. This supersedes
+the compiled-target descriptions below; the server remains unavailable as a player
+setting. A status service endpoint that disagrees with the published target does not
+authorise launch: Play stops with `game_target_mismatch` and the sentence
+"The game server address could not be confirmed. Try again shortly." No wake or
+bare join follows that refusal. Status and wake stay on the existing authenticated account API
+routes, and deployment metadata never changes the authentication origin.
+
 > Account behavior is updated by [Provider accounts](provider-accounts.md). The new
 > contract supersedes Microsoft-only signup and Add/Switch account descriptions below.
 

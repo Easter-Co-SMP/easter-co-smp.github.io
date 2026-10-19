@@ -60,7 +60,7 @@ JAVA_MAJOR = 25
 #: The one manifest field added alongside the flat fields: the chunk list. Every other key
 #: keeps its former meaning and value, because the launcher already installed on a machine
 #: reads the flat ones.
-MANIFEST_KEYS = ('minecraft', 'mod', 'dependencies', 'fabric', 'chunks')
+MANIFEST_KEYS = ('minecraft', 'mod', 'dependencies', 'fabric', 'chunks', 'deployment')
 
 MODRINTH_API = 'https://api.modrinth.com/v2/project/'
 MODRINTH_CDN_HOST = 'cdn.modrinth.com'
@@ -602,6 +602,23 @@ def ensure_state_writable(state_path):
     return state_path
 
 
+def validate_deployment(value):
+    """The public deployment contract; no credentials or private runtime fields."""
+    if (type(value) is not dict or set(value) != {'schema', 'serverAddress'}
+            or type(value['schema']) is not int or value['schema'] != 1
+            or type(value['serverAddress']) is not str):
+        raise ValueError('Invalid client deployment metadata')
+    address = value['serverAddress']
+    if (not re.fullmatch(r'[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?(?::[0-9]{1,5})?', address)
+            or (':' in address and not 1 <= int(address.rsplit(':', 1)[1]) <= 65535)):
+        raise ValueError('Invalid client deployment server address')
+    return dict(value)
+
+
+def deployment_metadata():
+    return validate_deployment(json.loads((Path(__file__).resolve().parents[1] / 'deployment.json').read_text()))
+
+
 def export_client(destination, download_module, resolver=None, now=None, state_path=None,
                   graphics_resolver=None):
     """Publish the additive client manifest: the flat fields, plus the chunk list.
@@ -652,6 +669,7 @@ def export_client(destination, download_module, resolver=None, now=None, state_p
     companions = resolved_graphics_companions(graphics_resolver, minecraft,
                                               state_path.parent / 'graphics-companions.json')
     client = {
+        'deployment': deployment_metadata(),
         'minecraft': minecraft,
         'fabric': pins['fabric'],
         'mod': {'name': meta['name'], 'version': meta['version'], 'sha256': digest,

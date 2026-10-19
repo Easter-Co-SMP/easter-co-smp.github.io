@@ -5,7 +5,7 @@ const {promisify}=require('node:util');
 const {Version,generateArguments,launch}=require('@xmcl/core');
 const installer=require('@xmcl/installer');
 const {Agent,interceptors}=require('undici');
-const {locationProblem,MARKER,clientOrigin,serverAddress}=require('./config.cjs');
+const {locationProblem,MARKER,clientOrigin,serverAddress,BUNDLED_DEPLOYMENT,DEPLOYMENT_PATH,validateDeployment,configureDeployment}=require('./config.cjs');
 const {qualitySettings,applyQualitySettings,recordQuality,applyDisplayDefaults,SHADER_PACK_NAME}=require('./hardware.cjs');
 const {configureVisuals,disableShaders}=require('./visuals.cjs');
 const dispatcher=new Agent({connections:8,connect:{family:4,timeout:30000},headersTimeout:45000,bodyTimeout:90000}).compose(interceptors.retry({maxRetries:3}));
@@ -451,6 +451,19 @@ async function writeMarker(root){
 }
 // ---- installed marker -------------------------------------------------------
 async function publishedManifest(origin=clientOrigin()){return json(originBase(origin)+'data/client.json');}
+async function loadDeployment(root){
+ // Play checks the published manifest before waking or launching and repairs a
+ // missing/corrupt local copy. Startup can still render the bundled deployment.
+ try{return configureDeployment(JSON.parse(await fs.readFile(path.join(root,DEPLOYMENT_PATH),'utf8')));}
+ catch{return configureDeployment(BUNDLED_DEPLOYMENT);}
+}
+async function syncDeployment(root,published){
+ const value=validateDeployment(published?.deployment??BUNDLED_DEPLOYMENT);
+ const target=path.join(root,DEPLOYMENT_PATH);
+ let previous=null;try{previous=JSON.parse(await fs.readFile(target,'utf8'));}catch{}
+ if(JSON.stringify(previous)!==JSON.stringify(value))await atomicJSON(target,value);
+ return configureDeployment(value);
+}
 async function readInstalled(root){
  try{
   const record=JSON.parse(await fs.readFile(path.join(root,'installed.json'),'utf8'));
@@ -793,6 +806,7 @@ async function installClient({root,settings={},notify=()=>{},control=null,includ
  // always be recognised again even if the install is interrupted.
  await fs.mkdir(root,{recursive:true});
  await writeMarker(root);
+ await syncDeployment(root,client);
  const record=await readInstalled(root);
  const options={root,client,chunks,record,settings,notify,control,includeGraphics,mode,origin,updating,only,hardware,guiScale};
  return chunks?installChunked(options):installFlat(options);
@@ -846,6 +860,7 @@ async function checkForUpdates({root,settings={},notify=()=>{},control=null,incl
  const record=await readInstalled(root);
  if(!record)return {checked:false,changed:true,applied:false,changes:['missing'],result:null};
  const published=await fetchManifest(origin);
+ await syncDeployment(root,published);
  const diff=installDiff(published,record,{includeGraphics,origin});
  if(!diff.changed)return {checked:true,changed:false,applied:false,changes:[],result:null};
  const result=await install({root,settings,notify,control,includeGraphics,mode:'update',published,origin,hardware,guiScale});
@@ -853,4 +868,4 @@ async function checkForUpdates({root,settings={},notify=()=>{},control=null,incl
 }
 // The Play gate, computed here in the main process and nowhere else.
 function canPlay(install,profile){return Boolean(install?.installed)&&profile!==null&&profile!==undefined;}
-module.exports={setFailureLog,downloadFault,execOptions,ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,seedDisplayDefaults,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};
+module.exports={loadDeployment,syncDeployment,setFailureLog,downloadFault,execOptions,ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,seedDisplayDefaults,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};

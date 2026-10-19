@@ -730,6 +730,7 @@ class ClientExportTests(unittest.TestCase):
             self.assertEqual(set(published) <= set(MANIFEST_KEYS), True)
             self.assertEqual(published['minecraft'], '26.2')
             self.assertEqual(published['fabric'], '0.19.5')
+            self.assertEqual(published['deployment'], json.loads((Path(__file__).resolve().parents[1] / 'deployment.json').read_text()))
             self.assertEqual(published['mod']['url'], 'downloads/easter-navy.jar')
             self.assertEqual([d['id'] for d in published['dependencies']], list(DEPENDENCIES))
             base = published['chunks'][0]
