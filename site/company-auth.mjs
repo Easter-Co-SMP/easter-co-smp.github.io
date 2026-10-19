@@ -188,6 +188,12 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
     paintEmails();
    }else{
     showEmails(outcome&&outcome.value?outcome.value:await loadEmails());
+    // One event, one sentence. The main process notifies the same clearing with the same
+    // words (desktop/main.cjs, selectLoginEmail) and that notice is held until this dialog
+    // closes, so the player reads both surfaces for one click; they must not disagree. It
+    // says "a linked provider" and not Microsoft because the chooser behind the cleared
+    // email offers Microsoft, Google, Steam and Discord (doc/launcher-states.md, *Provider
+    // account state*), the same reason the signed-out hero dropped the provider's name.
     emailNodes.status.textContent=address===null?'Your login email is cleared. Sign in with a linked provider or with your username.':'Your login email is saved.';
    }
   }

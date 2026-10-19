@@ -540,6 +540,30 @@ test('the password floor is eight characters in every layer that states it',()=>
  // the 1.0.27 build.
 });
 
+test('clearing the login email says one sentence in both layers that state it',()=>{
+ // One event, one sentence. Clearing the login email is painted twice for one click: the
+ // verified-emails dialog's own status line, and the page notice main holds until that
+ // dialog closes. Both are shown for the same action, so they must read the same, and they
+ // did not - 4341b90 (2026-10-18) reworded the renderer to "a linked provider" and left
+ // desktop/main.cjs naming Microsoft. The renderer's wording is the true one for the same
+ // reason the signed-out hero stopped naming a provider (5c9c853): the chooser the cleared
+ // email leads back to offers Microsoft, Google, Steam and Discord.
+ const dialog=readRepo('site/company-auth.mjs');
+ const main=readRepo('desktop/main.cjs');
+ const cleared=source=>{
+  const found=source.match(/Your login email is cleared\. [^']+/);
+  return found&&found[0];
+ };
+ const renderer=cleared(dialog),notice=cleared(main);
+ assert.equal(renderer,'Your login email is cleared. Sign in with a linked provider or with your username.','the renderer states the decided sentence');
+ assert.equal(notice,renderer,'and the page notice main holds for the same click says exactly the same sentence');
+ for(const [name,source] of [['site/company-auth.mjs',dialog],['desktop/main.cjs',main]])
+  assert.equal(source.includes('with Microsoft or with your username'),false,name+' no longer offers a Microsoft-only way back into the account');
+ // The third sentence the contract's *One verb* paragraph lists is unchanged on purpose:
+ // there Microsoft genuinely is the requirement, because it is the Minecraft session.
+ assert.match(main,/Sign in with Microsoft to continue\./,'the Minecraft session sentence still names Microsoft');
+});
+
 test('Microsoft enrollment retries one explicit database resume failure then succeeds',async()=>{
  const stub=await startStub(({response})=>send(response,stub.calls.length===1?503:200,
   stub.calls.length===1?{error:'database_unavailable',detail:TOKEN}:loginBody(true)));

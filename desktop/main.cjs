@@ -1251,7 +1251,19 @@ function foldUsername(value){
    const listed=await accounts.selectLoginEmail(company.token,email);
    // The sentence names what changed and nothing else: no address appears in a message,
    // in the page notice or in any state a view other than the profile renders.
-   notify({message:email===null?'Your login email is cleared. Sign in with Microsoft or with your username.':'Your login email is saved.'});
+   //
+   // One event, one sentence. Clearing the login email is one action and it used to read two
+   // ways: this notice named Microsoft, while the verified-emails dialog the player clicked in
+   // (site/company-auth.mjs, saveLoginEmail) said "a linked provider". Both are shown for the
+   // same click - the dialog line at once, this notice on close, when the held page notice is
+   // released (doc/launcher-states.md, *One failure, one visible home*) - so a player could
+   // read both wordings for one action. The renderer's wording is the true one for the same
+   // reason the signed-out hero stopped naming Microsoft (5c9c853): the chooser the cleared
+   // email leads back to offers Microsoft, Google, Steam and Discord. This string and the
+   // renderer's must stay identical; there is no shared module across the process boundary
+   // (main is CommonJS, site/ is browser ESM), so the contract records the decided sentence
+   // and both files carry it.
+   notify({message:email===null?'Your login email is cleared. Sign in with a linked provider or with your username.':'Your login email is saved.'});
    return listed;
   }
   catch(error){await sessionLost(error);throw error;}

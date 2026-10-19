@@ -108,11 +108,22 @@ try {
   await page.screenshot({path:'/tmp/launcher-assist-home.png'});
 
   // 3. While it is downloading and nobody is signed in, the hero must ask for an account.
+  //
+  // The sentence is the product's, checked against site/desktop.js where LOGIN_ACTION and
+  // LOGIN_NOTE hold it, not against what this journey used to assert. It reads "Sign in" over
+  // "Easter Company account required" because the action opens a chooser that offers Microsoft,
+  // Google, Steam and Discord (doc/launcher-states.md, *The signed-out hero's own sentence*),
+  // so a provider's name here would be untrue for three of the four. Commit 5c9c853 decided
+  // that; this assertion was the last one still written against the Microsoft-only sentence,
+  // and it stayed red because this journey is outside the release gate.
   s = await state();
   assert.equal(s.canPlay, false, 'a download alone must not unlock Play');
   const heroWhileDownloading = await hero();
-  assert.match(heroWhileDownloading, /Sign in with Microsoft/i, 'the hero switches to Microsoft linking while downloading: ' + heroWhileDownloading);
-  note('during download: hero asks for Microsoft sign-in, Play still absent');
+  const heroAction = page.locator('[data-desktop-play]');
+  assert.equal((await heroAction.evaluate(node => node.querySelector('span').firstChild.textContent)).trim(), 'Sign in', 'the during-download hero names the action: ' + heroWhileDownloading);
+  assert.equal((await heroAction.locator('small').textContent()).trim(), 'Easter Company account required', 'and its note names which account it requires: ' + heroWhileDownloading);
+  assert(!/Sign in with Microsoft/.test(heroWhileDownloading), 'the during-download hero is not one provider\'s button: ' + heroWhileDownloading);
+  note('during download: hero asks for the Easter Company account, Play still absent');
 
   // 4. Sign in through the stubbed Microsoft flow the harness provides.
   await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
