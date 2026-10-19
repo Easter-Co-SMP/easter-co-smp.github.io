@@ -792,7 +792,7 @@ player put there — survives by not being on the list. The members cleared at `
 | `minecraft` | The client tree the installer built: versions, libraries, assets, mods, resource packs and `installed.json`. Every file the launcher wrote into it is a copy of something the published client manifest describes, so a minor release gets a fresh client instead of a half-stale one. The tree is emptied one level deep, so three things inside it stay: `.easter-client` (the marker that proves the folder is the launcher's rather than another installation's), `saves` (the worlds the player made on this computer) and `screenshots` (the pictures they took). |
 | `launcher-updates` | The downloaded launcher payloads, except the one the update has just staged. A payload is a release asset that can be fetched again; the staged one cannot, because `bootstrap.cjs` loads it from `current.json` on the relaunch, and removing it would relaunch into the version being replaced and re-download the same update on every start. So `current.json` and the payload it names stay, every older payload goes, and a stash whose record cannot be read is left entirely alone rather than guessed at. |
 | `Cache`, `Code Cache`, `GPUCache`, `DawnGraphiteCache`, `DawnWebGPUCache`, `ShaderCache`, `GrShaderCache` | Electron's HTTP, compiled-script, GPU, pipeline and shader caches for the launcher's own pages. Their keys and artefacts belong to the bundle being replaced, and the new bundle rebuilds what it needs on the next start. |
-| `blob_storage`, `IndexedDB`, `Local Storage`, `Session Storage`, `WebStorage` | The bundled pages' renderer storage. Nothing the launcher needs across a version change lives here: settings are in `settings.json` and sessions are in the vaults. One consequence is stated plainly rather than hidden: a map drawing a player made in the launcher is stored in `IndexedDB`, so a minor update clears it with the rest. |
+| `blob_storage`, `Local Storage`, `Session Storage`, `WebStorage` | The bundled pages' renderer storage. Nothing the launcher needs across a version change lives here: settings are in `settings.json` and sessions are in the vaults. `IndexedDB` is deliberately **not** cleared at any level: it holds the map's drawing layer, and a drawing is content the player made rather than a copy of something we published. |
 | `signin.log` | The bounded redacted record of the sign-in legs. Its steps belong to the code being replaced; it carries no credential, so removing it loses diagnoses and nothing else. |
 
 A `major` adds exactly three members, the stored sessions: `accounts.enc` (the saved
@@ -835,6 +835,11 @@ fixture directory: a patch asserts zero removals and zero directory reads, a min
 major assert every listed member gone and every unlisted file, `settings.json`, the world
 save and the pictures still there.
 
+
+One exception stands outside that table: **`IndexedDB` is never cleared**, at any level. It
+holds the map's drawing layer, and a drawing is something the player made rather than a copy
+of something we published, so no version change may delete it. A future release that
+genuinely needs it migrated gets a migration, not a silent wipe.
 
 ## Home actions, Settings and enhanced graphics
 

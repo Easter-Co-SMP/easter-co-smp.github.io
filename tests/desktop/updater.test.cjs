@@ -58,7 +58,7 @@ test('current release downloads nothing and AppImage relaunch preserves original
 // touch: the player's settings, the three session vaults, the two other logs, a directory
 // the launcher did not create, a tree the player put somewhere else, and the world save and
 // screenshots inside the managed client tree.
-const CACHE_NAMES=['minecraft','launcher-updates','Cache','Code Cache','GPUCache','DawnGraphiteCache','DawnWebGPUCache','ShaderCache','GrShaderCache','blob_storage','IndexedDB','Local Storage','Session Storage','WebStorage','signin.log'];
+const CACHE_NAMES=['minecraft','launcher-updates','Cache','Code Cache','GPUCache','DawnGraphiteCache','DawnWebGPUCache','ShaderCache','GrShaderCache','blob_storage','Local Storage','Session Storage','WebStorage','signin.log'];
 const VAULT_NAMES=['accounts.enc','company.enc','account.enc'];
 async function launcherData(root){
  await fs.mkdir(root,{recursive:true});
@@ -143,7 +143,7 @@ test('the clear list is one table, does not escape the data directory, and says 
   assert.equal(path.relative(dataRoot,withinDataDirectory(dataRoot,entry.name)).includes(path.sep),false);
  }
  assert.deepEqual(clearPlan('patch'),[]);
- assert.deepEqual(clearPlan('minor').map(entry=>entry.name),['minecraft','launcher-updates','Cache','Code Cache','GPUCache','DawnGraphiteCache','DawnWebGPUCache','ShaderCache','GrShaderCache','blob_storage','IndexedDB','Local Storage','Session Storage','WebStorage','signin.log']);
+ assert.deepEqual(clearPlan('minor').map(entry=>entry.name),['minecraft','launcher-updates','Cache','Code Cache','GPUCache','DawnGraphiteCache','DawnWebGPUCache','ShaderCache','GrShaderCache','blob_storage','Local Storage','Session Storage','WebStorage','signin.log']);
  assert.deepEqual(clearPlan('major').map(entry=>entry.name).slice(-3),VAULT_NAMES);
  assert.equal(clearPlan('major').length,CLEAR.length);
  assert.throws(()=>clearPlan('1.1.0'),/Unknown launcher update level/);
@@ -169,6 +169,14 @@ test('a patch-only update touches nothing at all',()=>fixture(async dataRoot=>{
  delete after['launcher-update.log'];
  assert.deepEqual(after,before,'nothing but the decision log changes');
 }));
+
+test("the player's drawings are never cleared, at any level",()=>{
+ // IndexedDB holds the map's drawing layer. A drawing is content the player made, not a copy
+ // of something we published, so no upgrade level may delete it: a minor that wiped the
+ // family's drawings would be the worst kind of silent data loss.
+ for(const level of ['patch','minor','major'])assert.equal(clearPlan(level).some(entry=>entry.name==='IndexedDB'),false,level);
+ assert(!CACHE_NAMES.includes('IndexedDB'));
+});
 
 test('a minor update clears the cache and keeps the settings and the session',()=>fixture(async dataRoot=>{
  await launcherData(dataRoot);

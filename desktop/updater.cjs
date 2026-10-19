@@ -142,6 +142,10 @@ function classify(fromVersion,toVersion){
 // minor (a copy of something the launcher can fetch or rebuild) and major (the player's
 // stored session, which a major release may have invalidated).
 const CLEAR=[
+ // Deliberately NOT on this list: IndexedDB. It holds the map's drawing layer, which is
+ // content the player made rather than a copy of something we published, and a cache rule
+ // must not delete drawings. Nothing in an upgrade has needed it cleared; if a release ever
+ // truly does, that is a major with an explicit migration, not a silent wipe.
  {name:'minecraft',level:'minor',keep:['.easter-client','saves','screenshots'],why:'The client tree the installer built: versions, libraries, assets, mods, resource packs and the installed.json record. Every file the launcher wrote into it is a copy of something the published client manifest describes, so it can be rebuilt exactly and a stale tree is the usual reason a release needs a fresh install. Three things in it are not the launcher’s to throw away, so the tree is emptied one level deep and they stay: the .easter-client marker, which is the proof that this folder is ours rather than another launcher’s, saves/, the worlds the player made on this computer, and screenshots/, the pictures they took. A tree the player placed somewhere else is not this entry: only the default, app-owned folder inside the launcher’s own data directory is ever cleared.'},
  {name:'launcher-updates',level:'minor',keepCurrent:true,why:'The downloaded launcher payloads, except the one this update just activated. A staged payload is the bundle the relaunch is about to load, so it is the one thing in this stash that must survive; every earlier payload is a release asset that can be fetched again, and keeping them all would keep every previous bundle on disk forever.'},
  {name:'Cache',level:'minor',why:'Electron’s HTTP disk cache for the launcher’s own pages. Its keys belong to the bundle being replaced, and a new bundle re-fetches what it needs.'},
@@ -152,7 +156,6 @@ const CLEAR=[
  {name:'ShaderCache',level:'minor',why:'Compiled shaders for the renderer that just changed. Rebuilt on demand.'},
  {name:'GrShaderCache',level:'minor',why:'The other shader cache Chromium keeps; removed with ShaderCache so no compiled artefact of the old renderer survives.'},
  {name:'blob_storage',level:'minor',why:'Blobs the old renderer stored for its own use. The launcher keeps no player state here: settings live in settings.json and sessions in the vaults.'},
- {name:'IndexedDB',level:'minor',why:'Renderer database used by the bundled pages, including the map’s drawing store. It is the launcher’s own storage rather than a file the player can see, and a minor release is exactly the moment its schema may change; a drawing the player made in the launcher is lost with it, which doc/launcher-states.md states plainly.'},
  {name:'Local Storage',level:'minor',why:'Key/value storage of the old bundle’s pages. Nothing the launcher needs across a version change is kept here.'},
  {name:'Session Storage',level:'minor',why:'Per-window storage; it belongs to a window that is closing for the relaunch, so it cannot outlive the update anyway.'},
  {name:'WebStorage',level:'minor',why:'Chromium’s umbrella storage directory for the pages above; cleared with them so no half of the old bundle’s storage is left behind.'},
