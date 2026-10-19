@@ -12,15 +12,18 @@ const DETAILS={
  discord:[['Username',(account,detail)=>detail?.username||detail?.displayName]]
 };
 const shown=value=>typeof value==='string'&&value.trim()?value.trim():'';
-export async function openCompanyProfile({desktop,getState,signInMicrosoft}){
- if(document.querySelector('#company-profile'))return;
+export async function openCompanyProfile({desktop,getState,signInMicrosoft,isAccountLocked}){
+ if(document.querySelector('#company-profile'))return null;
  const modal=document.createElement('dialog');modal.id='company-profile';modal.className='desktop-company-dialog';modal.setAttribute('aria-labelledby','company-profile-title');
- modal.innerHTML='<button class="dialog-close" aria-label="Close profile">×</button><h2 id="company-profile-title">Your profile</h2><form><label>Display name<input name="displayName" maxlength="64" required autocomplete="nickname"></label><button type="submit">Save name</button></form><div class="company-picture-actions"><button type="button" data-picture="upload">Choose picture</button><button type="button" data-picture="remove">Remove picture</button></div><p>Your profile can be changed independently of your linked accounts.</p><h3>Linked accounts</h3><p>Links stay with this Easter Company account and cannot be removed from the launcher yet. Microsoft / Xbox and Minecraft ownership are required to play Minecraft.</p><div class="company-provider-links"></div><div class="company-minecraft-session" hidden><h3>Minecraft session</h3><p>Your Microsoft session is stored on your Easter Company account, so any computer you sign in on is ready to play without asking Microsoft again.</p><button type="button" data-revoke-minecraft>Sign out of Minecraft everywhere</button></div><p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p>';
+ modal.innerHTML='<button class="dialog-close" aria-label="Close profile">×</button><h2 id="company-profile-title">Your profile</h2><form><label>Display name<input name="displayName" maxlength="64" required autocomplete="nickname"></label><button type="submit" data-account-change>Save name</button></form><div class="company-picture-actions"><button type="button" data-picture="upload" data-account-change>Choose picture</button><button type="button" data-picture="remove" data-account-change>Remove picture</button></div><p>Your profile can be changed independently of your linked accounts.</p><h3>Linked accounts</h3><p>Links stay with this Easter Company account and cannot be removed from the launcher yet. Microsoft / Xbox and Minecraft ownership are required to play Minecraft.</p><div class="company-provider-links"></div><div class="company-minecraft-session" hidden><h3>Minecraft session</h3><p>Your Microsoft session is stored on your Easter Company account, so any computer you sign in on is ready to play without asking Microsoft again.</p><button type="button" data-revoke-minecraft data-account-change>Sign out of Minecraft everywhere</button></div><p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p>';
  document.body.append(modal);modal.showModal();
  let busy=false,providerPending=false;
  const message=(text,error=false)=>{const node=modal.querySelector(error?'.company-error':'.company-status');node.textContent=text;node.hidden=!text;};
  const run=async (action,external=false)=>{
-  if(busy)return;busy=true;providerPending=external;message('',true);message('');for(const button of modal.querySelectorAll('button'))button.disabled=true;
+  // The lock is checked on the way in as well as painted on the way out: a control that somehow
+  // became pressable while the launcher is authenticating, launching, waking the server or
+  // running cannot start an account change either.
+  if(busy||isAccountLocked())return;busy=true;providerPending=external;message('',true);message('');for(const button of modal.querySelectorAll('button'))button.disabled=true;
   if(providerPending)modal.querySelector('.dialog-close').disabled=false;
   try{const result=await action();if(result===false||result?.ok===false)message(result?.error||'This change was not completed.',true);else if(result?.value?.cancelled||result?.cancelled)message('');else message('Saved.');}
   catch(error){message(error.message||'This change could not be saved.',true);}
@@ -28,6 +31,17 @@ export async function openCompanyProfile({desktop,getState,signInMicrosoft}){
  };
  let available=null;
  try{available=(await desktop.accountProviders()).providers;}catch{}
+ // Every control in this dialog changes the account, so the launcher's own account lock decides
+ // whether it can be used (doc/launcher-states.md, *Launcher UI review*). The lock is not
+ // computed here and there is no list of phases in this file: site/desktop.js owns it, hands it
+ // in as `isAccountLocked`, and re-applies it when a broadcast changes it. That this dialog opens
+ // only from a locked menu entry, and is modal, is not what keeps these controls unavailable
+ // while the game runs. This is the one place a control's disabled state is decided: `busy` is an
+ // action already in flight, and `data-unavailable` is a reason of the control's own.
+ const applyLock=()=>{
+  const locked=isAccountLocked()===true;
+  for(const control of modal.querySelectorAll('[data-account-change]'))control.disabled=busy||locked||control.dataset.unavailable==='true';
+ };
  function paint(){
   const account=getState()?.account;if(!account){modal.close();return;}
   if(document.activeElement!==modal.querySelector('input'))modal.querySelector('input').value=account.name||account.username||'';
@@ -52,7 +66,7 @@ export async function openCompanyProfile({desktop,getState,signInMicrosoft}){
    // the link flow and the API answered "this account is already linked to an Easter Company
    // account" every time. Only an unlinked provider carries Connect, the action that can work.
    if(!linked){
-    const button=document.createElement('button');button.type='button';button.textContent='Connect';button.disabled=busy||(available&&!available.includes(provider));button.setAttribute('aria-label','Connect '+name);
+    const button=document.createElement('button');button.type='button';button.textContent='Connect';button.dataset.accountChange='';button.dataset.unavailable=String(Boolean(available&&!available.includes(provider)));button.setAttribute('aria-label','Connect '+name);
     button.onclick=()=>void run(()=>provider==='microsoft'?signInMicrosoft({link:true}):desktop.signInProvider(provider,true),provider!=='microsoft');
     head.append(button);
    }
@@ -76,6 +90,10 @@ export async function openCompanyProfile({desktop,getState,signInMicrosoft}){
    }
    list.append(row);
   }
+  // The rest of the dialog's account changes - Save name, Choose picture, Remove picture and
+  // Sign out of Minecraft everywhere - answer to the same lock. They are not disabled by being
+  // out of reach today. The close control is not an account change and stays available.
+  applyLock();
  }
  paint();
  modal.querySelector('form').onsubmit=event=>{event.preventDefault();void run(()=>desktop.updateProfile(modal.querySelector('input').value));};
@@ -85,7 +103,7 @@ export async function openCompanyProfile({desktop,getState,signInMicrosoft}){
  // refusal. It never words that outcome itself, because only the main process saw the answer.
  const revoke=modal.querySelector('[data-revoke-minecraft]');
  if(revoke)revoke.onclick=async()=>{
-  if(busy)return;
+  if(busy||isAccountLocked())return;
   busy=true;message('',true);message('');
   for(const button of modal.querySelectorAll('button'))button.disabled=true;
   try{
@@ -98,4 +116,9 @@ export async function openCompanyProfile({desktop,getState,signInMicrosoft}){
  modal.querySelector('.dialog-close').onclick=()=>{if(providerPending){void desktop.cancelSignIn();return;}if(!busy)modal.close();};
  modal.addEventListener('cancel',event=>{if(busy){event.preventDefault();if(providerPending)void desktop.cancelSignIn();}});
  modal.addEventListener('close',()=>modal.remove(),{once:true});
+ // The launcher asks for this whenever a broadcast could have changed the account lock, so a
+ // dialog that is already open follows it. Only the lock is re-applied: the rows are rebuilt by
+ // paint() on the dialog's own actions, so a broadcast never replaces a control under the
+ // player's focus. A dialog that has closed is left alone.
+ return {syncLock:()=>{if(modal.open)applyLock();}};
 }

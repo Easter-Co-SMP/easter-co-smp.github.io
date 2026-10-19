@@ -1866,6 +1866,28 @@ notice at all; the last one to close gives the same sentence back once, with its
 dismiss control and keyboard reachable, and it stays until dismissed or a new action
 starts. See *One failure, one visible home* for the full rule.
 
+**Update 2026-10-19: the account lock, completed and kept in one place.** "Disables
+account changes during authentication or gameplay" named no list, and it had two
+holes. The locked states are exactly `signing-in`, `refreshing`, `launching`,
+`starting-game` and `running`. `starting-game` is the server wake, and the wake is a
+launch state this contract already names, so an account change is as unavailable
+during it as during any other launch state; today it is only unreachable because
+the hero offers no Play during a wake, which is the hero's rule and not this one.
+The rule also covers the profile dialog's own controls — Save name, Choose picture,
+Remove picture, Connect and Sign out of Minecraft everywhere — and not only the menu
+entry that opens it. While the game ran those were unreachable only because the
+opener was locked and the dialog is modal, an argument that expires the moment the
+dialog gains a second entry point or a control moves. The locked set has one home,
+`site/desktop.js`, which hands the answer to `site/company-profile.mjs`, so the
+dialog carries no second list to drift from it, and an action that starts anyway is
+refused rather than merely unpainted. The dialog's close control is not an account
+change and stays available. `tests/profile-lock-browser.mjs` drives the real renderer
+and the real dialog through a stub bridge and proves each part: every phase in the
+locked set disables the whole profile menu, a dialog that is already open loses every
+account control while the game runs or the server wakes, a save or sign-out forced
+past the disabled state reaches main not once, and both surfaces come back when the
+launcher is idle.
+
 ## One verb, and sentences that carry no status (2026-10-18)
 
 Three smaller findings from the second review, and the rule behind all three: the player

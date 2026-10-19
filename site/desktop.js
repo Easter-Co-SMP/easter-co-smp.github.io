@@ -35,7 +35,7 @@
  // same verb the sentences about this action already use ("Sign in again.", "Sign in with
  // Microsoft or with your username."): one action, one name.
  const LOGIN_ACTION='Sign in';
- let companyAuth=null;
+ let companyAuth=null,companyProfileView=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
  let heroWait=null,authWait=null,localActivity=null,serverWaitStartedAt=null;
@@ -71,6 +71,17 @@
  const actionsOf=state=>state&&Array.isArray(state.actions)?state.actions:[];
  // A transfer is under way for the states the contract names as download or install work.
  const transferring=state=>['downloading','paused','verifying','installing','updating'].includes(phaseOf(state));
+ // ---- The account lock ------------------------------------------------------
+ // The one place the launcher answers "is the account locked right now": account changes are
+ // disabled while it is authenticating or playing (doc/launcher-states.md, *Launcher UI
+ // review*). `starting-game` is the server wake, and the wake is a launch state the contract
+ // names, so it belongs in this list beside the other four; that Play is not offered during a
+ // wake is the hero's rule, and the account's safety must not rest on it.
+ // site/company-profile.mjs keeps no copy of this list. It is handed this answer as
+ // `isAccountLocked` when it opens, because this file is a classic script and cannot read a
+ // module synchronously from the render path that paints the lock.
+ const LOCKED_PHASES=['signing-in','refreshing','launching','running','starting-game'];
+ const accountLocked=state=>signInPending||Boolean(state&&(state.accessChecking||state.accountWorking))||LOCKED_PHASES.includes(phaseOf(state));
  // Visible once a download or install has started; a stale `bar` field must not hide it
  // while a transfer is running.
  const barVisible=state=>transferring(state)||(!document.body.classList.contains('home')&&Boolean(state.bar?.visible));
@@ -654,7 +665,7 @@
   const fromMain=state!==current;
   current={...current,...state};
   if(installRequested&&transferring(current)){installRequested=false;if(panel.open)panel.close();}
-  const busy=Boolean(localActivity?.stage==='play-requested')||signInPending||Boolean(current.accessChecking||current.accountWorking)||['signing-in','refreshing','launching','running','starting-game'].includes(phaseOf(current));
+  const busy=Boolean(localActivity?.stage==='play-requested')||accountLocked(current);
   const action=primaryAction(current);
 
   document.querySelector('.home-footer>span:last-child')?.replaceChildren(document.createTextNode('Launcher '+(current.version||'')));
@@ -951,7 +962,10 @@
  // section an address is ever displayed.
  const emailLine=document.createElement('p');emailLine.className='desktop-profile-heading desktop-email';emailLine.hidden=true;profileMenu.append(emailLine);
  for(const [label,action,key] of [
-  ['Profile & linked accounts',()=>{profileMenu.hidePopover();void import('./company-profile.mjs').then(({openCompanyProfile})=>openCompanyProfile({desktop,getState:()=>current,signInMicrosoft})).catch(report);},'companyProfile'],
+  // The dialog is an account surface, so it is handed the account lock itself rather than a copy
+  // of it (*The account lock* above, and site/company-profile.mjs). It hands back a paint, so a
+  // broadcast that changes the lock reaches controls that are already on screen.
+  ['Profile & linked accounts',()=>{profileMenu.hidePopover();void import('./company-profile.mjs').then(({openCompanyProfile})=>openCompanyProfile({desktop,getState:()=>current,signInMicrosoft,isAccountLocked:()=>accountLocked(current)})).then(view=>{if(view)companyProfileView=view;}).catch(report);},'companyProfile'],
   ['Logout',()=>{profileMenu.hidePopover();void desktop.signOut().catch(report);},'logout'],
   ['Reset password',()=>{profileMenu.hidePopover();void companyUI.then(ui=>ui.reset()).catch(report);},'companyPassword'],
   ['Verified emails',()=>{profileMenu.hidePopover();void companyUI.then(ui=>ui.emails()).catch(report);},'companyEmails']]){
@@ -1010,11 +1024,16 @@
   // linked account with no session, and an unlinked one, stay as they were.
   const heldHereOrThere=['local','server'].includes(minecraftSessionOf(state)?.state||'');
   companyHeading.hidden=!account;companyHeading.textContent=heldHereOrThere?'Microsoft / Xbox linked'+(state.profile?' · '+state.profile.name:''):account?.microsoftLinked?'Microsoft / Xbox linked · sign in to play':'Microsoft / Xbox not connected';
-  const locked=signInPending||Boolean(state.accessChecking||state.accountWorking)||['signing-in','refreshing','launching','running'].includes(phaseOf(state));
+  const locked=accountLocked(state);
   for(const button of profileMenu.querySelectorAll('[data-profile-action]')){
    button.disabled=locked;
    button.hidden=button.dataset.profileAction.startsWith('company')&&!state.account;
   }
+  // The profile dialog is the second account surface, and the lock reaches it too: its own
+  // controls are disabled by the same answer, not by a disabled opener and a modal dialog
+  // (site/company-profile.mjs holds no list of phases of its own). Only that answer is passed on,
+  // so a broadcast cannot rebuild a control the player is using.
+  companyProfileView?.syncLock();
 
   // The email line belongs to one account and to one read of it.
   if(!emailView||!account||emailView.id!==account.id){emailLine.hidden=true;emailLine.textContent='';}
