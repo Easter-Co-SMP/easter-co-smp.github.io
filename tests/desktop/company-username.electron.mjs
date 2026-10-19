@@ -288,9 +288,9 @@ try{
  assert.equal(await addressRows.nth(0).isChecked(),false);
  assert.equal(await addressRows.nth(1).isChecked(),false);
  assert.equal(await emailsDialog.locator('.company-emails-unset').isVisible(),true,'with nothing selected the section says which sign-in works');
- assert.match(await emailsDialog.locator('.company-emails-unset').textContent(),/Sign in with Microsoft or with your username\./);
+ assert.match(await emailsDialog.locator('.company-emails-unset').textContent(),/Sign in with a linked provider or with your username\./);
  assert.equal(await emailsDialog.getByRole('button',{name:'Clear login email',exact:true}).isVisible(),false,'there is nothing left to clear');
- await lineIs('No login email is selected. Sign in with Microsoft or with your username.');
+ await lineIs('No login email is selected. Sign in with a linked provider or with your username.');
  await page.screenshot({path:'/tmp/company-emails-cleared.png',animations:'disabled'});
  // Choose the second address again, so the restart below has a non-default choice to keep.
  await addressRows.nth(1).check();
@@ -305,10 +305,10 @@ try{
  await page.getByRole('button',{name:'Verified emails',exact:true}).click();
  await emailsDialog.locator('.company-emails-empty').waitFor();
  assert.equal(await emailsDialog.locator('input[name=email]').count(),0,'an account with no verified email shows no list');
- assert.equal((await emailsDialog.locator('.company-emails-empty').textContent()).trim(),'No verified email is recorded for this account. Sign in with Microsoft or with your username.');
+ assert.equal((await emailsDialog.locator('.company-emails-empty').textContent()).trim(),'No verified email is recorded for this account. Sign in with a linked provider or with your username.');
  assert.equal(await emailsDialog.getByRole('button',{name:'Save selection',exact:true}).isVisible(),false);
  assert.equal(await emailsDialog.getByRole('button',{name:'Clear login email',exact:true}).isVisible(),false);
- await lineIs('No verified email is recorded for this account. Sign in with Microsoft or with your username.');
+ await lineIs('No verified email is recorded for this account. Sign in with a linked provider or with your username.');
  await page.screenshot({path:'/tmp/company-emails-none.png',animations:'disabled'});
  noEmails=false;
  // A verified address another account already signs in with is refused as unavailable:
@@ -348,6 +348,10 @@ try{
  // and the request that changes the password carries none.
  await page.locator('.desktop-account-nav').click();
  await page.getByRole('button',{name:'Reset password',exact:true}).click();
+ // Recovery first asks for an already linked provider; this account has Microsoft only.
+ const recovery=page.locator('#desktop-company-signin');await recovery.waitFor();
+ assert.equal(await recovery.locator('.company-provider[data-provider=google]').isVisible(),false);
+ await recovery.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();await app.evaluate(()=>global.easterTestApprove());
  const reset=passwordStep;
  await reset.getByRole('heading',{name:'Reset your Easter Company password',exact:true}).waitFor();
