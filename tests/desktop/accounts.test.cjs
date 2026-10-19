@@ -532,6 +532,8 @@ test('the password floor is eight characters in every layer that states it',()=>
  assert.match(main,/Use a password or passphrase of 8 to 128 characters/);
  const copy=require('../../desktop/accounts.cjs').MESSAGES;
  assert.match(copy.password_policy,/8 to 128 characters/);
- const service=fs.readFileSync('/root/easter-co-cloud/api/passwords.py','utf8');
- assert.match(service,/8 <= len\(password\) <= 128/);
+ // The account service's own floor is asserted in its repository
+ // (tests/test_identity.py::test_the_password_floor_is_eight_characters). A launcher test
+ // may not read another repository: CI has no copy of it, and that is how this test broke
+ // the 1.0.27 build.
 });
