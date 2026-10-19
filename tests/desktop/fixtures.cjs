@@ -24,7 +24,11 @@ function send(response,status,payload,headers={}){
  response.writeHead(status,{'Content-Type':'application/json',...headers});
  response.end(body);
 }
-function client(origin,options={}){return new AccountClient({baseUrl:origin,client:'launcher/1.0.1',...options});}
+// Every stub client here is single-attempt (`retryBudget: 0`), because these tests are about
+// what ONE answer means. The launcher's own budget — the declared retry policy, its backoff,
+// its cancellation and its exhaustion — is proved separately in cold-start.test.cjs against a
+// clock that test controls, so nothing here waits minutes to observe a retry.
+function client(origin,options={}){return new AccountClient({baseUrl:origin,client:'launcher/1.0.1',retryBudget:0,...options});}
 function rejects(assert,promise,code){
  return promise.then(()=>assert.fail('expected '+code),error=>{assert.equal(error.code,code);return error;});
 }
