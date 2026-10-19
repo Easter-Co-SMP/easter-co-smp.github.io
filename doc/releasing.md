@@ -42,7 +42,13 @@ name from `/releases/latest/download/`. The launcher job is
    Account, and signing out returns the signed-out copy), and
    `xvfb-run -a node tests/desktop/shortcuts.electron.mjs` (the game shortcuts: both
    entries created and removed in an isolated HOME, and the auto-start path driven
-   through the real main process).
+   through the real main process), and
+   `xvfb-run -a node tests/desktop/wait-post-approval.electron.mjs` (the promise Owen hit
+   in 1.0.30: once Microsoft's approval is consumed the dialog stops asking for the code
+   and shows the current stage, and a long wait shows the ten-second reassurance. It needs
+   its own fixture instance on 18798 — `EASTER_API_FIXTURE_PORT=18798`, same procedure as
+   below — because it holds the account call open for thirteen seconds through a proxy of
+   its own; without one it fails early on an unreachable account service).
 3. The version in `package.json` is higher than the published one. The tag is derived
    from it, so forgetting this step produces a release that cannot be created.
 4. Nothing is being shipped that the app bundles but does not fetch. The packaged app
@@ -100,7 +106,9 @@ The three facts that make it work, and the details that bite:
 The other Electron journeys need no fixture. `accounts.electron.mjs` starts its own
 loopback stub and reads the account shape from it; `electron.mjs`, `flow.electron.mjs`,
 `launcher-identity-conflict.electron.mjs`, `ownership.electron.mjs`, `deslop.electron.mjs`
-and `shortcuts.electron.mjs` use their own harnesses. The browser, waits and drawings
+and `shortcuts.electron.mjs` use their own harnesses. The exception is
+`wait-post-approval.electron.mjs`, which is the one journey needing a real fixture instance
+of its own (18798) with no harness around it. The browser, waits and drawings
 suites need only the static preview of `site/` (run them from the repository root, and note
 that `tests/waits-browser.mjs` reads `EASTER_PUBLIC_ORIGIN`, which is how it is pointed at
 18100 rather than its own default port):
