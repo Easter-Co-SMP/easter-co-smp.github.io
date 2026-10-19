@@ -590,6 +590,148 @@ cannot answer yet (the retry, and never a Microsoft prompt), and the wait while 
 Not verified here, and not verifiable from this repository alone: the real routes on the live
 service, a real second machine, and a real launch of the real client on either platform.
 
+## A cold account service, and what the hero says while it wakes (2026-10-19)
+
+Owen could not get into his own game at launch on 1.0.33. The hero went to **Checking your
+Minecraft session**, then settled on **Try again / The account service is busy right now**, and he
+gave up. His diagnosis matches the code: Lambda cold starts plus an Aurora cluster at minimum
+capacity 0 make one call bounce or time out, and the launcher treated the first transient failure
+as a verdict. His instruction, verbatim: *"our launcher should have very generous timeout and
+retry mechanisms when making API calls to lambdas"* — with the recovery happening without him
+restarting the sign-in flow.
+
+### Why a longer single request cannot help
+
+API Gateway **HTTP API** caps an integration at **30 seconds** and that maximum cannot be raised:
+the quotas page lists "Maximum integration timeout | 30 seconds | Can be increased: No"
+(https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-quotas.html), and the
+integration's own `timeout_in_millis` is documented as "between 50 and 30,000 milliseconds for
+HTTP APIs" with a default of 30 seconds. (Only *REST* APIs may raise it, by a service quota
+increase; this is an HTTP API.) A request allowed to run past that ceiling is answered by the
+gateway, not by the service, so raising `GAME_SESSION_TIMEOUT_MS` above 29 s cannot buy a cold
+start. Resilience therefore lives in the budget **around** the attempts: several bounded attempts,
+with backoff, inside one longer window. Every retried attempt is capped by
+`RETRY_ATTEMPT_CEILING_MS` = 29 s for that reason, and `GAME_SESSION_TIMEOUT_MS` stays 29 s.
+
+### What may be repeated, and why — the one declared list
+
+`desktop/accounts.cjs` holds `OPERATIONS`: every route the client calls, exactly once, each with
+whether it may be repeated and the reason. `AccountClient.attempt()` is the only retry loop and it
+asks that table and nothing else, so a new call has to state its safety before it can be called,
+and an operation cannot become repeatable by being written with a longer timeout.
+
+| Route | Repeated? | Why |
+|---|---|---|
+| `GET /v2/game/status` | yes, read | Changes nothing server side; a bounce is not an answer about the server |
+| `GET /v2/accounts/me` | yes, read | Changes nothing server side |
+| `GET /v2/accounts/providers` | yes, read | Changes nothing server side |
+| `GET /v2/accounts/emails` | yes, read | Changes nothing server side |
+| `POST /v2/accounts/username/available` | yes, read | A question about a name; it writes nothing |
+| `POST /v2/game/session` (the mint) | yes, safe in effect | Each call refreshes the stored Microsoft token, rotates it and writes it in one transaction, then answers a fresh Minecraft session. A repeat costs one more upstream round and one more unit of the service's 30 mints per 10 minutes; a lost answer corrupted nothing |
+| `POST /v2/accounts/microsoft` | no, write | Creates the account and the Company session; a lost answer may have committed. Its own declared `database_unavailable` retry is separate and unchanged |
+| `POST /v2/accounts/password/login` | no, write | Creates a session; a repeat after a lost answer is a second session for one press |
+| `POST /v2/accounts/password` | no, write | Claims the username and sets the password |
+| `POST /v2/accounts/emails/login` | no, write | Chooses the login email |
+| `POST /v2/accounts/profile` | no, write | Writes the player's own profile |
+| `POST /v2/game/wake` | no, write | Starts a machine; `wakeServer` already wakes exactly once per press |
+| `POST /v2/game/session/revoke` | no, write | Ends the stored session everywhere |
+| `POST /v2/accounts/logout` | no, write | Ends the Company session, and is best effort anyway |
+| `POST /v2/accounts/session/refresh` | no | It rotates the very Company session it sends, so a repeat may present a token the first attempt already spent |
+
+What a repeatable call is asked again for, and what it is not (`transientFailure`):
+
+- **Yes**: a dropped connection, DNS failure or refused connection (`unreachable`); API Gateway's
+  own timeout and any other 5xx (502, 503, 504) — a body that is not the frozen shape keeps its
+  status, which is what a gateway timeout arrives as; and a declared `database_unavailable`.
+- **No**: `401`, `403` and `429`. They are answers, not failures; the service heard the request
+  and refused it. `429` carries `Retry-After: 600`, keeps its own sentence, and Play stays off for
+  that press.
+- **No**: `session_key_unconfigured` and `microsoft_not_configured`. A service that says its own
+  sealing key or Microsoft application is missing is unconfigured, not cold, and three minutes of
+  asking cannot fix it.
+- **No**, ever, for a write: a lost answer may have committed. `login()` keeps its own narrow rule
+  — four attempts, 3 s × attempt of backoff, a 90 s window, and **only** a 503 that declares
+  `database_unavailable` — and that rule is not loosened by any of this.
+
+### The budgets
+
+| Call | Window | Attempts |
+|---|---|---|
+| the mint (`POST /v2/game/session`) | `MINT_RETRY_BUDGET_MS` = 180 s | at most 6, each ≤ 29 s, backoff 2 s → 4 s → 8 s → 16 s → 16 s |
+| every read | `READ_RETRY_BUDGET_MS` = 90 s | at most 6, each ≤ 29 s, same backoff |
+
+Three minutes is generous enough for a real cold start (one Aurora resume measured at 12–20 s plus
+a Lambda cold start, and the mint is five upstream calls) and still bounded; ninety seconds covers
+at least two full attempts and their backoff, and is short enough that one failing read spends half
+of a Play press's own three-minute wake window rather than all of it. An attempt is given the smaller of
+its ceiling and what is left of the window, so the last attempt in a spent budget is a short one
+and the wait never widens as the window runs out. Exhaustion is **not** a new failure mode: the
+error the launcher already understood (`unreachable`, `database_unavailable`, the service's own
+code) is what comes out, and the existing classification in `mintMinecraftSession` turns it into
+the existing sentence.
+
+### What the hero says, and when
+
+No copy changed, because the two existing sentences are already the two right moments:
+
+- **While the retries run**, `minecraft` stays `checking` and the hero says **Checking your
+  Minecraft session…** with the note *Asking your Easter Company account*. The launcher is still
+  investigating, so it does not announce a service problem it has not finished investigating, and
+  it offers no retry to press because it has not stopped trying.
+- **After the budget is spent**, a service that could not answer becomes `busy`, which is the only
+  moment **Try again / The account service is busy right now** is true. That press asks for one
+  more mint (`desktop.refreshMinecraftSession`), so recovery still needs no restart of the sign-in
+  flow.
+
+The wait is bounded, and it can always be given up: the hero's own action is disabled while the
+launcher is still asking (there is nothing to retry), but signing out stays available and ends the
+request, and the retry loop honours that between attempts and inside a backoff. In practice the
+budget is a ceiling rather than a wait: a recovering service answers at the second or third
+attempt, and only a service that is genuinely down spends the whole window before the verdict.
+
+### An answer that is already out of date
+
+With a three-minute window open, the player can sign out, sign in as somebody else or switch
+accounts before the answer arrives. Two rules make that safe, and both are in `main.cjs`:
+
+- **The answer belongs to one account.** `mintMinecraftSession` fixes the Company account id and
+  Microsoft subject *before* the request and compares them after it. An answer that arrives after
+  that account has gone returns `stale`: it never becomes `mintedSession`, never writes `mintedFor`,
+  never moves the hero out of `checking`, and settles no sentence on the account that replaced it.
+  `mintedFor` remains the one thing that decides whether a session belongs to the current account
+  (`mintedIsCurrent`), and it is written in that one place. A late *read* is discarded the same way:
+  `refreshGameStatus` remembers which account asked and drops an answer that lands after that
+  account went.
+- **The request is given up, not merely ignored.** Each mint registers an `AbortController`;
+  signing out, and replacing the account on enrolment or sign-in, abort it, so nothing is left in
+  flight for a player who has moved on. The abort reaches the retry loop, which stops between
+  attempts and inside a backoff, so a cancelled wait makes no further request.
+
+### What is proven, and what is not
+
+`tests/desktop/cold-start.test.cjs` proves the policy itself, with a clock it controls: a dropped
+connection, a gateway timeout and a declared `database_unavailable` each recover (for the mint and
+for every read); every write is one attempt whatever went wrong; a `401`, `403` and `429` are asked
+for exactly once; a declared configuration fault is not waited on; exhaustion is the existing code
+and stays inside the window; no attempt exceeds the 29 s ceiling; the backoff is capped; the window
+is what shortens the last attempt; cancellation stops the wait; the route table covers every route
+the client calls and repeats exactly the reads and the mint; and `login()` keeps its own narrow
+`database_unavailable` rule. `tests/browser.mjs` renders both hero states and their sentences.
+
+`tests/desktop/cold-start.electron.mjs` proves the same sequence through the real main process
+against a loopback stub: the three cold-start failures recover behind **Checking your Minecraft
+session…** in one press with the hero never showing the busy verdict, and the fourth answer offers
+Play; a `429` and a declared configuration fault give **Try again / The account service is busy
+right now** with Play off and exactly one request each, and the hero's own Try again recovers
+without restarting the sign-in; signing out during an open mint ends it and leaves the late answer
+painting nothing; and a silent server-status read that answers after the player has signed out is
+discarded rather than painted. Its screenshots are `/tmp/cold-start-checking.png`,
+`/tmp/cold-start-verdict.png` and `/tmp/cold-start-recovered.png`.
+
+Not verified here: a real cold Lambda or a real Aurora resume (the failures are replayed from what
+they look like on the wire), the service's own 30-per-10-minutes mint budget under this retry, and
+the live routes.
+
 ## The one server the launcher targets (2026-10-18)
 
 Owen's instruction, verbatim: *"The launcher has a 'server address' settings option,

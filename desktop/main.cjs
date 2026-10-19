@@ -215,7 +215,13 @@ async function refreshGameStatus(){
  if(gameWake&&!gameWake.settled)return;
  const routes=gameRoutes();
  if(!routes)return;
+ // This read can now take a while (the client retries it inside one budget), so it remembers
+ // which account asked. An answer that lands after a sign-out or an account switch is thrown
+ // away rather than published: it was proved with a session that is no longer this player's,
+ // and the next account's own read is the one that may speak for it.
+ const forAccount=company?.account.id||null;
  const answer=await gameAnswer(()=>accounts.gameStatus(gameToken()));
+ if(!forAccount||!company||company.account.id!==forAccount)return;
  gameChecked=true;gameCheckedAt=new Date().toISOString();
  if(answer.ok&&answer.status)gameServer=answer.status;
  notify({});
@@ -427,8 +433,11 @@ async function saveCompany(){
 async function forgetCompany(){
  const token=company?.token;company=null;
  // Everything this launcher knew about a stored session goes with the account it belonged to:
- // the minted session, the state word, and the sign-out-everywhere control with them.
- mintedSession=null;mintedFor=null;minecraft={state:'unknown',serverHeld:false,checkedAt:null};minecraftProbe=null;
+ // the minted session, the state word, and the sign-out-everywhere control with them. Any mint
+ // still in flight was asked for on behalf of the account that has just gone, so it is ended
+ // here rather than left to land on the next account's hero (mintMinecraftSession, "an answer
+ // that is already out of date").
+ mintedSession=null;mintedFor=null;minecraft={state:'unknown',serverHeld:false,checkedAt:null};minecraftProbe=null;cancelMints();
  if(token)await accounts.logout(token);
  await vault.remove(companyFile());
 }
@@ -457,6 +466,12 @@ function microsoftConnected(){return Boolean(company&&session&&company.account.m
 // vault), and the five questions the gate and the launch ask together so they can never
 // disagree about which session a press would use.
 let minecraft={state:'unknown',serverHeld:false,checkedAt:null},mintedSession=null,mintedFor=null,minecraftProbe=null;
+// Every mint currently in flight, so signing out or switching accounts ends them instead of
+// leaving each one to land on the wrong hero. A mint is asked for on behalf of one account and
+// can be answered later than the player's next decision, so the request carries the account it
+// was made for and this set is how that request is given up.
+const mintRequests=new Set();
+function cancelMints(){for(const abort of mintRequests)abort.abort();mintRequests.clear();}
 const MINECRAFT_REVOKED='Signed Minecraft out everywhere. The next game on any computer needs a Microsoft sign-in.';
 const MINECRAFT_NOT_REVOCABLE='The launcher cannot sign Minecraft out on other computers yet.';
 const MINECRAFT_NOTHING_STORED='No Minecraft session was stored for your account, so there was nothing to sign out.';
@@ -532,6 +547,15 @@ function sessionFromMint(minted){
 // a 5xx, a body this launcher cannot read — is no answer at all, and no answer never disables
 // anything. This is the only place a session is asked for, so a machine can never end up with
 // two different ideas of whether the account has one.
+//
+// AN ANSWER THAT IS ALREADY OUT OF DATE. The client retries this call for up to three minutes
+// (desktop/accounts.cjs, OPERATIONS), which is long enough for the player to sign out, sign in
+// as somebody else or switch accounts while the request is open. The account this answer belongs
+// to is therefore fixed BEFORE the request goes out, and an answer that arrives after that
+// account has gone is discarded: it never becomes `mintedSession`, never moves the hero out of
+// `checking`, and never paints a state word on somebody else's account. `mintedFor` is what the
+// rest of this file reads to decide whether a session belongs to the current account, and this
+// is the one place that writes it.
 async function mintMinecraftSession({announce=false}={}){
  if(!company||!company.account.microsoftSubject)return {outcome:'none'};
  // This machine's own check of this very account is fresher than a mint can be, and a service
@@ -540,11 +564,18 @@ async function mintMinecraftSession({announce=false}={}){
  // with no session of its own (a password sign-in) asks, because then the service is the only
  // thing that knows.
  if(sessionOfAccount()&&identity.access(session)!=='owned')return {outcome:'none'};
+ const forAccount=company.account.id,forSubject=company.account.microsoftSubject,token=company.token;
+ // The account is compared, not the token: a Company session reissued while this request was
+ // open is still the same account's request, so its answer is still this player's.
+ const current=()=>Boolean(company&&company.account.id===forAccount&&company.account.microsoftSubject===forSubject);
+ const abort=new AbortController();
+ mintRequests.add(abort);
  minecraft={...minecraft,state:'checking'};
  if(announce)notify({});
  try{
-  const minted=await accounts.gameSession(company.token);
-  mintedSession=minted;mintedFor=company.account.id;
+  const minted=await accounts.gameSession(token,abort.signal);
+  if(!current())return {outcome:'stale'};
+  mintedSession=minted;mintedFor=forAccount;
   minecraft={state:'server',serverHeld:true,checkedAt:new Date().toISOString()};
   // The service named this account's own Java profile. If the account's record disagreed, the
   // service is the authority: it minted the session from the Microsoft account itself. The
@@ -558,7 +589,10 @@ async function mintMinecraftSession({announce=false}={}){
   notify({});
   return {outcome:'server',session:minted};
  }catch(error){
-  if(error?.name==='AbortError')throw error;
+  // This launcher's own cancellation means the account it was asked for is gone: there is
+  // nothing to say about the account that replaced it.
+  if(error?.name==='AbortError'){if(abort.signal.aborted)return {outcome:'stale'};throw error;}
+  if(!current())return {outcome:'stale'};
   const code=String(error?.code||'');
   // Four answers, four different owners (doc/launcher-states.md, "The four facts"):
   //  * reauth_required is the only one about the Microsoft session itself, so it is the only one
@@ -567,7 +601,8 @@ async function mintMinecraftSession({announce=false}={}){
   //  * a dead Easter Company session is the ACCOUNT's news: the player signs in to their account
   //    again, never to Microsoft for it.
   //  * a rate limit or a service that cannot answer says nothing about the player's session: Play
-  //    stays off for that press, the sentence names the service, and no prompt is opened.
+  //    stays off for that press, the sentence names the service, and no prompt is opened. This is
+  //    the POST-BUDGET verdict: only when the retries above are spent is "busy" true.
   //  * no such route, no answer, or a body this launcher cannot read is no answer at all.
   if(code==='reauth_required'){
    mintedSession=null;
@@ -588,6 +623,8 @@ async function mintMinecraftSession({announce=false}={}){
   minecraft={state:'unknown',serverHeld:Boolean(minecraft.serverHeld),checkedAt:new Date().toISOString()};
   notify({});
   return {outcome:code==='route_absent'?'absent':'unknown',error};
+ }finally{
+  mintRequests.delete(abort);
  }
 }
 // The mint is asked for when the launcher has a reason to ask: after a sign-in that could have
@@ -643,6 +680,9 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
   const next=companySession(signed),previous=company;
   session={...candidate,companyId:next.account.id,companyName:next.account.displayName||next.account.minecraftName||'Company member',companyUsername:next.account.username||null};
   company=next;
+  // A different account is a different hero: a mint still running for the account that was here
+  // is ended rather than left to answer for this one (mintMinecraftSession).
+  if(!previous||previous.account.id!==next.account.id)cancelMints();
   await loadSkin(session);await saveSession();await saveCompany();
   if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
   // The hand-over is proved, never assumed: one mint, and only a session it answers justifies
@@ -917,6 +957,11 @@ async function launchSession(){
  // is used as it is, with no refresh and no re-post.
  if(localTokenLive())return {session};
  const minted=await mintMinecraftSession({announce:true});
+ // The account this press was making a session for is gone: the player signed out or signed in
+ // as somebody else while the service was being asked. There is no honest sentence to settle the
+ // press with — the hero now belongs to another account and says its own state — so the press
+ // simply stops, exactly as it would if it had never been able to start.
+ if(minted?.outcome==='stale')return {settled:true};
  if(minted?.outcome==='server')return {session:sessionFromMint(minted.session)};
  if(minted?.outcome==='reauth'){
   // One honest sentence, then the interactive flow — once. If the fresh sign-in does not end
@@ -1109,6 +1154,7 @@ function registerIPC(){
    const next=companySession(signed);
    if(link&&company&&next.account.id!==company.account.id)throw new AccountError('identity_conflict',ACCOUNT_MESSAGES.identity_conflict);
    const previous=company;company=next;
+   if(!previous||previous.account.id!==next.account.id)cancelMints();
    session=savedAccounts.find(entry=>entry.companyId===next.account.id&&entry.companySubject===next.account.microsoftSubject)||null;
    await saveSession();await saveCompany();
    if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);
@@ -1155,6 +1201,7 @@ function registerIPC(){
   const signed=await accounts.loginPassword(login,password);
   const next=companySession(signed),previous=company;
   company=next;
+  cancelMints();
   session=savedAccounts.find(entry=>entry.companyId===next.account.id&&entry.companySubject===next.account.microsoftSubject)||null;
   await saveSession();await saveCompany();
   if(previous?.token&&previous.token!==next.token)await accounts.logout(previous.token);

@@ -112,11 +112,18 @@ name from `/releases/latest/download/`. The launcher job is
    `xvfb-run -a node tests/desktop/wiki.electron.mjs` (the wiki the launcher bundles, served
    from its own `easter://` origin with no network read: all twelve articles, search, deep
    links and a narrow window; `EASTER_PACKAGED_LAUNCHER` points the same journey at a
-   packaged build).
+   packaged build), and
+   `xvfb-run -a node tests/desktop/cold-start.electron.mjs` (a cold account service: a
+   dropped connection, an API Gateway timeout and a declared `database_unavailable` recover
+   behind "Checking your Minecraft session…" in one press without the hero ever showing the
+   busy verdict, a 429 and a declared configuration fault give the existing "Try again"
+   sentence with one request each and recover on the hero's own Try again, and signing out
+   during an open mint ends it and discards the answer that lands afterwards).
 
    That is every Electron journey in `tests/desktop` except one: `electron.mjs` and the
-   nineteen `*.electron.mjs` files, of which ten were named here before 2026-10-19 and eight
-   were added that day. None of the eight needs a fixture: each starts its own stub, harness
+   twenty `*.electron.mjs` files, of which ten were named here before 2026-10-19, eight were
+   added that day and `cold-start.electron.mjs` on 2026-10-19 with the retry policy. None of
+   the nine needs a fixture: each starts its own stub, harness
    or payload, and none of them reads 18796–18798 (the detail is under "The other Electron
    journeys need no fixture"). The nine that had been left out were left out silently, and
    one of them (`integration.electron.mjs`) was red for weeks because of it. Measured on

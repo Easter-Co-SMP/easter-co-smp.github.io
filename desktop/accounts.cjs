@@ -15,8 +15,71 @@ const DATABASE_RESUME_BUDGET_MS=90000, DATABASE_RESUME_ATTEMPTS=4;
 // status read has and for the same reason: the account cluster scales to zero, and a
 // ceiling below its resume would turn a slow service into "no session".
 const GAME_SESSION_TIMEOUT_MS=29000;
+// ---- what may be repeated, and why -------------------------------------------------
+// API Gateway HTTP API cuts an integration at 30 s and that ceiling cannot be raised
+// (AWS: "Maximum integration timeout | 30 seconds | No"), so a single request past ~29 s is
+// answered by the gateway before the service can answer at all. Waiting longer inside one
+// request therefore cannot buy a cold start; only a second request can. Resilience lives in
+// the budget AROUND the attempts: several bounded attempts, with backoff, inside one longer
+// window. Every retried attempt stays under RETRY_ATTEMPT_CEILING_MS for exactly that reason.
+const RETRY_ATTEMPT_CEILING_MS=29000;
+// Backoff doubles from two seconds and stops doubling at sixteen, so a service that is
+// already awake is retried quickly and a service that is resuming is not hammered. There is
+// one launcher and one player, so no jitter is needed to spread a thundering herd.
+const RETRY_BACKOFF_MS=2000,RETRY_BACKOFF_MAX_MS=16000,RETRY_ATTEMPTS_MAX=6;
+// The mint is the one call that decides whether the player can play, and it is five upstream
+// calls behind a cold gateway: three minutes covers several full attempts with backoff, which
+// is Owen's "very generous" and still bounded. The reads a hero shows are given ninety
+// seconds: at least two full attempts and their backoff, which is one Aurora resume plus one
+// Lambda cold start, and short enough that one failing read uses half of a Play press's own
+// three-minute wake window rather than all of it.
+const MINT_RETRY_BUDGET_MS=180000,READ_RETRY_BUDGET_MS=90000;
+const UNREACHABLE_MESSAGE='The Easter Company account service could not be reached.';
+// A service that says its own sealing key or Microsoft application is missing is not cold,
+// it is unconfigured: waiting three minutes for it would be a spinner that cannot end.
+const PERMANENT_CODES=new Set(['session_key_unconfigured','microsoft_not_configured']);
+// Every route this client calls, exactly once, with the decision that makes a repeat safe and the
+// reason for that decision beside it. This table IS the retry policy: `attempt()` asks it and
+// nothing else, so an operation cannot become repeatable by being written with a longer timeout,
+// and a new route has to state its safety before it can be called at all.
+//
+// The rule every reason below follows: a READ can be asked again because it changes nothing; the
+// MINT can be asked again because a repeat costs budget and never state; a WRITE cannot, because a
+// lost answer may have committed; and 401, 403 and 429 are answers rather than failures, so they
+// are never repeated whatever the operation is.
+const OPERATIONS={
+ // reads: the same question, asked again
+ '/v2/accounts/me':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a read: it changes nothing server side'},
+ '/v2/accounts/providers':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a read: it changes nothing server side'},
+ '/v2/accounts/emails':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a read: it changes nothing server side'},
+ '/v2/game/status':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a read: it changes nothing server side, and a bounce is not an answer about the server'},
+ '/v2/accounts/username/available':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a question about a name: it writes nothing'},
+ // the mint: safe in effect
+ '/v2/game/session':{repeat:true,kind:'mint',budgetMs:MINT_RETRY_BUDGET_MS,why:'it refreshes, rotates and stores the Microsoft token in one transaction, so a repeat costs one of the 30 mints per 10 minutes and corrupts nothing'},
+ // writes: one attempt each, because a lost answer may have committed
+ '/v2/accounts/microsoft':{repeat:false,kind:'write',why:'a write: a lost answer may have created the account, so only its own declared database_unavailable is retried inside login()'},
+ '/v2/accounts/password/login':{repeat:false,kind:'write',why:'a write: a repeat after a lost answer is a second session for one press'},
+ '/v2/accounts/password':{repeat:false,kind:'write',why:'a write: it claims the username and sets the password'},
+ '/v2/accounts/profile':{repeat:false,kind:'write',why:'a write: a lost answer may have committed the player\'s own details'},
+ '/v2/accounts/emails/login':{repeat:false,kind:'write',why:'a write: a repeat could choose an address against a list that has moved'},
+ '/v2/accounts/logout':{repeat:false,kind:'write',why:'a write, and best effort: a repeat has nothing left to end'},
+ '/v2/game/wake':{repeat:false,kind:'write',why:'a write: it starts a machine, and wakeServer already wakes exactly once per press'},
+ '/v2/game/session/revoke':{repeat:false,kind:'write',why:'a write: it ends the stored session on every machine'},
+ '/v2/accounts/session/refresh':{repeat:false,kind:'write',why:'it rotates the very Company session it sends, so a repeat may present a token the first attempt already spent'}
+};
 class AccountError extends Error{
  constructor(code,message){super(message);this.name='AccountError';this.code=code;}
+}
+// One failure, one question: is asking again safe AND likely to answer differently? A dropped
+// connection, the gateway's own timeout, a 5xx from a resuming service and a declared
+// `database_unavailable` are all "not yet". A refusal is an answer and ends the retries.
+function transientFailure(error){
+ const status=Number(error?.status);
+ if(status===401||status===403||status===429)return false;
+ if(PERMANENT_CODES.has(String(error?.code||'')))return false;
+ if(error?.databaseUnavailable===true)return true;
+ if(error?.code==='unreachable')return true;
+ return status>=500;
 }
 // An Easter Company username is the player's public handle: 3-20 characters of
 // [a-z0-9_-], chosen once and immutable afterwards. The server owns the rule; this
@@ -205,8 +268,13 @@ function verifiedEmails(payload){
  return {emails,loginEmail};
 }
 class AccountClient{
- constructor({baseUrl=apiOrigin(),client='launcher/0.0.0',request=apiFetch,timeout=DEFAULT_TIMEOUT,waitFor=wait,now=Date.now}={}){
+ constructor({baseUrl=apiOrigin(),client='launcher/0.0.0',request=apiFetch,timeout=DEFAULT_TIMEOUT,waitFor=wait,now=Date.now,retryBudget=null}={}){
   this.baseUrl=String(baseUrl).replace(/\/+$/,'');this.client=client;this.request=request;this.timeout=timeout;this.waitFor=waitFor;this.now=now;
+  // `null` means "the budget the operation's own row declares", which is what the launcher
+  // runs. A number overrides it for every operation, and 0 makes the client single-attempt:
+  // that is how a test that is about one answer stays about one answer, while the retry
+  // itself is proved by its own test against a clock it controls.
+  this.retryBudget=retryBudget;
  }
  async call(pathname,{method='GET',body,token,timeout=this.timeout,signal}={}){
   // Every call is bounded: an unresponsive API must never hang sign-in or launch.
@@ -221,7 +289,7 @@ class AccountClient{
    if(error.name==='AbortError'&&signal?.aborted)throw error;
    // Unreachable host, DNS failure, refused connection or elapsed timeout.
    // The cause is deliberately dropped so it can never reach the renderer.
-   throw new AccountError('unreachable','The Easter Company account service could not be reached.');
+   throw new AccountError('unreachable',UNREACHABLE_MESSAGE);
   }
   let data=null;
   if(response.status!==204){
@@ -244,6 +312,41 @@ class AccountClient{
    throw error;
   }
   return data;
+ }
+ // The one retry loop in this module, and the only way a call is ever repeated. It asks the
+ // OPERATIONS table whether this route may be asked again at all; a route that is not in the
+ // table is a bug rather than a single attempt, so a new call has to declare its safety.
+ // Everything it can see is bounded three ways: RETRY_ATTEMPTS_MAX attempts, one overall
+ // budget, and a per-attempt ceiling under the gateway's own. Cancellation is honoured between
+ // attempts and inside a backoff, so signing out or closing the dialog stops the wait rather
+ // than leaving a request in flight that nobody is waiting for.
+ async attempt(pathname,options={}){
+  const operation=OPERATIONS[pathname];
+  if(!operation)throw new AccountError('invalid_request',MESSAGES.invalid_request);
+  const budget=this.retryBudget===null?operation.budgetMs:Number(this.retryBudget);
+  if(!operation.repeat||!(budget>0))return this.call(pathname,options);
+  const signal=options.signal,deadline=this.now()+budget;
+  let lastError=null;
+  for(let tries=1;;tries++){
+   signal?.throwIfAborted();
+   const remaining=deadline-this.now();
+   if(!(remaining>0))throw lastError||new AccountError('unreachable',UNREACHABLE_MESSAGE);
+   const timeout=Math.max(1,Math.min(options.timeout??this.timeout,RETRY_ATTEMPT_CEILING_MS,remaining));
+   try{return await this.call(pathname,{...options,timeout});}
+   catch(error){
+    // A cancellation is the player's own decision, and a refusal is an answer: neither is a
+    // transient failure and neither may be asked again.
+    if(error?.name==='AbortError')throw error;
+    if(!transientFailure(error))throw error;
+    lastError=error;
+    if(tries>=RETRY_ATTEMPTS_MAX)throw error;
+    const delay=Math.min(RETRY_BACKOFF_MS*2**(tries-1),RETRY_BACKOFF_MAX_MS);
+    // A backoff that would outlast the budget ends the wait here instead of sleeping first and
+    // then reporting that nothing was left: the player's answer is the same either way.
+    if(this.now()+delay>=deadline)throw error;
+    await this.waitFor(delay,undefined,{signal});
+   }
+  }
  }
  // The Microsoft Graph token is optional in the contract and transient here: it is put in
  // this one request body, never stored, never returned and never logged. An empty or
@@ -298,7 +401,7 @@ class AccountClient{
  async usernameAvailable(username,signal){
   const folded=typeof username==='string'?username.trim().toLowerCase():'';
   if(!USERNAME_PATTERN.test(folded))return {available:false,reason:'username_policy'};
-  const found=await this.call('/v2/accounts/username/available',{method:'POST',body:{username:folded},signal,timeout:Math.min(this.timeout,10000)});
+  const found=await this.attempt('/v2/accounts/username/available',{method:'POST',body:{username:folded},signal,timeout:Math.min(this.timeout,10000)});
   // Anything that is not a plain yes is a refusal; an unknown reason word is reported as
   // a taken name rather than being read as availability.
   if(found?.available===true)return {available:true,reason:null};
@@ -325,14 +428,14 @@ class AccountClient{
   return {created:created.created===true,account,session:{token,expiresAt},...(emailStatus?{emailStatus}:{})};
  }
  async me(token,signal){
-  const found=await this.call('/v2/accounts/me',{token,signal});
+  const found=await this.attempt('/v2/accounts/me',{token,signal});
   return sanitizeAccount(found?.account);
  }
  // The player's own verified addresses, and the one the account service signs them in
  // with. Owner-only: the call carries the Company session and no account handle, and its
  // answer is checked into the shape the profile section renders. Nothing here caches it.
  async emails(token,signal){
-  const found=await this.call('/v2/accounts/emails',{token,signal,timeout:Math.min(this.timeout,10000)});
+  const found=await this.attempt('/v2/accounts/emails',{token,signal,timeout:Math.min(this.timeout,10000)});
   return verifiedEmails(found);
  }
  // Select one of those addresses as the login email, or clear the selection with null.
@@ -347,7 +450,7 @@ class AccountClient{
   // the choice survive a restart: it is asked for, never remembered.
   return this.emails(token,signal);
  }
- async providers(signal){return this.call('/v2/accounts/providers',{signal});}
+ async providers(signal){return this.attempt('/v2/accounts/providers',{signal});}
  // ---- the game server, on this same origin and this same session --------------
  // Two routes, frozen with the cloud side: the status read and the wake request. They
  // are methods of this client rather than a second HTTP client, so a sleeping game
@@ -360,9 +463,11 @@ class AccountClient{
  //
  // The status is the frozen shape (state, ready, endpoint, since, players, detail) and
  // `ready` is the only field that authorises a launch. A body this launcher cannot
- // read in that shape is refused here rather than guessed at.
+ // read in that shape is refused here rather than guessed at. It is a read, so a cold
+ // gateway's bounce is asked again inside one bounded budget instead of being reported as a
+ // server nobody can see (OPERATIONS, and doc/launcher-states.md "A cold account service").
  async gameStatus(token,signal){
-  const found=await this.call('/v2/game/status',{token,signal,timeout:Math.min(this.timeout,GAME_STATUS_TIMEOUT_MS)});
+  const found=await this.attempt('/v2/game/status',{token,signal,timeout:Math.min(this.timeout,GAME_STATUS_TIMEOUT_MS)});
   if(!endpointMatches(found?.endpoint))throw new AccountError('game_target_mismatch',GAME_MESSAGES.target);
   const status=sanitizeGameStatus(found);
   if(!status)throw new AccountError('invalid_response',FALLBACK);
@@ -388,9 +493,15 @@ class AccountClient{
  // and no Xbox or XSTS token, so there is nothing else here to keep. `reauth_required` is
  // mapped to its own code because it is the one refusal the launcher answers with the
  // interactive Microsoft flow; everything else keeps the meaning it already had.
+ //
+ // It is the call a cold start hurts most: five upstream calls behind one gateway integration.
+ // A dropped connection, a gateway timeout or a declared `database_unavailable` is asked again
+ // inside MINT_RETRY_BUDGET_MS, and only a refusal (`reauth_required`, `invalid_session`, 401,
+ // 403, 429) or a spent budget reaches the caller as a verdict. That is what keeps the hero on
+ // "Checking your Minecraft session…" while the service wakes instead of blaming it at once.
  async gameSession(token,signal){
   let found;
-  try{found=await this.call('/v2/game/session',{method:'POST',token,body:{client:this.client},signal,timeout:Math.min(this.timeout,GAME_SESSION_TIMEOUT_MS)});}
+  try{found=await this.attempt('/v2/game/session',{method:'POST',token,body:{client:this.client},signal,timeout:Math.min(this.timeout,GAME_SESSION_TIMEOUT_MS)});}
   catch(error){
    if(error?.status===404||error?.code==='service_404')throw new AccountError('route_absent',MESSAGES.route_absent);
    throw error;
@@ -438,4 +549,7 @@ function storedSession(value){
 // The Minecraft session's own shape is exported beside the account's, because the main
 // process builds a launch out of it and tests/desktop/server-session.test.cjs proves it
 // refuses every shape it should.
-module.exports={AccountClient,AccountError,sanitizeAccount,publicAccount,verifiedEmails,MESSAGES,USERNAME_PATTERN,companySession,storedSession,companyVaultName,sanitizeGameSession,GAME_SESSION_TIMEOUT_MS};
+module.exports={AccountClient,AccountError,sanitizeAccount,publicAccount,verifiedEmails,MESSAGES,USERNAME_PATTERN,companySession,storedSession,companyVaultName,sanitizeGameSession,GAME_SESSION_TIMEOUT_MS,
+ // The declared retry policy travels with the client so a test (and a reader) can see which
+ // operations may be repeated and what each one is given, instead of inferring it from code.
+ OPERATIONS,transientFailure,RETRY_ATTEMPT_CEILING_MS,RETRY_BACKOFF_MS,RETRY_BACKOFF_MAX_MS,RETRY_ATTEMPTS_MAX,MINT_RETRY_BUDGET_MS,READ_RETRY_BUDGET_MS,UNREACHABLE_MESSAGE};

@@ -44,7 +44,10 @@ function wakeServerOf(api,clock,{timeoutMs=GAME_WAKE_TIMEOUT_MS,pollMs=GAME_POLL
  const {wakeServer}=require('../../desktop/game.cjs');
  return wakeServer({read:api.read,wake:api.wake,now:clock.now,sleep:clock.sleep,timeoutMs,pollMs,onUpdate,signal});
 }
-function client(origin){return new AccountClient({baseUrl:origin,client:'launcher/1.0.1'});}
+// Single-attempt, like every stub client here: these tests are about what ONE answer means.
+// The launcher's declared retry budget is proved in cold-start.test.cjs against a clock it
+// controls, so none of them waits minutes to observe a retry.
+function client(origin,options={}){return new AccountClient({baseUrl:origin,client:'launcher/1.0.1',retryBudget:0,...options});}
 
 // ---- the frozen shape ------------------------------------------------------
 test('every frozen state word is accepted and readiness is never inferred',()=>{
