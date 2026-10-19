@@ -230,7 +230,7 @@
         <li>Provider sign-in uses single-use state with a ten-minute expiry, verified server-side, so a replayed or forged callback is refused.</li>
         <li>Traffic between the launcher, the website and our API uses HTTPS. The launcher's own web content is isolated: no Node access, a strict content security policy, and no privileged content loaded from a remote address.</li>
         <li>Our database access is split by role, and each service can reach only the tables it needs. Secrets are held in a managed secret store and never in the launcher, the website or this repository's files.</li>
-        <li>Data at rest is encrypted by our infrastructure providers, and our storage is private rather than public.</li>
+        <li>Our storage is private rather than public, and the one long-lived secret we hold — your Microsoft refresh token — is encrypted with AES-256-GCM before it is stored.</li>
       </ul>
       <p>No system is perfectly secure, and we will not pretend otherwise. If a breach ever affects your personal data, we will tell you and the ICO where the law requires it, and we will tell you what we know, what we have done, and what you should do.</p>
       <p>If you think you have found a security problem, please email <a href="mailto:oceaster@gmail.com">oceaster@gmail.com</a> before doing anything else, and do not try to access another player's data to prove it.</p>
