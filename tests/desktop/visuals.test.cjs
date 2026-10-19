@@ -120,3 +120,13 @@ test('a detected low-memory first install tunes vanilla graphics even with enhan
  assert.match(options,/^fov:0.5$/m);
  assert.match(await fs.readFile(path.join(root,'config','iris.properties'),'utf8'),/enableShaders[:=]false/);
 });
+
+test('graphics disable refuses a foreign installed marker before touching any file',async t=>{
+ const {root}=await fixture(t);
+ await fs.writeFile(path.join(root,GRASS_ACTIVE),'foreign contents');
+ await fs.writeFile(path.join(root,'config','iris.properties'),'enableShaders=true\n');
+ await fs.rm(path.join(root,MARKER));
+ await assert.rejects(applyGraphics({root,enabled:false}));
+ assert.equal(await fs.readFile(path.join(root,GRASS_ACTIVE),'utf8'),'foreign contents');
+ assert.equal(await fs.readFile(path.join(root,'config','iris.properties'),'utf8'),'enableShaders=true\n');
+});

@@ -7,7 +7,7 @@ const installer=require('@xmcl/installer');
 const {Agent,interceptors}=require('undici');
 const {locationProblem,MARKER,clientOrigin,serverAddress}=require('./config.cjs');
 const {qualitySettings,applyQualitySettings,recordQuality,applyDisplayDefaults,SHADER_PACK_NAME}=require('./hardware.cjs');
-const {configureVisuals,disableShaders,GRASS_ACTIVE}=require('./visuals.cjs');
+const {configureVisuals,disableShaders}=require('./visuals.cjs');
 const dispatcher=new Agent({connections:8,connect:{family:4,timeout:30000},headersTimeout:45000,bodyTimeout:90000}).compose(interceptors.retry({maxRetries:3}));
 const ORIGIN='https://easter-co-smp.github.io/';
 const FABRIC='0.19.5';
@@ -579,7 +579,6 @@ async function applyQuality(root,hardware,notify,{shaders}={}){
   await applyQualitySettings(root,quality);
   await recordQuality(root,quality);
  }catch(error){
-  await fs.rm(path.join(root,GRASS_ACTIVE),{force:true});
   await disableShaders(root);
   throw Error('The client’s quality settings could not be written into the client folder.',{cause:error});
  }
@@ -784,7 +783,6 @@ async function applyGraphics({root,settings={},notify=()=>{},control=null,includ
  if(!record)throw Error('Download the game before changing its graphics settings.');
  // Off is a local settings operation and must work even without a network.
  if(!enabled){
-  await fs.rm(path.join(root,GRASS_ACTIVE),{force:true});
   await disableShaders(root);
   await configureVisuals(root,{record,includeGraphics:false});
   const updated={...record,includeGraphics:false,...(record.quality?{quality:{...record.quality,shaders:false,shaderPack:null}}:{})};

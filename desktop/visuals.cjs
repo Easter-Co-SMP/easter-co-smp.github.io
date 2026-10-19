@@ -23,6 +23,7 @@ async function assertOwned(root){
 }
 async function disableShaders(root){
  await assertOwned(root);
+ await fs.rm(path.join(root,GRASS_ACTIVE),{force:true});
  const file=path.join(root,'config','iris.properties'),text=await read(file);
  if(text!==null)await writeChanged(file,mergeProperties(text,{enableShaders:'false'}));
 }
