@@ -43,8 +43,12 @@ try{
  await page.locator('[data-desktop-play][data-action=signin]').waitFor();
  await app.evaluate(()=>global.easterTestDelayDevice=true);
  await page.locator('[data-desktop-play][data-action=signin]').click();
- // One action, one verb: the chooser offers the same "Sign in with Microsoft" the hero does, at
- // every width the review uses, in a dialog that fits each of them.
+ // One action, one verb: the hero says "Sign in", and the chooser it opens names the providers a
+ // player can actually sign in with - Microsoft, Google, Steam, Discord - at every width the
+ // review uses, in a dialog that fits each of them. The chooser's own Microsoft button is the
+ // only place this flow says "Sign in with Microsoft" out loud; naming the hero that way told a
+ // Google, Steam or Discord player their way in was closed to them (doc/launcher-states.md,
+ // *The signed-out hero's own sentence*).
  for(const [width,height] of [[1440,900],[800,600],[390,568]]){
   await page.setViewportSize({width,height});
   await page.locator('#desktop-company-signin').waitFor({state:'visible'});
