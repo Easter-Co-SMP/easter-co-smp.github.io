@@ -142,16 +142,19 @@ try{
   assert.equal(await narrowPage.evaluate(()=>document.querySelector('.map-drawing').open),false,'a click in the key summary\'s strip opens the key, not Draw');
   await narrowPage.mouse.click(strip.x,strip.y);
   await narrowPage.waitForFunction(()=>!document.querySelector('.map-key').open);
-  // The negative control: 148px is the number the old code kept as an inline left after loading
-  // narrow. Put it back and the reviewer's defect returns - the palette covers the strip and the
-  // same click opens Draw instead of the key.
-  await narrowPage.evaluate(()=>document.querySelector('.map-drawing').style.left='148px');
+  // The negative control freezes the old narrow position. A stylesheet override is intentional:
+  // the live layout callback clears inline left on the frame after the key closes. Injecting an
+  // inline value here raced that callback, so the falsifier sometimes measured the repaired
+  // 166px instead. Force the old geometry through that frame and the strip click itself.
+  const frozenPosition=await narrowPage.addStyleTag({content:'.map-drawing{left:148px!important}'});
+  // Deliver a pending layout frame deliberately: it must not repair the negative control.
+  await narrowPage.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   const frozen=await paletteGeometry(narrowPage);
   assert(frozen.summary.left<frozen.keySummary.right,'the frozen narrow left covers the key summary\'s strip: '+JSON.stringify({palette:frozen.summary,key:frozen.keySummary,overlap:frozen.stripOverlap}));
   await narrowPage.mouse.click(strip.x,strip.y);
   await narrowPage.waitForFunction(()=>document.querySelector('.map-drawing').open);
   assert.equal(await narrowPage.evaluate(()=>document.querySelector('.map-key').open),false,'and that strip opens Draw instead of the key, which is exactly the defect the chart-side fix removes');
-  await narrowPage.evaluate(()=>{const palette=document.querySelector('.map-drawing');palette.style.removeProperty('left');});
+  await frozenPosition.evaluate(node=>node.remove());
   await closePalette(narrowPage);
   // The reverse: the same chart narrowed to 390 must take the narrow rule back.
   await narrowPage.setViewportSize({width:390,height:844});
