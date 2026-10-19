@@ -554,7 +554,10 @@ class ClientExportTests(unittest.TestCase):
             path = root / (ident + '.jar')
             version = mod_version if ident == 'easter-navy' else '1.0.0'
             with zipfile.ZipFile(path, 'w') as jar:
-                jar.writestr('fabric.mod.json', json.dumps({'id': ident, 'name': ident, 'version': version}))
+                # ZIP headers are input bytes too: recreating the same fake release
+                # must not change its hash when the wall clock crosses a DOS tick.
+                member = zipfile.ZipInfo('fabric.mod.json', date_time=(1980, 1, 1, 0, 0, 0))
+                jar.writestr(member, json.dumps({'id': ident, 'name': ident, 'version': version}))
             paths.append(path)
         module = SimpleNamespace(_mods=lambda: paths, facts=SimpleNamespace(stack=lambda: 'MC 26.2 · Fabric 0.19.5'))
         return export_client(root / 'public', module,
@@ -792,6 +795,20 @@ class ClientExportTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_modrinth_files([modrinth_release('tectonic', '3.0.28', minecraft='1.21.1')],
                                  'tectonic', '3.0.28', '26.2')
+
+    def test_recreated_fixture_jars_and_manifests_ignore_the_wall_clock(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with mock.patch('zipfile.time.localtime', return_value=(2026, 10, 19, 12, 0, 0, 0, 0, -1)):
+                self.build(root)
+            jars = {path.name: path.read_bytes() for path in root.glob('*.jar')}
+            manifest = (root / 'public/data/client.json').read_bytes()
+            # Force another representable ZIP timestamp without sleeping. The old
+            # fixture always changed its JAR and manifest checksums at this boundary.
+            with mock.patch('zipfile.time.localtime', return_value=(2026, 10, 19, 12, 0, 4, 0, 0, -1)):
+                self.build(root)
+            self.assertEqual(jars, {path.name: path.read_bytes() for path in root.glob('*.jar')})
+            self.assertEqual(manifest, (root / 'public/data/client.json').read_bytes())
 
     def test_resolution_is_cached_and_re_resolved_only_when_the_pin_changes(self):
         with tempfile.TemporaryDirectory() as temp:
