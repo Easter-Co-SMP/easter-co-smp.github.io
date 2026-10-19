@@ -1,3 +1,34 @@
+# Easter Company launcher 1.0.33
+
+Signing in with your Easter Company username and password is now enough to play, on
+any machine, without approving Microsoft again.
+
+- Signing in with Microsoft once stores that session on your Easter Company account,
+  held encrypted server-side. Signing in to the same account on another machine, or
+  after logging out and back in, is ready to play with no Microsoft prompt of its own.
+- A password sign-in no longer reads as an account with nothing attached. The launcher
+  says "Sign in with Microsoft / Starts Minecraft as <your Minecraft name>" when it has
+  to ask, and shows PLAY NOW when the account service already holds your session.
+- Your Minecraft face is back in the header after a password sign-in. The launcher reads
+  the head from your own Minecraft identity, which needs no credential, and caches it so
+  a restart paints it immediately.
+- An account with no Microsoft link at all is told to link one, in its own words, rather
+  than being asked to sign in to something it has never connected.
+- Profile & linked accounts gains "Sign out of Minecraft everywhere", which cuts every
+  machine off at once. It reports only what the account service actually answered, and
+  it is the deliberate way to end a stored session: signing out of the Easter Company
+  account does not revoke it.
+- When the account service cannot mint a session just now (it is busy, or rate-limiting),
+  Play stays off and the launcher offers "Try again" instead of sending you through a
+  Microsoft prompt that would not have helped.
+
+Validation covers the launcher unit, browser and Electron suites, including a new
+journey that signs in with a password against the real account handler and PostgreSQL,
+plays from the server-held session, then signs Minecraft out everywhere and checks the
+prompt comes back with Play off. As with every release, CI builds and packages the
+installers; it does not launch the game or sign a person in, so the first real play on
+Windows is still a manual step.
+
 # Easter Company launcher 1.0.32
 
 The Easter Co. client gets a coordinated navy-and-brass interface and a more
