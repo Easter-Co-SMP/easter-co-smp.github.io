@@ -1,12 +1,10 @@
-# Easter Company launcher 1.0.23
+# Easter Company launcher 1.0.24
 
-Discord and Steam can now create and sign in to an Easter Company account, alongside Microsoft/Xbox. Google support is included and becomes available when its owned OAuth registration is configured.
+The launcher now points at one server, and that server can sleep between play sessions.
 
-- New accounts choose a unique Company username and password after provider sign-in. Linked providers can also recover a forgotten Company password.
-- Profile & linked accounts lets you connect providers, edit your display name, and upload or remove a picture. Provider links are permanent and cannot be used to merge or switch Company accounts.
-- The first provider supplies the initial profile where available; your Company name and picture can then be changed independently.
-- Sessions renew while valid and remain in the same OS-encrypted launcher vault across updates. Systems without OS-backed encryption still require sign-in again after restart.
-- Minecraft still requires a linked Microsoft/Xbox account with Minecraft Java access. Signing in with Discord or Steam does not grant game ownership.
-- Add account and Switch Account have been removed. Interactive Microsoft reauthentication stays bound to the current Company account, including after a saved session fails.
+- The server address setting is gone. Every launch targets the Easter Co. SMP directly, so there is nothing to mistype and nothing to keep in step with the server. A launcher that already stored an address keeps working and simply ignores it.
+- The server is stopped when nobody is playing. Pressing Play wakes it, shows an honest "starting your server" state, and launches the game by itself the moment the server answers. A first join in a session waits about a minute; once someone is online, everyone else launches immediately.
+- If the server does not come up, the launcher says so once and Play is the retry. Signing in, downloads and updates never depend on the server being awake, and a sleeping server is never reported as online.
+- The server now enforces real Minecraft authentication, so a player joins as their own account rather than as a name anyone could claim.
 
-Validation includes backend unit and disposable PostgreSQL tests, launcher unit tests, browser and real-preload Electron journeys, bundle freshness checks, and independent frontend review. The complete signup, linking, profile, restart and recovery journey uses synthetic upstream provider responses and an explicitly test-only encrypted vault. Live provider configuration is checked separately; these fixture tests do not prove a real user consent flow or a real desktop OS-keyring restart.
+Validation covers the launcher unit and browser suites and the real-preload Electron journeys, including a cold start, a warm start, a wake timeout and an unreachable status service. The server side of the wake path is not enabled yet, so this release behaves exactly like 1.0.23 against a server that is running; the cold-start flow switches on when the wake service is deployed.
