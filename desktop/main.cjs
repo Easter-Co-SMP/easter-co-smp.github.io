@@ -70,6 +70,11 @@ const updater=require('./updater.cjs');
 // sentence they show carries no status; nothing reads this file back.
 install.setFailureLog(new SignInLog({file:path.join(configRoot(),'install.log'),version:APP_VERSION}));
 updater.setFailureLog(new SignInLog({file:path.join(configRoot(),'install.log'),version:APP_VERSION}));
+// The record of what a launcher update cleared: one line per applied update, beside the
+// other two logs and under the same rules. It has its own file because a decision line
+// carries the from/to pair and the list of names it cleared, and neither signin.log's nor
+// install.log's single-token vocabulary can hold that without losing the answer.
+const updateLog=new updater.UpdateLog({file:path.join(configRoot(),'launcher-update.log'),version:APP_VERSION});
 let client={installed:false,version:null,updatedAt:null,record:null};
 // doc/launcher-states.md, "Home actions, Settings and enhanced graphics": the
 // machine decides the default once, and the player's own choice wins from then on.
@@ -971,7 +976,21 @@ async function checkLauncherUpdate(openGate=true){
    root:path.join(configRoot(),'launcher-updates'),fetch:net.fetch.bind(net),
    notify:value=>{launcherUpdate=value;notify({});},
    inspect:(file,manifest)=>{const pkg=require(file+'/package.json');if(pkg.name!=='easter-company-launcher'||pkg.version!==manifest.version)throw Error('The downloaded launcher identity is invalid.');}});
-  if(target){app.relaunch(updater.relaunchOptions());app.quit();return;}
+  if(target){
+   // The apply step is the relaunch below, so this is the one moment a version change is
+   // allowed to clear anything (doc/launcher-states.md, "What a version change clears"):
+   // the level comes from the two versions and nothing else. It is skipped, not forced,
+   // while the game is running, because a client tree removed under a live Minecraft is a
+   // broken game while an update that waits for one restart is not.
+   try{
+    if(game)updateLog.append({from:APP_VERSION,to:launcherUpdate.version,level:updater.classify(APP_VERSION,launcherUpdate.version),cleared:[],outcome:'failed',note:'game-running'});
+    else await updater.applyVersionPolicy({from:APP_VERSION,to:launcherUpdate.version,dataRoot:configRoot(),log:updateLog});
+   }catch{
+    // The policy writes its own failed line; a clear that did not finish costs the player
+    // nothing but a stale cache, so the update still applies and the next start retries.
+   }
+   app.relaunch(updater.relaunchOptions());app.quit();return;
+  }
   startupReady=openGate;notify({});
  }catch(error){
   launcherUpdate={phase:'blocked',percent:null,message:'Launcher update required. '+safeError(error)};

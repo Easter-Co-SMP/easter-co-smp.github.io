@@ -5,10 +5,14 @@ const fs=raw.promises;
 const REPO='https://github.com/Easter-Co-SMP/easter-co-smp.github.io/releases/download/';
 const LATEST='https://github.com/Easter-Co-SMP/easter-co-smp.github.io/releases/latest/download/';
 const BOOTSTRAP=1,MAX_BYTES=200*1024*1024;
+// The one refusal for a version this launcher cannot read. It carries a name and a code as
+// well as the sentence a player sees, because the clear policy below has to be able to say
+// "this pair was unparsable" without mistaking it for a filesystem failure.
+function invalidVersion(){const invalid=Error('Invalid launcher release version.');invalid.name='LauncherVersionError';invalid.code='invalid-version';return invalid;}
 function version(value){
  const match=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(String(value));
- if(!match)throw Error('Invalid launcher release version.');
- const parts=match.slice(1).map(Number);if(!parts.every(Number.isSafeInteger))throw Error('Invalid launcher release version.');return parts;
+ if(!match)throw invalidVersion();
+ const parts=match.slice(1).map(Number);if(!parts.every(Number.isSafeInteger))throw invalidVersion();return parts;
 }
 function compare(a,b){const left=version(a),right=version(b);for(let i=0;i<3;i++)if(left[i]!==right[i])return left[i]>right[i]?1:-1;return 0;}
 function validate(manifest,{release,platform,arch,runtime}){
@@ -101,4 +105,203 @@ function selected(root,{bundled,runtime,platform=process.platform,arch=process.a
 function relaunchOptions({platform=process.platform,env=process.env,execPath=process.execPath}={}){
  return {execPath:platform==='linux'&&env.APPIMAGE?env.APPIMAGE:execPath,args:process.argv.includes('--no-sandbox')?['--no-sandbox']:[]};
 }
-module.exports={setFailureLog,fault,update,stage,selected,validate,compare,version,relaunchOptions,BOOTSTRAP};
+// ---- how big a version change is, and what that change may clear --------------
+// Owen's rule of 2026-10-19: "if only the patch is incremented between current client and
+// the target during the update process, preserve client side cache and user auth session.
+// For minor updates, the launcher should clear cache but keep the minimum required
+// user/auth cache. For major updates, clear cache, and any locally stored user session
+// data. This also provides a baseline for deciding what kind of increment a new release
+// should have."
+//
+// So the release's own version number is the whole statement of what it may destroy, and
+// nothing else decides it. `classify` is pure arithmetic on the three numbers: it reads no
+// file, no setting and no environment, so a test can walk the whole matrix and the path
+// that applies an update cannot quietly disagree with the table in doc/launcher-states.md.
+const LEVELS=['patch','minor','major'];
+function levelRank(level){const rank=LEVELS.indexOf(String(level));if(rank<0)throw Error('Unknown launcher update level.');return rank;}
+function classify(fromVersion,toVersion){
+ const from=version(fromVersion),to=version(toVersion);
+ if(to[0]!==from[0])return 'major';
+ if(to[1]!==from[1])return 'minor';
+ // The third number moved, or nothing moved. Both answer `patch`, which clears nothing:
+ // the level names the largest clearing the pair can justify, and a pair that leaves every
+ // number at or below where it started justifies none. An equal pair and a same-field
+ // downgrade are therefore harmless here; neither can reach the clearing code either,
+ // because update() returns null unless the release is strictly newer.
+ return 'patch';
+}
+// The one list of what an update may remove. Clearing iterates this table and nothing
+// else: the data directory is never globbed, and a name that is not here is never removed,
+// so a file the launcher did not think about (a player's own notes, a dialect dictionary,
+// an installed.json the launcher is still using) survives by not being listed. Each member
+// says why it is expendable, because "cache" is a claim about every one of them and the
+// next person to add a name has to be able to make the same claim honestly.
+//
+// `level` is the smallest bump that clears the member, and an update clears every member
+// at or below its own level. A patch clears nothing at all, so the only levels here are
+// minor (a copy of something the launcher can fetch or rebuild) and major (the player's
+// stored session, which a major release may have invalidated).
+const CLEAR=[
+ // Deliberately NOT on this list: IndexedDB. It holds the map's drawing layer, which is
+ // content the player made rather than a copy of something we published, and a cache rule
+ // must not delete drawings. Nothing in an upgrade has needed it cleared; if a release ever
+ // truly does, that is a major with an explicit migration, not a silent wipe.
+ {name:'minecraft',level:'minor',keep:['.easter-client','saves','screenshots'],why:'The client tree the installer built: versions, libraries, assets, mods, resource packs and the installed.json record. Every file the launcher wrote into it is a copy of something the published client manifest describes, so it can be rebuilt exactly and a stale tree is the usual reason a release needs a fresh install. Three things in it are not the launcher’s to throw away, so the tree is emptied one level deep and they stay: the .easter-client marker, which is the proof that this folder is ours rather than another launcher’s, saves/, the worlds the player made on this computer, and screenshots/, the pictures they took. A tree the player placed somewhere else is not this entry: only the default, app-owned folder inside the launcher’s own data directory is ever cleared.'},
+ {name:'launcher-updates',level:'minor',keepCurrent:true,why:'The downloaded launcher payloads, except the one this update just activated. A staged payload is the bundle the relaunch is about to load, so it is the one thing in this stash that must survive; every earlier payload is a release asset that can be fetched again, and keeping them all would keep every previous bundle on disk forever.'},
+ {name:'Cache',level:'minor',why:'Electron’s HTTP disk cache for the launcher’s own pages. Its keys belong to the bundle being replaced, and a new bundle re-fetches what it needs.'},
+ {name:'Code Cache',level:'minor',why:'Compiled JavaScript and WebAssembly for the old bundle. Stale by definition the moment the bundle changes, and rebuilt on the next start.'},
+ {name:'GPUCache',level:'minor',why:'GPU resource cache for the old bundle’s rendering. Rebuilt on demand; a stale one produces the blank or flickering first frame.'},
+ {name:'DawnGraphiteCache',level:'minor',why:'Chromium’s WebGPU/Graphite pipeline cache. Same class as GPUCache: rebuilt on demand, worthless across a bundle change.'},
+ {name:'DawnWebGPUCache',level:'minor',why:'The WebGPU half of the same cache, kept separate by Chromium. Removed with it so neither half outlives the code that filled it.'},
+ {name:'ShaderCache',level:'minor',why:'Compiled shaders for the renderer that just changed. Rebuilt on demand.'},
+ {name:'GrShaderCache',level:'minor',why:'The other shader cache Chromium keeps; removed with ShaderCache so no compiled artefact of the old renderer survives.'},
+ {name:'blob_storage',level:'minor',why:'Blobs the old renderer stored for its own use. The launcher keeps no player state here: settings live in settings.json and sessions in the vaults.'},
+ {name:'Local Storage',level:'minor',why:'Key/value storage of the old bundle’s pages. Nothing the launcher needs across a version change is kept here.'},
+ {name:'Session Storage',level:'minor',why:'Per-window storage; it belongs to a window that is closing for the relaunch, so it cannot outlive the update anyway.'},
+ {name:'WebStorage',level:'minor',why:'Chromium’s umbrella storage directory for the pages above; cleared with them so no half of the old bundle’s storage is left behind.'},
+ {name:'signin.log',level:'minor',why:'The bounded, redacted one-line-per-step record of the sign-in legs. Its steps belong to the code being replaced: after a minor release the file describes a bundle that is no longer running, and the next sign-in writes a fresh one. It carries no credential, so removing it loses diagnoses and nothing else.'},
+ {name:'accounts.enc',level:'major',why:'The saved account sessions: the Microsoft account and the Minecraft access token the launcher launches with. A major release is the one that may invalidate what a session was minted for, so a major update removes it and the player signs in again. This and the two vaults below are the only members a major adds to the cache list, and no path outside the launcher’s data directory is ever touched.'},
+ {name:'company.enc',level:'major',why:'The Company session token for the account API, stored through OS-backed safeStorage. It is the other half of the same stored session: a major update that removed accounts.enc alone would leave the launcher half signed in.'},
+ {name:'account.enc',level:'major',why:'The single-account vault from before the account list, left behind by an install that predates it. A major update removes it so an old session cannot outlive the sign-in it belongs to.'},
+];
+// A patch is a release that needs no clearing, so its plan is empty by construction rather
+// than by a special case somewhere else: there is no code path that clears on a patch.
+function clearPlan(level){
+ const wanted=levelRank(level);
+ return wanted===0?[]:CLEAR.filter(entry=>levelRank(entry.level)<=wanted);
+}
+// One rule for every path a clear may touch: a single name, resolved inside the launcher’s
+// own data directory. A name that resolves anywhere else is refused rather than followed,
+// and the check is on the path that is actually removed, so no name can be talked past it.
+// The refusal carries a name and a code so the caller can tell it from a member that merely
+// could not be removed: this one is a bug in the launcher, not an outcome to report.
+function refusal(message){const refused=Error(message);refused.name='ClearRefusalError';refused.code='refused';return refused;}
+function withinDataDirectory(dataRoot,name){
+ if(!dataRoot)throw Error('The launcher data directory is required.');
+ const root=path.resolve(String(dataRoot));
+ const value=String(name??'');
+ // Leading separators, `..`, an embedded separator and the NUL byte are all ways for a name
+ // to become a path; a member of CLEAR is a constant, so a name like this is a bug in the
+ // launcher, refused loudly instead of acted on.
+ if(!value||value==='.'||value==='..'||value.includes('/')||value.includes('\\')||value.includes('\0'))throw refusal('Refusing to clear a path outside the launcher data directory.');
+ const target=path.resolve(root,value);
+ if(target===root||!target.startsWith(root+path.sep))throw refusal('Refusing to clear a path outside the launcher data directory.');
+ return target;
+}
+// The names inside the update stash that must survive a clear: the record the relaunch reads
+// and the one payload it names. bootstrap.cjs loads the staged bundle from current.json, so a
+// clear that removed it would relaunch into the version being replaced and re-download the
+// same update on every start. A record that cannot be read keeps the whole stash instead,
+// which is the same safety with a worse clean-up, never a relaunch into nothing.
+async function keepStaged(filesystem,dir){
+ try{
+  const record=JSON.parse(await filesystem.readFile(path.join(dir,'current.json'),'utf8'));
+  if(record&&typeof record.sha256==='string'&&/^[a-f0-9]{64}$/.test(record.sha256))return ['current.json',record.sha256+'.asar'];
+ }catch{}
+ return null;
+}
+// Clearing, drivable without Electron: `filesystem` supplies the reads and `remove` supplies
+// the deletion, so a test can prove the matrix on a fixture directory and count exactly how
+// many paths were touched. Neither is required in the launcher, which passes neither.
+//
+// A member that cannot be removed does not stop the rest: a locked file on Windows is one
+// stale cache, not a reason to leave the session vault and the client tree behind. What
+// failed is reported, so the decision line says what actually happened rather than what was
+// intended. A name that resolves outside the data directory is not that kind of failure: it
+// is refused by throwing, because it means a member of CLEAR is wrong.
+async function clearForLevel(level,{dataRoot,filesystem=fs,remove}={}){
+ const plan=clearPlan(level);
+ const removal=typeof remove==='function'?remove:(target,options)=>filesystem.rm(target,options);
+ const cleared=[],failed=[],skipped=[];
+ for(const entry of plan){
+  const target=withinDataDirectory(dataRoot,entry.name);
+  try{
+   if(entry.keep||entry.keepCurrent){
+    // One level deep, so the kept names inside survive. readdir gives single segments, and
+    // each child is put through the same rule: nothing under the tree can escape it.
+    let children=[];
+    try{children=await filesystem.readdir(target);}
+    catch(error){
+     if(error.code!=='ENOENT')throw error;
+     // Already absent, so this member is already as clear as the level asks for.
+     cleared.push(entry.name);continue;
+    }
+    let keep=Array.isArray(entry.keep)?[...entry.keep]:[];
+    if(entry.keepCurrent){
+     const staged=await keepStaged(filesystem,target);
+     // No readable record of what is staged: leave the stash alone rather than guess which
+     // payload the relaunch will load, and say so instead of claiming it was cleared.
+     if(!staged){skipped.push(entry.name);continue;}
+     keep=keep.concat(staged);
+    }
+    for(const child of children){
+     if(keep.includes(child))continue;
+     await removal(withinDataDirectory(target,child),{recursive:true,force:true});
+    }
+    cleared.push(entry.name);
+    continue;
+   }
+   await removal(target,{recursive:true,force:true});
+   cleared.push(entry.name);
+  }catch(error){
+   // A refusal is not an outcome to record and carry on from: it means a member of CLEAR
+   // resolves outside the data directory, which is a bug that must be seen.
+   if(error?.code==='refused')throw error;
+   failed.push({name:entry.name,code:error?.code||'failed'});
+  }
+ }
+ return {level,cleared,failed,skipped};
+}
+// One line per decision, and the decision is the whole record a later question needs: which
+// way the version moved, what that meant, what was cleared. It gets its own file rather than
+// sharing install.log or signin.log, whose vocabulary is a single token per field: this line
+// carries the from/to pair and the list of cleared names, which they cannot express. The
+// values are a validated version, one of three words and the constants from CLEAR above, so
+// no player data, no path and no credential can reach it, and `token` refuses anything else
+// outright instead of writing a name-free line.
+const UPDATE_LOG_LIMIT=65536;
+function token(value){const text=typeof value==='string'?value.trim():'';return /^[0-9A-Za-z][0-9A-Za-z ._-]*$/.test(text)&&text.length<=64?text:'-';}
+class UpdateLog{
+ constructor({file=null,version='',maxBytes=UPDATE_LOG_LIMIT,now=()=>new Date()}={}){
+  this.file=file;this.version=token(version);this.maxBytes=Number.isInteger(maxBytes)&&maxBytes>0?maxBytes:UPDATE_LOG_LIMIT;this.now=now;
+ }
+ line({from,to,level,cleared=[],failed=[],skipped=[],outcome='ok',note}={}){
+  const names=(value)=>{const list=(Array.isArray(value)?value:[]).map(token).filter(name=>name!=='-');return list.length?list.join('|'):'-';};
+  return [this.now().toISOString(),'v'+(this.version||'unknown'),'step=update-policy','outcome='+(outcome==='failed'?'failed':'ok'),'level='+(LEVELS.includes(level)?level:'-'),'from='+token(from),'to='+token(to),'cleared='+names(cleared)]
+   .concat(names(skipped)!=='-'?['skipped='+names(skipped)]:[])
+   .concat(names(failed)!=='-'?['failed='+names(failed)]:[])
+   .concat(note?['note='+token(note)]:[]).join(' ')+'\n';
+ }
+ append(entry={}){
+  if(!this.file)return;
+  const line=this.line(entry);
+  try{
+   try{raw.mkdirSync(path.dirname(this.file),{recursive:true});}catch{}
+   let size=0;
+   try{size=raw.statSync(this.file).size;}catch{}
+   if(size+Buffer.byteLength(line,'utf8')>this.maxBytes){
+    try{raw.renameSync(this.file,this.file+'.1');}catch{}
+   }
+   raw.appendFileSync(this.file,line,{encoding:'utf8'});
+  }catch{}
+ }
+}
+// What the launcher calls once, on the update it is about to apply, and the only entry point
+// that decides a level. One line is written per decision whatever happens: ok with the names
+// that went, or failed with the names that would not go and the code that stopped them. A
+// refusal still throws, unlogged as a decision, because a member of CLEAR escaping the data
+// directory is a bug rather than an outcome.
+async function applyVersionPolicy({from,to,dataRoot,filesystem=fs,remove,log=null}={}){
+ const level=classify(from,to);
+ let result;
+ try{result=await clearForLevel(level,{dataRoot,filesystem,remove});}
+ catch(error){
+  try{log?.append?.({from:String(from),to:String(to),level,cleared:[],outcome:'failed',note:'refused'});}catch{}
+  throw error;
+ }
+ try{
+  log?.append?.({from:String(from),to:String(to),level,cleared:result.cleared,skipped:result.skipped,failed:result.failed.map(item=>item.name),outcome:result.failed.length?'failed':'ok',note:result.failed.length?result.failed[0].code:null});
+ }catch{}
+ return result;
+}
+module.exports={setFailureLog,fault,update,stage,selected,validate,compare,version,relaunchOptions,BOOTSTRAP,LEVELS,classify,clearPlan,CLEAR,withinDataDirectory,clearForLevel,applyVersionPolicy,UpdateLog};

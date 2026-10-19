@@ -226,3 +226,23 @@ test('the two game-route ceilings outlive the service budgets they must not cut 
  assert.ok(config.GAME_STATUS_TIMEOUT_MS<=30000);
  assert.ok(config.GAME_WAKE_REQUEST_TIMEOUT_MS<=30000);
 });
+
+test('a launcher update clears one allowlist of app-owned names, and the client tree is config.cjs’s',()=>{
+ // The clear list is the update's, but the two names it has to agree with live here: the
+ // folder name of the managed client tree and the marker that proves the folder is ours.
+ const updater=require('../../desktop/updater.cjs');
+ const tree=updater.CLEAR.find(entry=>Array.isArray(entry.keep));
+ assert.ok(tree,'exactly one allowlist member is a tree with keeps');
+ assert.equal(tree.name,config.CLIENT_FOLDER,'the client tree entry names config.cjs CLIENT_FOLDER');
+ assert.equal(tree.keep.includes(config.MARKER),true,'the marker that proves the folder is ours is never cleared');
+ assert.equal(tree.keep.includes('saves'),true,'the player’s worlds are never cleared');
+ // A name that means another installation is never in the clear list, at any level.
+ const names=updater.CLEAR.map(entry=>entry.name.toLowerCase());
+ for(const foreign of config.FOREIGN_ENTRIES)assert.equal(names.includes(foreign.toLowerCase()),false,'the clear list must never name '+foreign);
+ // And the update is the only code that clears: main.cjs calls the policy and never walks
+ // the data directory itself, so there is no second, unlisted way to delete anything.
+ const main=read('desktop/main.cjs');
+ assert.match(main,/updater\.applyVersionPolicy\(\{from:APP_VERSION,to:launcherUpdate\.version,dataRoot:configRoot\(\),log:updateLog\}\)/);
+ assert.equal(/readdir\(\s*configRoot\(\)/.test(main),false,'the data directory is never enumerated as a whole');
+ assert.equal(/rm\(\s*path\.join\(configRoot\(\)/.test(main),false,'main.cjs removes no fixed path from the data directory');
+});
