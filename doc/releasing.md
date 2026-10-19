@@ -86,7 +86,9 @@ Start it, from the cloud repository, before running the journey:
 The three facts that make it work, and the details that bite:
 
 - **Ports.** 18796 is the fixture's API port (`EASTER_API_FIXTURE_PORT` overrides it), and
-  the journey is hard-wired to `EASTER_API_BASE_URL=http://127.0.0.1:18796`. 15439 is the
+  the journey defaults to `EASTER_API_BASE_URL=http://127.0.0.1:18796`. Set
+  `EASTER_FIXTURE_ORIGIN` on the journey to use a separately started fixture instead
+  of a stale or occupied default port. 15439 is the
   disposable PostgreSQL's port, and the fixture hard-codes it, not a variable.
 - **`PYTHONPATH` must be the cloud repository**, because the fixture imports `api.*` from
   it. Run it with that repository's `.venv/bin/python`, which is where `pg8000` lives; a

@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+const fixtureOrigin=process.env.EASTER_FIXTURE_ORIGIN||'http://127.0.0.1:18796';
 const home=await fs.mkdtemp('/tmp/company-identity-electron-');
 await fs.writeFile(path.join(home,'settings.json'),JSON.stringify({memoryMB:4096,server:'127.0.0.1:25565',exitOnLaunch:false}));
-const app=await electron.launch({executablePath:path.resolve('node_modules/electron/dist/electron'),args:['--no-sandbox',path.resolve('tests/desktop/company-harness.cjs')],env:{...process.env,EASTER_TEST_HOME:home,EASTER_API_BASE_URL:'http://127.0.0.1:18796',EASTER_IDENTITY_FIXTURE_SEED:String(Date.now())}});
+const app=await electron.launch({executablePath:path.resolve('node_modules/electron/dist/electron'),args:['--no-sandbox',path.resolve('tests/desktop/company-harness.cjs')],env:{...process.env,EASTER_TEST_HOME:home,EASTER_API_BASE_URL:fixtureOrigin,EASTER_IDENTITY_FIXTURE_SEED:String(Date.now())}});
 try{
  const page=await app.firstWindow();page.setDefaultTimeout(18000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.keyboard.press('Escape');await page.setViewportSize({width:800,height:600});
