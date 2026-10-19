@@ -73,7 +73,68 @@ name from `/releases/latest/download/`. The launcher job is
    started WITH `EASTER_PROVIDER_FIXTURE=1`, which is the only thing that serves the
    provider stub; the exact commands are under "The provider journey needs its own
    fixture" below. Until 2026-10-19 this journey was absent from this list and could not be
-   run from this document at all, which is how provider linking shipped unexercised).
+   run from this document at all, which is how provider linking shipped unexercised), and
+   `xvfb-run -a node tests/desktop/bootstrap.electron.mjs` (the launcher's own update
+   payload: a downloaded ASAR is hashed, installed beside the running app and started, and
+   the process that answers is the verified payload rather than the one that downloaded
+   it), and
+   `xvfb-run -a node tests/desktop/flow.electron.mjs` (the state object the real main
+   process broadcasts: the frozen field list, every phase, the Play gate, pause, resume,
+   cancel, the location handlers, a completed install and a quiet update check — the
+   contract `site/` renders, asserted where it is produced instead of in a stub), and
+   `xvfb-run -a node tests/desktop/integration.electron.mjs` (the download-first flow end
+   to end through the real main process and the real renderer: the during-download hero
+   asking for the Easter Company account, sign-in while a transfer runs and what it does to
+   that transfer, an install completing under a pending device code, Play gated on both
+   halves, and the sticky bar following the player to the Map. It was outside this list
+   until 2026-10-19, which is why its hero assertion was still written against the
+   Microsoft-only sentence that 5c9c853 had already replaced), and
+   `xvfb-run -a node tests/desktop/loopback.electron.mjs` (the real launcher, no stub
+   harness at all, against a loopback client origin: the display defaults and key binds it
+   writes on a first run and leaves alone on a second, a manifest fetch, the one changed
+   chunk applied with byte progress that pauses and resumes, the detected hardware and
+   graphics answer, the enhanced-graphics toggle in both directions, and the migration of
+   the settings file this box actually carries), and
+   `xvfb-run -a node tests/desktop/minecraft-head.electron.mjs` (the Minecraft head a
+   password sign-in still shows — the letter tile Owen reported — and what a refused read
+   leaves behind: the head is read once from the account's own uuid through Mojang's public
+   endpoints, reaches the header as a data URL and is painted, and no credential is in the
+   read), and
+   `xvfb-run -a node tests/desktop/server-session.electron.mjs` (the server-held Microsoft
+   session across four launches: a password sign-in that reaches Play with no prompt, the
+   one-time hand-over that leaves no refresh token in the vault, the same account signing in
+   on a second machine, one `reauth_required` fallback instead of a loop, and Sign out of
+   Minecraft everywhere), and
+   `xvfb-run -a node tests/desktop/update-gate.electron.mjs` (the mandatory update gate: the
+   arrival waits for it, Play, sign-in and download are refused until it finishes, Escape
+   cannot dismiss it, a failed launcher or game check starts nothing, a failed retry leaves
+   Play off and a successful one restores it, and there is no opt-out control), and
+   `xvfb-run -a node tests/desktop/wiki.electron.mjs` (the wiki the launcher bundles, served
+   from its own `easter://` origin with no network read: all twelve articles, search, deep
+   links and a narrow window; `EASTER_PACKAGED_LAUNCHER` points the same journey at a
+   packaged build).
+
+   That is every Electron journey in `tests/desktop` except one: `electron.mjs` and the
+   nineteen `*.electron.mjs` files, of which ten were named here before 2026-10-19 and eight
+   were added that day. None of the eight needs a fixture: each starts its own stub, harness
+   or payload, and none of them reads 18796–18798 (the detail is under "The other Electron
+   journeys need no fixture"). The nine that had been left out were left out silently, and
+   one of them (`integration.electron.mjs`) was red for weeks because of it. Measured on
+   2026-10-19, run one at a time on this machine: each of the eighteen finishes in 4 to 36
+   seconds (the fastest, `bootstrap.electron.mjs`, in 3.6) and the eighteen together take
+   about three minutes (191–193 seconds across two sweeps), with the three fixture instances'
+   own start-up on top. That is not a reason to check a release by hand instead.
+
+   **`ui-review.electron.mjs` is deliberately not on this list.** It is a design-review
+   pass, not a gate: it drives the launcher at several widths and writes screenshots to
+   `EASTER_REVIEW_IMAGES` for a person to look at, and what it asserts about behaviour is
+   already asserted here by `electron.mjs`, `deslop.electron.mjs` and
+   `launcher-identity-conflict.electron.mjs`. It has also been red intermittently for a
+   notice-band race that ticket 80bf173e owns; all three of its runs on 2026-10-19 passed,
+   which is exactly what an intermittent failure looks like. A required check that fails at
+   random teaches people to skip required checks. Run it when the frontend reviewer asks for
+   it, and read its images.
+
 3. The version in `package.json` is higher than the published one. The tag is derived
    from it, so forgetting this step produces a release that cannot be created.
 4. Nothing is being shipped that the app bundles but does not fetch. The packaged app
@@ -176,7 +237,15 @@ The other Electron journeys need no fixture. `accounts.electron.mjs` starts its 
 loopback stub and reads the account shape from it, and `company-username.electron.mjs`
 does the same and drives the whole username flow against it; `electron.mjs`,
 `flow.electron.mjs`, `launcher-identity-conflict.electron.mjs`, `ownership.electron.mjs`,
-`deslop.electron.mjs` and `shortcuts.electron.mjs` use their own harnesses. The exception is
+`deslop.electron.mjs`, `shortcuts.electron.mjs` and `update-gate.electron.mjs` use their own
+harnesses. Six more bring their own loopback server or build their own payload rather than
+using a harness, and none of them reads 18796–18798: `integration.electron.mjs` runs the
+flow harness over its own account stub, `minecraft-head.electron.mjs` stubs the two Mojang
+endpoints it reads through `head-harness.cjs`, `server-session.electron.mjs` serves its own
+account routes through `server-session-harness.cjs`, `loopback.electron.mjs` starts a
+loopback client origin and runs the real `desktop/main.cjs` with no harness at all,
+`bootstrap.electron.mjs` builds its own ASAR payload with `@electron/asar`, and
+`wiki.electron.mjs` needs nothing but an X display. The exception is
 `wait-post-approval.electron.mjs`, which is the one journey needing a real fixture instance
 of its own (18798) with no harness around it. The browser, waits and drawings
 suites need only the static preview of `site/` (run them from the repository root, and note
