@@ -67,8 +67,11 @@ requirements; the main process never decides what the hero looks like.
    the download is what creates investment.
 2. **Once the download starts**, a sticky bottom bar appears (bottom centre,
    contents left aligned, themed progress bar, pause and resume, transfer speed,
-   percentage). The hero simultaneously switches to **Sign in with Microsoft**,
-   so the account request lands while the user is already waiting.
+   percentage). The hero simultaneously switches to **Sign in**, over
+   **Easter Company account required**, so the account request lands while the
+   user is already waiting. (It read **Sign in with Microsoft** — with
+   "Microsoft account required" — while Microsoft was the only provider; see
+   *The signed-out hero's own sentence*.)
 3. **Play is gated on both.** The Play action must not become available until the
    account is connected *and* the client is fully downloaded, verified and
    installed. Either alone is not enough.
@@ -78,6 +81,35 @@ requirements; the main process never decides what the hero looks like.
    nothing must stay quiet and must not flash a progress bar at the user.
 5. **Everything green.** The hero primary action becomes a single large **PLAY
    NOW** button, in the place login and download used to occupy.
+
+### The signed-out hero's own sentence (2026-10-19)
+
+The signed-out state — no Easter Company account at all, which is what *Required flow*
+step 2 describes once the download starts — reads **Sign in** over **Easter Company
+account required**. `site/desktop.js` owns both strings, as `LOGIN_ACTION` and
+`LOGIN_NOTE`, so the hero and the sticky bar cannot disagree, and
+`tests/desktop/company-username.electron.mjs` asserts the pair and that the hero is
+*not* one provider's button.
+
+**Why the account and not Microsoft.** The chooser this action opens is titled **Easter
+Company account** and offers that account through Microsoft, Google, Steam or Discord
+(*Provider account state*, above, which supersedes the Microsoft-only descriptions here).
+A player who signed up with Discord and reads **Sign in with Microsoft** is being told to
+do something their account does not do. Microsoft is named at the step where it genuinely
+is the requirement: the linked-account hero's **Sign in with Microsoft / Starts Minecraft
+as <name>**, and the chooser's own Microsoft button — both unchanged, and both still
+asserted by the suites.
+
+**The two sentences this corrects, so nobody is led here again.** *Required flow* step 2
+and *One verb, and sentences that carry no status* both used to name the hero as one of
+the places that reads **Sign in with Microsoft**. Both were written before provider
+sign-in existed (commit 8b9971b, 2026-10-18 06:20) and neither was amended when it landed
+(4341b90, 18:44 the same day); read together with the supersede note at the top of this
+document and with *Provider account state*, the older wording is the superseded part, and
+the account's own words are what this contract now says. The journey had been changed to
+follow the older wording on purpose (3f857a6), which is why it was asserting a sentence
+the product had already stopped saying. Recorded here because the next change to this
+copy should be a deliberate one.
 
 ## State fields
 
@@ -1893,6 +1925,28 @@ notice at all; the last one to close gives the same sentence back once, with its
 dismiss control and keyboard reachable, and it stays until dismissed or a new action
 starts. See *One failure, one visible home* for the full rule.
 
+**Update 2026-10-19: the account lock, completed and kept in one place.** "Disables
+account changes during authentication or gameplay" named no list, and it had two
+holes. The locked states are exactly `signing-in`, `refreshing`, `launching`,
+`starting-game` and `running`. `starting-game` is the server wake, and the wake is a
+launch state this contract already names, so an account change is as unavailable
+during it as during any other launch state; today it is only unreachable because
+the hero offers no Play during a wake, which is the hero's rule and not this one.
+The rule also covers the profile dialog's own controls — Save name, Choose picture,
+Remove picture, Connect and Sign out of Minecraft everywhere — and not only the menu
+entry that opens it. While the game ran those were unreachable only because the
+opener was locked and the dialog is modal, an argument that expires the moment the
+dialog gains a second entry point or a control moves. The locked set has one home,
+`site/desktop.js`, which hands the answer to `site/company-profile.mjs`, so the
+dialog carries no second list to drift from it, and an action that starts anyway is
+refused rather than merely unpainted. The dialog's close control is not an account
+change and stays available. `tests/profile-lock-browser.mjs` drives the real renderer
+and the real dialog through a stub bridge and proves each part: every phase in the
+locked set disables the whole profile menu, a dialog that is already open loses every
+account control while the game runs or the server wakes, a save or sign-out forced
+past the disabled state reaches main not once, and both surfaces come back when the
+launcher is idle.
+
 ## One verb, and sentences that carry no status (2026-10-18)
 
 Three smaller findings from the second review, and the rule behind all three: the player
@@ -1901,11 +1955,14 @@ code.
 
 **One verb for the Microsoft action.** One action was called *Link Microsoft Account* on
 the hero, *Login with Microsoft Account* in the chooser and *Login with Microsoft* in the
-sign-in dialog, all on one screen. It is **Sign in with Microsoft** now, everywhere the
-account is what the action is about — which is what *Required flow* has said since its
-first draft: the hero's own action while a download runs, the chooser's Microsoft button,
-and the sign-in dialog's title. The one button that is not that action is **Open the
-Microsoft page**, because that is all it does: it opens Microsoft's page in the browser
+sign-in dialog, all on one screen. It is **Sign in with Microsoft** now, everywhere that
+action itself is what is being named: the chooser's Microsoft button and the sign-in
+dialog's title. The signed-out hero is *not* that action — it asks for the Easter Company
+account, which any of the four providers supplies, and it reads **Sign in** (*The
+signed-out hero's own sentence*, 2026-10-19; this paragraph named the hero here until
+then, which was true only while Microsoft was the only provider). The one button that is
+not that action is **Open the Microsoft page**, because that is all it does: it opens
+Microsoft's page in the browser
 and signs nobody in by itself. The sentences around the action already used the same verb
 and are unchanged (`Sign in again.`, `Sign in with Microsoft or with your username.`,
 `Sign in with Microsoft to continue.`), and so is the setup copy that names the account

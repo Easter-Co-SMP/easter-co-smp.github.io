@@ -95,16 +95,19 @@ try{
  const errors=[];page.on('pageerror',error=>errors.push(error.message));
  await page.keyboard.press('Escape');await page.setViewportSize({width:800,height:600});
  const status=()=>page.evaluate(()=>window.easterDesktop.status());
- // 1. The signed-out Home action starts Microsoft linking, and no Company ID is offered.
+ // 1. The signed-out Home action asks for the Easter Company account, and no Company ID is offered.
  await page.locator('[data-desktop-play][data-action=download]').click();
  const hero=page.locator('[data-desktop-play][data-action=signin]');
  await hero.waitFor();
  const heroText=await hero.textContent();
- assert.match(heroText,/Sign in with Microsoft/,'the signed-out Home action starts the Microsoft sign-in: '+heroText);
- // One verb for the Microsoft action, and it is never the chooser form's own bare "Sign in":
- // the hero names where the account comes from rather than offering a second way in.
- assert(!/^Sign in\b(?! with Microsoft)/.test(heroText.trim()),'the signed-out Home action is not the bare Sign in action: '+heroText);
- assert(!/Easter Company account/.test(heroText),'and carries no Easter Company account note');
+ // The decided sentence for this state, recorded in doc/launcher-states.md under *The signed-out
+ // hero's own sentence*: the hero asks for the Easter Company account, because the chooser it opens
+ // offers that account through Microsoft, Google, Steam and Discord. Naming one provider here would
+ // be untrue for the other three, so the label names the action and the note names the account, and
+ // the provider-specific button is asserted where it actually lives — in the chooser, below.
+ assert.equal((await hero.evaluate(node=>node.querySelector('span').firstChild.textContent)).trim(),'Sign in','the signed-out Home action names the action, not one provider: '+heroText);
+ assert.equal((await hero.locator('small').textContent()).trim(),'Easter Company account required','and it says which account is required, in the words the contract records: '+heroText);
+ assert(!/Sign in with Microsoft/.test(heroText),'the signed-out Home action is not one provider\'s button: '+heroText);
  await hero.click();
  const chooser=page.locator('#desktop-company-signin');await chooser.waitFor();
  assert.equal(await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).count(),1);
@@ -422,5 +425,5 @@ try{
  await page2.screenshot({path:'/tmp/company-emails-restarted.png',animations:'disabled'});
  await page2.keyboard.press('Escape');
  assert.deepEqual(errors2,[]);
- console.log('Company username flow PASS: Sign in with Microsoft on signed-out Home and in the chooser, Username or Email identifier login, username chosen before the password with the probe\'s taken and policy refusals each keeping the player on step 1 and writing nothing, verified emails listed and chosen through the real main process with the save, the re-read, the clear, the no-email sentence and the refused address, the choice surviving a restart, exact request bodies, username displayed with no Company ID and no address in the state.');
+ console.log('Company username flow PASS: Sign in / Easter Company account required on signed-out Home and Sign in with Microsoft in the chooser that Home opens, Username or Email identifier login, username chosen before the password with the probe\'s taken and policy refusals each keeping the player on step 1 and writing nothing, verified emails listed and chosen through the real main process with the save, the re-read, the clear, the no-email sentence and the refused address, the choice surviving a restart, exact request bodies, username displayed with no Company ID and no address in the state.');
 }finally{await app.close();await new Promise(resolve=>stub.close(resolve));await fs.rm(home,{recursive:true,force:true});}
