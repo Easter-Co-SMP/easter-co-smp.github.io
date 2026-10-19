@@ -79,6 +79,30 @@ requirements; the main process never decides what the hero looks like.
 5. **Everything green.** The hero primary action becomes a single large **PLAY
    NOW** button, in the place login and download used to occupy.
 
+### The signed-out hero's own sentence (2026-10-19)
+
+The signed-out state — no Easter Company account at all, which is what *Required flow*
+step 2 describes once the download starts — reads **Sign in with Microsoft** over
+**Microsoft account required**. `site/desktop.js` owns both strings, as `LOGIN_ACTION`
+and `LOGIN_NOTE`, and the hero and the sticky bar read them from there:
+`tests/desktop/company-username.electron.mjs` asserts the pair.
+
+It is written down because it was briefly not that, and this record is what makes the
+next change to it deliberate. Commit 4341b90 (the provider-accounts change of
+2026-10-18) put the bare `Sign in` over `Easter Company account required` without
+amending this document, which *One verb, and sentences that carry no status* requires:
+the hero's own action while a download runs is one of the places that reads **Sign in
+with Microsoft**, and the journey had been changed to follow that section on purpose
+(commit 3f857a6, "the hero names where the account comes from rather than offering the
+chooser form's own bare Sign in"). Neither the bare label nor the Easter Company note
+appears anywhere in this contract.
+
+Naming Microsoft in the hero is not a claim that Microsoft is the only way in. The
+chooser behind this action is titled **Easter Company account** and offers Microsoft,
+Google, Steam and Discord (*Provider accounts*), so a player who signed up with another
+provider finds their own button there; the hero names Microsoft because Minecraft itself
+requires the linked Microsoft/Xbox identity.
+
 ## State fields
 
 Broadcast to every window through the existing `launcher:state` channel, merged

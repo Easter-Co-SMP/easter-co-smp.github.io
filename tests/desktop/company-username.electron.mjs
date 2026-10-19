@@ -105,6 +105,9 @@ try{
  // the hero names where the account comes from rather than offering a second way in.
  assert(!/^Sign in\b(?! with Microsoft)/.test(heroText.trim()),'the signed-out Home action is not the bare Sign in action: '+heroText);
  assert(!/Easter Company account/.test(heroText),'and carries no Easter Company account note');
+ // The pair is the one doc/launcher-states.md records for this state (*The signed-out hero's own
+ // sentence*), so a later re-wording of either half fails here instead of being discovered late.
+ assert.equal((await hero.locator('small').textContent()).trim(),'Microsoft account required','the signed-out Home action says an account is required, in the words the contract records: '+heroText);
  await hero.click();
  const chooser=page.locator('#desktop-company-signin');await chooser.waitFor();
  assert.equal(await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).count(),1);

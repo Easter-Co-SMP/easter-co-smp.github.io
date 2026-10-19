@@ -30,11 +30,16 @@
  for(const selector of ['.hero-welcome','.home-below','.home-story','.home-notes'])document.querySelectorAll(selector).forEach(node=>node.remove());
 
  const TRANSFER=['downloading','paused','verifying','installing','updating'];
- // The signed-out action starts the Microsoft sign-in, which is where an account comes from.
- // It is called the same thing in the hero, in the sticky bar and in the chooser, and it is the
- // same verb the sentences about this action already use ("Sign in again.", "Sign in with
- // Microsoft or with your username."): one action, one name.
- const LOGIN_ACTION='Sign in';
+ // The signed-out action starts the Microsoft sign-in, which is where an account comes from, and
+ // the hero says so: doc/launcher-states.md, *Required flow* step 2 — "The hero simultaneously
+ // switches to **Sign in with Microsoft**" — and *One verb, and sentences that carry no status*,
+ // which names "the hero's own action while a download runs" among the places that read it.
+ // The chooser behind this action belongs to the Easter Company account, and it is where a player
+ // who signed up with Google, Steam or Discord finds their own button; Minecraft still requires
+ // the linked Microsoft identity, so the hero names where the account comes from. One action, one
+ // name, in the hero and in the sticky bar. Both strings live here and nowhere else.
+ const LOGIN_ACTION='Sign in with Microsoft';
+ const LOGIN_NOTE='Microsoft account required';
  let companyAuth=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
@@ -134,7 +139,7 @@
   // cannot answer. None of that is the player's Microsoft session dying, so this offers a retry
   // and never a Microsoft sign-in.
   if(sessionState==='busy')return {kind:'retry-minecraft',label:'Try again',note:'The account service is busy right now'};
-  if(state?.companyReady===false&&!state.account&&(install.installed||state.microsoftAccount))return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account required'};
+  if(state?.companyReady===false&&!state.account&&(install.installed||state.microsoftAccount))return {kind:'signin',label:LOGIN_ACTION,note:LOGIN_NOTE};
   if(state?.minecraftAccess==='missing')return {kind:'buy',label:'Buy Now',note:'Minecraft Java Edition required'};
   if(state?.minecraftAccess==='profile-required')return {kind:'setup-profile',label:'Set up Java profile',note:'Choose your Java player name'};
   if(state?.minecraftAccess==='unknown')return {kind:'check-access',label:'Retry account check',note:'Java access could not be confirmed'};
@@ -146,12 +151,12 @@
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Please wait'};
   if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
   // A download or install under way asks for the account while the player waits.
-  if(!account&&(transferring(state)||(!actions.includes('download')&&actions.includes('signin'))))return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account required'};
+  if(!account&&(transferring(state)||(!actions.includes('download')&&actions.includes('signin'))))return {kind:'signin',label:LOGIN_ACTION,note:LOGIN_NOTE};
   if(account&&transferring(state))return {kind:'busy',label:phase==='paused'?'Download paused':'Installing Minecraft…',note:'Follow progress below'};
   // Fresh install: nothing downloaded and no account requirement to show yet.
   if(actions.includes('download')||install.installed!==true)
    return {kind:'download',label:'Download the game',note:'Easter Company client'};
-  return {kind:'signin',label:LOGIN_ACTION,note:'Easter Company account required'};
+  return {kind:'signin',label:LOGIN_ACTION,note:LOGIN_NOTE};
  }
 
  const panel=document.createElement('dialog');panel.id='desktop-launcher';panel.setAttribute('aria-labelledby','desktop-title');
