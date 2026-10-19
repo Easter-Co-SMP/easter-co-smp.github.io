@@ -201,3 +201,28 @@ test('the account path writes nothing outside the app data directory',async()=>{
  assert.match(read('desktop/main.cjs'),/const configRoot=\(\)=>app\.getPath\('userData'\)/);
  assert.match(read('desktop/main.cjs'),/const companyFile=\(\)=>path\.join\(configRoot\(\),companyVaultName\(\)\)/);
 });
+
+test('the two game-route ceilings outlive the service budgets they must not cut off',()=>{
+ // The account cluster scales to zero when nobody is playing, so the first status read
+ // of a session waits for its resume. These ceilings are the client's half of that
+ // contract: each must be larger than the service-side bound it covers, or the read is
+ // abandoned before it can answer and Play falls back to joining a sleeping server.
+ const service={resumeRetryStatusSeconds:22,probeSeconds:4,resumeRetryWakeSeconds:12,stopWaitSeconds:6,functionTimeoutSeconds:28,stageLimitSeconds:30};
+ assert.equal(config.GAME_STATUS_TIMEOUT_MS,29000);
+ assert.equal(config.GAME_WAKE_REQUEST_TIMEOUT_MS,27000);
+ // Status: the whole resume retry plus the probe, inside the function timeout and the stage limit.
+ assert.ok(service.resumeRetryStatusSeconds+service.probeSeconds<service.functionTimeoutSeconds);
+ assert.ok(service.functionTimeoutSeconds<service.stageLimitSeconds);
+ assert.ok(config.GAME_STATUS_TIMEOUT_MS/1000>service.resumeRetryStatusSeconds+service.probeSeconds);
+ assert.ok(config.GAME_STATUS_TIMEOUT_MS/1000>service.functionTimeoutSeconds);
+ // Wake: the shorter retry plus watching a stopping host, and the ceiling above that
+ // work. It sits just below the function timeout on purpose - the service answers long
+ // before either, and a stage-capped function must not outlive the client that asked.
+ const wakeWork=service.resumeRetryWakeSeconds+service.stopWaitSeconds;
+ assert.ok(wakeWork<service.functionTimeoutSeconds);
+ assert.ok(config.GAME_WAKE_REQUEST_TIMEOUT_MS/1000>wakeWork);
+ assert.ok(config.GAME_WAKE_REQUEST_TIMEOUT_MS/1000<=service.functionTimeoutSeconds+1);
+ // And neither may exceed the account client's own default, or the constant is dead code.
+ assert.ok(config.GAME_STATUS_TIMEOUT_MS<=30000);
+ assert.ok(config.GAME_WAKE_REQUEST_TIMEOUT_MS<=30000);
+});

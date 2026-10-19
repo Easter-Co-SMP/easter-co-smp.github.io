@@ -90,10 +90,21 @@ const GAME_POLL_MS=3000;
 // Three minutes of cold start before the wait fails honestly. Owen's figure for the
 // cold start is 60-90 seconds, so this is the failure line, not the expectation.
 const GAME_WAKE_TIMEOUT_MS=180000;
-// A status read is bounded far below the account client's 30 s: it is on the way to
-// a launch and an unanswered read is already an answer ('unknown').
-const GAME_STATUS_TIMEOUT_MS=10000;
-const GAME_WAKE_REQUEST_TIMEOUT_MS=20000;
+// A status read is bounded below the account client's 30 s, but not by much, and the
+// number is the account cluster's, not the network's: it is Aurora Serverless v2 at
+// minimum capacity 0, which scales to zero after five idle minutes. The first read
+// after a quiet spell waits for that resume, measured on this cluster at between
+// twelve and twenty seconds, and the service on the other side retries the resume
+// for twenty two of them. A ceiling below that would abort the one read a player is
+// waiting on and fall back to a bare join against a sleeping host, so it sits above
+// the service's own worst case instead. Warm reads still answer in half a second.
+const GAME_STATUS_TIMEOUT_MS=29000;
+// A wake request is answered by the same service, whose worst case is twelve seconds of
+// resume retry plus six of watching a stopping host; this ceiling sits above that work
+// and just below the service's own 28 s function timeout, so the client is never waiting
+// on a function the stage has already given up on. By the time Play sends it, the status
+// read above has already resumed the cluster, so the service retries for less here.
+const GAME_WAKE_REQUEST_TIMEOUT_MS=27000;
 // The service's own `detail` sentence is shown beside the launcher's copy, so it is
 // bounded like every other sentence the state carries.
 const GAME_DETAIL_MAX=200;

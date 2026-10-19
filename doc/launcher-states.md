@@ -188,6 +188,27 @@ fixed: it carries no time, no address and no number, so no view has to fill a bl
 | timeout (a failure) | `Your server did not become joinable within three minutes. Press Play to try it again.` |
 | expired session (a failure) | `Your Easter Company session expired. Sign in again.` |
 
+### How long each call is given, and why (1.0.25)
+
+Two client ceilings, both owned here rather than derived, and both larger than the
+service bound they must outlive. They are raised in 1.0.25 because the account cluster
+they run on is **Aurora Serverless v2 at minimum capacity 0**, which scales to zero after
+five idle minutes; the first request after a quiet spell waits for that resume, measured
+on this cluster at **twelve to twenty seconds** (a first request after nineteen idle
+minutes was still resuming when a twelve second retry budget ran out; the next request,
+0.4 s later, took 3.5 s; the one after that took 0.46 s).
+
+| call | ceiling | must outlive |
+|---|---|---|
+| `GET /v2/game/status` | `GAME_STATUS_TIMEOUT_MS` = 29 s | the service's 22 s resume retry plus its 4 s status probe, inside a 28 s function timeout and the stage's 30 s limit |
+| `POST /v2/game/wake` | `GAME_WAKE_REQUEST_TIMEOUT_MS` = 27 s | the service's 12 s resume retry plus 6 s of watching a stopping host, inside the same 28 s function timeout |
+
+The status ceiling matters most: it is the one read a player waits on with nothing else
+in flight, so a ceiling below the resume aborts it, `game.cjs` reports `unknown`, and the
+caller falls back to the bare join this feature exists to replace - against a host that
+is asleep. A warm read still answers in about half a second, so a real player pays
+nothing for the higher ceiling.
+
 ### Where it is shown
 
 - **One line under the hero action** (`site/desktop.js`, `.desktop-game-status`), which
