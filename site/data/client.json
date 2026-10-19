@@ -94,6 +94,15 @@
           "size": 1885572,
           "url": "https://cdn.modrinth.com/data/AANobbMI/versions/xJZxADzI/sodium-fabric-0.9.2%2Bmc26.2.jar",
           "version": "mc26.2-0.9.2-fabric"
+        },
+        {
+          "hash": "sha512:941fa67e6024a25c6d7b27013e4009899737983ef21a0209803ace465ec60422f451211dcce826fab38e4315c9ed3d3f67deb3909171689afa51812ac8cb2b7e",
+          "id": "grassier-grass",
+          "name": "Grassier Grass",
+          "path": "optional-mods/grassier-grass.jar.disabled",
+          "size": 2335051,
+          "url": "https://cdn.modrinth.com/data/3jCB9cn2/versions/8AHVOlSX/grassiergrass-fabric-1.4.5%2Bmc26.2.jar",
+          "version": "1.4.5"
         }
       ],
       "id": "graphics",
@@ -101,7 +110,90 @@
       "java": null,
       "name": "Complementary Shaders - Unbound and Iris Shaders for Minecraft 26.2",
       "optional": true,
-      "version": "sha256:1ac3053ce1bf9fc1b757c5a6a2c889af944a5edfeceed0ab7457c8e420f50641"
+      "version": "sha256:934c60ecabf2bc290df1ccc8faa44a9e8b5fcd874fbf3dc98af4a43b741b8424"
+    },
+    {
+      "fabric": null,
+      "files": [
+        {
+          "hash": "sha512:4f499aa46c5e8430ccd0972e7b7c80e0d3d3a545913a76e3199a2d60ed4a626fd7e91ae9bef94ee462b55633c27d553d9d889adc602219cb5472cd6f7ab93f0f",
+          "id": "smooth-third-person-camera",
+          "name": "Smooth Third Person Camera (STPC)",
+          "path": "mods/smooth-third-person-camera.jar",
+          "size": 864356,
+          "url": "https://cdn.modrinth.com/data/3iFwlaWN/versions/jFCLcTfq/smooththirdpersoncamera-mc26.2-fabric-2.0.0.jar",
+          "version": "2.0.0+mc26.2-fabric"
+        },
+        {
+          "hash": "sha512:538944a63c2dab5f39d2468a7c977f65c45ed536b8214976dab5a30cc944879fa0bfc3f960233031e4b80f6940edb71edacd17e8949cca7e3ff6bcdf097870ff",
+          "id": "entity-model-features",
+          "name": "[EMF] Entity Model Features",
+          "path": "mods/entity-model-features.jar",
+          "size": 665507,
+          "url": "https://cdn.modrinth.com/data/4I1XuqiY/versions/hyDf8pNd/entity_model_features-3.3.12-26.2-fabric.jar",
+          "version": "3.3.12-fabric-26.2"
+        },
+        {
+          "hash": "sha512:34a8365d78cd81cb3d268c4e8d702bb3fb3eeab4b9ea96c798d9f45772110a169a6e37856990eb50a8018e68b6708f2147ce0971a1988007519674e697909ce6",
+          "id": "entitytexturefeatures",
+          "name": "[ETF] Entity Texture Features",
+          "path": "mods/entitytexturefeatures.jar",
+          "size": 793181,
+          "url": "https://cdn.modrinth.com/data/BVzZfTc1/versions/p667cMa5/entity_texture_features-7.2.6-26.2-fabric.jar",
+          "version": "7.2.6-fabric-26.2"
+        },
+        {
+          "hash": "sha512:40224f6cddb4f63f16c39ff054321417747ecf78599351bd18916c4f959d6c8275c9a8dd36fe60fecd1984d3dfb1bc6fed0966267e637dd58e6a528edf6d9367",
+          "id": "skyboxify",
+          "name": "Skyboxify",
+          "path": "mods/skyboxify.jar",
+          "size": 306354,
+          "url": "https://cdn.modrinth.com/data/DWuwk8aA/versions/XPGqw2i5/skyboxify-3.4%2B26.2-fabric.jar",
+          "version": "3.4"
+        },
+        {
+          "hash": "sha512:f36d91a9506ad9addbaaeecaea01d2b0cb5b060f52486b17688746cb597f0f3b23a80f8441f7a73a9cb8cde85af8809fe54825984b56345325359d505a80e7f2",
+          "id": "yacl",
+          "name": "YetAnotherConfigLib (YACL)",
+          "path": "mods/yacl.jar",
+          "size": 1125271,
+          "url": "https://cdn.modrinth.com/data/1eAoo2KR/versions/DoR7RYgi/yet_another_config_lib_v3-3.9.7%2B26.2-fabric.jar",
+          "version": "3.9.7+26.2-fabric"
+        },
+        {
+          "hash": "sha512:f4f2a1d294c2e0afe245b6987fea4a84ff120f131a7f2cfb16779e9cc5d0a00b3d49bf1585ac827d6690c36421e8dda203b0c6e642bb0c6aa067c5921dd8dc30",
+          "id": "fresh-animations",
+          "name": "Fresh Animations",
+          "path": "resourcepacks/fresh-animations.zip",
+          "size": 645816,
+          "url": "https://cdn.modrinth.com/data/50dA9Sha/versions/RGIzA5em/FreshAnimations_v1.10.5.zip",
+          "version": "1.10.5"
+        },
+        {
+          "hash": "sha512:d2a5c46ae53e4bb6355604a1ade253ab49f1deb205f5ee69085014965241d3c9623204951ab174a5dbdaf24d9b25ecae9a1638cc6a13d780b398a6d70d157a4e",
+          "id": "fa-player-extension",
+          "name": "Fresh Animations: Player Extension",
+          "path": "resourcepacks/fa-player-extension.zip",
+          "size": 110203,
+          "url": "https://cdn.modrinth.com/data/TAIMVZCL/versions/Wj7NeGjP/FA%2BPlayer-v1.1.zip",
+          "version": "1.1.0"
+        },
+        {
+          "hash": "sha512:e08521691c67a2a3b34846e58ea6b4fd7badf3d7efc28b56d26fe18822b607fe22b71aa3f48ba725fd857efb9ab310e8d286d05946db01c92cf40937c87177b4",
+          "id": "dramatic-skys",
+          "name": "Dramatic Skys",
+          "path": "resourcepacks/dramatic-skys.zip",
+          "size": 13912171,
+          "url": "https://cdn.modrinth.com/data/2YyNMled/versions/4MZQy9nc/Dramatic%20Skys%20Demo%201.5.3.36.6.zip",
+          "version": "1.5.3.36.6"
+        }
+      ],
+      "id": "visuals",
+      "immutable": true,
+      "java": null,
+      "name": "Camera, animations and skies for Minecraft 26.2",
+      "optional": false,
+      "version": "sha256:945decd4937c2a53aa3d298fb429ab31ad3c23c1d563a484818814eabc5e1f90"
     }
   ],
   "dependencies": [

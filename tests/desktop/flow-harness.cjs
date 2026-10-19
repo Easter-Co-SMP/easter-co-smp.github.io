@@ -43,4 +43,7 @@ install.installClient=async({notify,control,includeGraphics=false})=>{
 // when something still needs the player.
 global.easterTestLaunches=0;
 install.launch=async()=>{global.easterTestLaunches++;const game=new EventEmitter();game.stdout=new EventEmitter();game.stderr=new EventEmitter();global.easterTestGame=game;return game;};
+// These fixtures stub the game installation; no client tree exists to configure.
+const visualSetup=require('../../desktop/visuals.cjs');
+visualSetup.configureVisuals=async()=>({});visualSetup.disableShaders=async()=>{};
 require('../../desktop/main.cjs');

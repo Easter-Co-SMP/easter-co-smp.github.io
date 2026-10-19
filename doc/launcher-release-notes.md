@@ -1,3 +1,24 @@
+# Easter Company launcher 1.0.29
+
+The client now installs and enables Smooth Third Person Camera, Fresh Animations,
+its Player Extension and Dramatic Skys automatically, including their model,
+texture and skybox dependencies. These remain enabled with Enhanced Graphics off.
+
+- Grassier Grass accompanies the enhanced graphics download and activates only
+  with Enhanced Graphics on and an installed shader pack selected in Iris.
+- Switching Enhanced Graphics off now actually disables shaders and Grassier Grass,
+  works offline, and keeps the downloads cached for next time.
+- Automatic quality tuning writes Minecraft 26.2's current graphics options and
+  applies conservative vanilla settings on a detected weak machine's first install.
+- Resource packs load in dependency order and personal packs/options are preserved.
+- All third-party content comes directly from publisher URLs with pinned releases
+  and verified checksums. Updating visual content leaves the base game untouched.
+
+Validation: automated desktop, publishing/privacy and browser checks; isolated
+Minecraft 26.2 startup/resource reload with enhanced graphics off and on. This is
+not a full in-world animation, sky or shader performance playtest. Native Windows
+in-game rendering has not been exercised here.
+
 # Easter Company launcher 1.0.28
 
 Launcher updates are now sized before they act. A small update costs you nothing, and the

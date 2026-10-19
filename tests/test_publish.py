@@ -584,14 +584,18 @@ class ClientExportTests(unittest.TestCase):
                                         f'{project}-fabric-{version}+mc{minecraft}.jar', 1234)
             client = self.build(root, graphics_resolver=fetch)
             chunks = {chunk['id']: chunk for chunk in client['chunks']}
-            self.assertEqual(sorted(chunks), ['base', 'graphics'])
+            self.assertEqual(sorted(chunks), ['base', 'graphics', 'visuals'])
+            self.assertFalse(chunks['visuals']['optional'])
+            self.assertEqual(chunks['visuals']['version'], chunk_version(chunks['visuals']))
             graphics = chunks['graphics']
             self.assertTrue(graphics['optional'], 'the graphics chunk is switched off by default, so it is optional')
             self.assertFalse(graphics['immutable'], 'an optional chunk is re-verified, not trusted once')
             self.assertEqual(graphics['version'], chunk_version(graphics))
             self.assertIn('26.2', graphics['name'])
-            pack, *loaders = graphics['files']
-            for entry in graphics['files']:
+            pack, *loaders = [entry for entry in graphics['files'] if entry['id'] != 'grassier-grass']
+            foliage = next(entry for entry in graphics['files'] if entry['id'] == 'grassier-grass')
+            self.assertTrue(foliage['path'].endswith('.jar.disabled'))
+            for entry in [pack, *loaders]:
                 self.assertEqual(set(entry), {'id', 'name', 'version', 'path', 'url', 'hash', 'size'})
                 self.assertEqual(urlsplit(entry['url']).hostname, 'cdn.modrinth.com')
                 self.assertEqual(entry['hash'], 'sha512:' + SHA512)

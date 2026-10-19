@@ -162,7 +162,22 @@ def resolved_pins(root, dependencies):
             'fabric': declared_fabric(Path(root) / INSTALL_RELEASE), 'java': JAVA_MAJOR}
 
 
-def packages(mod, dependencies, pins, graphics=None, companions=()):
+def visual_files(minecraft):
+    """Reviewed upstream pins, independent of the map export host and API availability."""
+    lock = json.loads((Path(__file__).resolve().parents[1] / 'desktop/visuals.json').read_text())
+    if lock['minecraft'] != minecraft:
+        raise RuntimeError('Visual content pins do not match the client Minecraft version')
+    keys = ('id', 'name', 'version', 'path', 'url', 'hash', 'size')
+    result = {'always': [], 'shaders': []}
+    for item in lock['files']:
+        if urllib.parse.urlsplit(item['url']).hostname != MODRINTH_CDN_HOST \
+                or not re.fullmatch('sha512:[a-f0-9]{128}', item['hash']):
+            raise RuntimeError('Visual content has no verified publisher artifact')
+        result[item['activation']].append({key: item[key] for key in keys})
+    return result
+
+
+def packages(mod, dependencies, pins, graphics=None, companions=(), visuals=None):
     """The published chunk list: the frozen base chunk, plus the graphics chunk when pinned.
 
     The base chunk describes the frozen game and is always required. The graphics chunk is
@@ -199,13 +214,18 @@ def packages(mod, dependencies, pins, graphics=None, companions=()):
         # them switched on.
         entries = [entry] + [{'id': item['id'], 'name': item['name'], 'version': item['version'],
                               'path': item['path'], 'url': item['url'], 'hash': item['hash'],
-                              'size': item['size']} for item in companions]
+                              'size': item['size']} for item in companions] + (visuals or {}).get('shaders', [])
         # Every chunk carries the same field set, so a chunk's shape never depends on which
         # kind it is. The game pins are meaningful on the frozen base chunk only, and are
         # null here rather than absent.
         chunk = {'id': 'graphics', 'name': graphics['name'] + ' and ' + GRAPHICS_LOADER_NAME +
                  ' for Minecraft ' + pins['minecraft'],
                  'optional': True, 'immutable': False, 'fabric': None, 'java': None, 'files': entries}
+        chunks.append(dict(chunk, version=chunk_version(chunk)))
+    if visuals and visuals['always']:
+        chunk = {'id': 'visuals', 'name': 'Camera, animations and skies for Minecraft ' + pins['minecraft'],
+                 'optional': False, 'immutable': True, 'fabric': None, 'java': None,
+                 'files': visuals['always']}
         chunks.append(dict(chunk, version=chunk_version(chunk)))
     return chunks
 
@@ -638,7 +658,7 @@ def export_client(destination, download_module, resolver=None, now=None, state_p
                 'bytes': size, 'url': 'downloads/easter-navy.jar'},
         'dependencies': [{'id': ident, 'name': entry['name'], 'version': entry['version'],
                           'url': DEPENDENCIES[ident]} for ident, entry in mod_entries.items()],
-        'chunks': packages(custom_file, {'mods': files}, pins, graphics, companions),
+        'chunks': packages(custom_file, {'mods': files}, pins, graphics, companions, visual_files(minecraft)),
     }
     # Nothing local, private or absolute may reach the public manifest.
     for chunk in client['chunks']:

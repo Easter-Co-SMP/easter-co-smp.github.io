@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, unquote
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.export_world import DEPENDENCIES, PUBLIC_MARKER_ICONS, PUBLIC_MARKER_KINDS, chunk_version
+from scripts.export_world import DEPENDENCIES, PUBLIC_MARKER_ICONS, PUBLIC_MARKER_KINDS, chunk_version, visual_files
 
 #: 'kind' is a public marker category, never a row type or a player faction. A payload
 #: carrying 'faction' is refused outright rather than rewritten. Older snapshots in the
@@ -33,7 +33,7 @@ MOD_KEYS = {'name', 'version', 'sha256', 'bytes', 'url'}
 DEPENDENCY_KEYS = {'id', 'name', 'version', 'url'}
 CHUNK_KEYS = {'id', 'name', 'optional', 'immutable', 'version', 'files', 'fabric', 'java'}
 PACKAGE_FILE_KEYS = {'id', 'name', 'version', 'path', 'url', 'hash', 'size'}
-PINNED_CHUNKS = {'base': (False, True), 'graphics': (True, False)}
+PINNED_CHUNKS = {'base': (False, True), 'graphics': (True, False), 'visuals': (False, True)}
 #: A packaged file may be served from our own relative tree or from its publisher over https.
 #: Nothing else: an http:// URL or an absolute local path is refused.
 HASH_PATTERN = re.compile('sha(256|512):[a-f0-9]+')
@@ -132,10 +132,22 @@ def validate_packages(client, mod_id, dependency_ids):
     # No omissions and no substitutions in what the launcher must install: the required
     # chunks are exactly the client the flat fields describe, so the two cannot drift into
     # two different clients. An optional chunk may carry extras of its own.
-    assert {entry['id'] for path, (chunk_id, entry) in files.items() if not chunks[chunk_id]['optional']} \
+    assert {entry['id'] for path, (chunk_id, entry) in files.items() if chunk_id == 'base'} \
         == {mod_id, *[d['id'] for d in client['dependencies']]}, \
         'The required chunk files do not match the manifest mod and dependencies'
-    flattened = json.dumps(packages)
+    approved_visuals = visual_files(client['minecraft'])
+    if 'visuals' in chunks:
+        assert chunks['visuals']['files'] == approved_visuals['always'], 'Unreviewed visual content'
+    foliage = [entry for chunk in packages for entry in chunk['files']
+               if entry['id'] == 'grassier-grass']
+    if foliage:
+        assert foliage == approved_visuals['shaders'], 'Unreviewed foliage content'
+        assert all(entry in chunks.get('graphics', {}).get('files', []) for entry in foliage)
+    # Only exact, reviewed public visual artifacts bypass the broad word scan: the
+    # official FA Player Extension name is public product metadata, not player data.
+    approved = approved_visuals['always'] + approved_visuals['shaders']
+    flattened = json.dumps([{**chunk, 'files': [entry for entry in chunk['files']
+                                             if entry not in approved]} for chunk in packages])
     for forbidden in ('/home/', '/root/', '/opt/', 'player', 'faction', 'token', 'password', 'secret'):
         assert forbidden not in flattened, f'Private detail in the chunk list: {forbidden}'
 

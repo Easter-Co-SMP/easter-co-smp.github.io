@@ -441,7 +441,7 @@ test('turning enhanced graphics on fetches only the graphics chunk and writes th
  }finally{await server.close();await tree.cleanup();}
 });
 
-test('turning enhanced graphics off fetches nothing, deletes nothing and leaves the base chunk verified',async()=>{
+test('turning enhanced graphics off keeps cached content and the base chunk verified',async()=>{
  const base=Buffer.from('base-mod-jar'),graphics=Buffer.from('shader-bundle-v1');
  const server=await fileServer({'/files/base.jar':base,'/files/graphics.zip':graphics});
  const tree=await graphicsTree({extraFiles:['shaderpacks/graphics.zip']});
@@ -462,7 +462,9 @@ test('turning enhanced graphics off fetches nothing, deletes nothing and leaves 
   assert.deepEqual(server.requests,[],'switching off downloads nothing at all');
   assert.equal(transferStats().hashReads,0,'and re-verifies nothing');
   assert.equal(await fs.readFile(path.join(tree.root,'shaderpacks','graphics.zip'),'utf8'),'shader-bundle-v1','the installed shader pack is kept, not deleted');
-  assert.equal(await fs.readFile(path.join(tree.root,'installed.json'),'utf8'),markerBefore,'the marker is not rewritten');
+  assert.deepEqual(tree.record().chunks,JSON.parse(markerBefore).chunks,'chunk identities and verification remain unchanged');
+  assert.equal(tree.record().includeGraphics,false,'the applied choice is recorded');
+  assert.match(await fs.readFile(path.join(tree.root,'config','iris.properties'),'utf8').catch(()=>''),/^(?:|enableShaders[:=]false)/);
   assert.equal(await fs.readFile(path.join(tree.root,'options.txt'),'utf8'),optionsBefore,'and the client settings are untouched');
   assert.equal(result.includeGraphics,false);
   assert.match(result.message,/off/i);
@@ -920,7 +922,7 @@ test('the display defaults are written alongside the graphics step, not instead 
   const published=chunkFixture({base:baseChunk,graphics:graphicsChunk});
   const result=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:true,hardware:{vramMB:8188,tier:'capable'}});
   const options=shown(await fs.readFile(optionsFile(tree.root),'utf8'));
-  for(const line of ['guiScale:2','fullscreen:true','graphicsMode:fancy','renderDistance:16',...bindLines(immediateBinds())])assert(options.includes(line),line+' is in options.txt: '+JSON.stringify(options));
+  for(const line of ['guiScale:2','fullscreen:true','graphicsPreset:"custom"','ao:true','renderDistance:16',...bindLines(immediateBinds())])assert(options.includes(line),line+' is in options.txt: '+JSON.stringify(options));
   assertDistinctBindings(await fs.readFile(optionsFile(tree.root),'utf8'),'the seed beside the graphics step');
   assert.equal(await fs.stat(displayRecordFile(tree.root)).then(()=>'present',()=>'absent'),'present');
   assert.deepEqual({...result.quality},{renderDistance:16,shadowDistance:12,shaders:true},'the quality report is unchanged by the display seed');

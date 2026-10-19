@@ -7,6 +7,7 @@ const installer=require('@xmcl/installer');
 const {Agent,interceptors}=require('undici');
 const {locationProblem,MARKER,clientOrigin,serverAddress}=require('./config.cjs');
 const {qualitySettings,applyQualitySettings,recordQuality,applyDisplayDefaults,SHADER_PACK_NAME}=require('./hardware.cjs');
+const {configureVisuals,disableShaders,GRASS_ACTIVE}=require('./visuals.cjs');
 const dispatcher=new Agent({connections:8,connect:{family:4,timeout:30000},headersTimeout:45000,bodyTimeout:90000}).compose(interceptors.retry({maxRetries:3}));
 const ORIGIN='https://easter-co-smp.github.io/';
 const FABRIC='0.19.5';
@@ -578,9 +579,9 @@ async function applyQuality(root,hardware,notify,{shaders}={}){
   await applyQualitySettings(root,quality);
   await recordQuality(root,quality);
  }catch(error){
-  const message='The client’s quality settings could not be written into the client folder.';
-  if(notify)notify({message});
-  return {quality:null,tuned:null,message};
+  await fs.rm(path.join(root,GRASS_ACTIVE),{force:true});
+  await disableShaders(root);
+  throw Error('The client’s quality settings could not be written into the client folder.',{cause:error});
  }
  return {quality,tuned:quality?{renderDistance:quality.renderDistance,shadowDistance:quality.shadowDistance,shaders:Boolean(quality.shaders)}:null,message:null};
 }
@@ -657,14 +658,21 @@ async function installChunked({root,client,chunks,record,settings,notify,control
  // without downloading or re-verifying anything. This is also the honest answer
  // when the manifest has no graphics chunk and the toggle is on.
  if(!pending.length&&gameCurrent){
-  const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
+  const quality=includeGraphics?await applyQuality(root,hardware,notify,{shaders:Boolean(graphicsChunk)&&deriveQuality(hardware).shaders}):{quality:null,tuned:null,message:null};
   await seedDisplayDefaults(root,notify,guiScale);
+  if(!includeGraphics)await disableShaders(root);
+  await configureVisuals(root,{record,includeGraphics});
   const installedGraphics=record.chunks?.graphics||null;
   return {version:record.version,javaPath:record.java,updatedAt:record.updatedAt,includeGraphics,graphics:installedGraphics?.version||null,message:updating?'Client is up to date.':'Client ready.',unchanged:true,graphicsMessage,graphicsApplied:Boolean(installedGraphics),quality:quality.tuned,qualityMessage:quality.message,qualitySettings:quality.quality};
  }
  const installing=pending.filter(chunk=>!scope||scope.has(chunk.id));
  const installingBase=installing.some(chunk=>chunk.id==='base');
- if(!installing.length)return {version:record?.version??null,javaPath:record?.java??null,updatedAt:record?.updatedAt??null,includeGraphics,graphics:record?.chunks?.graphics?.version||null,message:'Nothing to do.',unchanged:true,graphicsMessage:null,skipped:pending.map(chunk=>chunk.id)};
+ if(!installing.length){
+  const quality=includeGraphics?await applyQuality(root,hardware,notify,{shaders:Boolean(record?.chunks?.graphics)&&Boolean(graphicsChunk)&&deriveQuality(hardware).shaders}):{quality:null,tuned:null,message:null};
+  if(!includeGraphics)await disableShaders(root);
+  await configureVisuals(root,{record,includeGraphics});
+  return {version:record?.version??null,javaPath:record?.java??null,updatedAt:record?.updatedAt??null,includeGraphics,graphics:record?.chunks?.graphics?.version||null,message:'Graphics settings applied.',unchanged:true,graphicsMessage:null,skipped:pending.map(chunk=>chunk.id),quality:quality.tuned,qualitySettings:quality.quality};
+ }
  let version=record?.version,javaPath=record?.java,fabric=record?.fabric;
  // The game component is only touched when it is not already whole. A chunk-scoped
  // run (the graphics toggle) still installs it when the client has never had one,
@@ -683,8 +691,10 @@ async function installChunked({root,client,chunks,record,settings,notify,control
  }
  const files=[...new Set(Object.values(records).flatMap(chunk=>chunk.files||[]))];
  const updatedAt=new Date().toISOString();
- const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
+ const quality=(includeGraphics||(!record?.quality&&hardware?.tunable))?await applyQuality(root,hardware,notify,{shaders:includeGraphics&&Boolean(graphicsChunk)&&deriveQuality(hardware).shaders}):{quality:null,tuned:null,message:null};
  await seedDisplayDefaults(root,notify,guiScale);
+ if(!includeGraphics)await disableShaders(root);
+ await configureVisuals(root,{record:{chunks:records},includeGraphics});
  await atomicJSON(path.join(root,'installed.json'),{
   version,minecraft:client.minecraft,fabric,mod:client.mod?.version,modSha256:client.mod?.sha256,
   dependencies:(client.dependencies||[]).map(entry=>({id:entry.id,version:entry.version})),
@@ -736,8 +746,10 @@ async function installFlat({root,client,settings,notify,control,includeGraphics,
  // The quality settings follow the same rule on a manifest without chunks: they
  // are written when the toggle is on, and the payload's own absence is reported
  // rather than papered over by turning shaders on with no shader pack to load.
- const quality=includeGraphics?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
+ const quality=includeGraphics?await applyQuality(root,hardware,notify,{shaders:Boolean(graphicsFile)&&deriveQuality(hardware).shaders}):{quality:null,tuned:null,message:null};
  await seedDisplayDefaults(root,notify,guiScale);
+ if(!includeGraphics)await disableShaders(root);
+ await configureVisuals(root,{record:null,includeGraphics});
  await atomicJSON(path.join(root,'installed.json'),{version:game.version,minecraft:client.minecraft,fabric:game.fabric,mod:client.mod.version,modSha256:client.mod.sha256,dependencies:client.dependencies.map(d=>({id:d.id,version:d.version})),files:[...mods.map(m=>'mods/'+m.filename),...(graphicsFile?[graphicsFile]:[])],game:{minecraft:client.minecraft,fabric:game.fabric,verified:true},graphics:graphics==='not-published'?null:graphics,includeGraphics,java:game.javaPath,updatedAt,...(quality.quality?{quality:{...quality.tuned,graphicsMode:quality.quality.graphicsMode,shaderPack:quality.quality.shaders?quality.quality.shaderPack:null,updatedAt}}:{})});
  const message=[(updating?'Client updated.':'Client ready.'),graphicsMessage,quality.message].filter(Boolean).join(' ');
  notify({phase:'ready',message,progress:countProgress('Client ready',100)});
@@ -770,6 +782,15 @@ async function installClient({root,settings={},notify=()=>{},control=null,includ
 async function applyGraphics({root,settings={},notify=()=>{},control=null,includeGraphics=false,enabled=includeGraphics,hardware=null,guiScale=null,origin=clientOrigin(),fetchManifest=publishedManifest,published=null}={}){
  const record=await readInstalled(root);
  if(!record)throw Error('Download the game before changing its graphics settings.');
+ // Off is a local settings operation and must work even without a network.
+ if(!enabled){
+  await fs.rm(path.join(root,GRASS_ACTIVE),{force:true});
+  await disableShaders(root);
+  await configureVisuals(root,{record,includeGraphics:false});
+  const updated={...record,includeGraphics:false,...(record.quality?{quality:{...record.quality,shaders:false,shaderPack:null}}:{})};
+  await atomicJSON(path.join(root,'installed.json'),updated);
+  return {unchanged:true,applied:true,includeGraphics:false,graphicsAvailable:Boolean(record.chunks?.graphics||record.graphics),graphics:record.chunks?.graphics?.version||record.graphics||null,message:'Enhanced graphics are off.',graphicsMessage:null,quality:updated.quality?{renderDistance:updated.quality.renderDistance,shadowDistance:updated.quality.shadowDistance,shaders:false}:null,qualitySettings:updated.quality||null};
+ }
  const manifest=published||await fetchManifest(originBase(origin));
  const chunks=chunkList(manifest,clientOrigin(origin));
  const graphicsChunk=(chunks||[]).find(chunk=>chunk.id==='graphics')||null;
@@ -777,7 +798,8 @@ async function applyGraphics({root,settings={},notify=()=>{},control=null,includ
   // A manifest that predates chunks has no optional graphics chunk at all, and the
   // flat `graphics` payload is published under the same URL. Either way, nothing is
   // invented and the caller reports what is available.
-  const quality=enabled?await applyQuality(root,hardware,notify):{quality:null,tuned:null,message:null};
+  const quality=await applyQuality(root,hardware,notify,{shaders:false});
+  await configureVisuals(root,{record,includeGraphics:false});
   return {unchanged:true,applied:false,includeGraphics:Boolean(enabled),graphicsAvailable:Boolean(graphicsEntry(manifest?.graphics,origin)),graphics:record.graphics||null,message:quality.message||(enabled?'Enhanced graphics are not published yet, so the toggle is on but no shader pack was fetched.':'Enhanced graphics are off.'),graphicsMessage:enabled&&!graphicsEntry(manifest?.graphics,origin)?'Enhanced graphics are not published yet, so the toggle is on but no shader pack was fetched.':null,quality:quality.tuned,qualitySettings:quality.quality};
  }
  // The render settings are still the machine's answer even when the shader payload
@@ -786,11 +808,9 @@ async function applyGraphics({root,settings={},notify=()=>{},control=null,includ
  if(enabled&&!graphicsChunk){
   const message='Enhanced graphics are not published yet, so the toggle is on but no shader pack was fetched.';
   const quality=await applyQuality(root,hardware,notify,{shaders:false});
+  await configureVisuals(root,{record,includeGraphics:false});
   return {unchanged:true,applied:Boolean(quality.tuned),includeGraphics:true,graphicsAvailable:false,graphics:record.chunks?.graphics?.version||null,message:quality.message||message,graphicsMessage:message,quality:quality.tuned,qualitySettings:quality.quality};
  }
- // Switching the toggle off stops nothing that is already installed: no chunk is
- // selected, so nothing is fetched, and the quality files simply stay as they are.
- if(!enabled)return {unchanged:true,applied:false,includeGraphics:false,graphicsAvailable:Boolean(graphicsChunk),graphics:record.chunks?.graphics?.version||null,message:'Enhanced graphics are off. Nothing already installed was removed.',graphicsMessage:null,quality:null,qualitySettings:null};
  const result=await installClient({root,settings,notify,control,includeGraphics:true,mode:'update',published:manifest,origin,only:new Set(['graphics']),hardware,guiScale,fetchManifest});
  return {...result,applied:!result.unchanged||Boolean(result.quality),graphicsAvailable:true};
 }
