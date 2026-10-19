@@ -9,7 +9,10 @@
 .legal-page{width:min(860px,calc(100% - 96px));margin:0 auto;padding:96px 0 64px}
 .legal-page:focus{outline:none}
 .legal-page h1{margin-bottom:18px}
-.legal-meta{margin:0 0 26px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#a6b5b08f}
+/* The dates carry legal weight, so they are not fine print: the footer's 56% grey measures
+   3.39:1 on this background, under the 4.5:1 a reader needs at 11px. 80% of the same grey
+   measures 5.3:1 and still sits clearly behind the intro paragraph below it. */
+.legal-meta{margin:0 0 26px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#a6b5b0cc}
 .legal-intro{font-size:15px;line-height:1.85;color:#c7d2cd;margin:0 0 34px;padding-bottom:30px;border-bottom:1px solid var(--line)}
 .legal-intro strong{color:#e8e3d5;font-weight:650}
 .legal-nowrap{white-space:nowrap}
@@ -21,6 +24,15 @@
 .legal-toc li{break-inside:avoid}
 .legal-toc a{color:#bccbc6;text-decoration:none;text-decoration-color:#ffffff33}
 .legal-toc a:hover{color:var(--gold);text-decoration:underline}
+
+/* Prose gets a reading measure. The page is 860px wide because the contents box and the tables
+   are scanned rather than read, and 860px of 14px Inter is 120 to 130 characters to the line -
+   half again what an eye returns from comfortably on a document this long. Paragraphs, headings
+   and lists stop at 640px; the intro keeps its rule at the full page width so the header block
+   still reads as one band above the contents box, and the tables stay full width because a
+   three-column table needs the room that a paragraph does not. */
+.legal-body section>*:not(.legal-table){max-width:640px}
+.legal-intro{max-width:none;padding-right:max(0px,calc(100% - 640px))}
 
 .legal-body{font-size:14px;line-height:1.85;color:#bdc9c4}
 .legal-body section{margin:0 0 38px;scroll-margin-top:90px}
@@ -52,7 +64,10 @@
 
 .legal-footer{display:flex;justify-content:space-between;align-items:center;gap:20px;width:min(860px,calc(100% - 96px));margin:0 auto;padding:0 0 25px;font-size:10px;letter-spacing:.04em;color:#a6b5b08f}
 .legal-footer a{color:#c8bd9e;text-decoration-color:#c8bd9e55}
-.legal-footer a:hover{color:var(--gold)}
+/* The site footers take their link underline to currentColor on hover, so the documents'
+   footer does too: without this it is the one footer that turns the text gold and leaves
+   the rule under it the old washed-out tan. */
+.legal-footer a:hover{color:var(--gold);text-decoration-color:currentColor}
 .legal-footer a[aria-current="page"]{color:var(--gold);text-decoration:none}
 .legal-footer>span:last-child{font-family:Georgia,serif;font-style:italic;letter-spacing:.06em}
 
@@ -72,6 +87,13 @@
   .legal-table th,.legal-table td{padding:8px 9px}
   .legal-table td:first-child{width:auto}
   .legal-footer{width:calc(100% - 48px);flex-wrap:wrap;gap:8px;font-size:9px}
+}
+/* On the narrowest phones the three headers on one line want more width than the table has
+   left: the page was 26px wider than a 320px viewport, so the whole privacy policy scrolled
+   sideways, and it is the only page in the tree that did. Below 350px the headers may wrap;
+   from 360px up they stay on one line, because the table fits there. */
+@media(max-width:350px){
+  .legal-table thead th{white-space:normal}
 }
 
 /* In the launcher the sticky progress bar floats over the bottom of the page, so a
