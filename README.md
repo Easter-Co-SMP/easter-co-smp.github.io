@@ -236,6 +236,24 @@ once in `/tmp/easter-company-clean-install` on that date, including real Java an
 downloads; that path is a scratch directory outside this repository, so the run is not
 reproducible from a fresh clone and is recorded here as history, not as a standing check.
 
+## Client visuals
+
+The independently versioned required `visuals` chunk enables Smooth Third Person
+Camera, Fresh Animations and its Player Extension, EMF, ETF, Dramatic Skys,
+Skyboxify and YACL. It stays active independently of Enhanced Graphics. Packs are
+selected automatically in dependency order, keeping other packs and personal options.
+Exact upstream artifacts are pinned in `desktop/visuals.json` and fetched directly
+from publisher URLs with SHA-512 verification; no third-party binary is hosted here.
+
+Grassier Grass is cached as a non-loadable file in the optional graphics chunk.
+The launcher activates it only when Enhanced Graphics is enabled and the selected
+shader pack, Iris and Sodium are installed. Switching off disables shaders and
+managed foliage locally, works offline and retains all downloads. The selection
+is reconciled again before Play. Automatic vanilla tuning writes Minecraft 26.2's
+actual graphics fields; a detected weak adapter gets conservative vanilla settings
+on its first hardware tune even when the optional effects are off. Base game,
+Java and library files remain untouched by visual-content updates.
+
 ## Personal map notes
 
 Draw opens a separate palette: brush, line, square, rectangle, circle, triangle, diamond,

@@ -92,6 +92,26 @@ claims no rights over them. Each remains under its own author's licence.
   manifest at `site/data/client.json`, and each mod is checksum-verified against
   the hash Modrinth publishes for that version before it is used.
 
+### Visual mods and resource packs
+
+The launcher downloads these original, unmodified artifacts directly from their
+publishers. They are not embedded in the launcher or hosted by Easter LTD.
+`desktop/visuals.json` records exact releases and verified SHA-512 hashes.
+
+- [Grassier Grass](https://modrinth.com/mod/grassier-grass), by Leonardoinc22.
+- [Smooth Third Person Camera](https://modrinth.com/mod/smooth-third-person-camera), by yoima.
+- [Fresh Animations](https://modrinth.com/resourcepack/fresh-animations) and
+  [FA Player Extension](https://modrinth.com/resourcepack/fa-player-extension), by FreshLX.
+- [Dramatic Skys](https://modrinth.com/resourcepack/dramatic-skys), by thebaum64;
+  see its project page for original texture credits.
+- [Entity Model Features](https://modrinth.com/mod/entity-model-features) and
+  [Entity Texture Features](https://modrinth.com/mod/entitytexturefeatures), by Traben (LGPL-3.0).
+- [Skyboxify](https://modrinth.com/mod/skyboxify), by lowercasebtw and contributors
+  (GPL-3.0 with Minecraft linking exception).
+- [YetAnotherConfigLib](https://modrinth.com/mod/yacl), by isXander (LGPL-3.0-or-later).
+
+Each project's own terms apply. Resource-pack assets are not merged into our own pack.
+
 ## Our own hosted component
 
 `site/downloads/easter-navy.jar` is the Easter Co. SMP client modification, built

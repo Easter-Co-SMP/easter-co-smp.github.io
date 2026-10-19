@@ -483,7 +483,12 @@ async function applyQualitySettings(root,quality,{marker='.easter-client'}={}){
  catch{throw Error('That folder is not the launcher’s client tree, so its settings were not touched.');}
  const optionsFile=path.join(base,'options.txt');
  const irisFile=path.join(base,'config','iris.properties');
- const options=mergeProperties(await readText(optionsFile)??'',{graphicsMode:quality.graphicsMode,renderDistance:String(quality.renderDistance)});
+ // Minecraft 26.2 split the old graphicsMode into concrete options. Naming a
+ // preset in the file does not apply its values (that happens only in the UI).
+ // Write the actual supported fields, verified against 26.2 GraphicsPreset.apply.
+ const fancy=quality.graphicsMode!=='fast';
+ const previous=(await readText(optionsFile)??'').replace(/^graphicsMode[:=].*(?:\r?\n|$)/gm,'');
+ const options=mergeProperties(previous,{graphicsPreset:JSON.stringify('custom'),renderDistance:String(quality.renderDistance),ao:String(fancy),cutoutLeaves:String(fancy),entityShadows:String(fancy),improvedTransparency:'false',mipmapLevels:fancy?'4':'2',particles:fancy?'0':'1'});
  const iris=mergeProperties(await readText(irisFile)??'',{enableShaders:String(Boolean(quality.shaders)),shadowDistance:String(quality.shadowDistance),maxShadowRenderDistance:String(quality.shadowDistance),...(quality.shaders&&quality.shaderPack?{shaderPack:quality.shaderPack}:{})});
  await fs.mkdir(path.dirname(irisFile),{recursive:true});
  await fs.writeFile(optionsFile,options,{mode:0o600});

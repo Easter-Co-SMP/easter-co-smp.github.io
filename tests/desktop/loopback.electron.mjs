@@ -367,7 +367,7 @@ try{
  check(onState.graphics.tuned&&typeof onState.graphics.tuned.renderDistance==='number','graphics.tuned reports what was written into the client: '+JSON.stringify(onState.graphics.tuned));
  const options=await fs.readFile(path.join(clientRoot,'options.txt'),'utf8');
  const iris=await fs.readFile(path.join(clientRoot,'config','iris.properties'),'utf8');
- check(/^graphicsMode:(fancy|fast)$/m.test(options),'the client options carry a graphics mode: '+options.trim().split('\n').join(' '));
+ check(/^graphicsPreset:"custom"$/m.test(options)&&/^ao:(true|false)$/m.test(options),'the client options carry Minecraft 26.2 quality fields: '+options.trim().split('\n').join(' '));
  check(new RegExp('^renderDistance:'+onState.graphics.tuned.renderDistance+'$','m').test(options),'and the render distance that was reported');
  check(new RegExp('^guiScale:'+expectedScale+'$','m').test(options)&&/^fullscreen:true$/m.test(options),'the display defaults are still there after the graphics write: guiScale:'+expectedScale);
  check(IMMEDIATE_BINDINGS.every(key=>new RegExp('^'+key.replace(/\./g,'\\.')+':'+WANTED_BINDS[key].replace(/\./g,'\\.')+'$','m').test(options)),'and so are all 31 bindings, the 22 debug unbinds included');

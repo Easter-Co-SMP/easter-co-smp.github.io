@@ -44,4 +44,7 @@ install.installClient=async({notify,control,includeGraphics=false})=>{
  return {version:'fixture-fabric',javaPath:'/fixture/java',includeGraphics,message:'Client ready.'};
 };
 install.launch=async()=>{const game=new EventEmitter();game.stdout=new EventEmitter();game.stderr=new EventEmitter();global.easterTestGame=game;return game;};
+// These fixtures stub the game installation; no client tree exists to configure.
+const visualSetup=require('../../desktop/visuals.cjs');
+visualSetup.configureVisuals=async()=>({});visualSetup.disableShaders=async()=>{};
 require('../../desktop/main.cjs');

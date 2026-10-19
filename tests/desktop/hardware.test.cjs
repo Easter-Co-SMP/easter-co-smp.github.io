@@ -303,7 +303,10 @@ test('the quality files are written inside the launcher’s own client tree only
   const written=await applyQualitySettings(root,quality);
   assert.deepEqual(written.tuned,{renderDistance:16,shadowDistance:12,shaders:true});
   const options=await fs.readFile(path.join(root,'options.txt'),'utf8');
-  assert.match(options,/^graphicsMode:fancy$/m);
+  assert.match(options,/^graphicsPreset:"custom"$/m);
+  assert.match(options,/^ao:true$/m);
+  assert.match(options,/^cutoutLeaves:true$/m);
+  assert.doesNotMatch(options,/^graphicsMode:/m);
   assert.match(options,/^renderDistance:16$/m);
   assert.match(options,/^fov:0\.5$/m,'an unrelated setting is left alone');
   const iris=await fs.readFile(path.join(root,'config','iris.properties'),'utf8');

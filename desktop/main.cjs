@@ -15,6 +15,7 @@ const identity=require('./identity.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,migrateLaunchPreferences,launchBehaviour,includeGraphicsValue}=require('./security.cjs');
 const {APP_USER_MODEL_ID,ICON_FILE,wantsAutoStart,autoStartDecision,shortcutSupport,readGameShortcuts,applyGameShortcuts}=require('./shortcuts.cjs');
 const install=require('./install.cjs');
+const {configureVisuals,disableShaders}=require('./visuals.cjs');
 const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=install;
 const {renderOffload}=require('./hardware.cjs');
 const {detectHardware,installedQuality,applyDisplayDefaults,displayGuiScale,displayPhysicalPixels}=require('./hardware.cjs');
@@ -432,8 +433,8 @@ async function persistGraphics(enabled){
 }
 // One toggle, one pipeline. On: the optional graphics chunk is fetched through the
 // checksum-verified pipeline and the client's quality settings are written inside
-// the app-owned client tree. Off: nothing is fetched, nothing already installed is
-// removed, and the base chunk is never invalidated.
+// the app-owned client tree. Off disables shaders and managed foliage locally;
+// cached downloads and the base chunk are retained.
 async function setGraphics(enabled){
  if(typeof enabled!=='boolean')throw Error('The enhanced graphics toggle must be on or off.');
  await persistGraphics(enabled);
@@ -584,6 +585,8 @@ async function launchThrough(){
  const version=prepared?.version||record?.version;
  const javaPath=settings.javaPath||prepared?.javaPath||record?.java;
  if(!version||!javaPath)throw Error('The game client is not installed yet.');
+ if(!settings.includeGraphics)await disableShaders(gameRoot());
+ await configureVisuals(gameRoot(),{record,includeGraphics:Boolean(settings.includeGraphics)});
  // Everything the account and the client needed is ready; the server is the only thing
  // left. The cold start began when Play was pressed, so this normally finds it already
  // running — but if it is still coming up, the state says so in its own phase and its

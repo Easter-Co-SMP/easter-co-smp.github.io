@@ -26,4 +26,7 @@ const install=require('../../desktop/install.cjs');
 install.clientStatus=async()=>({installed:true,version:'fixture',record:{version:'fixture',java:'/fixture/java'}});
 install.checkForUpdates=async()=>({applied:false});
 install.launch=async()=>{global.companyLaunches++;global.companyGame=new EventEmitter();return global.companyGame;};
+// These fixtures stub the game installation; no client tree exists to configure.
+const visualSetup=require('../../desktop/visuals.cjs');
+visualSetup.configureVisuals=async()=>({});visualSetup.disableShaders=async()=>{};
 require('../../desktop/main.cjs');

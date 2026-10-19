@@ -881,8 +881,10 @@ labelled **Enable Enhanced Graphics & Shaders**. It is the only graphics control
 the launcher; the first-run details state what the automatic choice will be rather than
 offering a second copy of the control. Flipping it on fetches the optional
 `graphics` chunk through the existing verified pipeline and the sticky bar, and
-writes the client's own quality settings; flipping it off stops nothing that is
-already installed and never invalidates the base chunk.
+writes the client's own quality settings. Flipping it off disables Iris shaders and
+Grassier Grass without downloading anything or invalidating the base chunk; cached
+shader files remain available for the next enable. Render distance and personal
+settings survive switching the effect off.
 
 **The machine decides the default, once, honestly.** "On unless the GPU is clearly
 weak": integrated graphics and a software renderer (llvmpipe, SwiftShader) are
@@ -1680,3 +1682,37 @@ addresses the server just reported) or clears (`null`), re-reads the list and an
 it. Both are refused while there is no live Company session, with the ordinary
 `invalid_session` sentence. There is no new privileged surface beyond these two account
 actions: no renderer-supplied path, no file access, no token and no other account handle.
+
+## Client visual content (2026-10-19)
+
+The required `visuals` chunk adds Smooth Third Person Camera, EMF, ETF, Skyboxify
+and its YACL dependency, Fresh Animations, FA Player Extension and Dramatic Skys.
+It is independently versioned so updating visual content never reinstalls Java,
+libraries or the base game. `desktop/visuals.json` pins exact Minecraft 26.2
+Modrinth releases, publisher URLs, sizes and SHA-512 hashes; binaries are fetched
+from their publishers, never republished with the launcher. The three resource
+packs are activated automatically, with Player Extension above Fresh Animations.
+Other resource packs and unrelated options remain intact. Dramatic Skys stays
+selected with or without Enhanced Graphics; shader packs can affect the final sky.
+
+Grassier Grass is cached as a non-loadable `.jar.disabled` file in the optional
+`graphics` chunk. Only when Enhanced Graphics is enabled AND Iris shaders are
+actually enabled does the launcher activate its own managed JAR in `mods/`. On a
+weak/unknown adapter, a missing shader payload, a failed quality write, or switching
+the toggle off, that JAR is absent. This is reconciled after install, after a
+graphics change and before every game launch, including a quiet content update.
+The optional cache and the base game's verified chunk are retained. Turning the
+toggle off works offline. A quality write failure fails the change visibly; it
+cannot silently leave the expensive effect active.
+
+Only the app-owned client tree is configured. No existing `.minecraft`, world,
+server or household installation participates in this process. There are no new
+player-facing controls or separate website graphics settings; the website continues
+to distribute the launcher and its public client manifest.
+
+Automatic vanilla quality writes Minecraft 26.2's actual split fields (ambient
+occlusion, cutout leaves, entity shadows, transparency, mipmaps and particles),
+with `graphicsPreset:"custom"` because distances follow the hardware ladder. The
+obsolete `graphicsMode` line is removed. On a detected weak GPU the first install
+also applies the conservative vanilla settings with shaders off; subsequent off
+transitions keep the player's distances and personal settings.
