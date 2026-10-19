@@ -718,8 +718,35 @@ On a window too short to show all three lines at once, the chooser scrolls the r
 into view rather than leaving its last line under the dialog's own edge: the least it can
 scroll for the whole refusal to be inside the box, and nothing at all when the box
 already shows it, so the refusal is still read above the form with Sign in and Forgot
-your password below the fold. At the launcher's own 800x600 minimum the three lines fit
-at once and the dialog keeps no scrollbar over space it cannot show.
+your password below the fold.
+
+**A chooser may scroll when the window is short (decided 2026-10-19, superseding the
+no-unnecessary-scrollbar rule).** The round-three review produced one rule about this
+dialog — a chooser must never show a scrollbar it does not need — and that rule is retired as an
+expectation, because the chooser it was written for no longer exists. It was written when the
+chooser was one Microsoft button above the form, and that chooser fitted an 800x600 window with
+room to spare. Provider sign-in added Google, Steam and Discord above the provider note, and
+the chooser's content is now 621px: close control 36, heading 29, `Sign in with Microsoft` 44,
+three provider buttons 44 each, the provider note 35, and the form 251. The dialog is capped at
+`calc(100dvh - 32px)` (`.desktop-company-dialog`), which at the launcher's own 800x600 minimum
+is a 568px box with a 566px client height, so the chooser scrolls there — with a refusal in it
+or without one — while at 1440x900 the same 621px fits inside a 622px dialog. Only short
+windows are affected, and that is allowed.
+
+What replaces the rule is an obligation, and it is the one the journey now asserts: **the
+chooser may scroll; it may not clip content, hide a control or leave anything unreachable.**
+Every control — the close control, both Microsoft paths, each provider button, the note above
+them, the Username or Email field, the Password field, Sign in and Forgot your password — is
+reachable by scrolling at 800x600, and is measured at 1440x900, 390x844 and the short 390x568
+as well. Nothing was removed or shrunk to buy the room: all three provider buttons stay, each
+keeps a 44px touch target, the note keeps its words and the whole form stays.
+`tests/desktop/ui-review.electron.mjs` scrolls each control into the dialog's own scrollport and
+requires its whole box to be inside that port and the point at its own centre to be that
+control, so a control cut by the edge, pushed out sideways or painted under something that
+would swallow the press still fails — which is what the scrollbar rule was standing in for. The
+12px bottom inset a short window trims while a refusal is painted
+(`@media(max-height:700px)` in `site/desktop.css`) is kept only because it shortens travel the
+chooser already has; it is no longer the difference between a scrollbar and none.
 
 **Microsoft's email answer is a notice, not a failure.** The sign-in answer may carry
 `emailStatus` (`'stored'`, `'unavailable'`, `'none'`) at its own top level. Only

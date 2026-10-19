@@ -805,6 +805,24 @@ try{
  // could show — scrollHeight 578 against clientHeight 566, twelve pixels of scrollbar over
  // space nobody can see, while every element fitted inside the box.
  //
+ // The rule that came out of that finding — a chooser must never show a scrollbar it does not
+ // need — is SUPERSEDED, and this journey asserted it until it was measured against the four-way
+ // chooser. Provider sign-in added Google, Steam and Discord above the provider note, and the
+ // chooser's content went from a dialog that fitted every size to 621px: at 800x600 that is 621px
+ // of content in a 566px box (the dialog is capped at the window by
+ // `.desktop-company-dialog{max-height:calc(100dvh - 32px)}`), so the box scrolls, and it scrolls
+ // whether or not a refusal is in it. The old rule was a good rule for one provider button; it is
+ // now an obsolete expectation rather than a product rule, because the product's own minimum
+ // window is shorter than the chooser may be. Owen's decision, recorded in
+ // doc/launcher-states.md: a chooser MAY scroll when the window is short. What it may not do is
+ // clip content, hide a control, or strand anything behind an edge without a way to scroll to it.
+ // So the assertion below is reachability, not the absence of a scrollbar: at every size, each
+ // control in the chooser is scrolled to the way a player would scroll to it and then has to be
+ // inside the box that scrolls, with the point at its own centre being that control, and the
+ // dialog has to scroll in one direction only. That still catches real clipping — a control cut
+ // by the edge, a control pushed sideways out of the box, a control painted under a fixed overlay
+ // — which is what the old rule was standing in for.
+ //
  // The conflict driven here is the product's own, through the real preload and the real main
  // process: the saved-session shortcut is answered by an account service that names a different
  // Easter Company account, which is exactly the comparison desktop/main.cjs stops on. The
@@ -850,8 +868,7 @@ try{
   return {dialog:{top:Math.round(field.top),bottom:Math.round(field.bottom),left:Math.round(field.left),right:Math.round(field.right)},
    scrollport:{top:Math.round(port.top),bottom:Math.round(port.bottom)},
    scrollTop:Math.round(dialog.scrollTop),scrollHeight:Math.round(dialog.scrollHeight),clientHeight:Math.round(dialog.clientHeight),
-   refusal:{hidden:dialog.querySelector('.company-error').hidden,lines:lines.length,boxes:lines.map(box),inside:lines.length>0&&lines.every(inside)},
-   controls:{submit:inside(dialog.querySelector('.company-submit')),recover:inside(dialog.querySelector('.company-recover'))}};
+   refusal:{hidden:dialog.querySelector('.company-error').hidden,lines:lines.length,boxes:lines.map(box),inside:lines.length>0&&lines.every(inside)}};
  });
  // Layout settles on the frame after the paint, so measure it twice in a row rather than once.
  const settledChooser=async where=>{
@@ -863,6 +880,58 @@ try{
    await new Promise(resolve=>setTimeout(resolve,25));
   }
   throw Error('the chooser never settled '+where+': '+JSON.stringify(previous));
+ };
+ // The whole chooser, named by what the player reads on it: closing it, both Microsoft paths,
+ // each provider button, the note that says what the providers are for, and every part of the
+ // form. Reachability is measured the way a player finds it — scroll the control into the
+ // dialog's own scrollport, then require the whole of its box to be inside that port and the
+ // point at its own centre to be the control itself. That fails on a control cut by the edge, a
+ // control pushed out sideways, and a control painted under something that would swallow the
+ // press, which are the three ways "it fits" can be true while a control is unreachable. The
+ // scroll is put back where it was, so measuring never decides where the chooser sits.
+ const chooserControls=[
+  ['its close control','.dialog-close'],
+  ['Sign in with Microsoft','.company-microsoft'],
+  ['Sign in with Google','[data-provider=google]'],
+  ['Sign in with Steam','[data-provider=steam]'],
+  ['Sign in with Discord','[data-provider=discord]'],
+  ['the note about providers','.company-provider-note'],
+  ['the Username or Email field','input[name=identifier]'],
+  ['the Password field','input[name=password]'],
+  ['the Sign in button','.company-submit'],
+  ['Forgot your password','.company-recover']
+ ];
+ const reachChooser=where=>page.evaluate(({where,controls})=>{
+  const dialog=document.querySelector('#desktop-company-signin');
+  const edge=()=>{const box=dialog.getBoundingClientRect();const left=box.left+dialog.clientLeft,top=box.top+dialog.clientTop;return {left,top,right:left+dialog.clientWidth,bottom:top+dialog.clientHeight};};
+  const start=dialog.scrollTop,rounds=[];
+  for(const [name,selector] of controls){
+   const node=dialog.querySelector(selector);
+   if(!node){rounds.push({name,inside:false,operable:false,why:'not painted at all'});continue;}
+   node.scrollIntoView({block:'nearest',inline:'nearest'});
+   const port=edge(),rect=node.getBoundingClientRect();
+   const inside=rect.top>=port.top-1&&rect.bottom<=port.bottom+1&&rect.left>=port.left-1&&rect.right<=port.right+1;
+   const hit=document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2);
+   rounds.push({name,inside,height:Math.round(rect.height),operable:Boolean(hit)&&(hit===node||node.contains(hit)),hit:hit?String(hit.className||hit.tagName):null});
+  }
+  dialog.scrollTop=start;
+  return {where,scrollWidth:Math.round(dialog.scrollWidth),clientWidth:Math.round(dialog.clientWidth),controls:rounds,
+   problems:rounds.filter(round=>round.inside!==true||round.operable!==true)};
+ },{where,controls:chooserControls});
+ // Nothing was removed to make the chooser fit a short window, and no control was shrunk to do
+ // it: reachability alone would pass on a chooser that had dropped the provider note, or the
+ // three provider buttons, or the whole form. The three buttons keep their 44px touch target and
+ // the note keeps its words at every size measured here.
+ const keptChooser=async at=>{
+  const kept=await page.evaluate(()=>{const dialog=document.querySelector('#desktop-company-signin');
+   return {providers:[...dialog.querySelectorAll('[data-provider]')].map(button=>[button.dataset.provider,button.textContent.trim(),Math.round(button.getBoundingClientRect().height)]),
+    note:dialog.querySelector('.company-provider-note').textContent.trim(),
+    submit:dialog.querySelector('.company-submit').textContent.trim()};});
+  assert.deepEqual(kept.providers.map(provider=>provider[0]),['google','steam','discord'],'all three provider buttons are still in the chooser at '+at+': '+JSON.stringify(kept.providers));
+  assert.deepEqual(kept.providers.map(provider=>provider[1]),['Sign in with Google','Sign in with Steam','Sign in with Discord'],'each one still names its own provider at '+at+': '+JSON.stringify(kept.providers));
+  for(const [provider,label,height] of kept.providers)assert(height>=43,'the '+provider+' button keeps a touch target at '+at+' rather than being shrunk to fit: '+label+' is '+height+'px tall');
+  assert.equal(kept.note,'Please sign up using an existing online account provider, and then create an Easter Company account username & password.','the note above the form keeps its words at '+at+': '+JSON.stringify(kept.note));
+  assert.equal(kept.submit,'Sign in','and the form keeps its own control at '+at+': '+JSON.stringify(kept.submit));
  };
  const chooserDialog=page.locator('#desktop-company-signin');
  await armSmallConflict(false);
@@ -878,29 +947,46 @@ try{
   await chooserDialog.waitFor({state:'visible'});
   return settledChooser('after opening it');
  };
- for(const [width,height] of [[1440,900],[800,600],[390,568]]){
+ // 390x844 is the phone the review's other surfaces are measured at and 390x568 the short one,
+ // which is the harsher of the two: the chooser has to be whole at both, at the launcher's own
+ // 800x600 minimum, and at the size where it has room to spare.
+ for(const [width,height] of [[1440,900],[800,600],[390,844],[390,568]]){
+  const at=width+'x'+height;
   await page.setViewportSize({width,height});
   const opening=await openSmallChooser();
-  assert.equal(opening.refusal.hidden,true,'the chooser opens with no refusal at '+width+'px');
-  assert.equal(opening.scrollTop,0,'and at the top of itself at '+width+'px: '+JSON.stringify(opening.scrollTop));
-  assert(opening.scrollHeight<=opening.clientHeight+1,'a chooser with no refusal shows no scrollbar it does not need at '+width+'px: '+JSON.stringify({scrollHeight:opening.scrollHeight,clientHeight:opening.clientHeight}));
-  await shot('chooser-small-opens-at-top-'+width);
+  assert.equal(opening.refusal.hidden,true,'the chooser opens with no refusal at '+at);
+  assert.equal(opening.scrollTop,0,'and at the top of itself at '+at+': '+JSON.stringify(opening.scrollTop));
+  // The old rule lived here: `scrollHeight<=clientHeight+1`, a chooser must not show a scrollbar
+  // it does not need. It is replaced rather than deleted, because what it stood in for is that
+  // everything stays reachable: at 800x600 the same 621px of content sits in a 566px box, so the
+  // chooser scrolls on a short window, and every control still has to be reachable inside it.
+  const openedReach=await reachChooser('the chooser with no refusal in it');
+  assert(openedReach.scrollWidth<=openedReach.clientWidth+1,'the chooser scrolls in one direction only, so nothing is pushed out sideways at '+at+': '+JSON.stringify({scrollWidth:openedReach.scrollWidth,clientWidth:openedReach.clientWidth}));
+  assert.equal(openedReach.problems.length,0,'every control in the chooser is reachable by scrolling at '+at+', with no refusal in it and the window short or tall: '+JSON.stringify(openedReach.problems));
+  await keptChooser(at);
+  await shot('chooser-small-opens-at-top-'+at);
   await armSmallConflict(true);
   await chooserDialog.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
   await chooserDialog.locator('.company-error').filter({hasText:smallConflictCopy[1]}).waitFor();
-  const painted=await settledChooser('after the refusal at '+width+'px');
-  assert.deepEqual(await chooserDialog.locator('.company-error p').allInnerTexts(),smallConflictCopy,'the refusal is the same three sentences, word for word, at '+width+'px');
-  assert.equal(painted.refusal.lines,3,'all three lines are painted at '+width+'px');
-  assert.equal(painted.refusal.inside,true,'and every one of them is inside the box that scrolls at '+width+'px: '+JSON.stringify(painted));
-  if(width===390){
-   assert(painted.scrollTop>0,'the dialog scrolls the refusal into view instead of leaving its last line under its own edge at '+width+'px: '+JSON.stringify(painted));
+  const painted=await settledChooser('after the refusal at '+at);
+  assert.deepEqual(await chooserDialog.locator('.company-error p').allInnerTexts(),smallConflictCopy,'the refusal is the same three sentences, word for word, at '+at);
+  assert.equal(painted.refusal.lines,3,'all three lines are painted at '+at);
+  assert.equal(painted.refusal.inside,true,'and every one of them is inside the box that scrolls at '+at+': '+JSON.stringify(painted));
+  // The refusal is the one thing that has to be seen without asking for it: it is painted above
+  // the form and before the controls, and a box too short to show it whole scrolls to it rather
+  // than leaving its last line under its own edge. A box that can show it whole does not move at
+  // all — which at 800x600 with three provider buttons above it is no longer a size the chooser
+  // can be in. It scrolls there, and that is allowed.
+  if(painted.scrollHeight>painted.clientHeight+1){
+   assert(painted.scrollTop>0,'a chooser too short to show the whole refusal scrolls to it instead of leaving its last line under its own edge at '+at+': '+JSON.stringify(painted));
   }else{
-   assert.equal(painted.scrollTop,0,'a chooser that already shows the whole refusal is not scrolled at '+width+'px');
-   assert.equal(painted.controls.submit,true,'Sign in stays on screen with the refusal at '+width+'px');
-   assert.equal(painted.controls.recover,true,'and so does Forgot your password at '+width+'px');
-   assert(painted.scrollHeight<=painted.clientHeight+1,'and the dialog shows no scrollbar it does not need at '+width+'px: '+JSON.stringify({scrollHeight:painted.scrollHeight,clientHeight:painted.clientHeight}));
+   assert.equal(painted.scrollTop,0,'a chooser that already shows the whole refusal is not scrolled at '+at);
   }
-  await shot('chooser-small-refusal-'+width);
+  const paintedReach=await reachChooser('the chooser carrying a refusal');
+  assert(paintedReach.scrollWidth<=paintedReach.clientWidth+1,'and still nothing is pushed out sideways with the refusal painted at '+at+': '+JSON.stringify({scrollWidth:paintedReach.scrollWidth,clientWidth:paintedReach.clientWidth}));
+  assert.equal(paintedReach.problems.length,0,'every control in the chooser is still reachable by scrolling with the refusal painted at '+at+': '+JSON.stringify(paintedReach.problems));
+  await keptChooser(at);
+  await shot('chooser-small-refusal-'+at);
   await page.keyboard.press('Escape');
   await chooserDialog.waitFor({state:'hidden'});
  }
@@ -918,5 +1004,5 @@ try{
  await page.setViewportSize({width:1360,height:920});
  await send(await page.evaluate(()=>window.easterDesktop.status()));
  assert.deepEqual(errors,[]);
- console.log('Launcher UI state review PASS: first run, transfer, failure, sign-in, ready, settings, one failure on one surface (no page notice painted while any modal dialog is open, the last one to close handing the same sentence back once with its dismiss control keyboard reachable, the notice reading above the hero crest and heading at 1440, 800 and 390 wide, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed), both linked launch behaviours, the no-tray hide and its way back, the tray path, profile, wiki, wiki guide pages whose notice band reserves its own height so nothing sits under it, and the map whose docked key, legend, zoom controls, compass and drawing palette all move clear of the band with the key still opening by a real click, and the sticky bar the launcher itself floats, which the open key now clears at 390 — its last line scrolled to and read by elementFromPoint inside the key, never on #launcher-bar-body — while the key at 800 and 1440 is left at its natural size with no cap and no scrollbar, and the account chooser on small windows, whose three-line conflict refusal is scrolled into view at 390 — every line inside the box that scrolls, with Sign in and Forgot your password below the fold in the order a refusal is read — while at 800x600 the same refusal leaves no scrollbar over space nobody can see and both controls stay on screen, and a chooser with no refusal still opens at the top at every width.');
+ console.log('Launcher UI state review PASS: first run, transfer, failure, sign-in, ready, settings, one failure on one surface (no page notice painted while any modal dialog is open, the last one to close handing the same sentence back once with its dismiss control keyboard reachable, the notice reading above the hero crest and heading at 1440, 800 and 390 wide, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed), both linked launch behaviours, the no-tray hide and its way back, the tray path, profile, wiki, wiki guide pages whose notice band reserves its own height so nothing sits under it, and the map whose docked key, legend, zoom controls, compass and drawing palette all move clear of the band with the key still opening by a real click, and the sticky bar the launcher itself floats, which the open key now clears at 390 — its last line scrolled to and read by elementFromPoint inside the key, never on #launcher-bar-body — while the key at 800 and 1440 is left at its natural size with no cap and no scrollbar, and the account chooser, which is taller than an 800x600 window and so scrolls there, every control in it — the close control, both Microsoft paths, all three provider buttons, the note above them and the whole form — scrolled to the way a player would scroll to it and found whole inside the box that scrolls with the point at its own centre being that control at 1440x900, 800x600, 390x844 and 390x568, with no provider button shrunk below a touch target and no note, button or field dropped to make it fit, its three-line conflict refusal scrolled into view wherever the box cannot show it whole and left unmoved where it can, and a chooser with no refusal still opening at the top at every width.');
 }finally{await app.close();await fs.rm(home,{recursive:true,force:true});}
