@@ -107,7 +107,9 @@ try{
  assert.equal(signedIn.microsoftConnected,false,'no Microsoft leg of this machine is involved at all');
  const mint=sessionsCallsFirst();
  assert.equal(mint.authorization,'Bearer fixture-company-session-token','the mint is authenticated by the Company session and nothing else');
- assert.equal(mint.body,'{"client":"launcher/1.0.31"}');
+ // The body carries the launcher's own name and nothing that could name an account; the
+ // version is whatever this build is, so the assertion is about the shape, not the number.
+ assert.match(mint.body,/^\{"client":"launcher\/\d+\.\d+\.\d+"\}$/);
  // The hero offers Play and asks for no Microsoft sign-in anywhere on the screen.
  assert.equal(await a.page.locator('[data-desktop-play][data-action="connect-microsoft"]').count(),0,'the hero offers no Microsoft sign-in');
  assert.equal(await a.page.locator('[data-desktop-play][data-action="link-microsoft"]').count(),0);

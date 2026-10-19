@@ -94,7 +94,10 @@
   const reported=state&&state.minecraftSession&&typeof state.minecraftSession==='object'?state.minecraftSession:null;
   if(reported&&typeof reported.state==='string'&&reported.state)return reported;
   if(!state?.account)return null;
-  return {state:state.microsoftConnected===false?'required':'local',serverHeld:false,checkedAt:null};
+  // A state from a build without the field: a linked account with no live token is `required`,
+  // an account with no Microsoft link at all is `unlinked`, and anything else is `local`.
+  const state_word=state.account.microsoftLinked!==true?'unlinked':state.microsoftConnected===false?'required':'local';
+  return {state:state_word,serverHeld:false,checkedAt:null};
  };
  // Settings is client settings, and a launcher update check is the launcher working on
  // the same machine: Owen's decision of 2026-10-17 is that the dialog is not offered
@@ -120,7 +123,7 @@
   // sign-in already used: it names the Minecraft identity that will start the game.
   const sessionState=minecraftSessionOf(state)?.state;
   const minecraftName=typeof state?.account?.minecraftName==='string'?state.account.minecraftName.trim():'';
-  if(sessionState==='unlinked')return {kind:'link-microsoft',label:'Link Microsoft to play',note:'Attach the Microsoft account that owns Minecraft'};
+  if(sessionState==='unlinked')return {kind:'link-microsoft',label:'Link Microsoft',note:'Attach the Microsoft account that owns Minecraft'};
   if(sessionState==='checking')return {kind:'busy',label:'Checking your Minecraft session…',note:'Asking your Easter Company account'};
   if(sessionState==='required')return {kind:'connect-microsoft',label:'Sign in with Microsoft',note:minecraftName?'Starts Minecraft as '+minecraftName:'Starts Minecraft with your linked Microsoft account'};
   if(sessionState==='reauth')return {kind:'connect-microsoft',label:'Sign in with Microsoft',note:'Microsoft asked you to sign in again'};

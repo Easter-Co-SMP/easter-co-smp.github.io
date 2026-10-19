@@ -368,8 +368,10 @@ The seven words, each of which the launcher only says when it knows it:
   nor a minted session: the route is not on the service yet, or the service could not be reached.
   Today's `connect-microsoft` refusal, word for word.
 - **`unlinked`** — the account has no Microsoft link at all (`microsoftSubject` is null). Nothing
-  can launch until one is made, and the hero says *Link Microsoft to play* rather than pretending
-  a linked account's session is missing.
+  can launch until one is made, and the hero says **Link Microsoft** rather than pretending a
+  linked account's session is missing. (Owen's brief for this ticket wrote the distinction as
+  "Link Microsoft to play"; the words on the button are main's, reviewed with the rest of the
+  hero copy, and the difference is his to settle.)
 
 `microsoftConnected` keeps its old meaning — this process holds a matching local Microsoft leg —
 and is **never the Play gate any more**. A view that reads it to decide the hero is reading a
@@ -459,7 +461,7 @@ machine was signed out on evidence it does not have.
 
 ### Where it is shown
 
-- **The hero action**, from `minecraftSession.state`: `unlinked` gives **Link Microsoft to play**
+- **The hero action**, from `minecraftSession.state`: `unlinked` gives **Link Microsoft**
   (action `link-microsoft`), `required` and `reauth` give today's **Sign in to Minecraft** (action
   `connect-microsoft`), `busy` gives **Try again** (action `retry-minecraft`, which asks the service
   once more and never opens a Microsoft prompt), `checking` gives a busy hero that says the launcher
@@ -483,7 +485,9 @@ outcomes, the once-only fallback and the revoke outcomes; `tests/desktop/server-
 proves the same behaviour through the real main process — a password sign-in that reaches Play with
 no Microsoft prompt, the vault written without a refresh token after a confirmed hand-over, the
 `reauth_required` fallback through the real device-code dialog, and the revoke control — against a
-fixture API. `tests/browser.mjs` proves the hero's own rendering of all six state words.
+fixture API. `tests/browser.mjs` proves the hero's own rendering of the session words: an unlinked
+account, a linked one with no session here, one the service will not renew, one it mints, one it
+cannot answer yet (the retry, and never a Microsoft prompt), and the wait while it is asked.
 
 Not verified here, and not verifiable from this repository alone: the real routes on the live
 service, a real second machine, and a real launch of the real client on either platform.

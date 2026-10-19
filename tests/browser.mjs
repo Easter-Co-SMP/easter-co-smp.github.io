@@ -514,6 +514,11 @@ try{
     },
     signOut:async()=>{log('signOut');},
     signOutAccount:async()=>{log('signOutAccount');},
+    // The server-held session's own two controls: a retry that only asks the account service
+    // again, and the sign-out-everywhere action the profile dialog offers. Both answer with the
+    // sentence main would have printed, so the view never words an outcome for itself.
+    refreshMinecraftSession:async()=>{log('refreshMinecraftSession');return renderer.state.minecraftSession;},
+    signOutMinecraft:async()=>{log('signOutMinecraft');return renderer.signOutMinecraftAnswer||{revoked:true,message:'Signed Minecraft out everywhere. The next game on any computer needs a Microsoft sign-in.'};},
     openFolder:async()=>{},
     openMicrosoft:async()=>{log('openMicrosoft');if(renderer.openMicrosoftError)throw Error(renderer.openMicrosoftError);},
     chooseJava:async()=>null,
@@ -559,7 +564,9 @@ try{
     // Play must never appear because the install finished alone, so outside canPlay the
     // hero carries no Play label at all.
     if(summary.expect==='play')assert(summary.text.startsWith('PLAY NOW'),summary.name+': the hero must become one large PLAY NOW: '+summary.text);
-    else assert(!/play/i.test(summary.text),summary.name+': Play must be absent until canPlay: '+summary.text);
+    // The CTA itself, not the word: "Link Microsoft to play" is an account action that says
+    // what it is for, and the thing that must never appear before canPlay is PLAY NOW.
+    else assert(!summary.text.includes('PLAY NOW'),summary.name+': Play must be absent until canPlay: '+summary.text);
    };
    const hero=async()=>({text:(await heroButton.innerText()).replace(/\s+/g,' '),action:await heroButton.getAttribute('data-action')});
    const barVisibleNow=()=>launcherPage.locator('#launcher-bar').isVisible();
@@ -641,6 +648,36 @@ try{
    assert.equal(await launcherPage.locator('.hero-actions [data-desktop-play]').getAttribute('aria-disabled'),null);
 
    assert.equal(await barVisibleNow(),false,'ready Home has exactly one Play entry point');
+   // The Microsoft/Minecraft session (doc/launcher-states.md, "The Minecraft session the account
+   // service holds"). Six words, six different answers from one field, and the difference between
+   // a genuinely unlinked account and a linked one whose session lives on the account service is
+   // the whole point: only the second one ever reaches Play without a Microsoft prompt.
+   const linkedAccount={id:'EC-7',username:'captain_owen',name:'Captain Owen',roles:['crew'],passwordRequired:false,microsoftLinked:true,minecraftName:'OwenTheCaptain'};
+   const installedNow=INSTALLED;
+   await pushState({phase:'ready',progress:null,actions:['link-microsoft'],canPlay:false,account:{...linkedAccount,microsoftLinked:false},companyReady:true,microsoftConnected:false,minecraftSession:{state:'unlinked',serverHeld:false,checkedAt:null}});
+   heroAction({name:'an unlinked account',...await hero(),expect:'link-microsoft'});
+   assert((await hero()).text.includes('Link Microsoft'),'an account with no Microsoft link says so: '+(await hero()).text);
+   await pushState({actions:['connect-microsoft'],canPlay:false,account:linkedAccount,companyReady:true,microsoftConnected:false,minecraftSession:{state:'required',serverHeld:false,checkedAt:null}});
+   heroAction({name:'a linked account with no session here',...await hero(),expect:'connect-microsoft'});
+   assert((await hero()).text.includes('OwenTheCaptain'),'and a linked one names the Minecraft identity it would start: '+(await hero()).text);
+   await pushState({actions:['connect-microsoft'],canPlay:false,minecraftSession:{state:'reauth',serverHeld:false,checkedAt:'2026-10-19T00:00:00Z'}});
+   heroAction({name:'a stored session the service will not renew',...await hero(),expect:'connect-microsoft'});
+   assert((await hero()).text.includes('sign in again'),'the renewal is asked for in the same action with its own note: '+(await hero()).text);
+   await pushState({actions:[],canPlay:true,profile:{name:'OwenTheCaptain',id:'1234567890abcdef1234567890abcdef',skin:null},companyReady:true,microsoftConnected:false,minecraftSession:{state:'server',serverHeld:true,checkedAt:'2026-10-19T00:00:00Z'}});
+   heroAction({name:'a session the account service mints',...await hero(),expect:'play'});
+   assert(!/Microsoft|link/i.test((await hero()).text),'and never asks for Microsoft while it has one: '+(await hero()).text);
+   // The account service could not answer: a retry, never a Microsoft prompt, and Play stays off.
+   await pushState({actions:['connect-microsoft'],canPlay:false,companyReady:true,minecraftConnected:false,minecraftSession:{state:'busy',serverHeld:false,checkedAt:'2026-10-19T00:00:00Z'}});
+   heroAction({name:'a service that cannot answer yet',...await hero(),expect:'retry-minecraft'});
+   assert(!/Microsoft/i.test((await hero()).text),'a rate-limited service is never read as a dead session: '+(await hero()).text);
+   const beforeRetry=(await callsNamed('refreshMinecraftSession')).length;
+   await heroButton.click();
+   await launcherPage.waitForFunction(count=>window.easterRenderer.calls.filter(call=>call.name==='refreshMinecraftSession').length>count,beforeRetry);
+   // Waiting for the service is its own state, not a failure and not a sign-in.
+   await pushState({minecraftSession:{state:'checking',serverHeld:false,checkedAt:null}});
+   heroAction({name:'while the service is asked',...await hero(),expect:'busy'});
+   assert((await hero()).text.includes('Checking your Minecraft session'),'the wait says what it is waiting for: '+(await hero()).text);
+   await pushState({phase:'ready',actions:[],canPlay:true,profile:{name:'Owen'},install:installedNow,companyReady:true,microsoftConnected:true,minecraftSession:null});
    // Transfers retain the minimisable dock on every page.
    await pushState({phase:'downloading',progress:progressFor({percent:42}),actions:['signin'],canPlay:false});
    await launcherPage.locator('[data-bar-toggle]').click();
