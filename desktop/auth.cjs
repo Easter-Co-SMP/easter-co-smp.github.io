@@ -352,13 +352,20 @@ class MicrosoftAuth{
  // optional, so every failure here answers null and the player still signs in. It is not a
  // sign-in step, so it writes no line and names no step.
  async graphAccessToken(refreshToken,signal){
-  if(typeof refreshToken!=='string'||!refreshToken)return null;
+  if(typeof refreshToken!=='string'||!refreshToken){this.record('email','failed',{code:'no-refresh'});return null;}
   try{
    const data=await this.form('/token',{grant_type:'refresh_token',client_id:this.clientId,refresh_token:refreshToken,scope:GRAPH_SCOPE},signal,undefined,{log:false});
    const token=typeof data?.access_token==='string'&&data.access_token.length<=8192?data.access_token:'';
-   return token||null;
+   if(!token){this.record('email','failed',{code:'no-token'});return null;}
+   this.record('email','ok',{status:200});
+   return token;
   }catch(error){
    if(error.name==='AbortError')return null;
+   // Optional leg: it never fails the sign-in. It used to fail SILENTLY, which is how an
+   // account ended up with no email address and nothing anywhere saying why - so it now
+   // writes one whitelisted line (status and provider code; never the token, never the
+   // address) beside the steps that do gate the sign-in.
+   this.record('email','failed',{status:Number.isInteger(error?.status)?error.status:undefined,code:clean(error?.code)||'failed'});
    return null;
   }
  }

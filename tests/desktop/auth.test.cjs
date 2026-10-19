@@ -369,21 +369,26 @@ test('the Microsoft identity survives an XSTS answer with no optional Xbox ID',a
  assert.match(a.accountId,/^msa:[a-f0-9]{64}$/);assert(!a.accountId.includes('stable-user'));
 });
 
-test('the Graph token is asked for on its own scope, is optional, and is never logged',async()=>{
+test('the Graph token is asked for on its own scope, is optional, and records one line',async()=>{
+ // 1.0.31 asked for this token and logged nothing at all when it failed, which is how the
+ // owner ended up with an account that had no email address and no way to find out why.
+ // The leg still never fails a sign-in; it now says what happened in one whitelisted line.
  const {auth,calls,file}=fixture([{data:{access_token:'graph-secret'}}]);
  assert.equal(await auth.graphAccessToken('refresh-secret'),'graph-secret');
  assert.equal(calls[0].options.body.get('scope'),'https://graph.microsoft.com/User.Read');
  assert.equal(calls[0].options.body.get('refresh_token'),'refresh-secret');
- assert.equal(read(file),'','the optional token is not a sign-in step');
+ assert.match(read(file),/step=email outcome=ok http=200/);
+ assert(!read(file).includes('graph-secret'),'the token is never written');
  assert.equal(await new MicrosoftAuth({clientId:'test-app',request:async()=>assert.fail('no request without a refresh token')}).graphAccessToken(''),null);
- for(const response of [{status:400,data:{error:'invalid_grant'}},{status:200,data:{}},{status:500,data:{}}]){
+ for(const [response,pattern] of [[{status:400,data:{error:'invalid_grant'}},/step=email outcome=failed http=400/],[{status:200,data:{}},/step=email outcome=failed/],[{status:500,data:{}},/step=email outcome=failed http=500/]]){
   const broken=fixture([response]);
   assert.equal(await broken.auth.graphAccessToken('refresh-secret'),null);
-  assert.equal(read(broken.file),'');
+  assert.match(read(broken.file),pattern);
  }
  const aborted=fixture([{data:{access_token:'graph-secret'}}]);
  aborted.auth.request=async()=>{throw Object.assign(Error('aborted'),{name:'AbortError'});};
  assert.equal(await aborted.auth.graphAccessToken('refresh-secret'),null);
+ assert.equal(read(aborted.file),'','a cancelled sign-in writes nothing');
 });
 
 // ---- Sentences, log shape and the bound -----------------------------------------

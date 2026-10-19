@@ -1571,6 +1571,16 @@ poll answers that only mean "the player has not finished on Microsoft's page yet
 sign-in that is simply waiting writes nothing. A step that fails writes exactly one line,
 before its sentence is thrown, and nothing else in the launcher writes to this file.
 
+**One line is not a sign-in step and is logged anyway: `step=email`.** After the Xbox
+exchange the launcher asks for a transient Microsoft Graph token so the account service can
+record a verified address. That leg is optional — its failure never fails a sign-in — and
+until 1.0.31 it wrote nothing at all, which is how an account could be created with no email
+address and no record anywhere of why. It now writes `outcome=ok http=200` on success, or
+`outcome=failed` with the provider's status and code (`no-refresh`, `no-token`, or the
+token endpoint's own code such as `invalid_grant`). It never names a step to the player,
+never carries the token, and never carries the address. A cancelled sign-in still writes
+nothing.
+
 **`userData/install.log` is the same record for install and update failures**, written by
 the same bounded, redacted class with the same 64 KiB cap and single rotation, so treating
 it as unredacted would be a mistake: `2026-10-18T10:24:21.015Z v1.0.21 step=download
