@@ -13,6 +13,17 @@ try{
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');await page.keyboard.press('Escape');
  const shot=async(name)=>page.screenshot({path:path.join(images,name+'.png'),animations:'disabled'});
+ // A wait that is allowed to fail. A settle in this journey used to be written
+ // `page.waitForFunction(condition,{timeout:4000}).catch(()=>{})`, which is wrong twice: the
+ // options object sat in the function's argument slot, so the only real bound was the page's own
+ // 12s default, and the empty catch threw the rejection away so the measurement that followed was
+ // made against whatever frame happened to be up. A condition that never arrives is a fact about
+ // the page and belongs in the failure, so every wait here either reports the page state it wanted
+ // or ends the run.
+ const settled=async(condition,where,timeout=8000)=>{
+  try{await page.waitForFunction(condition,undefined,{timeout});}
+  catch(error){throw Error(where+' never settled: '+error.message);}
+ };
  for(const [width,height] of [[1360,920],[800,600]]){
   await page.setViewportSize({width,height});await shot('first-run-'+width);
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'no horizontal overflow');
@@ -96,10 +107,12 @@ try{
   const notice=document.querySelector('.desktop-page-notice');
   return {notice:box(notice),laidOut:Boolean(notice.getClientRects().length),crest:box(document.querySelector('.crest-frame')),heading:box(document.querySelector('.desktop-home-heading')),viewport:innerWidth};
  });
- // The reserved room is layout, so it is re-measured on the frame after the window changes.
- const settledNotice=async()=>{
-  await page.waitForFunction(()=>{const notice=document.querySelector('.desktop-page-notice'),crest=document.querySelector('.crest-frame');
-   return !notice||!crest||notice.getBoundingClientRect().bottom<=crest.getBoundingClientRect().top+1;},{timeout:4000}).catch(()=>{});
+ // The reserved room is layout, so it is re-measured on the frame after the window changes, and a
+ // band that has not cleared the crest by then is measured as it stands rather than waited out.
+ const settledNotice=async(width)=>{
+  await settled(()=>{const notice=document.querySelector('.desktop-page-notice'),crest=document.querySelector('.crest-frame');
+   return !notice||!crest||notice.getBoundingClientRect().bottom<=crest.getBoundingClientRect().top+1;},
+  'the home notice band never cleared the hero crest at '+width+'px');
   return noticeGeometry();
  };
  const status=()=>page.evaluate(()=>window.easterDesktop.status());
@@ -111,7 +124,7 @@ try{
   await page.setViewportSize({width,height});
   const notice=await page.locator('.desktop-page-notice').boundingBox();
   assert(notice.x>=0&&notice.x+notice.width<=width+1,'the failure notice fits '+width+'px');
-  const geometry=await settledNotice();
+  const geometry=await settledNotice(width);
   assert.equal(geometry.laidOut,true,'the failure notice is laid out at '+width+'px');
   assert(geometry.notice.bottom<=geometry.crest.top+1,'the failure notice reads above the hero crest at '+width+'px: '+JSON.stringify(geometry));
   assert(geometry.notice.bottom<=geometry.heading.top+1,'the failure notice reads above the hero heading at '+width+'px: '+JSON.stringify(geometry));
@@ -147,7 +160,7 @@ try{
  assert.equal(await page.getByRole('button',{name:'Dismiss message'}).evaluate(button=>{button.focus();return document.activeElement===button;}),true,'and it is keyboard reachable');
  for(const [width,height] of [[1440,900],[800,600],[390,568]]){
   await page.setViewportSize({width,height});
-  const geometry=await settledNotice();
+  const geometry=await settledNotice(width);
   assert.equal(geometry.laidOut,true,'the returned notice is laid out at '+width+'px');
   assert(geometry.notice.bottom<=geometry.crest.top+1,'and still reads above the hero crest at '+width+'px: '+JSON.stringify(geometry));
   await shot('one-failure-returned-'+width);
@@ -316,11 +329,12 @@ try{
    await page.setViewportSize({width,height});
    // The reserved room is layout, so it is re-measured on the frame after the window changes, and
    // the band itself re-wraps when the window narrows: wait for the reservation to settle before
-   // reading it, exactly as the Home notice helper above does.
-   await page.waitForFunction(()=>{
+   // reading it, exactly as the Home notice helper above does. A sidebar the band has not cleared by
+   // then is measured as it stands, not waited out.
+   await settled(()=>{
     const notice=document.querySelector('.desktop-page-notice'),brand=document.querySelector('.wiki-brand');
     return !notice||!brand||notice.getBoundingClientRect().bottom<=brand.getBoundingClientRect().top+1;
-   },{timeout:4000}).catch(()=>{});
+   },'the guide notice band never cleared the sidebar brand on '+where+' at '+width+'px');
    const geometry=await guideNotice();
    assert.deepEqual(geometry.under,[],'the notice reaches no control on '+where+' at '+width+'px: '+JSON.stringify(geometry));
    assert.deepEqual(geometry.reached,[],'and elementFromPoint agrees on '+where+' at '+width+'px: '+JSON.stringify(geometry));
@@ -400,23 +414,62 @@ try{
    reserved:getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-space').trim(),
    overflow:document.documentElement.scrollWidth<=innerWidth+1};
  });
+  // The published room is layout, and site/desktop.js publishes it on the frame after whatever
+  // changed it: after a sentence is painted, after the window changes size, and after the chart
+  // under the band mutates. Opening the key is the third case and it is the one that matters here:
+  // the chart slides its drawing palette from x=166 aside to x=462, which at 1440 puts it inside
+  // the band's own columns (420..1020 of a 600px band) so the whole strip has to drop 64px. The
+  // settle that counts is therefore after the click, not before it. What stood here instead was a
+  // wait for the *closed* key's top to drop below the band, with its rejection swallowed by
+  // .catch(()=>{}): at 1440 nothing reaches the closed strip, the published room is 0px, so that
+  // condition could never be met and the wait spent its whole bound before the measurement ran
+  // anyway. One run in five the measurement landed in the frame between the palette sliding into
+  // the band and the strip dropping — room still 0px, palette under the band — which is the
+  // failure this wait removes. The numbers the assertion is about — the published room, the band and
+  // every dock the product measures — must be unchanged across four consecutive samples before
+  // anything is read, and a strip that never settles fails here with its last sample rather than
+  // being measured mid-move.
+  const settledMapStrip=async(width,where)=>{
+   let previous=null,matches=0;
+   for(let attempt=0;attempt<240;attempt++){
+    const probe=await page.evaluate(()=>{
+     const box=node=>{if(!node||!node.getClientRects().length)return null;const r=node.getBoundingClientRect();
+      return {left:Math.round(r.left),top:Math.round(r.top),right:Math.round(r.right),bottom:Math.round(r.bottom)};};
+     const notice=document.querySelector('.desktop-page-notice');
+     return {width:innerWidth,
+      painted:Boolean(notice&&!notice.hidden&&notice.textContent.trim()&&notice.getClientRects().length),
+      band:box(notice),
+      space:getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-space').trim(),
+      cap:getComputedStyle(document.documentElement).getPropertyValue('--launcher-notice-key-space').trim(),
+      docks:['.compass','.map-key','.map-navigation','.map-drawing'].map(name=>box(document.querySelector('.atlas-stage>'+name)))};
+    });
+    const stamp=JSON.stringify(probe);
+    matches=probe.painted&&probe.width===width&&stamp===previous?matches+1:0;
+    if(matches>=3)return probe;
+    previous=stamp;
+    await new Promise(resolve=>setTimeout(resolve,25));
+   }
+   throw Error('the notice band and the map strip never settled '+where+': '+JSON.stringify(previous));
+  };
  await page.getByRole('link',{name:'Map',exact:true}).click();
  await page.waitForFunction(()=>!!document.getElementById('terrain'),{timeout:20000});
  await send({...ready,launcherUpdate:{phase:'current'},error:mapFailure});
  await page.locator('.desktop-page-notice').filter({hasText:mapFailure}).waitFor();
  for(const [width,height] of [[1440,900],[800,600],[390,568]]){
   await page.setViewportSize({width,height});
-  // The reservation is layout, so the strip is re-measured on the frame after the window changes.
-  await page.waitForFunction(()=>{
-   const notice=document.querySelector('.desktop-page-notice'),key=document.querySelector('.map-key');
-   return !notice||!key||notice.getBoundingClientRect().bottom<=key.getBoundingClientRect().top+1;
-  },{timeout:4000}).catch(()=>{});
+  // The window change re-measures the strip, so the strip is settled before the click is aimed at
+  // it: a click sent at a strip that is still moving is a click at a control that is not where the
+  // pointer went.
+  await settledMapStrip(width,'before the key opens at '+width+'px');
   // A real click, with the pointer: this is the interaction the band used to swallow. The point is
   // on the summary's left edge because the chart's own drawing palette sits over its right half at
   // every width (map.js slides that palette aside only once the key is open) — a chart-internal
   // overlap, not this one.
   await page.locator('.map-key summary').click({position:{x:16,y:18}});
   await page.waitForFunction(()=>document.querySelector('.map-key').open);
+  // Opening the key slides the palette into the band's columns and drops the strip: the measurement
+  // below belongs after that has finished, not in the middle of it.
+  await settledMapStrip(width,'after the key opens at '+width+'px');
   const geometry=await mapNotice();
   assert.equal(geometry.open,true,'the map key opens by click at '+width+'px');
   assert.deepEqual(geometry.under,[],'the notice reaches no map control at '+width+'px: '+JSON.stringify(geometry));
