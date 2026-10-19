@@ -12,7 +12,10 @@
 // else; the token itself never leaves the stub's own record.
 import http from 'node:http';
 
-export const ENDPOINT='smp.easter.company:25565';
+// The endpoint this stub names in its own answer. It is deliberately NOT the address the
+// launcher targets: the launcher must publish and join its own constant regardless of what
+// the service says, so a fixture that echoed production would prove nothing.
+export const ENDPOINT='127.0.0.1:25599';
 export const TOKEN='fixture-company-session-token';
 
 export function statusBody({state='stopped',ready=null,endpoint=ENDPOINT,since='2026-10-18T00:00:00Z',players=0,detail=''}={}){

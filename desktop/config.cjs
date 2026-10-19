@@ -1,5 +1,10 @@
 'use strict';
 const fs=require('node:fs/promises'),path=require('node:path');
+// The one address rule the launcher has, next to the one address it targets. It lived
+// with the settings field it used to guard; the field is gone and the rule now decides
+// what the test-only override may say. security.cjs imports nothing from here, so this
+// is not a cycle.
+const {checkServer}=require('./security.cjs');
 // Easter Company API origin. Build-time constant, overridable at runtime with
 // EASTER_API_BASE_URL exactly like EASTER_MICROSOFT_CLIENT_ID overrides the
 // Microsoft registration. This is the deployed API Gateway origin of the
@@ -46,14 +51,39 @@ const MARKER='.easter-client';
 // launcher's files, the server or the world.
 const FOREIGN_ENTRIES=['.minecraft','launcher_profiles.json','launcher_accounts.json','launcher_profiles_microsoft_store.json','versions','libraries','assets','mods','saves','server.properties','eula.txt','usercache.json','banned-ips.json','banned-players.json','level.dat','world','server.jar'];
 function defaultInstallLocation(configRoot){return path.join(configRoot,CLIENT_FOLDER);}
+// ---- the one server the launcher targets -------------------------------------
+// Owen's instruction of 2026-10-18: the launcher's server address is no longer a
+// player setting, so there is exactly one target and every path that names an address
+// reads it from here. The production host is live at smp.easter.company:25565 on an
+// Elastic IP (3.151.255.100, DNS verified 2026-10-18), and the *hostname* is the
+// constant rather than the IP: the name survives the address changing, a number baked
+// into a launcher release does not.
+const PRODUCTION_SERVER='smp.easter.company:25565';
+// The one override, for tests and development only. The suites need an address that is
+// not production (a loopback fixture, a stub server), and none of them may reintroduce
+// a field a player can edit: this is read from the process environment, is never part
+// of renderer state, is never written to the settings file, and is validated by the
+// very hostname/port rule (security.cjs checkServer) that used to guard the settings
+// field. Nothing a player can reach sets it, and a released launcher never sets it
+// itself, so an ordinary install always targets PRODUCTION_SERVER.
+const SERVER_ADDRESS_ENV='EASTER_SERVER_ADDRESS';
+function serverAddress(override=process.env[SERVER_ADDRESS_ENV]){
+ const candidate=String(override??'').trim();
+ if(!candidate)return PRODUCTION_SERVER;
+ let address='';
+ try{address=checkServer(candidate);}
+ catch{throw Error(SERVER_ADDRESS_ENV+' must be a hostname or IPv4 address, with an optional port.');}
+ if(!address)throw Error(SERVER_ADDRESS_ENV+' must name a server.');
+ return address;
+}
 // ---- the game server, which may be asleep ------------------------------------
 // The game server is stopped whenever nobody plays, because the hosting credit is
 // finite, so the first player of a session pays a cold start. Two routes on the same
 // API origin answer for it, authenticated with the same Company session token:
-// GET /v2/game/status and POST /v2/game/wake. The five state words, the address the
-// service names and the two timings below are frozen in doc/launcher-states.md.
+// GET /v2/game/status and POST /v2/game/wake. The five state words and the two timings
+// below are frozen in doc/launcher-states.md, and the address is serverAddress(): the
+// wake flow and the launch cannot disagree about which host they are talking about.
 const GAME_STATES=['running','starting','stopping','stopped','unknown'];
-const GAME_ENDPOINT='smp.easter.company:25565';
 // Readiness is polled every three seconds, so a server that becomes joinable is
 // joined within three seconds of it happening without hammering the account API.
 const GAME_POLL_MS=3000;
@@ -67,20 +97,6 @@ const GAME_WAKE_REQUEST_TIMEOUT_MS=20000;
 // The service's own `detail` sentence is shown beside the launcher's copy, so it is
 // bounded like every other sentence the state carries.
 const GAME_DETAIL_MAX=200;
-// ---- the servers the launcher offers ----------------------------------------
-// doc/launcher-states.md: the entries are published by the main process in display
-// order rather than hardcoded in the view. `address` is the value written into
-// settings.server, which stays a plain string; `id` is only a label for the UI and
-// is never substituted for the address a player chose. `note` says why an entry is
-// listed but not usable, and `pending` is the flag the view renders it from.
-const DEFAULT_SERVER='100.100.1.0:25565';
-const LOCAL_SERVER='127.0.0.1:25565';
-const SERVER_ENTRIES=[
- {id:'default',label:'Easter Co. SMP',address:DEFAULT_SERVER,note:'Default server.',pending:false},
- {id:'local',label:'This machine',address:LOCAL_SERVER,note:'The server running on this computer.',pending:false},
- {id:'hostname',label:'smp.easter.company',address:'smp.easter.company:25565',note:'Pending: this name has no DNS record yet.',pending:true}
-];
-function serverList(){return SERVER_ENTRIES.map(entry=>({...entry}));}
 function cleanLaunchSettings(input={}){
  const location=String(input.location||'').trim();
  if(location&&!path.isAbsolute(location))throw Error('The installation folder must be an absolute path.');
@@ -150,4 +166,4 @@ function resolveLocation(requested,{saved='',defaultLocation}={}){
  if(fallback&&resolved===fallback)return resolved;
  throw Error('Choose the installation folder with the folder picker.');
 }
-module.exports={apiOrigin,DEFAULT_API_ORIGIN,clientOrigin,DEFAULT_CLIENT_ORIGIN,LOOPBACK,CLIENT_FOLDER,MARKER,FOREIGN_ENTRIES,defaultInstallLocation,DEFAULT_SERVER,LOCAL_SERVER,SERVER_ENTRIES,serverList,cleanLaunchSettings,locationProblem,checkLocation,ensureLocation,resolveLocation,GAME_STATES,GAME_ENDPOINT,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS,GAME_STATUS_TIMEOUT_MS,GAME_WAKE_REQUEST_TIMEOUT_MS,GAME_DETAIL_MAX};
+module.exports={apiOrigin,DEFAULT_API_ORIGIN,clientOrigin,DEFAULT_CLIENT_ORIGIN,LOOPBACK,CLIENT_FOLDER,MARKER,FOREIGN_ENTRIES,defaultInstallLocation,PRODUCTION_SERVER,SERVER_ADDRESS_ENV,serverAddress,cleanLaunchSettings,locationProblem,checkLocation,ensureLocation,resolveLocation,GAME_STATES,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS,GAME_STATUS_TIMEOUT_MS,GAME_WAKE_REQUEST_TIMEOUT_MS,GAME_DETAIL_MAX};

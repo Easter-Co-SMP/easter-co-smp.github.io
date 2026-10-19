@@ -190,11 +190,19 @@ try{
  for(const input of await page.locator('.desktop-preference input').all()){
   assert(await input.evaluate(el=>{const a=el.getBoundingClientRect(),b=el.previousElementSibling.getBoundingClientRect();return a.x>b.right&&Math.abs(a.y+a.height/2-b.y-b.height/2)<3;}),'switch aligns beside its label');
  }
- await page.locator('select[name=serverSelect]').selectOption('__custom__');
- await page.locator('input[name=server]').fill('keyboard.example:25565');
- await page.locator('input[name=server]').press('Enter');
+ // There is no server address row any more: the launcher targets one fixed production
+ // server. The Java field is a real text field, and it stands in as the setting keyboard
+ // submission is proven with.
+ assert.equal(await page.locator('select[name=serverSelect],input[name=server]').count(),0,'Settings offers no server address');
+ await page.locator('.desktop-advanced summary').click();
+ const javaField=page.locator('input[name=javaPath]');
+ await javaField.fill('/usr/lib/jvm/java-25-openjdk/bin/java');
+ await javaField.press('Enter');
  await page.locator('.desktop-settings-result').filter({hasText:'Saved.'}).waitFor();
- assert.equal((await page.evaluate(()=>window.easterDesktop.status())).settings.server,'keyboard.example:25565','Enter saves settings');
+ const keyboardSaved=(await page.evaluate(()=>window.easterDesktop.status())).settings;
+ assert.equal(keyboardSaved.javaPath,'/usr/lib/jvm/java-25-openjdk/bin/java','Enter saves settings');
+ assert.equal('server' in keyboardSaved,false,'and the settings carry no server address');
+ await page.locator('.desktop-advanced summary').click();
  // Owen's two linked launch behaviours: both off by default, and never both on.
  const exitToggle=page.locator('input[name=exitOnLaunch]');
  const trayToggle=page.locator('input[name=trayOnLaunch]');

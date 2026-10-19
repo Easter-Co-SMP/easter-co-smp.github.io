@@ -94,7 +94,7 @@
 .desktop-save-row{display:flex;align-items:center;gap:16px}
 .desktop-save-row button{padding:11px 16px;background:var(--app-gold);border:0;border-radius:6px;color:#14262e;font-size:12px;font-weight:600;cursor:pointer}
 .desktop-settings-result{color:#c6d8c4;font-size:12px}
-.desktop-settings-note,.desktop-launcher-update{font-size:11px;line-height:1.6;color:var(--app-muted)}
+.desktop-launcher-update{font-size:11px;line-height:1.6;color:var(--app-muted)}
 .desktop-launcher-update a{color:var(--app-gold)}
 .desktop-utilities{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid var(--app-border);padding-top:16px;margin-top:24px}
 .desktop-utilities .text-link{font-size:11px;padding:0}.desktop-version{font-size:10px;color:var(--app-muted)}

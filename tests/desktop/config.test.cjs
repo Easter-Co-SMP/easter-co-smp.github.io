@@ -1,6 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
-const {apiOrigin,DEFAULT_API_ORIGIN,serverList,DEFAULT_SERVER,LOCAL_SERVER}=require('../../desktop/config.cjs');
+const config=require('../../desktop/config.cjs');
+const {apiOrigin,DEFAULT_API_ORIGIN,PRODUCTION_SERVER,SERVER_ADDRESS_ENV,serverAddress}=config;
 const {cleanSettings,cleanLaunchPreferences,migrateLaunchPreferences,includeGraphicsValue,checkServer}=require('../../desktop/security.cjs');
 const root=path.resolve(__dirname,'../..');
 const read=file=>fs.readFileSync(path.join(root,file),'utf8');
@@ -53,37 +54,70 @@ test('no token or response body can be logged from the account path',async()=>{
  assert.equal(main.indexOf("error.name==='AccountError'")>main.indexOf('function safeError'),true);
 });
 
-test('the server list is published in display order, with the pending entry marked',()=>{
- const servers=serverList();
- assert.deepEqual(servers.map(entry=>entry.address),['100.100.1.0:25565','127.0.0.1:25565','smp.easter.company:25565']);
- assert.deepEqual(servers.map(entry=>entry.pending),[false,false,true],'only the name without a DNS record is pending');
- assert.equal(servers[0].address,DEFAULT_SERVER);
- assert.equal(servers[1].address,LOCAL_SERVER);
- for(const entry of servers){
-  for(const field of ['id','label','address','note','pending'])assert.equal(field in entry,true,'servers[] entries carry '+field);
-  assert.equal(typeof entry.id,'string');
-  assert.equal(typeof entry.label,'string');
-  assert.equal(typeof entry.address,'string');
-  assert.equal(typeof entry.note,'string','a pending entry says why rather than failing silently');
-  assert.equal(typeof entry.pending,'boolean');
-  assert.equal(checkServer(entry.address),entry.address,entry.address+' is a valid server setting');
- }
- // The list is a copy: no caller can rewrite the published entries.
- const copy=serverList();
- copy[0].address='elsewhere:25565';
- assert.equal(serverList()[0].address,DEFAULT_SERVER);
+test('the launcher targets one fixed production server and publishes no choices at all',()=>{
+ // Owen's instruction of 2026-10-18: the server address is not a setting any more, so the
+ // launcher has exactly one target and it is in the code, not in a settings file.
+ assert.equal(PRODUCTION_SERVER,'smp.easter.company:25565');
+ // The hostname, never the Elastic IP behind it: the name survives an address change.
+ assert.equal(/^\d+\.\d+\.\d+\.\d+/.test(PRODUCTION_SERVER),false,'the constant is a hostname, not an IP');
+ // With nothing in the environment, that constant is the answer, and nothing else is.
+ for(const value of [undefined,'','   ',null])assert.equal(serverAddress(value),PRODUCTION_SERVER,JSON.stringify(value));
+ // The three legacy entries are gone from the bundled constants, not merely unrendered:
+ // the tailnet address, the 127.0.0.1 'this machine' entry and the pending placeholder.
+ for(const name of ['DEFAULT_SERVER','LOCAL_SERVER','SERVER_ENTRIES','serverList'])
+  assert.equal(name in config,false,name+' must not exist any more');
+ const source=read('desktop/config.cjs');
+ // (127.0.0.1 stays in this module for its own reason: the loopback exception on the API
+ // and client origins, which has nothing to do with a server choice.)
+ for(const stale of ['100.100.1.0','Easter Co. SMP\'','This machine','no DNS record yet'])
+  assert.equal(source.includes(stale),false,'config.cjs must not still carry '+JSON.stringify(stale));
 });
 
-test('settings.server stays one plain string and a typed value is never rewritten',()=>{
- // Whatever a player types round-trips unchanged: the launcher never substitutes an
- // entry id or an address from its own list.
- for(const typed of ['100.100.1.0:25565','127.0.0.1:25565','smp.easter.company:25565','my.friend.example:25566','play.example.org','10.0.0.7:25565']){
-  assert.equal(cleanSettings({memoryMB:4096,server:typed}).server,typed);
+test('the test-only address override is the same hostname/port rule as before',()=>{
+ // EASTER_SERVER_ADDRESS exists because the suites need an address that is not
+ // production. It is validated by the rule the settings field used, and a bad value is
+ // refused rather than launched against.
+ assert.equal(SERVER_ADDRESS_ENV,'EASTER_SERVER_ADDRESS');
+ assert.equal(serverAddress('127.0.0.1:25566'),'127.0.0.1:25566');
+ assert.equal(serverAddress('  local.test:25565  '),'local.test:25565');
+ assert.equal(serverAddress('play.example.org'),'play.example.org');
+ const previous=process.env.EASTER_SERVER_ADDRESS;
+ try{
+  process.env.EASTER_SERVER_ADDRESS='127.0.0.1:25599';
+  assert.equal(serverAddress(),'127.0.0.1:25599','the environment is the only place it is read from');
+  process.env.EASTER_SERVER_ADDRESS='';
+  assert.equal(serverAddress(),PRODUCTION_SERVER,'an empty variable is no override');
+ }finally{
+  if(previous===undefined)delete process.env.EASTER_SERVER_ADDRESS;
+  else process.env.EASTER_SERVER_ADDRESS=previous;
  }
- assert.equal(cleanSettings({memoryMB:4096,server:'  100.100.1.0:25565  '}).server,'100.100.1.0:25565','only surrounding whitespace is trimmed');
- assert.equal(cleanSettings({memoryMB:4096,server:''}).server,'');
- for(const wrong of ['http://example.com','not a server','example.com:0','example.com:70000','example.com:port','../etc/passwd','-bad.example'])
-  assert.throws(()=>cleanSettings({memoryMB:4096,server:wrong}),/server|port/i,wrong+' must be refused');
+ for(const wrong of ['http://example.com','not a server','example.com:0','example.com:70000','example.com:port','../etc/passwd','-bad.example','host;rm -rf /','--argument'])
+  assert.throws(()=>serverAddress(wrong),/EASTER_SERVER_ADDRESS/,JSON.stringify(wrong)+' must be refused');
+ // Nothing a player can reach names it: it is not in renderer state, not in the preload
+ // and not in the settings dialog.
+ for(const file of ['desktop/main.cjs','desktop/preload.cjs','site/desktop.js'])
+  assert.equal(read(file).includes('EASTER_SERVER_ADDRESS'),false,file+' must not expose the override');
+ // checkServer is still the one rule, exported once.
+ assert.equal(checkServer('play.example.org:25565'),'play.example.org:25565');
+ assert.throws(()=>checkServer('not a server'),/hostname/);
+});
+
+test('a settings file that still carries a server address is accepted, and the value is ignored',()=>{
+ // Both household machines carry server:'100.100.1.0:25565' verbatim. Refusing that file
+ // would send the player through setup again for a field they can no longer edit, so it
+ // loads and the value simply is not part of the settings any more.
+ assert.equal('server' in cleanSettings({memoryMB:4096,server:'100.100.1.0:25565'}),false,'the stored address is dropped');
+ // Even a value the old rule refused is accepted now: nothing reads it, and a damaged
+ // field must not be able to stop the launcher starting.
+ for(const stored of ['100.100.1.0:25565','smp.easter.company:25565','','   ','not a server at all','http://example.com','../etc/passwd',null,42])
+  assert.equal('server' in cleanSettings({memoryMB:4096,server:stored}),false,JSON.stringify(stored)+' is accepted and dropped');
+ // The rest of the file is unaffected: the fields the player can still edit are cleaned
+ // exactly as before, and the memory limit is still enforced.
+ assert.equal(cleanSettings({memoryMB:4096,server:'100.100.1.0:25565'}).memoryMB,4096);
+ assert.throws(()=>cleanSettings({memoryMB:90000,server:'100.100.1.0:25565'}));
+});
+
+test('an enhanced graphics answer is a boolean or it is absent',()=>{
  // The enhanced graphics toggle is a boolean or it is absent; nothing coerces a
  // stray value into re-deciding a player's own choice.
  assert.equal(includeGraphicsValue({includeGraphics:true},false),true);

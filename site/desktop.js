@@ -37,7 +37,6 @@
  const LOGIN_ACTION='Sign in';
  let companyAuth=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
- const CUSTOM_SERVER='__custom__';
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
  let current=null,settings,totalMemoryMB=0,heroButton=null,settingsButton=null,graphicsSection=null,graphicsSwitch=null,graphicsLabel=null,graphicsNote=null,graphicsError=null,signInPending=false;
 
@@ -126,7 +125,6 @@
  panel.innerHTML=`<button class="dialog-close" type="button" aria-label="Close settings">×</button>
  <h2 id="desktop-title">Settings</h2>
  <form class="desktop-settings">
- <label>Server address<select name="serverSelect"></select><input name="server" autocomplete="off" spellcheck="false" placeholder="Hostname or IP:port"></label><p class="desktop-settings-note" hidden></p>
  <label class="desktop-preference"><span>Close launcher when the game starts</span><input type="checkbox" name="exitOnLaunch"></label>
  <label class="desktop-preference"><span>Minimise launcher to the system tray when the game starts</span><input type="checkbox" name="trayOnLaunch"></label>
  <div class="desktop-shortcuts"><label class="desktop-preference"><span>Desktop shortcut</span><input type="checkbox" name="desktopShortcut"></label>
@@ -188,8 +186,7 @@
  // replaces it, and the hero action hands it to main when it starts the download.
  let chosenLocation='';
  const installError=$$('.desktop-install-error'),installGraphics=$$('.desktop-install-graphics');
- const settingsForm=$('form.desktop-settings'),serverSelect=settingsForm.elements.serverSelect,serverField=settingsForm.elements.server;
- const settingsNote=$('.desktop-settings-note'),settingsResult=$('.desktop-settings-result');
+ const settingsForm=$('form.desktop-settings'),settingsResult=$('.desktop-settings-result');
  const memory=settingsForm.elements.memoryMB;
  let installRequested=false,settingsDirty=false;
  $('.dialog-close').onclick=()=>panel.close();
@@ -523,47 +520,6 @@
   pauseButton.hidden=!offerPause;resumeButton.hidden=!offerResume;
  }
 
- // ---- Server choice ---------------------------------------------------------
- // The entries are published by the main process. The current value is looked up in
- // them, so a saved address that is not one of them simply shows as the player's own.
- function publishedServers(state){
-  const list=state&&Array.isArray(state.servers)?state.servers:[];
-  const seen=new Set();
-  return list.filter(entry=>entry&&typeof entry==='object'&&typeof entry.address==='string'&&entry.address&&!seen.has(entry.address)&&seen.add(entry.address));
- }
- function serverChoice(state,value){
-  const servers=publishedServers(state);
-  const entry=servers.find(server=>server.address===value);
-  if(entry)return {value:entry.address,address:value,custom:false,entry};
-  return {value:CUSTOM_SERVER,address:value,custom:true,entry:null};
- }
- function buildServerOptions(state,value){
-  const servers=publishedServers(state),choice=serverChoice(state,value);
-  serverSelect.replaceChildren();
-  if(!servers.length){
-   // No published list: the address stays a plain field rather than losing the setting.
-   serverSelect.hidden=true;serverField.hidden=false;
-   return choice;
-  }
-  serverSelect.hidden=false;
-  for(const server of servers){
-   const option=document.createElement('option');
-   option.value=server.address;option.textContent=server.label||server.address;
-   if(server.pending){
-    // A pending entry is shown, and shown as unusable rather than silently failing.
-    option.disabled=true;
-    option.textContent=(server.label||server.address)+' — '+(server.note||'Not available yet');
-   }else if(server.note)option.textContent=(server.label||server.address)+' — '+server.note;
-   serverSelect.append(option);
-  }
-  const custom=document.createElement('option');
-  custom.value=CUSTOM_SERVER;custom.textContent='Custom address…';
-  serverSelect.append(custom);
-  serverSelect.value=choice.value;
-  serverField.hidden=!choice.custom;
-  return choice;
- }
-
  // ---- Settings dialog -------------------------------------------------------
  // Client settings only, and only once the client is installed. No install, update
  // or play action lives here, and the dialog carries no transfer and no status hint.
@@ -607,21 +563,6 @@
   for(const input of Object.values(shortcutInputs)){input.parentElement.hidden=!available;input.disabled=!available;}
   const note=shortcutNote(info);
   shortcutsNote.hidden=!note;shortcutsNote.textContent=note;
- }
-
- function fillServerRow(state,address){
-  const choice=buildServerOptions(state,address);
-  serverField.value=address;
-  // A pending entry explains itself whenever it is the one on show, whether that is
-  // the saved setting or the player's own current pick.
-  showServerNote(choice.entry);
- }
- // A pending address is shown as unusable, and says why, rather than being offered as
- // a choice that would silently fail to connect.
- function showServerNote(entry){
-  const pending=Boolean(entry&&entry.pending);
-  settingsNote.hidden=!pending;
-  settingsNote.textContent=pending?(entry.note||'This address is not available yet.'):'';
  }
 
  // ---- Hero surfaces ---------------------------------------------------------
@@ -685,7 +626,6 @@
   renderSettings(current,busy);
   const stateSettings=current.settings&&typeof current.settings==='object'?current.settings:null;
   if(stateSettings)settings=stateSettings;
-  if(!settingsDirty)fillServerRow(current,typeof settings?.server==='string'?settings.server:'');
   if(!settingsDirty&&Number.isFinite(Number(settings?.memoryMB))){
    memory.value=settings.memoryMB;memory.max=Math.min(16384,Math.floor(totalMemoryMB/512)*512);
    $('#memory-value').textContent=memoryLabel(memory.value);
@@ -826,9 +766,9 @@
   // The two shortcut rows say whether the files are really there, so the truth is asked
   // for as the dialog opens rather than trusted from the last broadcast.
   refreshShortcutState();
-  // Land the keyboard on the first setting that is actually usable.
-  const first=!serverSelect.hidden?serverSelect:serverField;
-  first?.focus?.();};
+  // Land the keyboard on the first setting that is actually usable. There is no server
+  // row to land on any more, so that is the first launch preference.
+  settingsForm.elements.exitOnLaunch?.focus?.();};
  // The hero is one control whose action follows the same state its label does. It starts a
  // new action, so any failure already on screen belongs to the last one and goes.
  const heroAction=()=>{clearFailure();const action=primaryAction(current||{});
@@ -996,11 +936,6 @@
    const value=typeof result==='string'?result:result?.location;
    if(typeof value==='string'&&value){chosenLocation=value;installError.hidden=true;installError.textContent='';$$('[data-choose-location]').removeAttribute('aria-invalid');if(current)renderInstallCard(current);}
   }).catch(error=>{installError.hidden=false;installError.textContent=error&&error.message?error.message:String(error);});};
- serverSelect.onchange=()=>{
-  settingsDirty=true;settingsResult.textContent='';
-  if(serverSelect.value===CUSTOM_SERVER){serverField.hidden=false;serverField.focus?.();showServerNote(null);}
-  else{serverField.hidden=true;serverField.value=serverSelect.value;showServerNote(publishedServers(current||{}).find(server=>server.address===serverSelect.value));}
- };
  settingsForm.addEventListener('input',()=>{settingsDirty=true;settingsResult.textContent='';});
  // Linked launch behaviours: ticking one unticks the other here, so the dialog can never
  // leave both on. The main process enforces the same rule, and it is the one that decides.
@@ -1019,11 +954,12 @@
  settingsForm.onsubmit=async event=>{
   event.preventDefault();if(savingSettings)return;
   clearFailure();
-  const server=(serverSelect.hidden?serverField.value:serverSelect.value===CUSTOM_SERVER?serverField.value:serverSelect.value).trim();
-  if(!server){settingsResult.textContent='Enter the address of the server you play on.';serverField.focus?.();return;}
   savingSettings=true;$('[data-save-settings]').disabled=true;
   try{
-   settings=await desktop.saveSettings({memoryMB:Number(memory.value),server,javaPath:settingsForm.elements.javaPath.value,
+   // No address travels here: the launcher targets one fixed production server and the
+   // player has no say in it (doc/launcher-states.md, "The one server the launcher
+   // targets"), so the save carries client settings and nothing else.
+   settings=await desktop.saveSettings({memoryMB:Number(memory.value),javaPath:settingsForm.elements.javaPath.value,
     exitOnLaunch:settingsForm.elements.exitOnLaunch.checked,trayOnLaunch:settingsForm.elements.trayOnLaunch.checked,
     desktopShortcut:shortcutInputs.desktopShortcut.checked,startMenuShortcut:shortcutInputs.startMenuShortcut.checked});
    // The save is the newest word on the settings, ahead of the state on screen, so the
@@ -1044,7 +980,7 @@
  desktop.status().then(state=>{
   settings=state.settings;totalMemoryMB=state.totalMemoryMB||8192;
   memory.max=Math.min(16384,Math.floor(totalMemoryMB/512)*512);memory.value=settings.memoryMB;memory.oninput();
-  fillServerRow(state,settings.server||'');settingsForm.elements.javaPath.value=settings.javaPath||'';
+  settingsForm.elements.javaPath.value=settings.javaPath||'';
   render(state);
  }).catch(report);
 })();

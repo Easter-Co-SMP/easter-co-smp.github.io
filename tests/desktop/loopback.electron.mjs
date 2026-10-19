@@ -170,7 +170,12 @@ const GPU_PROFILE=JSON.stringify({
  source:'nvidia-smi',software:false,recommended:true,tunable:true,
  adapters:[{name:'NVIDIA Corporation AD107 [GeForce RTX 4060]',vendorId:'10de',deviceId:'2882',vramMB:8188,busId:'03:00.0',source:'lspci'}]
 });
-const launchEnv={...process.env,EASTER_TEST_HOME:temp,EASTER_CLIENT_ORIGIN:origin,EASTER_TEST_GPU:GPU_PROFILE};
+// The one test/development address override (config.cjs EASTER_SERVER_ADDRESS). It is the
+// only way a suite gets an address other than production, and this run proves the real
+// main process starts and publishes state with it set: nothing here can reach, or is
+// mistaken for, the production server.
+const TEST_SERVER='127.0.0.1:25599';
+const launchEnv={...process.env,EASTER_TEST_HOME:temp,EASTER_CLIENT_ORIGIN:origin,EASTER_TEST_GPU:GPU_PROFILE,EASTER_SERVER_ADDRESS:TEST_SERVER};
 const app=await electron.launch({executablePath:path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',path.join(root,'desktop/main.cjs')],env:launchEnv});
 const marker=async()=>JSON.parse(await fs.readFile(path.join(clientRoot,'installed.json'),'utf8'));
 try{
@@ -318,10 +323,12 @@ try{
  check(moving.progress.bytesTotal===graphicsV2.length,'the transfer knew its total from the manifest');
 
  console.log('\n4. the enhanced graphics toggle in the running app');
- const servers=started.servers;
- check(Array.isArray(servers)&&servers.length===3,'status() publishes the server list');
- check(Array.isArray(servers)&&servers.map(entry=>entry.address).join(',')==='100.100.1.0:25565,127.0.0.1:25565,smp.easter.company:25565','the servers are published in display order: '+JSON.stringify((servers||[]).map(entry=>entry.address)));
- check(Array.isArray(servers)&&servers.filter(entry=>entry.pending).length===1&&servers[2].pending===true,'the name without a DNS record is the pending one');
+ // The launcher targets one fixed production server: this run's settings file carries
+ // the legacy address an existing install has, and the state publishes no choice at all.
+ check(!('servers' in started),'status() publishes no server list');
+ check(!('server' in started.settings),'and the settings carry no server address: '+JSON.stringify(started.settings));
+ check(!('server' in migratedFile),'the address left behind by an older build is not written back into settings.json: '+JSON.stringify(migratedFile));
+ check(JSON.stringify(started).includes(TEST_SERVER)===false,'the test-only override is a main-process environment value and never reaches the renderer state: '+TEST_SERVER);
  check(Boolean(started.hardware)&&['capable','weak','unknown'].includes(started.hardware.tier),'status() publishes a detected hardware tier: '+JSON.stringify(started.hardware));
  check(typeof started.hardware?.reason==='string'&&started.hardware.reason.length>0,'with a displayable reason: '+started.hardware?.reason);
  check(Boolean(started.hardware)&&'vramMB' in started.hardware,'vramMB is published, null when the platform will not report it: '+started.hardware?.vramMB);
@@ -486,5 +493,5 @@ try{
  await fs.rm(temp,{recursive:true,force:true});
 }
 
-console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the whole approved control set: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key, third person on R, chat on enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift, the 22 vanilla debug keys unbound and the mod-provided Shippy hotkey left for the client to register, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-2 tree with exactly the keys its record did not cover — the Shippy hotkey moved off Left Ctrl in the same pass, inventory and the player list together so no two actions share tab — and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware, servers and graphics state, applied the enhanced graphics toggle in both directions by writing the client\'s own quality files, and migrated the old default this box actually carries — exitOnLaunch:true with no trayOnLaunch — to both off once while keeping the saved graphics answer, leaving a player\'s own later choice unchanged on the next load and a second start over the migrated file itself leaving it alone':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
+console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the whole approved control set: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key, third person on R, chat on enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift, the 22 vanilla debug keys unbound and the mod-provided Shippy hotkey left for the client to register, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-2 tree with exactly the keys its record did not cover — the Shippy hotkey moved off Left Ctrl in the same pass, inventory and the player list together so no two actions share tab — and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware and graphics state and no server choice at all, with the legacy address its settings file still carried accepted, ignored and dropped, applied the enhanced graphics toggle in both directions by writing the client\'s own quality files, and migrated the old default this box actually carries — exitOnLaunch:true with no trayOnLaunch — to both off once while keeping the saved graphics answer, leaving a player\'s own later choice unchanged on the next load and a second start over the migrated file itself leaving it alone':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
 process.exitCode=failures===0?0:1;

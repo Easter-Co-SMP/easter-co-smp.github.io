@@ -523,14 +523,13 @@ try{
    };
   };
   const launcherState=patch=>Object.assign({version:'1.0.0',totalMemoryMB:16384,remembered:true,profile:null,account:null,device:null,sessionExpiresAt:0,message:'',
-   settings:{memoryMB:4096,server:'100.100.1.0:25565',javaPath:''},install:{location:null,defaultLocation:'/home/player/.easter-company/minecraft',installed:false,includeGraphics:true,version:null,updatedAt:null},
-   // The amended contract's own fields: what the machine is, what the graphics
-   // choice will be, and the servers main publishes in display order.
+   // The settings main really publishes: no server address, because the launcher targets
+   // one fixed production server and the player has no say in it.
+   settings:{memoryMB:4096,javaPath:''},install:{location:null,defaultLocation:'/home/player/.easter-company/minecraft',installed:false,includeGraphics:true,version:null,updatedAt:null},
+   // The amended contract's own fields: what the machine is and what the graphics choice
+   // will be. There is no `servers` list, and no view may invent one.
    hardware:{gpu:'NVIDIA GeForce RTX 3070',vendor:'NVIDIA',vramMB:8192,tier:'capable',reason:'Discrete GPU with 8192 MB of video memory.'},
    graphics:{enabled:false,recommended:true,tunable:true,tuned:null,reason:'Discrete GPU with 8192 MB of video memory.'},
-   servers:[{id:'isles',label:'Easter Co. Isles',address:'100.100.1.0:25565',note:'The public server',pending:false},
-            {id:'local',label:'Local server',address:'127.0.0.1:25565',note:'This machine',pending:false},
-            {id:'smp',label:'smp.easter.company',address:'smp.easter.company:25565',note:'No DNS record yet',pending:true}],
    progress:null,actions:['download'],paused:false,canPlay:false,bar:{visible:false}},patch);
   const progressFor=patch=>Object.assign({label:'Downloading the Easter Company client',percent:42,bytesDone:438304768,bytesTotal:1048576000,bytesPerSecond:6291456,etaSeconds:97},patch);
   const INSTALLED={location:'/home/player/.easter-company/minecraft',defaultLocation:'/home/player/.easter-company/minecraft',installed:true,includeGraphics:true,version:'26.2',updatedAt:null};
@@ -760,55 +759,20 @@ try{
    assert.equal(await dialog.getByRole('button',{name:/download/i}).count(),0,'no download action lives in the dialog');
    assert.equal(await installDetails.isVisible(),false,'opening Settings does not open the download details');
 
-   // Server address: published by main, with the pending entry unusable rather than
-   // silently failing, and a Custom option that reveals a field of the player's own.
-   const serverSelect=dialog.locator('select[name=serverSelect]');
-   assert.equal(await serverSelect.inputValue(),'100.100.1.0:25565','the published default is selected');
-   const serverOptions=await serverSelect.locator('option').evaluateAll(options=>options.map(option=>({value:option.value,label:option.textContent,disabled:option.disabled})));
-   const available=serverOptions.filter(option=>!option.disabled).map(option=>option.value);
-   assert(available.includes('127.0.0.1:25565'),'the local server is available: '+JSON.stringify(available));
-   const pending=serverOptions.find(option=>option.value==='smp.easter.company:25565');
-   assert(pending,'the pending server is listed');
-   assert.equal(pending.disabled,true,'a pending server is shown as unavailable rather than selectable: '+pending.label);
-   const customOption=serverOptions.find(option=>option.value==='__custom__');
-   assert(customOption,'a Custom option is offered');
-   await serverSelect.selectOption('127.0.0.1:25565');
-   assert.equal(await dialog.locator('input[name=server]').isVisible(),false,'a published entry needs no text field');
-   // Choosing the pending entry is refused by the control rather than silently failing
-   // to connect: only the custom entry is offered as a live address, and the pending one
-   // carries no address a player could select.
-   assert.equal(await dialog.locator('input[name=server]').isVisible(),false,'a published entry needs no text field');
-   assert.equal(await serverSelect.locator('option:checked').getAttribute('value'),'127.0.0.1:25565','a published entry is selectable');
-   await serverSelect.selectOption('__custom__');
-   const serverField=dialog.locator('input[name=server]');
-   assert.equal(await serverField.isVisible(),true,'the Custom option reveals a text field');
-   await serverField.fill('ashore.example.net:25565');
-   await dialog.getByRole('button',{name:'Save settings',exact:true}).click();
-   await dialog.locator('.desktop-settings-result').filter({hasText:'Saved.'}).waitFor();
-   const savedServers=(await callsNamed('saveSettings')).map(call=>call.payload.server);
-   assert.equal(savedServers.at(-1),'ashore.example.net:25565','a typed address is kept as the player\'s own choice');
-   await launcherPage.keyboard.press('Escape');
-   await pushState({canPlay:true});
-   await settingsButton.click();
-   await dialog.waitFor({state:'visible'});
-   assert.equal(await serverSelect.locator('option:checked').getAttribute('value'),'__custom__','a custom address stays the custom choice');
-   assert.equal(await serverField.inputValue(),'ashore.example.net:25565','the custom address survives a re-open');
-   await launcherPage.keyboard.press('Escape');
-   // A relaunch hands status() the saved settings: the custom value must come back unchanged.
-   await launcherPage.goto(origin);
-   await launcherPage.waitForFunction(()=>window.easterRenderer&&window.easterRenderer.emit);
-   await pushState({phase:'ready',actions:[],progress:null,profile:{name:'Owen'},canPlay:true,install:INSTALLED});
-   await settingsButton.click();
-   await dialog.waitFor({state:'visible'});
-   assert.equal(await dialog.locator('input[name=server]').inputValue(),'ashore.example.net:25565','a custom address round-trips unchanged through a reload');
-   assert.equal(await launcherPage.evaluate(()=>window.easterRenderer.state.settings.server),'ashore.example.net:25565');
-
-   // A saved entry that is still pending shows the entry and says why it is unusable.
-   await pushState({settings:{memoryMB:6144,server:'smp.easter.company:25565',javaPath:''}});
-   assert.equal(await serverSelect.locator('option:checked').getAttribute('value'),'smp.easter.company:25565','a saved pending entry is the current choice');
-   assert.equal(await dialog.locator('.desktop-settings-note').isVisible(),true,'a pending entry says why it cannot be used');
-   assert((await dialog.locator('.desktop-settings-note').textContent()).includes('No DNS record yet'),'the pending note is the contract\'s own');
-   await pushState({settings:{memoryMB:6144,server:'ashore.example.net:25565',javaPath:''}});
+   // No server address anywhere. The launcher targets one fixed production server, so the
+   // dialog carries no address row, no choice and no "custom" escape hatch, and the state
+   // main broadcasts carries no list to build one from.
+   assert.equal(await dialog.locator('select[name=serverSelect],input[name=server]').count(),0,'the Settings dialog offers no server address at all');
+   assert(!/server/i.test(await dialog.innerText()),'nothing in the dialog so much as mentions a server: '+await dialog.innerText());
+   assert.equal(await launcherPage.evaluate(()=>'servers' in window.easterRenderer.state),false,'the state carries no server list to build a choice from');
+   // The save carries client settings only: a player has no address to send, so none travels.
+   assert.equal(await dialog.getByRole('button',{name:'Save settings',exact:true}).count(),1,'the dialog still saves the settings it does own');
+   // An older main process can still broadcast a list and a stored address. The renderer
+   // ignores both rather than resurrecting the control, so a field left behind by a stale
+   // piece of state can never put an editable address back in front of a player.
+   await pushState({servers:[{id:'legacy',label:'Easter Co. SMP',address:'100.100.1.0:25565',note:'Default server.',pending:false}],settings:{memoryMB:4096,server:'100.100.1.0:25565',javaPath:''}});
+   assert.equal(await dialog.locator('select[name=serverSelect],input[name=server]').count(),0,'a stale server list paints no control either');
+   await pushState({settings:{memoryMB:4096,javaPath:''}});
 
    // Memory is an explained advanced setting, not a bare row.
    const advanced=dialog.locator('.desktop-advanced');
@@ -822,6 +786,7 @@ try{
    await dialog.getByRole('button',{name:'Save settings',exact:true}).click();
    await dialog.locator('.desktop-settings-result').filter({hasText:'Saved.'}).waitFor();
    assert.equal((await callsNamed('saveSettings')).at(-1).payload.memoryMB,6144,'the memory choice reaches main');
+   assert.equal('server' in (await callsNamed('saveSettings')).at(-1).payload,false,'and no server address rides along with it');
 
    // Company identity is primary; Microsoft is a linked provider underneath it.
    assert.equal(await dialog.locator('.desktop-account,.desktop-company').count(),0,'account management has one home in the profile menu');
@@ -1362,6 +1327,6 @@ try{
    assert.deepEqual(await launcherPage.evaluate(()=>window.easterRenderer.errors),[],'the fixture saw no page error on its last load');
    await launcherContext.close();
   }finally{await launcherContext.close().catch(()=>{});}
-  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage with a published server choice and an explained memory setting; the themed enhanced graphics toggle driving setGraphics, a refused graphics change shown once beside the toggle rather than on the page notice as well; the profile\'s verified emails listed and chosen through the owner-only actions with no address in the state; refusals shown; one failure on one visible surface with no page notice painted while any modal dialog is open (Settings and the mandatory update gate) and the same sentence handed back once when the last one closes, repeated at 1440, 800 and 390 wide with the notice reading above the hero card\'s crest and heading, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed, Microsoft\'s email answer kept as a notice an unrelated failure cannot blank, the saved-session branch falling through to a fresh sign-in except on an identity conflict, and Microsoft\'s email-unavailable answer shown as a sign-in notice; the game server\'s own field shown once under the hero action for a stopped server, the cold start as its own hero action with no second Play, the service detail below the launcher sentence, a wake timeout as one page-notice failure with Play as the retry, a warm server adding nothing at all, an unknown status never shown as online, and a state with no game field painting nothing; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
+  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage that carries no server address at all, not even from a stale list or a stored value, with an explained memory setting and no address in the save; the themed enhanced graphics toggle driving setGraphics, a refused graphics change shown once beside the toggle rather than on the page notice as well; the profile\'s verified emails listed and chosen through the owner-only actions with no address in the state; refusals shown; one failure on one visible surface with no page notice painted while any modal dialog is open (Settings and the mandatory update gate) and the same sentence handed back once when the last one closes, repeated at 1440, 800 and 390 wide with the notice reading above the hero card\'s crest and heading, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed, Microsoft\'s email answer kept as a notice an unrelated failure cannot blank, the saved-session branch falling through to a fresh sign-in except on an identity conflict, and Microsoft\'s email-unavailable answer shown as a sign-in notice; the game server\'s own field shown once under the hero action for a stopped server, the cold start as its own hero action with no second Play, the service detail below the launcher sentence, a wake timeout as one page-notice failure with Play as the retry, a warm server adding nothing at all, an unknown status never shown as online, and a state with no game field painting nothing; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
  }
 }finally{await browser.close();}
