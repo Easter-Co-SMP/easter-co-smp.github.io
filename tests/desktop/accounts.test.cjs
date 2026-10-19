@@ -550,11 +550,11 @@ test('Microsoft enrollment retries one explicit database resume failure then suc
  }finally{await stub.close();}
 });
 
-test('database resume retry stops after two requests and reports fixed actionable wording',async()=>{
+test('database resume retry stops after four requests and reports fixed actionable wording',async()=>{
  const stub=await startStub(({response})=>send(response,503,{error:'database_unavailable',detail:TOKEN}));
  try{
-  const error=await rejects(assert,client(stub.origin).login(TOKEN),'database_unavailable');
-  assert.equal(stub.calls.length,2);
+  const error=await rejects(assert,client(stub.origin,{waitFor:async()=>{}}).login(TOKEN),'database_unavailable');
+  assert.equal(stub.calls.length,4);
   assert.match(error.message,/still waking up.*try signing in again/i);
   assert(!error.message.includes(TOKEN));
  }finally{await stub.close();}
@@ -593,4 +593,70 @@ test('other account mutations are never replayed on database failures',async()=>
   await rejects(assert,client(stub.origin).setPassword(SESSION,'fixture-password',false,'fixture-user'),'database_unavailable');
   assert.equal(stub.calls.length,1);
  }finally{await stub.close();}
+});
+
+
+test('cold enrollment reports only its safe wait stage and caps remaining request budgets',async()=>{
+ const {AccountClient}=require('../../desktop/accounts.cjs');
+ let clock=0,calls=0;const delays=[],stages=[],budgets=[];
+ const api=new AccountClient({now:()=>clock,waitFor:async ms=>{delays.push(ms);clock+=ms;}});
+ api.call=async(path,options)=>{
+  calls++;budgets.push(options.timeout);clock+=options.timeout;
+  throw Object.assign(new Error('private service response'),{databaseUnavailable:true});
+ };
+ await assert.rejects(api.login(TOKEN,undefined,SESSION,'private-graph',stage=>stages.push(stage)));
+ assert.equal(calls,3);assert.equal(clock,90000);
+ assert.deepEqual(budgets,[30000,30000,21000]);
+ assert.deepEqual(delays,[3000,6000]);
+ assert.deepEqual(stages,['company-waking','company-waking']);
+ assert(!JSON.stringify(stages).includes('private'));
+});
+
+test('a pre-cancelled enrollment makes no request and does not announce a retry',async()=>{
+ const {AccountClient}=require('../../desktop/accounts.cjs');const abort=new AbortController();abort.abort();
+ const api=new AccountClient({request:async()=>assert.fail('cancelled request reached transport')});
+ await assert.rejects(api.login(TOKEN,abort.signal,undefined,undefined,()=>assert.fail('cancelled request announced retry')),{name:'AbortError'});
+});
+
+test('activity ownership preserves installation progress, sanitizes stages and ignores stale callbacks',async()=>{
+ const vm=require('node:vm');const source=readRepo('desktop/main.cjs');
+ const code=source.slice(source.indexOf('const ACTIVITY_MESSAGES='),source.indexOf('// The two game-shortcut entries'));
+ const updates=[];const state={progress:{percent:42},phase:'downloading'};let clock=100;
+ const scope={state,Date:{now:()=>clock},notify:patch=>{updates.push(patch);Object.assign(state,patch);}};
+ vm.runInNewContext(code+'\nthis.beginActivity=beginActivity;this.withActivity=withActivity;',scope);
+ const first=scope.beginActivity('microsoft-opening');clock=200;
+ first.update('microsoft-waiting');first.update('microsoft-waiting');
+ assert.equal(state.activity.startedAt,100);assert.equal(updates.length,2);
+ first.update('private token or provider message');assert.equal(updates.length,2);
+ const second=scope.beginActivity('account-working');assert.equal(state.activity.startedAt,200);
+ first.update('company-waking');first.end();assert.equal(state.activity.stage,'account-working');
+ second.end();assert.equal(state.activity,null);second.update('company-waking');assert.equal(state.activity,null);
+ assert.equal(state.progress.percent,42);assert.equal(state.phase,'downloading');
+ assert.equal(await scope.withActivity('account-working',async()=>42),42);assert.equal(state.activity,null);
+ await assert.rejects(scope.withActivity('company-signing-in',async()=>{throw Error('failure');}));
+ assert.equal(state.activity,null);
+ const abort=new AbortController();abort.abort();
+ await assert.rejects(scope.withActivity('java-checking',async()=>abort.signal.throwIfAborted()),{name:'AbortError'});
+ assert.equal(state.activity,null);
+});
+
+
+test('independent account reads cannot steal or clear interactive sign-in activity',async()=>{
+ const vm=require('node:vm');const source=readRepo('desktop/main.cjs');
+ const code=source.slice(source.indexOf('const ACTIVITY_MESSAGES='),source.indexOf('// The two game-shortcut entries'));
+ const state={};const scope={state,Date,notify:patch=>Object.assign(state,patch)};
+ vm.runInNewContext(code+'\nthis.beginActivity=beginActivity;this.withActivity=withActivity;',scope);
+ let finishRead;const pending=scope.withActivity('account-working',()=>new Promise(resolve=>{finishRead=resolve;}),{replace:false});
+ const signIn=scope.beginActivity('microsoft-opening');
+ finishRead();await pending;
+ assert.equal(state.activity.stage,'microsoft-opening','a previous provider read cannot clear the new sign-in');
+ let finishOverlappingRead;const overlapping=scope.withActivity('account-working',()=>new Promise(resolve=>{finishOverlappingRead=resolve;}),{replace:false});
+ assert.equal(state.activity.stage,'microsoft-opening','a read started during sign-in stays unobtrusive');
+ signIn.update('microsoft-waiting');assert.equal(state.activity.stage,'microsoft-waiting');
+ signIn.update('company-signing-in');assert.equal(state.activity.stage,'company-signing-in');
+ finishOverlappingRead();await overlapping;assert.equal(state.activity.stage,'company-signing-in');
+ signIn.end();assert.equal(state.activity,null);
+ const ended=scope.beginActivity('microsoft-waiting');
+ let finishLateRead;const late=scope.withActivity('account-working',()=>new Promise(resolve=>{finishLateRead=resolve;}),{replace:false});
+ ended.end();finishLateRead();await late;assert.equal(state.activity,null,'read completion never revives ended sign-in');
 });

@@ -607,3 +607,22 @@ test('state.error is announced once and no later broadcast can repaint it',async
  // Across the whole run the first sentence was announced exactly once.
  assert.equal(main.sends.filter(state=>state.error===sentence).length,1,'one announcement, never a repaint');
 });
+
+
+test('sign-in stages stay waiting through pending polls and expose no provider payload',async()=>{
+ const {auth}=fixture([
+  {data:{device_code:'device-secret',user_code:'TEST-CODE',verification_uri:'https://microsoft.com/link',expires_in:900,interval:1}},
+  {status:400,data:{error:'authorization_pending'}},
+  {status:400,data:{error:'slow_down'}},
+  {data:{access_token:forXbox,refresh_token:'refresh-secret'}},...chain()
+ ]);
+ const stages=[];await auth.signIn(()=>{},undefined,stage=>stages.push(stage));
+ assert.deepEqual(stages,['microsoft-opening','microsoft-waiting','microsoft-verifying','java-checking']);
+ for(const secret of SECRETS)assert(!JSON.stringify(stages).includes(secret));
+});
+
+test('a valid saved session checking Java access announces only the access step',async()=>{
+ const {auth}=fixture([licence(),{data:profile}]);const stages=[];
+ await auth.refresh({accessToken:'stored-access',expiresAt:Date.now()+86400000},undefined,true,false,stage=>stages.push(stage));
+ assert.deepEqual(stages,['java-checking']);
+});

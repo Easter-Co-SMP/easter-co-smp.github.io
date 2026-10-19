@@ -79,7 +79,7 @@ try{
   await page.locator('#desktop-install-details').waitFor({state:'hidden'});
   await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
   await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
-  const signin=page.getByRole('dialog',{name:'Sign in with Microsoft',exact:true});
+  const signin=page.locator('#desktop-signin');
   assert.equal(await signin.isVisible(),true);
   // Keep a real text selection and clipboard copy intact while the main process
   // broadcasts repeated download progress through the actual isolated preload.
@@ -119,6 +119,21 @@ try{
   }
   await page.setViewportSize({width:800,height:600});
   assert(!(await page.evaluate(()=>JSON.stringify(document.body.textContent))).includes('fixture-private'));
+  // Stage feedback crosses the real isolated preload without replacing the dialog
+  // or leaking a consumed code. A transfer continues independently underneath it.
+  await app.evaluate(()=>global.easterTestAuthStage('microsoft-verifying'));
+  await signin.locator('.desktop-auth-wait').filter({hasText:'Verifying your Microsoft sign-in…'}).waitFor();
+  assert.equal(await signin.locator('.desktop-device').isVisible(),false,'consumed code is hidden during verification');
+  assert.equal(await signin.getByRole('button',{name:'Cancel sign-in',exact:true}).isVisible(),true,'verification remains genuinely cancellable');
+  const startedAt=(await page.evaluate(()=>window.easterDesktop.status())).activity.startedAt;
+  await app.evaluate(()=>global.easterTestAuthStage('company-waking'));
+  await signin.locator('.desktop-auth-wait').filter({hasText:'The account service is waking up.'}).waitFor();
+  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).activity.startedAt,startedAt,'stage changes keep the operation clock');
+  assert.equal(await signin.getByRole('button',{name:'Cancel sign-in',exact:true}).isVisible(),false,'a pending Company mutation offers no misleading cancellation');
+  await page.keyboard.press('Escape');
+  assert.equal(await signin.isVisible(),true,'Escape does not dismiss an active Company mutation');
+  await app.evaluate(()=>global.easterTestAuthStage('microsoft-waiting'));
+  await signin.locator('.desktop-code').waitFor({state:'visible'});
   await page.getByRole('button',{name:'Cancel sign-in',exact:true}).click();
   await page.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
   assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'cancelling sign-in is not an error');

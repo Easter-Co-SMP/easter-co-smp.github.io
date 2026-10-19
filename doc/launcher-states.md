@@ -1727,7 +1727,67 @@ while the code is selected or copied. No copy control or extra sign-in step is a
 
 The error notice's dismiss control and desktop dialog close controls explicitly
 center their glyphs without inherited button padding. Microsoft enrollment retries
-only an explicit HTTP 503 `database_unavailable` response once; it does not retry
-network errors, unknown failures, credentials, or other account mutations. The
-backoff honours cancellation. A second database-unavailable answer has an actionable
-launcher-owned message. No token or server detail enters that message.
+only an explicit HTTP 503 `database_unavailable` response, under the bounded
+policy below; it does not retry network errors, unknown failures, credentials, or
+other account mutations. The backoff honours cancellation. Exhausted retries have
+an actionable launcher-owned message. No token or server detail enters it.
+
+## Quiet activity feedback and cold-start patience (2026-10-19)
+
+The UI reacts immediately when an action starts. Waiting feedback stays beside the
+relevant action or inside the dialog already open; a wait never opens a new modal,
+paints an error toast or asks the player to click the same action twice. Downloads
+keep the existing persistent transfer bar. A busy API request does not replace or
+reset concurrent download progress.
+
+The additive main-process field `activity` is `null` at rest or the following plain
+object during an account operation:
+
+| Field | Meaning |
+|---|---|
+| `stage` | A whitelisted stage below, never a provider response or URL |
+| `message` | Fixed launcher-owned wording for that stage |
+| `startedAt` | Epoch milliseconds when this operation began; stable through its stages |
+
+| Stage | Message |
+|---|---|
+| `microsoft-opening` | Opening Microsoft sign-in… |
+| `microsoft-waiting` | Complete sign-in on Microsoft’s page. |
+| `microsoft-verifying` | Verifying your Microsoft sign-in… |
+| `java-checking` | Checking Minecraft Java access… |
+| `company-signing-in` | Connecting your Easter Company account… |
+| `company-waking` | The account service is waking up. We’ll keep trying… |
+| `account-working` | Contacting the account service… |
+
+The Microsoft code remains selectable while browser approval is pending. Once that
+approval is consumed, the same dialog shows verification and Company connection
+feedback instead of continuing to ask the player to enter the consumed code.
+Activity is scoped to its operation: success, failure and cancellation clear it;
+late callbacks from an earlier operation cannot resurrect a finished wait.
+Tokens, account identifiers, provider bodies and infrastructure names never enter
+this field.
+
+Each wait surface uses a small neutral/gold indicator and a short stage sentence.
+After ten seconds it may add a quiet reassurance that work is continuing. Elapsed
+time, if displayed, is not an ETA and is not announced every second. Stage text
+updates only when it changes; timers never replace selectable text, reset focus,
+restart the indicator, or move an active control. Status uses polite announcements
+and reduced-motion preferences retain a visible static activity mark. Failures and
+terminal states remove the activity indicator rather than leaving it spinning.
+Fast actions finish normally; no fake minimum wait is added.
+
+Company sign-in, username checks, password saves and verified-email reads/saves
+have task-specific inline feedback immediately. Repeated submissions are guarded.
+Cancellation is offered only where it can actually stop the operation. A mutation
+that cannot safely be cancelled remains visibly pending until it has a definite
+answer; it is never labelled cancelled while a write may still be underway.
+
+Microsoft Company enrollment may keep trying an explicit HTTP 503
+`database_unavailable` for up to ninety seconds and at most four attempts, including
+the initial request. Each request and backoff stays within the remaining window,
+with the normal thirty-second request ceiling. Cancellation stops requests and
+backoff. This does not replay network errors, malformed successes, unknown
+failures, credentials, or other account mutations. Other request budgets remain
+bounded. Server wake already allows three minutes, polls its real state, and starts
+the client automatically when ready; it receives the same quiet visual language
+without inventing completion percentages or a promised finish time.
