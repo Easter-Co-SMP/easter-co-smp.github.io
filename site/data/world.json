@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-10-17T23:31:57.017521+00:00",
+  "captured_at": "2026-10-19T03:15:32.406970+00:00",
   "center": [
     -625,
     -247
@@ -9,7 +9,7 @@
       "id": "094e8aab547cc5f38967",
       "kind": "villager",
       "name": "Edith",
-      "observed_at": "2026-10-15T19:02:05.866384+00:00",
+      "observed_at": "2026-10-18T05:07:09.120035+00:00",
       "x": -648.79,
       "z": -207.56
     },
@@ -18,25 +18,25 @@
       "id": "14f8c40ce1b7c12b1d70",
       "kind": "sea_patrol",
       "name": "Navy Patrol - Easter",
-      "observed_at": "2026-10-15T19:01:14.765147+00:00",
-      "x": -688.43,
-      "z": -221.72
+      "observed_at": "2026-10-18T05:06:06.118387+00:00",
+      "x": -688.5,
+      "z": -221.91
     },
     {
       "icon": "navy_unit-guard",
       "id": "15eae12e6a25feb93f90",
       "kind": "land_patrol",
       "name": "Navy land patrol — South Harbour",
-      "observed_at": "2026-10-15T19:01:37.373575+00:00",
-      "x": -570.7,
-      "z": -62.44
+      "observed_at": "2026-10-18T05:06:28.627831+00:00",
+      "x": -571.33,
+      "z": -62.07
     },
     {
       "icon": "hull",
       "id": "2ba6ed192315005cea04",
       "kind": "ship",
       "name": "The Explorer",
-      "observed_at": "2026-10-15T19:01:14.865400+00:00",
+      "observed_at": "2026-10-15T19:01:14.818671+00:00",
       "x": -584.83,
       "z": -210.0
     },
@@ -45,16 +45,25 @@
       "id": "380fd88a4dc22e1c7106",
       "kind": "land_patrol",
       "name": "Navy land patrol — North Harbour",
-      "observed_at": "2026-10-15T19:01:41.873643+00:00",
-      "x": -641.49,
-      "z": -360.1
+      "observed_at": "2026-10-18T05:06:33.127911+00:00",
+      "x": -549.94,
+      "z": -369.64
+    },
+    {
+      "icon": "navy_ship",
+      "id": "3dbdd6df26bd636535fe",
+      "kind": "sea_patrol",
+      "name": "Navy Patrol - BoE",
+      "observed_at": "2026-10-18T05:03:10.618953+00:00",
+      "x": -257.21,
+      "z": -118.4
     },
     {
       "icon": "navy_ship",
       "id": "485b17b487ac31c526fa",
       "kind": "sea_patrol",
       "name": "Navy Patrol - FL",
-      "observed_at": "2026-10-15T19:01:14.865461+00:00",
+      "observed_at": "2026-10-18T05:06:06.118743+00:00",
       "x": -461.5,
       "z": -100.5
     },
@@ -62,24 +71,24 @@
       "id": "536a1ef431821fe8e69d",
       "kind": "villager",
       "name": "Beth",
-      "observed_at": "2026-10-15T19:02:05.866262+00:00",
-      "x": -614.11,
-      "z": -159.52
+      "observed_at": "2026-10-18T05:07:09.119895+00:00",
+      "x": -613.5,
+      "z": -165.71
     },
     {
       "icon": "navy_unit-guard",
       "id": "6181fad50e9b04092b54",
       "kind": "land_patrol",
       "name": "Navy land patrol — West Harbour",
-      "observed_at": "2026-10-15T19:01:46.373724+00:00",
-      "x": -714.47,
-      "z": -295.38
+      "observed_at": "2026-10-18T05:06:37.627997+00:00",
+      "x": -717.97,
+      "z": -295.47
     },
     {
       "id": "61baf1f5d01c38dce219",
       "kind": "villager",
       "name": "zuri",
-      "observed_at": "2026-10-15T19:02:05.866195+00:00",
+      "observed_at": "2026-10-18T05:07:09.119815+00:00",
       "x": -634.47,
       "z": -223.24
     },
@@ -88,7 +97,7 @@
       "id": "6b656d8e992cb8e4afb9",
       "kind": "ship",
       "name": "oak_cog",
-      "observed_at": "2026-10-14T23:11:28.864989+00:00",
+      "observed_at": "2026-10-14T23:11:28.818224+00:00",
       "x": -734.5,
       "z": -247.43
     },
@@ -97,34 +106,52 @@
       "id": "806c20860f34c4ad8098",
       "kind": "land_patrol",
       "name": "sailor 8ee43d75",
-      "observed_at": "2026-10-15T19:02:05.866621+00:00",
-      "x": -610.57,
-      "z": -263.1
+      "observed_at": "2026-10-18T05:07:09.120315+00:00",
+      "x": -610.54,
+      "z": -263.84
+    },
+    {
+      "icon": "navy_ship",
+      "id": "87f846fe6e6381173c33",
+      "kind": "sea_patrol",
+      "name": "Navy Patrol - BoE",
+      "observed_at": "2026-10-18T05:03:10.618884+00:00",
+      "x": -239.56,
+      "z": -134.15
     },
     {
       "icon": "navy_unit-guard",
       "id": "884842ad41afc521d16e",
       "kind": "land_patrol",
       "name": "Navy land patrol — Hannah's Landing",
-      "observed_at": "2026-10-15T19:01:29.873428+00:00",
-      "x": -512.98,
-      "z": -245.13
+      "observed_at": "2026-10-18T05:06:21.127662+00:00",
+      "x": -500.85,
+      "z": -253.0
     },
     {
       "icon": "navy_unit-guard",
       "id": "a0e4b2f805869572cd9b",
       "kind": "land_patrol",
       "name": "Navy land patrol — Fort Lookout",
-      "observed_at": "2026-10-15T19:01:34.373506+00:00",
-      "x": -451.85,
-      "z": -70.87
+      "observed_at": "2026-10-18T05:06:25.627752+00:00",
+      "x": -450.47,
+      "z": -68.21
+    },
+    {
+      "icon": "navy_ship",
+      "id": "afe4c65fcd24140a48cf",
+      "kind": "sea_patrol",
+      "name": "Navy Patrol - FL",
+      "observed_at": "2026-10-18T05:06:06.119363+00:00",
+      "x": -427.94,
+      "z": -138.3
     },
     {
       "icon": "hull",
       "id": "b061ecc9517ab687e8bc",
       "kind": "ship",
       "name": "oak_cog",
-      "observed_at": "2026-10-15T00:21:05.065063+00:00",
+      "observed_at": "2026-10-15T00:21:05.118308+00:00",
       "x": -514.5,
       "z": -246.5
     },
@@ -132,24 +159,24 @@
       "id": "b41f869ddf6764ac9d88",
       "kind": "villager",
       "name": "Cora",
-      "observed_at": "2026-10-15T19:02:05.866323+00:00",
-      "x": -608.14,
-      "z": -155.37
+      "observed_at": "2026-10-18T05:07:09.119967+00:00",
+      "x": -617.42,
+      "z": -191.48
     },
     {
       "id": "b6db8db7fdfbba179bbd",
       "kind": "villager",
       "name": "Flora",
-      "observed_at": "2026-10-15T19:02:05.866443+00:00",
-      "x": -617.52,
-      "z": -181.32
+      "observed_at": "2026-10-18T05:07:09.120103+00:00",
+      "x": -604.28,
+      "z": -171.47
     },
     {
       "icon": "navy_unit-guard",
       "id": "bb2612546056b2254374",
       "kind": "land_patrol",
       "name": "sailor 120302e6",
-      "observed_at": "2026-10-15T19:02:05.866679+00:00",
+      "observed_at": "2026-10-18T05:07:09.120385+00:00",
       "x": -612.07,
       "z": -263.18
     },
@@ -158,44 +185,62 @@
       "id": "c5f61f90f2740d66763b",
       "kind": "sea_patrol",
       "name": "Navy Patrol - Easter",
-      "observed_at": "2026-10-15T19:01:14.765278+00:00",
-      "x": -534.39,
-      "z": -255.27
+      "observed_at": "2026-10-18T05:06:06.118533+00:00",
+      "x": -577.33,
+      "z": -113.91
+    },
+    {
+      "icon": "navy_ship",
+      "id": "cab886083be2e03f9497",
+      "kind": "sea_patrol",
+      "name": "Navy Patrol - FL",
+      "observed_at": "2026-10-18T05:03:10.618814+00:00",
+      "x": -304.5,
+      "z": -111.5
     },
     {
       "icon": "navy_ship",
       "id": "cb81ca02b7a2118527ff",
       "kind": "sea_patrol",
       "name": "Navy Patrol - Easter",
-      "observed_at": "2026-10-15T19:01:14.865340+00:00",
-      "x": -686.76,
+      "observed_at": "2026-10-18T05:06:06.118603+00:00",
+      "x": -686.78,
       "z": -169.25
+    },
+    {
+      "icon": "navy_ship",
+      "id": "dd4123db348559bc526b",
+      "kind": "sea_patrol",
+      "name": "Navy Patrol - BoE",
+      "observed_at": "2026-10-18T05:03:10.618461+00:00",
+      "x": -238.58,
+      "z": -129.39
     },
     {
       "icon": "navy_unit-guard",
       "id": "e2edbe7b6cd3089ff761",
       "kind": "land_patrol",
       "name": "sailor 32f08653",
-      "observed_at": "2026-10-15T19:02:05.866503+00:00",
-      "x": -532.5,
-      "z": -236.5
+      "observed_at": "2026-10-18T05:07:09.120178+00:00",
+      "x": -407.5,
+      "z": -293.5
     },
     {
       "icon": "navy_unit-guard",
       "id": "ebf9550b8af940d20c11",
       "kind": "land_patrol",
       "name": "Navy land patrol — Anglian Plains",
-      "observed_at": "2026-10-15T14:17:39.773796+00:00",
-      "x": -279.5,
-      "z": -275.5
+      "observed_at": "2026-10-18T05:03:46.628080+00:00",
+      "x": -279.3,
+      "z": -274.42
     },
     {
       "icon": "navy_unit-guard",
       "id": "f2ce7fe4eaf21df29ae8",
       "kind": "land_patrol",
       "name": "sailor c4437e95",
-      "observed_at": "2026-10-15T19:02:05.866561+00:00",
-      "x": -505.91,
+      "observed_at": "2026-10-18T05:07:09.120248+00:00",
+      "x": -505.99,
       "z": -246.5
     },
     {
@@ -203,12 +248,12 @@
       "id": "f9fc80ae2acdeca8ca6e",
       "kind": "land_patrol",
       "name": "Navy land patrol — Sussex",
-      "observed_at": "2026-10-15T19:01:53.873860+00:00",
-      "x": -797.0,
-      "z": -189.5
+      "observed_at": "2026-10-18T05:06:45.128165+00:00",
+      "x": -802.81,
+      "z": -145.18
     }
   ],
-  "missed_days": 1,
+  "missed_days": 0,
   "position_source": "Last observed ships and NPCs. Player records are excluded at export.",
   "region_blocks": 512,
   "regions": [
@@ -1797,7 +1842,7 @@
   ],
   "saved_chunk_slots": 31023,
   "schema": 1,
-  "snapshot_day": "2026-10-17",
+  "snapshot_day": "2026-10-18",
   "tiles": [
     {
       "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
@@ -1880,7 +1925,7 @@
       "z": -2
     },
     {
-      "version": "a2ed648b3ee490ff5647b56ed9a1d8f46332ceee9d4858b4a37cd200583dbb6b",
+      "version": "3427c7c6b5a87b8bb1a4f1590afbffff9aa58bc7f32f71bc8346b852db29a1df",
       "x": -2,
       "z": -1
     },
@@ -1905,7 +1950,7 @@
       "z": -2
     },
     {
-      "version": "b3f5ff0ce1881884d21e3e082ec783980c9344da6e360e1b4e3999ef83196cc0",
+      "version": "c06c27db5086556ab4e13e80f9ccdcdef8345f488f80e18e1124c228a8cefc24",
       "x": -1,
       "z": -1
     },
@@ -2130,5 +2175,5 @@
       "z": -13
     }
   ],
-  "unlocated_markers": 10
+  "unlocated_markers": 5
 }
