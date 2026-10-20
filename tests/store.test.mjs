@@ -104,3 +104,33 @@ test("a lost success response can be retried with the same key even after quote 
     4,
   );
 });
+test("catalogue, quotes and receipts retain authoritative game identity; coming-soon games have no purchasable SKUs", async () => {
+  const api = setup(),
+    c = await api.catalogue();
+  assert.equal(c.games.length, 3);
+  assert.ok(c.items.every((p) => p.gameId === "easter-smp"));
+  assert.equal(c.games.filter((g) => g.status === "coming-soon").length, 2);
+  await assert.rejects(
+    api.quote({
+      gameId: "orbital-racing",
+      lines: [{ id: "crowns-1000", quantity: 1 }],
+    }),
+    { code: "GAME_MISMATCH" },
+  );
+  await assert.rejects(
+    api.quote({
+      lines: [{ id: "crowns-1000", quantity: 1, gameId: "frontier" }],
+    }),
+    { code: "GAME_MISMATCH" },
+  );
+  await assert.rejects(
+    api.quote({ lines: [{ id: "orbital-livery", quantity: 1 }] }),
+    { code: "UNAVAILABLE" },
+  );
+  const q = await quote(api);
+  assert.equal(q.gameId, "easter-smp");
+  assert.equal(q.lines[0].gameId, "easter-smp");
+  const o = await purchase(api, q);
+  assert.equal(o.gameId, "easter-smp");
+  assert.equal((await api.orders())[0].gameId, "easter-smp");
+});

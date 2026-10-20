@@ -1,4 +1,4 @@
-import { CATEGORIES, money } from "./catalogue.mjs";
+import { CATEGORIES, GAMES, money } from "./catalogue.mjs";
 import { createMockStoreAPI } from "./mock-api.mjs";
 import { productArt } from "./art.mjs";
 const el = (tag, cls, text) => {
@@ -74,8 +74,13 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
   const announce = el("p", "store-sr-only");
   announce.setAttribute("role", "status");
   announce.setAttribute("aria-live", "polite");
-  dialog.append(mast, demo, layout, announce);
+  const gamesNav = el("nav", "store-games");
+  gamesNav.setAttribute("aria-label", "Choose a game");
+  dialog.append(mast, demo, gamesNav, layout, announce);
   document.body.append(dialog);
+  let gameId = "easter-smp";
+  const gameName = (id) =>
+    GAMES.find((g) => g.id === id)?.name || "Unknown game";
   let products = [],
     owned = [],
     cart = [],
@@ -103,6 +108,54 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
         ? "In demo library"
         : null;
   function top() {
+    gamesNav.replaceChildren();
+    for (const game of GAMES) {
+      const choice = button(
+        "",
+        () => {
+          gameId = game.id;
+          category = "all";
+          query = "";
+          go("catalogue");
+        },
+        "store-game",
+      );
+      choice.dataset.game = game.id;
+      choice.setAttribute("aria-pressed", String(gameId === game.id));
+      choice.setAttribute(
+        "aria-label",
+        game.name +
+          (game.status === "available"
+            ? " — Store open"
+            : " — Coming soon, placeholder"),
+      );
+      choice.disabled = busy || loading;
+      const mark = el("span", "store-game-mark", game.mark);
+      mark.setAttribute("aria-hidden", "true");
+      if (game.id === "easter-smp") {
+        const image = el("img");
+        image.src = new URL("../assets/ec-logo.svg", import.meta.url).href;
+        image.alt = "";
+        mark.replaceChildren(image);
+      }
+      const copy = el("span", "store-game-copy");
+      copy.append(el("strong", "", game.name), el("small", "", game.genre));
+      choice.append(
+        mark,
+        copy,
+        el(
+          "span",
+          "store-game-state",
+          game.status === "available" ? "Store open" : "Coming soon",
+        ),
+      );
+      gamesNav.append(choice);
+    }
+    requestAnimationFrame(() =>
+      gamesNav
+        .querySelector('[aria-pressed="true"]')
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" }),
+    );
     cartButton.textContent = "Cart · " + count();
     for (const [n, v] of [
       [browse, "catalogue"],
@@ -113,7 +166,13 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
       n.disabled = busy || loading;
     }
     close.disabled = busy;
-    sidebar.replaceChildren(el("p", "store-overline", "BROWSE THE STORE"));
+    sidebar.hidden =
+      view === "catalogue" &&
+      GAMES.find((g) => g.id === gameId)?.status !== "available";
+    sidebar.replaceChildren(
+      el("p", "store-overline", "BROWSE THE STORE"),
+      el("p", "store-sidebar-game", gameName(gameId)),
+    );
     for (const [id, label] of CATEGORIES) {
       const b = button(
         label,
@@ -128,7 +187,10 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
         "aria-pressed",
         String(category === id && view === "catalogue"),
       );
-      b.disabled = busy || loading;
+      b.disabled =
+        busy ||
+        loading ||
+        GAMES.find((g) => g.id === gameId)?.status !== "available";
       sidebar.append(b);
     }
     const note = el("div", "store-sidebar-note");
@@ -206,6 +268,8 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
   }
   function go(next) {
     if (busy || loading) return;
+    if (next === "cart" && cart.length) gameId = product(cart[0].id).gameId;
+    if (next === "receipt" && order) gameId = order.gameId;
     generation++;
     loading = false;
     error = null;
@@ -236,9 +300,54 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     (added && !added.disabled ? added : cartButton).focus();
   }
   function catalogue() {
+    const game = GAMES.find((g) => g.id === gameId);
+    if (game.status !== "available") {
+      heading("COMING SOON · PLACEHOLDER", game.name, game.description);
+      const soon = el("section", "store-coming-soon");
+      soon.dataset.game = game.id;
+      soon.append(
+        el("span", "store-concept-mark", game.mark),
+        el("h3", "", "A new world. A store of its own."),
+        el(
+          "p",
+          "",
+          "Each game will have its own catalogue, purchases and in-game currency. These concept cards show how future games could appear; nothing here is for sale.",
+        ),
+      );
+      const previews = el("div", "store-concept-grid");
+      for (const title of game.previews) {
+        const card = el("article", "store-concept-card");
+        card.append(
+          el("p", "store-overline", "COMING SOON"),
+          el("h4", "", title),
+          el("p", "", "Illustrative placeholder · Not purchasable"),
+        );
+        previews.append(card);
+      }
+      soon.append(
+        previews,
+        button(
+          "Back to Easter Co. SMP",
+          () => {
+            gameId = "easter-smp";
+            category = "all";
+            go("catalogue");
+          },
+          "store-button",
+        ),
+      );
+      content.append(soon);
+      return;
+    }
+    heading(
+      "SHOP BY GAME",
+      game.name,
+      "Purchases, queue access and Crowns in this catalogue apply only to Easter Co. SMP.",
+    );
     if (category === "all" && !query) {
       const feature =
-        products.find((p) => p.id === "coastal-sloop") || products[0];
+        products.find((p) => p.gameId === gameId && p.id === "coastal-sloop") ||
+        products.find((p) => p.gameId === gameId);
       if (feature) {
         const hero = el("section", "store-feature"),
           copy = el("div", "store-feature-copy");
@@ -297,6 +406,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
       grid.replaceChildren();
       let list = products.filter(
         (p) =>
+          p.gameId === gameId &&
           (category === "all" || p.category === category) &&
           `${p.name} ${p.description}`
             .toLowerCase()
@@ -389,6 +499,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     content.append(
       button("← Back to store", () => go("catalogue"), "store-back"),
     );
+    content.append(el("p", "store-game-context", "FOR " + gameName(p.gameId)));
     const detail = el("section", "store-detail"),
       copy = el("div", "store-detail-copy");
     copy.append(
@@ -471,7 +582,10 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
       if (!p) continue;
       const row = el("article", "store-cart-row"),
         copy = el("div", "store-cart-copy");
-      copy.append(el("h3", "", p.name), el("p", "", money(p.price) + " each"));
+      copy.append(
+        el("h3", "", p.name),
+        el("p", "", gameName(p.gameId) + " · " + money(p.price) + " each"),
+      );
       const controls = el("div", "store-quantity");
       const label = el("label", "", "Quantity");
       const input = el("input");
@@ -541,7 +655,11 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     render();
     announce.textContent = "Checking availability and confirming your total.";
     try {
-      quote = await api.quote({ lines: cart.map((l) => ({ ...l })) });
+      quote = await api.quote({
+        gameId: product(cart[0].id).gameId,
+        lines: cart.map((l) => ({ ...l })),
+      });
+      gameId = quote.gameId;
       key = crypto.randomUUID();
       view = "checkout";
     } catch (e) {
@@ -573,7 +691,8 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
       el(
         "p",
         "",
-        "A dedicated fictional account for this preview. Purchases will not be linked to your signed-in account.",
+        gameName(quote.gameId) +
+          " only. A dedicated fictional account for this preview. Purchases will not be linked to your signed-in account.",
       ),
     );
     const payment = el("section", "store-checkout-panel");
@@ -700,6 +819,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     );
     const panel = el("section", "store-receipt");
     panel.append(
+      el("p", "store-game-context", gameName(order.gameId)),
       el("span", "store-receipt-mark", "✓"),
       el("p", "store-overline", order.id),
       el("h3", "", "Thanks for visiting the Company store."),
@@ -760,6 +880,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
         copy = el("div");
       copy.append(
         el("h3", "", o.id),
+        el("p", "store-game-context", gameName(o.gameId)),
         el(
           "p",
           "store-muted",
