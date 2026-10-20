@@ -47,7 +47,13 @@ export function mountDiscovery(host, desktop) {
   let timer;
   try{
    if(typeof desktop.homeContent!=='function'){paint(null);return;}
-   const payload=await Promise.race([desktop.homeContent(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('timeout')),10000);})]);
+   // One quiet second attempt before the cards admit defeat. The first ask of a launch can
+   // arrive before the window is trusted, and main answers that with a refusal it never
+   // recorded; the second ask lands on a warm answer. A real outage still fails, twice.
+   const ask=async()=>Promise.race([desktop.homeContent(),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('timeout')),10000);})]);
+   let payload;
+   try{payload=await ask();}
+   catch{payload=await new Promise((resolve,reject)=>{setTimeout(()=>{ask().then(resolve,reject);},1200);});}
    if(!payload || payload.schema!==1 || !Array.isArray(payload.posts))throw Error('Invalid content');
    paint(payload);
   }catch{paint(null,true);}finally{clearTimeout(timer);busy=false;region.setAttribute('aria-busy','false');}

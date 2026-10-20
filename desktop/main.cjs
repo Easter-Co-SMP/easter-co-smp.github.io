@@ -101,6 +101,10 @@ const updater=require('./updater.cjs');
 // never part of the state broadcast (doc/launcher-discovery.md).
 const {Discovery}=require('./discovery.cjs');
 const discovery=new Discovery();
+// Read the editorial document as soon as the process is up, rather than when the home
+// screen first asks: the first ask can arrive before the renderer's frame is trusted, and
+// the answer is then already in hand (doc/launcher-discovery.md).
+app.whenReady().then(()=>{void discovery.content().catch(()=>{});});
 // The install and update failures a player cannot act on from a number: the same bounded, redacted
 // line log at the same rotation and under the same rules, in the same per-user directory
 // (doc/launcher-states.md). install.cjs and updater.cjs each write one line per failure and the

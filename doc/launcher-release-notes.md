@@ -1,4 +1,19 @@
+# Easter Company launcher 1.0.37
+
+The home cards load on the first launch, not the second.
+
+- Launcher 1.0.36 could greet a first launch with "Dispatches unavailable" over the two
+  new home cards, and then fill them in when the player pressed Try again. The first read
+  of that document could arrive before the launcher window was trusted, and the refusal
+  was never recorded anywhere, so the cards reported an outage that had not happened.
+  The document is now read as soon as the launcher starts, so the answer is in hand
+  before the home screen asks for it, and a first ask that still falls short is retried
+  once, quietly, before the cards say anything is unavailable.
+- Nothing else changed: the same document, the same bounds, the same honest empty and
+  failure states, and the client controls are untouched.
+
 # Easter Company launcher 1.0.36
+
 
 The naval phoenix crest, a patient account service, and three cards on the home screen.
 Includes custom mod 2.0.2 and preserves launcher settings, caches and sign-in sessions.
