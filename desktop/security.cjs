@@ -23,7 +23,11 @@ function publicProfile(session){return session?.profile?{name:session.profile.na
 // reached with the same HTTP module the rest of the launcher already uses. The
 // caller's signal bounds the whole request; unexpected transport errors surface
 // only as a bounded, cause-free rejection.
-function apiFetch(url,{method='GET',headers={},body,signal}={}){
+// `maxBytes` bounds a response body: a document longer than that stops the request with a
+// bounded rejection instead of being buffered. The account API never needs it (its answers
+// are small and shaped), but the public content document is a plain file on the internet
+// and it is read by a caller that must not be talked into holding a machine's memory.
+function apiFetch(url,{method='GET',headers={},body,signal,maxBytes=0}={}){
  return new Promise((resolve,reject)=>{
   // Belt and braces: the caller's own timeout and this transport's ceiling.
   const deadline=AbortSignal.any([signal,AbortSignal.timeout(30000)].filter(Boolean));
@@ -36,9 +40,13 @@ function apiFetch(url,{method='GET',headers={},body,signal}={}){
   signal?.addEventListener('abort',()=>finish(Object.assign(Error('Cancelled'),{name:'AbortError'})),{once:true});
   try{
    request=transport.request(target,{method,headers,minVersion:target.protocol==='https:'?'TLSv1.2':undefined,signal:deadline,timeout:30000},response=>{
-    const chunks=[];
-    response.on('data',chunk=>chunks.push(chunk));
-    response.on('end',()=>finish(undefined,{ok:response.statusCode>=200&&response.statusCode<300,status:response.statusCode,json:async()=>JSON.parse(Buffer.concat(chunks).toString('utf8'))}));
+    const chunks=[];let seen=0;
+    response.on('data',chunk=>{
+     seen+=chunk.length;
+     if(maxBytes&&seen>maxBytes){fail();return;}
+     chunks.push(chunk);
+    });
+    response.on('end',()=>finish(undefined,{ok:response.statusCode>=200&&response.statusCode<300,status:response.statusCode,bytes:seen,json:async()=>JSON.parse(Buffer.concat(chunks).toString('utf8'))}));
     response.on('aborted',fail);
     response.on('error',fail);
    });

@@ -96,6 +96,11 @@ let shortcutState={available:false,reason:null,message:null,desktop:{id:'desktop
 let phase=null,progress=null,control=null,installStarted=false,backgroundUpdate=null;
 let startupReady=!app.isPackaged,startupPromise=null;
 const updater=require('./updater.cjs');
+// Optional editorial content for the home screen: the latest dispatch and one store
+// highlight, from the public document published with the site. Read-only, cached, and
+// never part of the state broadcast (doc/launcher-discovery.md).
+const {Discovery}=require('./discovery.cjs');
+const discovery=new Discovery();
 // The install and update failures a player cannot act on from a number: the same bounded, redacted
 // line log at the same rotation and under the same rules, in the same per-user directory
 // (doc/launcher-states.md). install.cjs and updater.cjs each write one line per failure and the
@@ -1153,6 +1158,10 @@ function registerIPC(){
   }
   return exclusively(()=>login({link:options?.link===true}));
  });
+ // The home screen's editorial content. It answers with the validated document or with a
+ // refusal, and the renderer shows its own unavailable state; nothing here is stored, and
+ // no URL, token or identifier from it is ever asked for by the renderer.
+ handle('home-content',()=>discovery.content());
  handle('account-providers',()=>withActivity('account-working',()=>accounts.providers(),{replace:false,scope:'surface'}));
  handle('provider-sign-in',(provider,link=false)=>accountOperation(async(update)=>{
   if(company&&!link)throw Error('Sign out before signing in to a different account.');

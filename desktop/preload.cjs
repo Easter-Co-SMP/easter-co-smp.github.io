@@ -41,6 +41,10 @@ contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  // The hero's retry when the account service could not make a Minecraft session just now. It
  // asks the service once more and answers with the session field, never with a token.
  refreshMinecraftSession:invoke('minecraft-session'),
+ // The home screen's optional editorial cards. One read, no arguments: main owns the
+ // endpoint, the validation, the cache and the timeout, and the renderer receives only
+ // the plain document (doc/launcher-discovery.md).
+ homeContent:invoke('home-content'),
  chooseJava:invoke('choose-java'),openFolder:invoke('open-folder'),openMicrosoft:invoke('open-microsoft'),
  // Download-first flow. The location handlers take no renderer path: the picker
  // returns one, and every other request is checked against the saved setting.

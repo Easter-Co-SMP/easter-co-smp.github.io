@@ -5,10 +5,38 @@ three tiles: existing client controls, the latest social post, and one featured
 store item. Content never blocks signing in, installing, or playing. No social
 trackers, embeds, third-party scripts, invented posts, prices, or products ship.
 
-## Delta integration contract (proposed; not implemented in main/preload)
+## The content document (implemented 2026-10-20)
 
-Expose one read-only `window.easterDesktop.homeContent()` Promise through the
-isolated preload, backed by a fixed public-content endpoint chosen by main:
+The contract below is what main and the preload now do. The document lives at
+`site/home.json`, published with the rest of the site, and is read from the same origin the
+launcher installs from (`clientOrigin()` in `desktop/config.cjs`) — no second host, no
+credentials, no signing, nothing the renderer can name. `desktop/discovery.cjs` owns the
+read; `desktop/main.cjs` answers `home-content`; the preload exposes it as
+`window.easterDesktop.homeContent()`.
+
+What main enforces, and why each bound exists:
+
+| Bound | Value | Why |
+|---|---|---|
+| Path and origin | `/home.json` on the client origin only | One document, one host. A development `EASTER_CLIENT_ORIGIN` moves it with the rest of the public files |
+| Transport | the launcher's own `apiFetch`, HTTPS (loopback allowed for fixtures) | The same stack as the account API, so no second HTTP client and no Chromium TLS quirks |
+| Timeout | 8 s (`AbortSignal.timeout`) | The cards are optional; they may never hold the home screen |
+| Body ceiling | 64 KiB, enforced during the read | A public file the launcher does not control may not be talked into filling memory |
+| Schema | `schema: 1`, `posts` an array | An unknown schema is refused whole rather than guessed at |
+| Entries | at most 12 posts, duplicate ids collapsed | The page cannot grow into a newsletter archive |
+| Text | title 160, excerpt 400, description 1600, category 40 | Clamped, not dropped: over-long copy the Company wrote is still its copy |
+| Ids | ≤64 chars, `[A-Za-z0-9._:-]`, refused if longer | Truncating an id could collide two items into one stable key |
+| Links | `https:` only, no credentials, ≤2048 | Main's window-open handler checks again before anything leaves for the browser |
+| Cache | 30 minutes, one request in flight at a time | One read per half hour however many times the screen renders; concurrent asks share it |
+| Failure | `content_unavailable`, no transport detail | The renderer shows its own unavailable state and the player keeps playing; an answer already in hand survives a later failure |
+
+Publishing a dispatch or a featured item is editing `site/home.json` and pushing: the site
+deploys in a minute and every launcher picks the change up on its next launch, or at most
+half an hour later. `posts: []` and `featuredItem: null` are honest answers — the home
+screen already has words for both.
+
+An unknown field is dropped, an unreadable entry is dropped, and the renderer filters
+again on its own: neither side trusts the other, and neither trusts the document.
 
 ```json
 {
@@ -40,7 +68,8 @@ Main should enforce payload bounds, endpoint trust, timeouts, caching, freshness
 and publication visibility. Never pass social credentials into the renderer.
 
 A featured item opens a keyboard-accessible preview dialog, with explicit notice
-that purchasing is unavailable. Main/preload/API and checkout are Delta's work.
+that purchasing is unavailable. The bridge and the document are done; checkout is not,
+and the boundary below is the standing rule for when it is built.
 The current frontend intentionally accepts no price, checkout URL, purchase
 callback or ownership claim. Previewing a catalogue item does not grant it.
 
@@ -67,7 +96,13 @@ and gameplay policy require a product decision rather than a frontend assumption
 
 Use fixture payloads in browser tests for populated, empty, failed, retry and
 malicious-content states. These are test fixtures, never production social posts
-or advertised products. The website must have no discovery region and keep its
+or advertised products.
+
+Implemented checks: `tests/desktop/discovery.test.cjs` holds the document's bounds and
+the cache, `tests/discovery-browser.mjs` holds the three layout widths and the renderer's
+states, and `tests/desktop/loopback.electron.mjs` reads a published fixture document
+through the real preload and real main — including a `javascript:` entry and a duplicate
+that must not survive the trip. The website must have no discovery region and keep its
 headline. Inspect desktop and compact launcher layouts plus short-height screens.
 Delta owns API integration, final designated frontend review, merge and release.
 

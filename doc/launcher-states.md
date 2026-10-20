@@ -2674,11 +2674,13 @@ Server wake keeps its own three minutes, polls its real state, and starts the cl
 automatically when ready; it receives the same quiet visual language without
 inventing completion percentages or a promised finish time.
 
-## Proposed launcher discovery content (frontend handoff)
+## Optional discovery content on the home screen (2026-10-20)
 
 The client lifecycle contract above remains authoritative. An independent optional
-read-only `homeContent()` bridge supplies the latest public social post and one
-curated store item; its proposed schema, failure states and commerce boundaries
-are in [launcher-discovery.md](launcher-discovery.md). The frontend is implemented;
-main/preload/API are pending Delta integration. This content never changes
-`canPlay`, installation, authentication, ownership or entitlements.
+read-only `homeContent()` bridge supplies the latest public dispatch and one curated store
+item from `site/home.json` on the client origin, validated and cached in main before the
+renderer sees it; the schema, every bound, the failure states and the commerce boundaries
+are in [launcher-discovery.md](launcher-discovery.md). This content never changes
+`canPlay`, installation, authentication, ownership or entitlements, and it is not part of
+the state broadcast: it is one read the home screen asks for when it mounts, and its
+absence, emptiness or failure leaves every other surface exactly as it was.

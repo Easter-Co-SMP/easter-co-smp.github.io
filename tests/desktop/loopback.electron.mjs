@@ -95,6 +95,10 @@ const graphicsV2=crypto.randomBytes(512*1024);
 const graphicsV3=Buffer.from('graphics-v3-'+'z'.repeat(64*1024));
 const files={'/files/base.jar':baseJar,'/files/graphics.zip':graphicsV2};
 const requests=[];
+// The one non-client document the launcher reads from its own origin, named here once so
+// both "no client content" checks stay about client content (doc/launcher-discovery.md).
+const EDITORIAL_PATHS=new Set(['/home.json']);
+const isClientRead=entry=>entry.path.startsWith('/data/')||EDITORIAL_PATHS.has(entry.path);
 const server=http.createServer((request,response)=>{
  const name=decodeURIComponent(new URL(request.url,'http://stub').pathname);
  requests.push({path:name,range:request.headers.range||null});
@@ -123,6 +127,24 @@ const manifest={
  ]
 };
 files['/data/client.json']=Buffer.from(JSON.stringify(manifest));
+// The home screen's optional editorial document, published the way the real one is: one
+// good dispatch, one carrying a javascript: URL, one duplicate of the first, and one item.
+// The bad entry must never reach the renderer, which is what makes this a check of main's
+// validation rather than of the fixture's politeness (doc/launcher-discovery.md).
+files['/home.json']=Buffer.from(JSON.stringify({
+ schema:1,
+ posts:[
+  {id:'fixture-dispatch',title:'A fixture dispatch',excerpt:'Written for this check.',publishedAt:'2026-10-19T16:00:00Z',url:'https://example.test/dispatch'},
+  {id:'fixture-hostile',title:'A hostile link',excerpt:'',publishedAt:'2026-10-19T17:00:00Z',url:'javascript:alert(1)'},
+  {id:'fixture-dispatch',title:'A duplicate of the first',excerpt:'',publishedAt:'2026-10-19T18:00:00Z',url:'https://example.test/dispatch-again'}
+ ],
+ featuredItem:{id:'fixture-item',title:'A fixture item',description:'Preview only.',category:'Cosmetics'}
+}));
+// What a launcher read may touch on this origin: the generated manifest data, and the one
+// hand-written editorial document the home screen's cards come from. That document is not
+// client payload — it downloads nothing, installs nothing and never gates Play — so the two
+// "no client content" checks below allow it by name rather than by a looser prefix
+// (doc/launcher-discovery.md).
 
 // ---- the fixture tree the launcher is pointed at ----------------------------
 const clientRoot=path.join(temp,'my-client');
@@ -209,7 +231,21 @@ try{
  check(started.phase==='ready'&&started.progress===null,'the launch update check found nothing and stayed quiet');
  check(started.canPlay===false,'an installed client with no account is not playable');
  // The renderer also pulls map data through the same origin; no client content is fetched.
- check(requests.every(entry=>entry.path.startsWith('/data/')),'the launch check fetched no client content: '+JSON.stringify(requests.map(r=>r.path)));
+ check(requests.every(isClientRead),'the launch check fetched no client content (only manifest data and the optional editorial document): '+JSON.stringify(requests.map(r=>r.path)));
+
+ // The home screen's editorial cards, read through the real preload and the real main
+ // process: the fixture above is what the launcher would find published with the site. The
+ // hostile entry and the duplicate must both be gone, which is main's validation doing the
+ // work rather than the renderer's own filter.
+ const homeContent=await page.evaluate(()=>window.easterDesktop.homeContent());
+ check(homeContent&&homeContent.schema===1,'the editorial document reaches the renderer through the ordinary bridge: '+JSON.stringify(homeContent));
+ check(Array.isArray(homeContent.posts)&&homeContent.posts.length===1,'one post survives: the duplicate is collapsed and the hostile one dropped: '+JSON.stringify(homeContent.posts?.map(post=>post.id)));
+ check(homeContent.posts?.[0]?.id==='fixture-dispatch','and it is the clean one');
+ check(homeContent.featuredItem?.id==='fixture-item','the featured item arrives with its id intact');
+ check(Object.keys(homeContent.featuredItem).sort().join()==='category,description,id,title','and with exactly the fields the renderer reads');
+ const readsAfterFirst=requests.filter(entry=>entry.path==='/home.json').length;
+ await page.evaluate(()=>window.easterDesktop.homeContent());
+ check(requests.filter(entry=>entry.path==='/home.json').length===readsAfterFirst,'a second ask inside the cache window reads nothing again');
 
  console.log('\n1b. the old default is migrated once on load, and the pair is resolved by the real main process');
  // This is the path Owen's own settings file takes: exitOnLaunch:true with no
@@ -275,7 +311,7 @@ try{
  check(!(DEFERRED_KEY in seedRecord.values),'while the deferred key is not claimed before it has been written');
  check(await fs.readFile(path.join(clientRoot,'installed.json'),'utf8')===installedBefore,'the install marker is byte-identical: the seed did not create or race it');
  check(await fs.stat(path.join(clientRoot,'config','iris.properties')).then(()=>'present',()=>'absent')==='absent','the seed is not the graphics step: no iris.properties was written');
- check(requests.every(entry=>entry.path.startsWith('/data/')),'and the seed fetched nothing');
+ check(requests.every(isClientRead),'and the seed fetched no client content');
 
  console.log('\n2. publishing a new graphics chunk and applying it through the real pipeline');
  files['/data/client.json']=Buffer.from(JSON.stringify({...manifest,chunks:[manifest.chunks[0],{...manifest.chunks[1],version:'sha256:'+sha256(graphicsV3),files:[{...manifest.chunks[1].files[0],hash:'sha256:'+sha256(graphicsV3),size:graphicsV3.length}]}]}));

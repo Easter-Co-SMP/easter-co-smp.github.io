@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "posts": [
+    {
+      "id": "launcher-1.0.35",
+      "title": "The server row, the cold start and the legal pages",
+      "excerpt": "Launcher 1.0.35 turns the server status paragraph into one LED and one sentence, waits out a cold account service instead of calling it busy, and publishes the Privacy Policy and Terms of Service in every footer.",
+      "publishedAt": "2026-10-20T00:38:00Z",
+      "url": "https://github.com/Easter-Co-SMP/easter-co-smp.github.io/releases/tag/launcher-v1.0.35"
+    }
+  ],
+  "featuredItem": null
+}
