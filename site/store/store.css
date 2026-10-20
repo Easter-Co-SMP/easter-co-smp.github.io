@@ -1088,13 +1088,6 @@
 .store-game[aria-pressed="true"] .store-game-state {
   color: var(--store-gold);
 }
-.company-store .store-sidebar-game {
-  margin: -8px 10px 16px;
-  font:
-    15px/1.6 Georgia,
-    serif;
-  color: #e2d4b3;
-}
 .store-category-list > .store-overline {
   margin: 0 10px 12px;
 }
@@ -1174,10 +1167,6 @@
   .store-sidebar > .store-overline {
     display: block;
     margin: 0 10px 6px;
-  }
-  .company-store .store-sidebar-game {
-    display: block;
-    margin: 0 10px 8px;
   }
   .store-game-picker {
     margin: 0 0 12px;
