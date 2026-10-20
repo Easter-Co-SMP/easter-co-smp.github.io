@@ -971,6 +971,7 @@
   const edition=document.createElement('p');edition.className='desktop-edition';edition.textContent='Minecraft Java Edition';title.append(edition);
   heading.append(title);homeCopy.prepend(heading);
  }
+ if(homeCopy)void import('./launcher-discovery.mjs').then(({mountDiscovery})=>mountDiscovery(homeCopy.parentElement,desktop));
  // The header is account-only: no client settings button is ever placed there.
  for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"]'))trigger.remove();
  const profileButton=document.createElement('button');profileButton.type='button';profileButton.className='desktop-account-nav';profileButton.hidden=true;profileButton.setAttribute('aria-haspopup','true');profileButton.setAttribute('aria-expanded','false');

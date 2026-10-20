@@ -2673,3 +2673,12 @@ the way to try again.
 Server wake keeps its own three minutes, polls its real state, and starts the client
 automatically when ready; it receives the same quiet visual language without
 inventing completion percentages or a promised finish time.
+
+## Proposed launcher discovery content (frontend handoff)
+
+The client lifecycle contract above remains authoritative. An independent optional
+read-only `homeContent()` bridge supplies the latest public social post and one
+curated store item; its proposed schema, failure states and commerce boundaries
+are in [launcher-discovery.md](launcher-discovery.md). The frontend is implemented;
+main/preload/API are pending Delta integration. This content never changes
+`canPlay`, installation, authentication, ownership or entitlements.

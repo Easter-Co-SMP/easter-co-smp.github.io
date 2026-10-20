@@ -143,3 +143,9 @@ a.wiki-link{text-decoration:none}a.wiki-link:hover{border-color:#d7ba7d65;color:
 .not-found-footer>span[aria-hidden]{margin:0}
 @media(max-width:900px){.not-found-footer{width:calc(100% - 70px)}}
 @media(max-width:600px){.not-found-footer{width:calc(100% - 48px);padding-bottom:24px;font-size:9px}}
+
+/* Centre the complete website hero as a unit; the launcher has its own home grid. */
+html:not(.desktop-mode) .home-content{padding-top:0}
+html:not(.desktop-mode) .home .home-hero{min-height:calc(100svh - 72px);grid-template-columns:260px minmax(0,max-content);justify-content:center;gap:64px;padding:48px 0}
+@media(min-width:601px) and (max-width:1000px){html:not(.desktop-mode) .home .home-hero{grid-template-columns:190px minmax(0,1fr);gap:36px}}
+@media(max-width:600px){html:not(.desktop-mode) .home .home-hero{min-height:calc(100svh - 60px);grid-template-columns:minmax(0,1fr);gap:32px;padding:44px 0;align-content:center}}
