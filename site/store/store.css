@@ -178,7 +178,6 @@
   overflow: auto;
   overscroll-behavior: contain;
   padding: 28px 32px 40px;
-  scrollbar-color: #405963 transparent;
 }
 .store-content {
   outline: none;
