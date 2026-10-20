@@ -247,7 +247,7 @@ reproducible from a fresh clone and is recorded here as history, not as a standi
 ## Client visuals
 
 The independently versioned required `visuals` chunk enables Smooth Third Person
-Camera, Fresh Animations and its Player Extension, EMF, ETF, Dramatic Skys,
+Camera, Xaero’s Minimap, Fresh Animations and its Player Extension, EMF, ETF, Dramatic Skys,
 Skyboxify and YACL. It stays active independently of Enhanced Graphics. Packs are
 selected automatically in dependency order, keeping other packs and personal options.
 Exact upstream artifacts are pinned in `desktop/visuals.json` and fetched directly

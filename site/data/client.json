@@ -186,6 +186,15 @@
           "size": 13912171,
           "url": "https://cdn.modrinth.com/data/2YyNMled/versions/4MZQy9nc/Dramatic%20Skys%20Demo%201.5.3.36.6.zip",
           "version": "1.5.3.36.6"
+        },
+        {
+          "hash": "sha512:7452e9d462d5803eb81ef0f931d265da86ce81917eba6de124cccee40eb244d7e4bfd88eb85f8bb739970ecd12d74a6b0754e60c3fcbbdd9cabb0012c1f04f46",
+          "id": "xaerominimap",
+          "name": "Xaero's Minimap",
+          "path": "mods/xaerominimap.jar",
+          "size": 2222684,
+          "url": "https://cdn.modrinth.com/data/1bokaNcj/versions/JRopWECg/xaerominimap-fabric-26.2-26.6.0.jar",
+          "version": "fabric-26.2-26.6.0"
         }
       ],
       "id": "visuals",
@@ -193,7 +202,7 @@
       "java": null,
       "name": "Camera, animations and skies for Minecraft 26.2",
       "optional": false,
-      "version": "sha256:945decd4937c2a53aa3d298fb429ab31ad3c23c1d563a484818814eabc5e1f90"
+      "version": "sha256:daf500a0fd707902793fec3d0f12261e59515352477f06266941dd415eabefae"
     }
   ],
   "dependencies": [
