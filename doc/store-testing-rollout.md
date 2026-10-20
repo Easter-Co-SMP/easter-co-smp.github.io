@@ -39,3 +39,12 @@ The package version is deliberately unchanged. Do not tag or dispatch a launcher
 release until the packaged-startup and remaining fixture gates are resolved.
 Once they pass, follow `doc/releasing.md`: bump an unused version, publish the
 native-platform installers/update payloads, and verify the live downloads.
+
+The initial merge was pushed as `dadfd04`; GitHub Pages workflow run
+`39384155289` completed successfully. The native launcher release is separate.
+A dedicated public `/store/` route provides the same mock frontend for sharing
+while the native release prerequisites are resolved. Its browser journey passes
+at 1440, 390 and 320 px without native bindings or external requests. An independent
+frontend reviewer approved this public preview at those widths, including the
+landing page, automatic store opening, explicit no-charge notices, test checkout,
+Escape/Close/reopen focus behaviour, and resolving Privacy/Terms links.
