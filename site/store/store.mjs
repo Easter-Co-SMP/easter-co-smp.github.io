@@ -76,7 +76,14 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
   announce.setAttribute("aria-live", "polite");
   const gamesNav = el("nav", "store-games");
   gamesNav.setAttribute("aria-label", "Choose a game");
-  dialog.append(mast, demo, gamesNav, layout, announce);
+  const compactGames = window.matchMedia("(max-width: 800px)");
+  const gamePicker = el("details", "store-game-picker");
+  gamePicker.open = !compactGames.matches;
+  gamePicker.append(
+    el("summary", "store-game-picker-label", "Chose Your Game"),
+    gamesNav,
+  );
+  dialog.append(mast, demo, layout, announce);
   document.body.append(dialog);
   let gameId = "easter-smp";
   const gameName = (id) =>
@@ -114,6 +121,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
         "",
         () => {
           gameId = game.id;
+          if (compactGames.matches) gamePicker.open = false;
           category = "all";
           query = "";
           go("catalogue");
@@ -151,11 +159,6 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
       );
       gamesNav.append(choice);
     }
-    requestAnimationFrame(() =>
-      gamesNav
-        .querySelector('[aria-pressed="true"]')
-        ?.scrollIntoView({ block: "nearest", inline: "nearest" }),
-    );
     cartButton.textContent = "Cart · " + count();
     for (const [n, v] of [
       [browse, "catalogue"],
@@ -166,13 +169,14 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
       n.disabled = busy || loading;
     }
     close.disabled = busy;
-    sidebar.hidden =
-      view === "catalogue" &&
-      GAMES.find((g) => g.id === gameId)?.status !== "available";
+    sidebar.hidden = false;
     sidebar.replaceChildren(
       el("p", "store-overline", "BROWSE THE STORE"),
       el("p", "store-sidebar-game", gameName(gameId)),
+      gamePicker,
     );
+    const categoryList = el("div", "store-category-list");
+    categoryList.append(el("p", "store-overline", "ITEM CATEGORIES"));
     for (const [id, label] of CATEGORIES) {
       const b = button(
         label,
@@ -191,8 +195,9 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
         busy ||
         loading ||
         GAMES.find((g) => g.id === gameId)?.status !== "available";
-      sidebar.append(b);
+      categoryList.append(b);
     }
+    sidebar.append(categoryList);
     const note = el("div", "store-sidebar-note");
     note.append(
       el("strong", "", "Real-currency checkout"),

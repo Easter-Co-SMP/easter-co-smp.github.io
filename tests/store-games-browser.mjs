@@ -25,8 +25,30 @@ try {
     await page.goto(origin + "/store/", { waitUntil: "networkidle" });
     const store = page.locator(".company-store");
     await store.locator(".store-product").first().waitFor();
+    const picker = store.locator(".store-game-picker");
+    const expand = async () => {
+      if (!(await picker.evaluate((n) => n.open)))
+        await picker.locator("summary").click();
+    };
+    await expand();
     const games = store.getByRole("navigation", { name: "Choose a game" });
+    assert.equal(await store.locator(".store-sidebar .store-games").count(), 1);
+    assert.equal(
+      await picker.locator("summary").textContent(),
+      "Chose Your Game",
+    );
+    const rows = await games
+      .locator(".store-game")
+      .evaluateAll((nodes) =>
+        nodes.map((n) => n.getBoundingClientRect().toJSON()),
+      );
+    for (let i = 1; i < rows.length; i++)
+      assert.ok(
+        rows[i].y >= rows[i - 1].y + rows[i - 1].height,
+        "games form a vertical list",
+      );
     assert.equal(await games.getByRole("button").count(), 3);
+    await expand();
     assert.equal(
       await games
         .getByRole("button", { name: "Easter Co. SMP — Store open" })
@@ -40,6 +62,7 @@ try {
       .getByRole("button", { name: "Add 1,000 Crowns to cart" })
       .click();
     for (const game of ["Orbital Racing", "Frontier"]) {
+      await expand();
       await games
         .getByRole("button", { name: game + " — Coming soon, placeholder" })
         .click();
@@ -75,6 +98,7 @@ try {
       await store.locator(".store-cart-row").innerText(),
       /Easter Co. SMP/,
     );
+    await expand();
     assert.equal(
       await games
         .getByRole("button", { name: "Easter Co. SMP — Store open" })
