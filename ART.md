@@ -2,7 +2,7 @@
 
 The hero crest at `site/assets/crest.jpg` is generated promotional artwork, using
 `site/assets/favicon.png` as the reference for Easter Company's rising phoenix.
-Its navy enamel shield, antique-gold bird, crossed naval cutlasses and block-built
+Its navy enamel shield, antique-gold bird and block-built
 sailing ship bring the server identity into the website's navy, teal and gold palette.
 The phoenix is the primary silhouette; lettering and maritime details are secondary.
 This replaces the original scene-heavy server artwork. The company favicon remains
