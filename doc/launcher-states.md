@@ -2600,6 +2600,14 @@ click the profile button in the nav bar an element is toggled within the Easter 
 the drop down, showing the spinner until the email and account info is fetched."* The stage
 and its words are unchanged by this field; only the surface that draws them is.
 
+The subsequent profile-menu design refinement removes the animated spinner from
+that dropdown. Routine refreshes stay silent for 500 ms; a request still pending
+then shows its status as a small text-only live region in the menu. Existing email
+content stays visible during refresh. Completion or closing the menu clears the
+status and cancels its pending appearance. Other surfaces keep their existing
+feedback. `tests/profile-status-browser.mjs` covers fast/slow responses, repeated
+state paints, completion, and close/reopen cancellation with a controlled clock.
+
 | Stage | Message |
 |---|---|
 | `microsoft-opening` | Opening Microsoft sign-in… |
@@ -2684,3 +2692,13 @@ are in [launcher-discovery.md](launcher-discovery.md). This content never change
 `canPlay`, installation, authentication, ownership or entitlements, and it is not part of
 the state broadcast: it is one read the home screen asks for when it mounts, and its
 absence, emptiness or failure leaves every other surface exactly as it was.
+
+## Mock commerce surface
+
+The Company store is a separate modal frontend using the in-process mock API in
+`site/store/`. It accepts no launcher account credentials and never updates
+`canPlay`, game currency, inventory, account ownership or queue permissions.
+Real-currency-priced purchases, including in-game money packs, are simulations
+for a fictional recipient. The UI/adapter and future backend contract are in
+[launcher-store.md](launcher-store.md). Existing launcher lifecycle gates remain
+unchanged, including while the store is open.

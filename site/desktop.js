@@ -979,6 +979,11 @@
   heading.append(title);homeCopy.prepend(heading);
  }
  if(homeCopy)void import('./launcher-discovery.mjs').then(({mountDiscovery})=>mountDiscovery(homeCopy.parentElement,desktop));
+ // The store is a separate, explicitly labelled mock surface. It never shares
+ // payment, account or entitlement state with the launcher lifecycle.
+ const storeEntry=document.createElement('button');storeEntry.type='button';storeEntry.className='desktop-store-entry';storeEntry.textContent='Store';
+ storeEntry.onclick=()=>{void import('./store/store.mjs').then(({openStore})=>openStore()).catch(report);};
+ document.querySelector('.site-header nav')?.append(storeEntry);
  // The header is account-only: no client settings button is ever placed there.
  for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"]'))trigger.remove();
  const profileButton=document.createElement('button');profileButton.type='button';profileButton.className='desktop-account-nav';profileButton.hidden=true;profileButton.setAttribute('aria-haspopup','true');profileButton.setAttribute('aria-expanded','false');
@@ -996,16 +1001,10 @@
  // owner-only read the profile section asks for, and it is the only place outside that
  // section an address is ever displayed.
  const emailLine=document.createElement('p');emailLine.className='desktop-profile-heading desktop-email';emailLine.hidden=true;profileMenu.append(emailLine);
- // The menu is a surface too. Opening it reads the account's verified emails, and that wait
- // belongs here, under the line it will fill in - never in the hero, which is the surface the
- // player did not touch (Owen, 2026-10-20: "shouldn't be in the hero, should be apart of the
- // drop down, showing the spinner until the email and account info is fetched";
- // doc/launcher-states.md, the `activity` field and its `scope`).
+ // Email refreshes stay silent when fast. Slow reads get text inside this menu,
+ // without the shared spinner or its reserved reassurance row.
  const profileWaitNode=document.createElement('p');profileWaitNode.className='desktop-profile-wait';profileWaitNode.hidden=true;profileMenu.append(profileWaitNode);
- // The same component, imported again on purpose: `waitingUI` is the promise of the import's
- // side effects, so it resolves to undefined rather than to the module. The module itself is
- // cached by the browser, so this is the same fetch.
- void import('./wait-feedback.mjs').then(({createWaitFeedback})=>{profileWait=createWaitFeedback(profileWaitNode);paintProfileWait();});
+ void import('./profile-status.mjs').then(({createProfileStatus})=>{profileWait=createProfileStatus(profileWaitNode);paintProfileWait();});
  for(const [label,action,key] of [
   // The dialog is an account surface, so it is handed the account lock itself rather than a copy
   // of it (*The account lock* above, and site/company-profile.mjs). It hands back a paint, so a

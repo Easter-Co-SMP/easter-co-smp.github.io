@@ -17,20 +17,21 @@ export function mountDiscovery(host, desktop) {
  const social=node('article','discovery-card social-card'), store=node('article','discovery-card store-card');
  region.append(social,store);host.append(region);
  let busy=false;
- function shell(card,label,mark) {card.replaceChildren();card.append(node('p','discovery-label',label),node('div','discovery-mark',mark));card.lastChild.setAttribute('aria-hidden','true');}
+ function shell(card,label) {card.replaceChildren();card.append(node('p','discovery-label',label));}
  function message(card,title,body) {card.append(node('h2','discovery-title',title),node('p','discovery-copy',body));}
  function paint(payload,failed=false) {
-  shell(social,'The latest dispatch','↗');shell(store,'The Company store','◇');
+  shell(social,'Latest news');shell(store,'Company store');
   const post=latestPost(payload?.posts),item=featuredItem(payload?.featuredItem);
   if(post){
    const date=node('time','discovery-date',new Intl.DateTimeFormat(undefined,{dateStyle:'medium'}).format(new Date(post.publishedAt)));date.dateTime=post.publishedAt;social.append(date);
    message(social,post.title.slice(0,160),typeof post.excerpt==='string'?post.excerpt.slice(0,360):'');
-   const link=node('a','discovery-action','Read post ↗');link.href=post.url;link.target='_blank';link.rel='noopener noreferrer';link.setAttribute('aria-label','Read '+post.title.slice(0,160)+' (opens in browser)');social.append(link);
-  } else message(social,failed?'Dispatches unavailable':'Around the Company',failed?'The latest post couldn’t be loaded. You can keep playing.':'New posts from Easter Company will appear here.');
+   const link=node('a','discovery-action','Read post');link.href=post.url;link.target='_blank';link.rel='noopener noreferrer';link.setAttribute('aria-label','Read '+post.title.slice(0,160)+' (opens in browser)');social.append(link);
+  } else message(social,failed?'News unavailable':'No posts yet',failed?'The latest post couldn’t be loaded. You can keep playing.':'New posts from Easter Company will appear here.');
   if(item){
    store.append(node('span','discovery-category',item.category));message(store,item.title,item.description);
-   const view=node('button','discovery-action','Explore item →');view.type='button';view.onclick=()=>showItem(item);store.append(view);
-  }else message(store,'Something worth discovering',failed?'Store highlights couldn’t be loaded. Check back later.':'Featured items will appear here when the Company store opens.');
+   const view=node('button','discovery-action','Explore item');view.type='button';view.onclick=()=>showItem(item);store.append(view);
+  }else message(store,'Explore the Company store','Items, ships, player houses, account upgrades and in-game money. Preview the mock store with no real charges.');
+  const browseStore=node('button','discovery-action','Browse mock store');browseStore.type='button';browseStore.onclick=()=>{void import('./store/store.mjs').then(({openStore})=>openStore()).catch(()=>{browseStore.textContent='Couldn’t open store. Try again';});};store.append(browseStore);
   if(failed && typeof desktop.homeContent==='function'){
    const retry=node('button','discovery-action','Try again');retry.type='button';retry.onclick=load;social.append(retry);
   }
@@ -43,7 +44,7 @@ export function mountDiscovery(host, desktop) {
  }
  async function load(){
   if(busy)return;busy=true;region.setAttribute('aria-busy','true');
-  shell(social,'The latest dispatch','↗');message(social,'Loading the latest post…','');shell(store,'The Company store','◇');message(store,'Loading featured item…','');
+  shell(social,'Latest news');message(social,'Loading the latest post…','');shell(store,'Company store');message(store,'Loading featured item…','');
   let timer;
   try{
    if(typeof desktop.homeContent!=='function'){paint(null);return;}

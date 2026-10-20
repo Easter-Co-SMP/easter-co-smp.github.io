@@ -130,3 +130,25 @@ The browser check uses Chromium at `/usr/bin/chromium`, fixture-only preload
 bindings, and validates website separation/centring, three launcher sizes, loaded,
 empty and failed feed states, item dialog Escape handling, and external link targets.
 This does not validate Electron IPC or a live backend.
+
+## Home layout refinement
+
+Above 1000 px, client, news and store share a single stretched grid row with equal
+height and aligned top/bottom edges. Their content, rather than independent fixed
+card heights, determines the row height. Client controls remain primary through
+column width; supporting cards share the same surface, padding scale and quiet
+labels. Decorative glyphs and the store gradient are removed. Empty states say
+what is missing rather than presenting promotional filler.
+
+At 441–1000 px the client spans the top row and the two equal-height supporting
+cards sit below it. At 440 px and below, all three stack. Short windows scroll the
+page rather than clipping a client card or creating a separate client scrollbar.
+The browser checks assert these geometry rules for populated, long-copy, empty
+and failed states at 1440, 1100, 900, 600 and 390 px, plus 1100 × 600.
+
+## Mock store frontend
+
+The launcher now offers a separately labelled mock store through its navigation
+and home card. See [launcher-store.md](launcher-store.md) for the full frontend,
+fixture catalogue, quote/order adapter and real-currency integration contract.
+`home.json` remains a public editorial document and is not a commerce authority.
