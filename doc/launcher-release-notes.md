@@ -1,3 +1,47 @@
+# Easter Company launcher 1.0.36
+
+The naval phoenix crest, a patient account service, and three cards on the home screen.
+Includes custom mod 2.0.2 and preserves launcher settings, caches and sign-in sessions.
+
+- The hero crest is a new piece of Easter Company art: an enamel shield in navy and
+  antique gold with a block-built phoenix, a sailing ship on teal water and a printed
+  `EASTER CO.` / `SMP` plate. The harbour behind it has been cleaned up too — two masts,
+  clear square sails and purposeful rigging instead of a thicket of lamp posts and deck
+  clutter, with the blue-hour palette untouched.
+- Easter Company now has a mark rather than plain text: a fire-coloured phoenix sits
+  beside the wordmark on every page, in the launcher header and in the browser tab, and
+  the launcher, tray and desktop-entry icon are drawn from the same art.
+- The launcher's home screen gains two cards beside the client controls: the latest
+  dispatch from Easter Company, and a curated store highlight that opens a preview. They
+  never block signing in, installing or playing, they load from the public site, and a
+  preview says plainly that purchasing is not available yet.
+- Every account journey now waits out a cold account service instead of calling it busy.
+  Signing in with a password, claiming a username with the first password, changing a
+  password, saving a profile and choosing a login email all keep trying a service that
+  declares its database is still waking — up to ninety seconds across four attempts —
+  with the same patience the Microsoft sign-in always had. Anything that could have
+  changed something is still never replayed, and a refusal still ends the wait at once.
+- A failure now says what happened and what did not: the account service is still waking
+  up, nothing has changed, and the control that was pressed is the way to try again. The
+  identifier already typed is kept; the password is not.
+- The profile menu's own reads report inside the menu. Opening it used to put a spinner
+  and "Contacting the account service" in the hero, a surface the player had not touched.
+- Dialogs and their status lines fade in rather than cutting, and nothing moves at all
+  when the system asks for reduced motion.
+- An identity conflict reads the same way whichever sign-in path it arrives on: the
+  account service's sentence, then what did not change, then the way out.
+
+The website keeps its own headline and gains no launcher furniture; its hero is centred
+as one unit. The crest and the harbour are served at the size the page draws them, which
+took the launcher's first paint from 2.9 MB of imagery to 579 KB.
+
+Validation covers 297 launcher unit tests, 104 site tests, site validation, the eight
+browser suites and all 21 Electron journeys, including the cold-start recovery, provider
+linking against the real account handler, and a journey that reads the dispatch document
+through the real preload and main process with a hostile link and a duplicate in it.
+As with every release, CI builds and packages the installers; it does not sign a person
+in or launch the game, so the first real play on Windows remains manual.
+
 # Easter Company launcher 1.0.35
 
 The server row, the cold-start fix and the legal pages. Includes custom mod 2.0.2
