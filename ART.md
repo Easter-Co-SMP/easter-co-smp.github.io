@@ -1,6 +1,12 @@
 # Website artwork
 
-The original phoenix crest is the server’s existing Easter Co. SMP artwork.
+The hero crest at `site/assets/crest.jpg` is generated promotional artwork, using
+`site/assets/favicon.png` as the reference for Easter Company's rising phoenix.
+Its navy enamel shield, antique-gold bird, crossed naval cutlasses and block-built
+sailing ship bring the server identity into the website's navy, teal and gold palette.
+The phoenix is the primary silhouette; lettering and maritime details are secondary.
+This replaces the original scene-heavy server artwork. The company favicon remains
+the canonical emblem reference.
 
 The opening environment is promotional concept art, not a precise view or map of the
 actual saved world. The public atlas always uses real saved terrain.
