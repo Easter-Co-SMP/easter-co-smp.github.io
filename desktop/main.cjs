@@ -70,15 +70,20 @@ const ACTIVITY_MESSAGES=Object.freeze({
  'account-working':'Contacting the account service…'
 });
 let activityOwner=null;
-function beginActivity(stage,{replace=true}={}){
+function beginActivity(stage,{replace=true,scope='hero'}={}){
  // Optional profile reads never take over an interactive sign-in or mutation.
  // A read replaced by a newer operation cannot clear or revive that operation.
  if(!replace&&activityOwner)return {update:()=>{},end:()=>{}};
  const owner=Symbol('activity'),startedAt=Date.now();let currentStage=null;activityOwner=owner;
+ // `scope` says which surface draws the words: the hero for the operations the player
+ // starts there, `surface` for the ones they start in a menu or a dialog, which report in
+ // that surface and may never paint the hero's line (doc/launcher-states.md, the `activity`
+ // field and *Quiet activity feedback and cold-start patience*). The stage and its words do
+ // not change with it: only the place they are read.
  const update=next=>{
   if(activityOwner!==owner||!Object.hasOwn(ACTIVITY_MESSAGES,next)||currentStage===next)return;
   currentStage=next;
-  notify({activity:{stage:next,message:ACTIVITY_MESSAGES[next],startedAt}});
+  notify({activity:{stage:next,message:ACTIVITY_MESSAGES[next],startedAt,scope}});
  };
  const end=()=>{if(activityOwner===owner){activityOwner=null;notify({activity:null});}};
  update(stage);return {update,end};
@@ -1148,7 +1153,7 @@ function registerIPC(){
   }
   return exclusively(()=>login({link:options?.link===true}));
  });
- handle('account-providers',()=>withActivity('account-working',()=>accounts.providers(),{replace:false}));
+ handle('account-providers',()=>withActivity('account-working',()=>accounts.providers(),{replace:false,scope:'surface'}));
  handle('provider-sign-in',(provider,link=false)=>accountOperation(async(update)=>{
   if(company&&!link)throw Error('Sign out before signing in to a different account.');
   const abort=new AbortController();controller=abort;
@@ -1263,7 +1268,9 @@ function foldUsername(value){
   // and typing Owen is a keyboard habit rather than a mistake worth an error.
   const folded=foldUsername(username);
   if(!folded||!USERNAME_PATTERN.test(folded))return {available:false,reason:'username_policy',message:ACCOUNT_MESSAGES.username_policy};
-  const found=await withActivity('account-working',()=>accounts.usernameAvailable(folded),{replace:false});
+  // The username step owns this wait: the dialog it was typed into says "Checking your
+  // username…" while it runs, so the hero stays quiet (doc/launcher-states.md, `scope`).
+  const found=await withActivity('account-working',()=>accounts.usernameAvailable(folded),{replace:false,scope:'surface'});
   return found.available?{available:true,reason:null,message:null}:{available:false,reason:found.reason||'username_taken',message:ACCOUNT_MESSAGES[found.reason]||ACCOUNT_MESSAGES.username_taken};
  });
  // The username is claimed with the first password and never travels again.
@@ -1323,8 +1330,8 @@ function foldUsername(value){
   }
   catch(error){await sessionLost(error);throw error;}
  }
- handle('profile-emails',()=>withActivity('account-working',verifiedEmails,{replace:false}));
- handle('login-email',email=>withActivity('account-working',update=>selectLoginEmail(email,update),{replace:false}));
+ handle('profile-emails',()=>withActivity('account-working',verifiedEmails,{replace:false,scope:'surface'}));
+ handle('login-email',email=>withActivity('account-working',update=>selectLoginEmail(email,update),{replace:false,scope:'surface'}));
  handle('open-minecraft-store',()=>shell.openExternal('https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc'));
  handle('open-minecraft-profile',()=>shell.openExternal('https://www.minecraft.net/en-us/msaprofile'));
  handle('recheck-access',async()=>{

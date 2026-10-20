@@ -2587,6 +2587,18 @@ object during an account operation:
 | `stage` | A whitelisted stage below, never a provider response or URL |
 | `message` | Fixed launcher-owned wording for that stage |
 | `startedAt` | Epoch milliseconds when this operation began; stable through its stages |
+| `scope` | Where the wait belongs: `hero` (default) or `surface` |
+
+`scope` exists because the hero is not the only place work starts. An operation the player
+begins from the hero - installing, signing in, playing, waking the server - owns the hero's
+wait line. An operation they begin from a menu or a dialog - opening the profile menu reads
+their verified emails, opening Profile & linked accounts reads the provider list, the
+username step asks whether a name is free, the verified-emails dialog saves a choice -
+reports in that surface, and may never paint the hero's line. Owen, 2026-10-20: *"when I
+click the profile button in the nav bar an element is toggled within the Easter Co. SMP hero
+\"{spinner} Contacting the account service\" ... shouldn't be in the hero, should be apart of
+the drop down, showing the spinner until the email and account info is fetched."* The stage
+and its words are unchanged by this field; only the surface that draws them is.
 
 | Stage | Message |
 |---|---|

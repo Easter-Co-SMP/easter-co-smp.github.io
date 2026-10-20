@@ -321,3 +321,8 @@
  .wait-feedback:not([hidden]){animation:line-enter 160ms ease-out both}
  .desktop-company-dialog .company-error:not([hidden]){animation:line-enter 160ms ease-out both}
 }
+
+/* The profile menu's own wait line: the same quiet component as the hero's, sized for a
+   popover, sitting under the email line whose read it is reporting. */
+.desktop-profile-wait{margin:6px 0 2px}.desktop-profile-wait .wait-feedback-mark{width:11px;height:11px}
+.desktop-profile-wait.wait-feedback{font-size:11px;color:var(--app-muted)}

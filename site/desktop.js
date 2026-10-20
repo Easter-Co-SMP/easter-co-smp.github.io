@@ -47,7 +47,12 @@
  let companyAuth=null,companyProfileView=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
- let heroWait=null,authWait=null,localActivity=null,serverWaitStartedAt=null;
+ let heroWait=null,authWait=null,profileWait=null,localActivity=null,serverWaitStartedAt=null;
+ // Where a wait belongs. `hero` is the default and what every operation the player starts from
+ // the hero publishes; `surface` is an operation they started in a menu or a dialog, which
+ // reports there and never paints the hero's line (doc/launcher-states.md, `activity`).
+ const heroScoped=value=>!value||(value.scope||'hero')==='hero';
+ const surfaceScoped=value=>Boolean(value)&&value.scope==='surface';
  const waitingUI=import('./wait-feedback.mjs').then(({createWaitFeedback})=>{heroWait=createWaitFeedback(heroWaitNode);authWait=createWaitFeedback(auth('.desktop-auth-wait'));if(current)render(current);});
  let current=null,settings,totalMemoryMB=0,heroButton=null,settingsButton=null,graphicsSection=null,graphicsSwitch=null,graphicsLabel=null,graphicsNote=null,graphicsError=null,signInPending=false;
 
@@ -715,7 +720,9 @@
   accessPanel.querySelector('p').textContent=access==='missing'?'This Microsoft account does not have access to Minecraft Java Edition. Buy it using the same account, then check again.':access==='profile-required'?'This account has Java Edition access. Set up your Java player profile, then check again.':'We could not confirm Java Edition access. Check again, or sign in with the account that has Minecraft.';
   accessPanel.querySelector('[data-recheck-access]').hidden=access==='unknown';
   for(const button of accessPanel.querySelectorAll('button'))button.disabled=Boolean(current.accessChecking||current.accountWorking)||signInPending;
-  if(signInPending&&current.activity)localActivity=current.activity;
+  // The sign-in dialog is a hero-owned operation, so a surface-scoped read running beside it
+  // (a username check, a verified-email read) never retitles it or hides its device code.
+  if(signInPending&&current.activity&&heroScoped(current.activity))localActivity=current.activity;
   const activity=current.activity||localActivity;
   const title=signInPending&&activity&&!['microsoft-opening','microsoft-waiting'].includes(activity.stage)?'Finishing sign-in…':'Sign in with Microsoft';
   if(auth('h2').textContent!==title)auth('h2').textContent=title;
@@ -787,8 +794,11 @@
   if(waking&&serverWaitStartedAt===null)serverWaitStartedAt=localActivity?.startedAt||Date.now();
   if(!waking)serverWaitStartedAt=null;
   const gameWait=waking?{stage:'server-starting',message:current.game.message||'Waiting for your server to be ready…',detail:current.game.detail,startedAt:serverWaitStartedAt}:null;
-  const heroActivity=!signInPending&&!signin.open&&!document.querySelector('.desktop-company-dialog[open]')&&current.startupReady!==false&&!transferring(current)?gameWait||activity:null;
+  const heroActivity=!signInPending&&!signin.open&&!document.querySelector('.desktop-company-dialog[open]')&&current.startupReady!==false&&!transferring(current)?gameWait||(heroScoped(activity)?activity:null):null;
   heroWait?.set(heroActivity);
+  // The profile menu is the other surface: the verified-email read it starts reports inside it,
+  // under the line that read will fill in.
+  paintProfileWait();
   // The row stands down while the cold start's own wait line is carrying the same sentence,
   // so one live region says it rather than two. That is the only case it gives way to.
   renderGame(current,Boolean(gameWait)&&heroActivity===gameWait);
@@ -978,6 +988,16 @@
  // owner-only read the profile section asks for, and it is the only place outside that
  // section an address is ever displayed.
  const emailLine=document.createElement('p');emailLine.className='desktop-profile-heading desktop-email';emailLine.hidden=true;profileMenu.append(emailLine);
+ // The menu is a surface too. Opening it reads the account's verified emails, and that wait
+ // belongs here, under the line it will fill in - never in the hero, which is the surface the
+ // player did not touch (Owen, 2026-10-20: "shouldn't be in the hero, should be apart of the
+ // drop down, showing the spinner until the email and account info is fetched";
+ // doc/launcher-states.md, the `activity` field and its `scope`).
+ const profileWaitNode=document.createElement('p');profileWaitNode.className='desktop-profile-wait';profileWaitNode.hidden=true;profileMenu.append(profileWaitNode);
+ // The same component, imported again on purpose: `waitingUI` is the promise of the import's
+ // side effects, so it resolves to undefined rather than to the module. The module itself is
+ // cached by the browser, so this is the same fetch.
+ void import('./wait-feedback.mjs').then(({createWaitFeedback})=>{profileWait=createWaitFeedback(profileWaitNode);paintProfileWait();});
  for(const [label,action,key] of [
   // The dialog is an account surface, so it is handed the account lock itself rather than a copy
   // of it (*The account lock* above, and site/company-profile.mjs). It hands back a paint, so a
@@ -989,6 +1009,13 @@
   const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.profileAction=key;button.onclick=action;profileMenu.append(button);
  }
  document.body.append(profileMenu);
+ // Only a surface-scoped operation paints here, and only while the menu is actually open: a wait
+ // that finished after the player closed the menu has no surface left to report to.
+ function paintProfileWait(){
+  if(!profileWait)return;
+  const activity=current?.activity;
+  profileWait.set(surfaceScoped(activity)&&profileMenu.matches(':popover-open')?activity:null);
+ }
  const positionProfile=()=>{const rect=profileButton.getBoundingClientRect();profileMenu.style.top=rect.bottom+8+'px';profileMenu.style.right=Math.max(12,innerWidth-rect.right)+'px';};
  profileButton.onclick=()=>{
   if(!current?.account){signIn();return;}
@@ -998,7 +1025,7 @@
   // the line simply says what it knows.
   if(profileMenu.matches(':popover-open'))void companyUI.then(ui=>ui.refreshEmails()).catch(()=>{});
  };
- profileMenu.addEventListener('toggle',event=>profileButton.setAttribute('aria-expanded',String(event.newState==='open')));
+ profileMenu.addEventListener('toggle',event=>{profileButton.setAttribute('aria-expanded',String(event.newState==='open'));paintProfileWait();});
  window.addEventListener('resize',positionProfile);
  let faceId=null,facePicture=null,faceSkin=null,emailView=null;
  // The name the player is called, not the handle they type. state.account.name is the

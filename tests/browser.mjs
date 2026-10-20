@@ -842,6 +842,21 @@ try{
    assert(!headed.includes('EC-'),'and no Company ID is shown to the player');
    assert((await profileMenu.locator('.desktop-company').textContent()).includes('Microsoft / Xbox linked'),'Microsoft is shown as a linked provider');
    assert.equal(await profileMenu.getByRole('button',{name:'Sign out of Easter Company',exact:true}).count(),0,'one primary Logout action');
+   // Owen, 2026-10-20: "when I click the profile button in the nav bar an element is toggled
+   // within the Easter Co. SMP hero '{spinner} Contacting the account service' ... shouldn't be
+   // in the hero, should be apart of the drop down". The read that opening this menu starts
+   // reports inside the menu, under the line it will fill in, and the hero stays silent about
+   // work it did not start. A hero-owned wait still paints the hero and never the menu.
+   await pushState({activity:{stage:'account-working',message:'Contacting the account service…',startedAt:Date.now(),scope:'surface'}});
+   const menuWait=profileMenu.locator('.desktop-profile-wait');
+   await menuWait.waitFor({state:'visible'});
+   assert.match(await menuWait.innerText(),/Contacting the account service/,'the wait is inside the menu that started it');
+   assert.equal(await launcherPage.locator('.desktop-activity').isVisible(),false,'and the hero says nothing about work it did not start');
+   await pushState({activity:{stage:'company-signing-in',message:'Connecting your Easter Company account…',startedAt:Date.now(),scope:'hero'}});
+   await launcherPage.locator('.desktop-activity').waitFor({state:'visible'});
+   assert.equal(await menuWait.isVisible(),false,'a hero-owned wait never paints the menu');
+   await pushState({activity:null});
+   await menuWait.waitFor({state:'hidden'});
    // The verified emails: the profile names the address that signs the account in, the
    // section lists what the account service reports, and the choice reaches main as the
    // chosen address and nothing else. No address is ever part of the state that is pushed.
