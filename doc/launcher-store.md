@@ -142,7 +142,7 @@ page does not publish a new installer or bypass the packaged-launcher release ga
 ## Game-scoped storefronts
 
 Game selection is a vertical list in the sidebar, directly below “BROWSE THE
-STORE” and the current game name, labelled “Chose Your Game”, above item categories. Easter Co. SMP
+STORE”, labelled “Chose Your Game”, above item categories. Easter Co. SMP
 is the available example; Orbital Racing and Frontier are explicitly fictional
 coming-soon placeholders, not release announcements. Their concept views have no
 SKUs, prices or purchase controls. The selected game has a labelled pressed button,

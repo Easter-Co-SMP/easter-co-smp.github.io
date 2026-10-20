@@ -172,7 +172,6 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     sidebar.hidden = false;
     sidebar.replaceChildren(
       el("p", "store-overline", "BROWSE THE STORE"),
-      el("p", "store-sidebar-game", gameName(gameId)),
       gamePicker,
     );
     const categoryList = el("div", "store-category-list");
