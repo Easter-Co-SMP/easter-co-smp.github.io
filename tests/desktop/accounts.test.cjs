@@ -581,7 +581,7 @@ test('database resume retry stops after four requests and reports fixed actionab
  try{
   const error=await rejects(assert,client(stub.origin,{waitFor:async()=>{}}).login(TOKEN),'database_unavailable');
   assert.equal(stub.calls.length,4);
-  assert.match(error.message,/still waking up.*try signing in again/i);
+  assert.match(error.message,/still waking up, and nothing has changed/i);
   assert(!error.message.includes(TOKEN));
  }finally{await stub.close();}
 });
@@ -613,12 +613,29 @@ test('cancel during database resume backoff prevents enrollment replay',async()=
  assert.equal(attempts,1);
 });
 
-test('other account mutations are never replayed on database failures',async()=>{
- const stub=await startStub(({response})=>send(response,503,{error:'database_unavailable'}));
- try{
-  await rejects(assert,client(stub.origin).setPassword(SESSION,'fixture-password',false,'fixture-user'),'database_unavailable');
-  assert.equal(stub.calls.length,1);
- }finally{await stub.close();}
+test('every account mutation now waits out a declared database resume, and only that',async()=>{
+ // Until 2026-10-20 only Microsoft enrollment was patient, and this test proved the rest were
+ // single attempts. Owen's release note for the auth journeys changed the rule: a waking
+ // account service is normal for this deployment, so every operation waits out the one answer
+ // that proves nothing was written (doc/launcher-states.md, *Every account journey waits out a
+ // cold account service*). The clock is injected, so the ninety-second window costs no time.
+ const {AccountClient}=require('../../desktop/accounts.cjs');
+ const stages=[];let clock=0,calls=0;const waits=[];
+ const api=new AccountClient({baseUrl:'http://127.0.0.1:1',now:()=>clock,waitFor:async ms=>{waits.push(ms);clock+=ms;},
+  request:async()=>{calls++;return new Response(JSON.stringify({error:'database_unavailable'}),{status:503,headers:{'Content-Type':'application/json'}});}});
+ await rejects(assert,api.setPassword(SESSION,'fixture-password',false,'fixture-user',stage=>stages.push(stage)),'database_unavailable');
+ assert.equal(calls,4,'four attempts including the first');
+ assert.deepEqual(waits,[3000,6000,9000],'three seconds by attempt of backoff');
+ assert.deepEqual(stages,['company-waking','company-waking','company-waking'],'and the dialog is told it is waiting');
+ assert.match(api&&String(stages),/^company-waking/,'nothing but the stage name leaves the loop');
+
+ // A 503 that does not declare the database is not a declaration, and it is not waited on.
+ calls=0;waits.length=0;
+ const refused=new AccountClient({baseUrl:'http://127.0.0.1:1',now:()=>clock,waitFor:async ms=>{waits.push(ms);clock+=ms;},
+  request:async()=>{calls++;return new Response(JSON.stringify({error:'identity_provider_unavailable'}),{status:503,headers:{'Content-Type':'application/json'}});}});
+ await rejects(assert,refused.setPassword(SESSION,'fixture-password',false,'fixture-user'),'identity_provider_unavailable');
+ assert.equal(calls,1,'an unrelated 503 is an answer');
+ assert.deepEqual(waits,[],'and costs the player no waiting');
 });
 
 

@@ -2621,12 +2621,43 @@ Cancellation is offered only where it can actually stop the operation. A mutatio
 that cannot safely be cancelled remains visibly pending until it has a definite
 answer; it is never labelled cancelled while a write may still be underway.
 
-Microsoft Company enrollment may keep trying an explicit HTTP 503
-`database_unavailable` for up to ninety seconds and at most four attempts, including
-the initial request. Each request and backoff stays within the remaining window,
-with the normal thirty-second request ceiling. Cancellation stops requests and
-backoff. This does not replay network errors, malformed successes, unknown
-failures, credentials, or other account mutations. Other request budgets remain
-bounded. Server wake already allows three minutes, polls its real state, and starts
-the client automatically when ready; it receives the same quiet visual language
-without inventing completion percentages or a promised finish time.
+### Every account journey waits out a cold account service (2026-10-20)
+
+Owen, on sign-up and sign-in: *"they should fail loudly but also have generous
+timeouts and retries especially when dealing with our own serverless infrastructure
+which will frequently cold start."* Aurora and the Lambda behind the account API
+resume on the first request of a session, so the first thing a player does after a
+quiet hour is the most likely thing to meet a waking service.
+
+The rule is therefore about what the service *said*, not about which route asked.
+An explicit HTTP 503 `database_unavailable` is the service declaring that it did not
+carry out the request: nothing was read, nothing was written, and the same request
+with the same body is a first request rather than a replay. **Every** account
+operation - Microsoft enrollment, password sign-in, claiming the username with the
+first password, password changes, the profile write, the verified-email read and the
+login-email selection, the provider broker's start and finish, session refresh and
+the revoke-everywhere call - may keep trying exactly that answer for up to ninety
+seconds and at most four attempts, including the initial request, at three seconds
+per attempt of backoff. Each request and each wait stays inside the remaining window,
+with the normal thirty-second request ceiling, because API Gateway cuts an
+integration there. Cancellation stops both the request and the backoff.
+
+What may never be replayed does not change. A dropped connection, the gateway's own
+timeout, an unreadable success and any other 5xx leave the outcome unknown on a write,
+so each of them is one attempt and an error the player can read; only reads and the
+session mint, which change nothing, retry those. Credentials are never re-sent to a
+service that refused them: a 401, 403 or 429 ends the wait immediately.
+
+While that window is open the player is told what is happening in the words the
+contract already fixed for it: `company-waking`, *"The account service is waking up.
+We'll keep trying…"*, inside whichever surface they are already looking at. The
+stage is launcher-owned text; no provider body, status or infrastructure name reaches
+it. When the window closes the operation fails loudly with the sentence for
+`database_unavailable`, which now says what is true of every journey that reaches it:
+the service is still waking up and nothing has changed. Exhausting the window is a
+failure the player reads, not a silent retry loop, and the control they pressed stays
+the way to try again.
+
+Server wake keeps its own three minutes, polls its real state, and starts the client
+automatically when ready; it receives the same quiet visual language without
+inventing completion percentages or a promised finish time.

@@ -114,29 +114,55 @@ test('a write is one attempt, whatever went wrong: a lost answer may have commit
  }
 });
 
-test('the sign-in keeps its own narrow database_unavailable rule, and it is not loosened',async()=>{
- // login() owns a declared retry: four attempts, three seconds by attempt of backoff, ninety
- // seconds of window, and ONLY for a 503 that names `database_unavailable` - the one failure
- // the service sends when it knows nothing was written.
- let attempts=0;
- const {api,waits}=frozenClient(async()=>{attempts++;return failures.databaseUnavailable();});
- await api.login('xbox-user-token-private').then(()=>assert.fail('unexpected answer'),error=>assert.equal(error.code,'database_unavailable'));
- assert.equal(attempts,4,'four attempts, exactly as before this ticket');
- assert.deepEqual(waits,[3000,6000,9000],'and the same 3 s x attempt backoff');
+test('every account journey waits out a waking service on the one answer that proves nothing happened',async()=>{
+ // Owen, 2026-10-20: sign-up and sign-in "should fail loudly but also have generous timeouts
+ // and retries especially when dealing with our own serverless infrastructure which will
+ // frequently cold start". A declared 503 `database_unavailable` is the service saying it
+ // carried nothing out, so every operation waits the same window the sign-in always had:
+ // four attempts including the first, three seconds by attempt of backoff, ninety seconds.
+ // This is the rule that replaced "every other write is one attempt"; the failure copy and
+ // the stage both come from the same place (doc/launcher-states.md, *Every account journey
+ // waits out a cold account service*).
+ const operations=[
+  ['sign-in',(api,onWait)=>api.login('xbox-user-token-private',undefined,undefined,undefined,onWait)],
+  ['password sign-in',(api,onWait)=>api.loginPassword('captainfixture','fixture secret passphrase',undefined,onWait)],
+  ['password save',(api,onWait)=>api.setPassword(TOKEN,'fixture secret passphrase',false,'captainfixture',onWait)],
+  ['email selection',(api,onWait)=>api.selectLoginEmail(TOKEN,'owen@example.test',undefined,onWait)],
+  ['profile write',(api,onWait)=>api.updateProfile(TOKEN,{displayName:'Captain Fixture'},onWait)],
+  ['session refresh',(api,onWait)=>api.refreshSession(TOKEN,undefined,onWait)],
+  ['revoke',(api,onWait)=>api.revokeGameSession(TOKEN,undefined,onWait)]
+ ];
+ for(const [name,run] of operations){
+  let attempts=0;const stages=[];
+  const {api,waits}=frozenClient(async()=>{attempts++;return failures.databaseUnavailable();});
+  await run(api,stage=>stages.push(stage)).then(()=>assert.fail(name+' unexpectedly answered'),error=>{
+   assert.equal(error.code,'database_unavailable',name+': the declared code reaches the player');
+   assert.match(error.message,/still waking up, and nothing has changed/i,name+': and says what did not happen');
+  });
+  assert.equal(attempts,4,name+': four attempts including the first');
+  assert.deepEqual(waits,[3000,6000,9000],name+': three seconds by attempt of backoff');
+  assert.deepEqual(stages,['company-waking','company-waking','company-waking'],name+': the wait names itself every time it rests');
+ }
+});
 
- // Every other declared database_unavailable on a write is still a single attempt.
- for(const [name,run] of [
-  ['password sign-in',api=>api.loginPassword('captainfixture','fixture secret passphrase')],
-  ['password save',api=>api.setPassword(TOKEN,'fixture secret passphrase',false,'captainfixture')],
-  ['email selection',api=>api.selectLoginEmail(TOKEN,'owen@example.test')],
-  ['profile write',api=>api.updateProfile(TOKEN,{displayName:'Captain Fixture'})],
-  ['revoke',api=>api.revokeGameSession(TOKEN)],
-  ['session refresh',api=>api.refreshSession(TOKEN)]
+test('the waking window still refuses every answer that is not a declaration',async()=>{
+ // The patience above is for the one answer that proves nothing happened. A refusal is an
+ // answer, an unreadable success is ambiguous, and a 500 is the service failing to say which:
+ // none of them may cost a player ninety seconds, and none of them may re-send credentials.
+ for(const [failure,label,make] of [
+  ['a 401 refusal', 'a refusal', ()=>new Response(JSON.stringify({error:'invalid_credentials'}),{status:401,headers:{'Content-Type':'application/json'}})],
+  ['a 429 limit', 'a refusal', ()=>new Response(JSON.stringify({error:'rate_limited'}),{status:429,headers:{'Content-Type':'application/json'}})],
+  ['a 500', 'an unknown outcome', ()=>new Response(JSON.stringify({error:'internal'}),{status:500,headers:{'Content-Type':'application/json'}})],
+  ['a gateway timeout', 'an unknown outcome', failures.gatewayTimeout],
+  ['a dropped connection', 'an unknown outcome', failures.dropped]
  ]){
   let attempts=0;
-  const {api}=frozenClient(async()=>{attempts++;return failures.databaseUnavailable();});
-  await run(api).then(()=>assert.fail(name+' unexpectedly answered'),()=>{});
-  assert.equal(attempts,1,name+' may not borrow the sign-in\'s rule');
+  const {api,waits}=frozenClient(async()=>{attempts++;return make();});
+  await api.loginPassword('captainfixture','fixture secret passphrase').then(
+   ()=>assert.fail(label+' unexpectedly answered'),
+   ()=>{});
+  assert.equal(attempts,1,label+' is asked once, not four times: '+failure);
+  assert.deepEqual(waits,[],label+' never rests: '+failure);
  }
 });
 

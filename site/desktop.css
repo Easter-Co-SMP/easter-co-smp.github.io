@@ -288,3 +288,36 @@
 #desktop-signin .desktop-auth-wait{justify-content:center;text-align:center;text-wrap:balance}
 #desktop-signin.is-finishing{padding-top:34px;padding-bottom:28px}
 @media(prefers-reduced-motion:reduce){.wait-feedback-mark{animation:none;border-color:var(--app-gold);opacity:.7}}
+
+/* ---- Entry motion: one quiet movement per surface -------------------------------
+   Sol's rule for this launcher is that a wait reports itself at once and quietly; the
+   surfaces obey the same rule. A dialog arrives, a refusal lands in the slot the player is
+   already reading, and a status line opens under the control they pressed - each with one
+   short movement in the direction of its own content, then still. Nothing loops, nothing
+   bounces, nothing slides across the screen, and nothing moves at all when the system asks
+   for reduced motion: that is a preference, not a hint.
+
+   Only entrances are animated. Closes stay instant, because a dialog that lingers after
+   Escape is worse than one that disappears, and because every journey in tests/desktop
+   expects a closed dialog to be closed the moment it is closed. */
+/* The dialog fades; it does not slide or scale. These dialogs measure their own geometry to
+   decide where a refusal has to be scrolled to, and a transform in flight moves the box those
+   measurements read - at 800x600 that left the identity-conflict sentence a few pixels outside
+   the box the product had just scrolled it into. Motion that breaks a measurement is not
+   polish (tests/desktop/launcher-identity-conflict.electron.mjs). */
+@keyframes dialog-enter{from{opacity:0}to{opacity:1}}
+@keyframes backdrop-enter{from{opacity:0}to{opacity:1}}
+/* A refusal or a status line arrives where the player is already looking, so it fades in
+   rather than moving: a transform here would shift the box the dialogs measure to decide
+   whether the sentence is reachable, and a refusal that scrolls itself is worse than one
+   that simply appears (tests/desktop/launcher-identity-conflict.electron.mjs). */
+@keyframes line-enter{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:no-preference){
+ .desktop-company-dialog[open]{animation:dialog-enter 170ms cubic-bezier(.22,.61,.36,1) both}
+ .desktop-company-dialog[open]::backdrop{animation:backdrop-enter 170ms ease-out both}
+ /* Step 1 and step 2 of setup hand over rather than cut: the second dialog enters the same
+    way the first did, so the flow reads as one movement with the step line above it. */
+ .desktop-company-dialog .company-step{animation:line-enter 200ms ease-out both}
+ .wait-feedback:not([hidden]){animation:line-enter 160ms ease-out both}
+ .desktop-company-dialog .company-error:not([hidden]){animation:line-enter 160ms ease-out both}
+}

@@ -444,7 +444,10 @@ async function forgetCompany(){
 async function accountOperation(action){
  if(accountWorking||controller||game||(working&&!control))throw Error('Wait for the current operation to finish.');
  accountWorking=true;notify({});
- try{return await withActivity('account-working',()=>control?action():exclusively(action));}
+ // The stage updater is passed down so a write that meets a waking account service can name
+ // `company-waking` and the open dialog can say it (doc/launcher-states.md, *Every account
+ // journey waits out a cold account service*). Handlers that ignore it are unaffected.
+ try{return await withActivity('account-working',update=>control?action(update):exclusively(()=>action(update)));}
  finally{accountWorking=false;notify({});}
 }
 async function renewCompany(){
@@ -1146,11 +1149,11 @@ function registerIPC(){
   return exclusively(()=>login({link:options?.link===true}));
  });
  handle('account-providers',()=>withActivity('account-working',()=>accounts.providers(),{replace:false}));
- handle('provider-sign-in',(provider,link=false)=>accountOperation(async()=>{
+ handle('provider-sign-in',(provider,link=false)=>accountOperation(async(update)=>{
   if(company&&!link)throw Error('Sign out before signing in to a different account.');
   const abort=new AbortController();controller=abort;
   try{
-   const signed=await providerSignIn(accounts,provider,{token:link?company?.token:undefined,signal:abort.signal,openExternal:url=>shell.openExternal(url)});
+   const signed=await providerSignIn(accounts,provider,{token:link?company?.token:undefined,signal:abort.signal,openExternal:url=>shell.openExternal(url),onWait:update});
    const next=companySession(signed);
    if(link&&company&&next.account.id!==company.account.id)throw new AccountError('identity_conflict',ACCOUNT_MESSAGES.identity_conflict);
    const previous=company;company=next;
@@ -1167,11 +1170,11 @@ function registerIPC(){
    return publicAccount(company);
   }finally{if(controller===abort)controller=null;}
  }));
- handle('profile-update',(displayName)=>accountOperation(async()=>{
+ handle('profile-update',(displayName)=>accountOperation(async(update)=>{
   if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
-  company.account=await accounts.updateProfile(company.token,{displayName});await saveCompany();notify({});return publicAccount(company);
+  company.account=await accounts.updateProfile(company.token,{displayName},update);await saveCompany();notify({});return publicAccount(company);
  }));
- handle('profile-picture',(remove=false)=>accountOperation(async()=>{
+ handle('profile-picture',(remove=false)=>accountOperation(async(update)=>{
   if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
   let picture=null;
   if(!remove){
@@ -1185,7 +1188,7 @@ function registerIPC(){
    image=image.crop({x:Math.floor((size.width-edge)/2),y:Math.floor((size.height-edge)/2),width:edge,height:edge}).resize({width:256,height:256});
    picture='data:image/png;base64,'+image.toPNG().toString('base64');
   }
-  company.account=await accounts.updateProfile(company.token,{picture});await saveCompany();notify({});return publicAccount(company);
+  company.account=await accounts.updateProfile(company.token,{picture},update);await saveCompany();notify({});return publicAccount(company);
  }));
  handle('continue-microsoft',()=>accountOperation(async()=>{
   if(!session)throw Error('Sign in with Microsoft to continue.');
@@ -1194,11 +1197,11 @@ function registerIPC(){
  }));
  // Direct Company login. The identifier is the Easter Company username or the email the
  // account was created with; neither a Company ID nor anything else is accepted here.
- handle('company-login',(identifier,password)=>accountOperation(async()=>{
+ handle('company-login',(identifier,password)=>accountOperation(async(update)=>{
   if(company)throw Error('Sign out before signing in to a different account.');
   const login=typeof identifier==='string'?identifier.trim():'';
   if(!login||login.length>254||typeof password!=='string'||password.length>128)throw Error('Enter your username or email and your password.');
-  const signed=await accounts.loginPassword(login,password);
+  const signed=await accounts.loginPassword(login,password,undefined,update);
   const next=companySession(signed),previous=company;
   company=next;
   cancelMints();
@@ -1264,7 +1267,7 @@ function foldUsername(value){
   return found.available?{available:true,reason:null,message:null}:{available:false,reason:found.reason||'username_taken',message:ACCOUNT_MESSAGES[found.reason]||ACCOUNT_MESSAGES.username_taken};
  });
  // The username is claimed with the first password and never travels again.
- handle('company-password',(password,replace=false,username)=>accountOperation(async()=>{
+ handle('company-password',(password,replace=false,username)=>accountOperation(async(update)=>{
   if(!company)throw Error('Sign in with a provider first.');
   if(typeof password!=='string'||[...password].length<8||[...password].length>128)throw Error('Use a password or passphrase of 8 to 128 characters.');
   let claim=null;
@@ -1275,7 +1278,7 @@ function foldUsername(value){
    claim=folded;
   }
   if(!company.account.username&&!claim)throw Error('Choose your Easter Company username first.');
-  const signed=await accounts.setPassword(company.token,password,replace===true,claim);
+  const signed=await accounts.setPassword(company.token,password,replace===true,claim,update);
   company=companySession(signed);await saveCompany();notify({message:signed.created?'Your Easter Company username and password are saved.':'Your Easter Company password is saved.'});
   return publicAccount(company);
  }));
@@ -1296,11 +1299,11 @@ function foldUsername(value){
   try{return await accounts.emails(company.token);}
   catch(error){await sessionLost(error);throw error;}
  }
- async function selectLoginEmail(email){
+ async function selectLoginEmail(email,onWait){
   if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
   if(email!==null&&typeof email!=='string')throw Error('Choose one of your verified emails.');
   try{
-   const listed=await accounts.selectLoginEmail(company.token,email);
+   const listed=await accounts.selectLoginEmail(company.token,email,undefined,onWait);
    // The sentence names what changed and nothing else: no address appears in a message,
    // in the page notice or in any state a view other than the profile renders.
    //
@@ -1321,7 +1324,7 @@ function foldUsername(value){
   catch(error){await sessionLost(error);throw error;}
  }
  handle('profile-emails',()=>withActivity('account-working',verifiedEmails,{replace:false}));
- handle('login-email',email=>withActivity('account-working',()=>selectLoginEmail(email),{replace:false}));
+ handle('login-email',email=>withActivity('account-working',update=>selectLoginEmail(email,update),{replace:false}));
  handle('open-minecraft-store',()=>shell.openExternal('https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc'));
  handle('open-minecraft-profile',()=>shell.openExternal('https://www.minecraft.net/en-us/msaprofile'));
  handle('recheck-access',async()=>{

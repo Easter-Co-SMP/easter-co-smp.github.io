@@ -56,16 +56,24 @@ const OPERATIONS={
  '/v2/accounts/username/available':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a question about a name: it writes nothing'},
  // the mint: safe in effect
  '/v2/game/session':{repeat:true,kind:'mint',budgetMs:MINT_RETRY_BUDGET_MS,why:'it refreshes, rotates and stores the Microsoft token in one transaction, so a repeat costs one of the 30 mints per 10 minutes and corrupts nothing'},
- // writes: one attempt each, because a lost answer may have committed
- '/v2/accounts/microsoft':{repeat:false,kind:'write',why:'a write: a lost answer may have created the account, so only its own declared database_unavailable is retried inside login()'},
- '/v2/accounts/password/login':{repeat:false,kind:'write',why:'a write: a repeat after a lost answer is a second session for one press'},
- '/v2/accounts/password':{repeat:false,kind:'write',why:'a write: it claims the username and sets the password'},
- '/v2/accounts/profile':{repeat:false,kind:'write',why:'a write: a lost answer may have committed the player\'s own details'},
- '/v2/accounts/emails/login':{repeat:false,kind:'write',why:'a write: a repeat could choose an address against a list that has moved'},
- '/v2/accounts/logout':{repeat:false,kind:'write',why:'a write, and best effort: a repeat has nothing left to end'},
+ // Writes. None of them is retried after a lost answer, a dropped connection, a gateway
+ // timeout or an unreadable success, because any of those may have committed. Each of them
+ // may wait out a waking account service on the one answer that proves nothing was carried
+ // out - an explicit 503 `database_unavailable` - which is what `wakeSafe` declares and what
+ // whileWaking() below enforces (doc/launcher-states.md, *Every account journey waits out a
+ // cold account service*). It is the same window the sign-in has always had: ninety seconds,
+ // four attempts, three seconds per attempt of backoff.
+ '/v2/accounts/microsoft':{repeat:false,wakeSafe:true,kind:'write',why:'a write, and the account service declares a database_unavailable before it creates anything'},
+ '/v2/accounts/password/login':{repeat:false,wakeSafe:true,kind:'write',why:'a write: a lost answer may be a second session for one press, so only its declared database_unavailable is repeated'},
+ '/v2/accounts/password':{repeat:false,wakeSafe:true,kind:'write',why:'it claims the username and sets the password: repeated only when the service says it stored nothing'},
+ '/v2/accounts/profile':{repeat:false,wakeSafe:true,kind:'write',why:'a write: repeated only when the service says it stored nothing'},
+ '/v2/accounts/emails/login':{repeat:false,wakeSafe:true,kind:'write',why:'a write against a list that may have moved: repeated only when the service says it stored nothing'},
+ '/v2/accounts/providers/start':{repeat:false,wakeSafe:true,kind:'write',why:'it begins a provider flow: repeated only when the service says it stored nothing'},
+ '/v2/accounts/providers/finish':{repeat:false,wakeSafe:true,kind:'write',why:'it exchanges a provider code for a session: repeated only when the service says it stored nothing'},
+ '/v2/accounts/logout':{repeat:false,wakeSafe:true,kind:'write',why:'best effort: a repeat has nothing left to end, and a waking service asked again is harmless'},
  '/v2/game/wake':{repeat:false,kind:'write',why:'a write: it starts a machine, and wakeServer already wakes exactly once per press'},
- '/v2/game/session/revoke':{repeat:false,kind:'write',why:'a write: it ends the stored session on every machine'},
- '/v2/accounts/session/refresh':{repeat:false,kind:'write',why:'it rotates the very Company session it sends, so a repeat may present a token the first attempt already spent'}
+ '/v2/game/session/revoke':{repeat:false,wakeSafe:true,kind:'write',why:'it ends the stored session on every machine: repeated only when the service says it stored nothing'},
+ '/v2/accounts/session/refresh':{repeat:false,wakeSafe:true,kind:'write',why:'it rotates the very session it sends, so only a declared database_unavailable - which rotates nothing - is repeated'}
 };
 class AccountError extends Error{
  constructor(code,message){super(message);this.name='AccountError';this.code=code;}
@@ -95,7 +103,10 @@ const PROBE_REASONS={taken:'username_taken',username_taken:'username_taken',poli
 const EMAIL_STATUSES=['stored','unavailable','none'];
 // Error messages and codes from the frozen contract, mapped to one actionable line.
 const MESSAGES={
- database_unavailable:'The account service is still waking up. Please try signing in again in a moment.',
+ // The service declared it carried nothing out and the window closed. Every journey that can
+ // reach this sentence - sign-in, sign-up, a password change, the profile, an email choice -
+ // needs the same two facts from it: it is still waking, and nothing was changed.
+ database_unavailable:'The account service is still waking up, and nothing has changed. Try again in a moment.',
  provider_not_configured:'This sign-in provider is not available yet.',
  invalid_provider_token:'Your provider sign-in was not accepted. Try again.',
  invalid_credentials:'The username or email, or the password, is incorrect.',
@@ -323,16 +334,22 @@ class AccountClient{
  async attempt(pathname,options={}){
   const operation=OPERATIONS[pathname];
   if(!operation)throw new AccountError('invalid_request',MESSAGES.invalid_request);
+  const {onWait,...rest}=options;
+  // A declared database_unavailable is the service saying it carried nothing out, so a
+  // resuming cluster is waited out for every operation, including the writes whose outcome
+  // would otherwise be unknown. That is asked first: a write is never given the transient
+  // ladder below, whatever its budget says.
+  if(operation.wakeSafe)return this.whileWaking(pathname,rest,onWait);
   const budget=this.retryBudget===null?operation.budgetMs:Number(this.retryBudget);
-  if(!operation.repeat||!(budget>0))return this.call(pathname,options);
-  const signal=options.signal,deadline=this.now()+budget;
+  if(!operation.repeat||!(budget>0))return this.call(pathname,rest);
+  const signal=rest.signal,deadline=this.now()+budget;
   let lastError=null;
   for(let tries=1;;tries++){
    signal?.throwIfAborted();
    const remaining=deadline-this.now();
    if(!(remaining>0))throw lastError||new AccountError('unreachable',UNREACHABLE_MESSAGE);
-   const timeout=Math.max(1,Math.min(options.timeout??this.timeout,RETRY_ATTEMPT_CEILING_MS,remaining));
-   try{return await this.call(pathname,{...options,timeout});}
+   const timeout=Math.max(1,Math.min(rest.timeout??this.timeout,RETRY_ATTEMPT_CEILING_MS,remaining));
+   try{return await this.call(pathname,{...rest,timeout});}
    catch(error){
     // A cancellation is the player's own decision, and a refusal is an answer: neither is a
     // transient failure and neither may be asked again.
@@ -344,6 +361,31 @@ class AccountClient{
     // A backoff that would outlast the budget ends the wait here instead of sleeping first and
     // then reporting that nothing was left: the player's answer is the same either way.
     if(this.now()+delay>=deadline)throw error;
+    await this.waitFor(delay,undefined,{signal});
+   }
+  }
+ }
+ // Waiting out a waking account service, for every operation that may ask again on the one
+ // answer that proves nothing happened. The numbers are the ones the sign-in has always used:
+ // four attempts including the first, ninety seconds of window, three seconds per attempt of
+ // backoff, and a request ceiling at the normal thirty seconds because API Gateway cuts an
+ // integration there. Cancellation is honoured before a request and inside a backoff. The
+ // only thing that ever leaves this loop is the stage name `company-waking`.
+ async whileWaking(pathname,options,onWait){
+  const signal=options.signal,deadline=this.now()+DATABASE_RESUME_BUDGET_MS;
+  for(let attempt=1;;attempt++){
+   signal?.throwIfAborted();
+   const remaining=deadline-this.now();
+   if(remaining<=0)throw new AccountError('database_unavailable',MESSAGES.database_unavailable);
+   const timeout=Math.min(options.timeout??this.timeout,DEFAULT_TIMEOUT,remaining);
+   try{return await this.call(pathname,{...options,timeout});}
+   catch(error){
+    if(error?.name==='AbortError')throw error;
+    if(!error.databaseUnavailable||attempt>=DATABASE_RESUME_ATTEMPTS)throw error;
+    const delay=Math.min(DATABASE_RESUME_BACKOFF_MS*attempt,deadline-this.now());
+    if(delay<=0)throw error;
+    // Only this safe stage identifier leaves the retry path, never a response body.
+    try{onWait?.('company-waking');}catch{}
     await this.waitFor(delay,undefined,{signal});
    }
   }
@@ -361,34 +403,18 @@ class AccountClient{
   const graph=typeof microsoftAccessToken==='string'&&microsoftAccessToken?microsoftAccessToken:null;
   const handOver=typeof microsoftRefreshToken==='string'&&microsoftRefreshToken?microsoftRefreshToken:null;
   const options={method:'POST',body:{xboxUserToken,...(graph?{microsoftAccessToken:graph}:{}),...(handOver?{microsoftRefreshToken:handOver}:{}),client:this.client},signal,token};
-  // Aurora can take longer to resume than one bounded API request allows.
-  // A declared database_unavailable response can be retried with the same
-  // verified identity while that cluster continues waking. Never retry a network
-  // error or a malformed success, whose write outcome is unknown.
-  let created;
-  const deadline=this.now()+DATABASE_RESUME_BUDGET_MS;
-  for(let attempt=1;attempt<=DATABASE_RESUME_ATTEMPTS;attempt++){
-   signal?.throwIfAborted();
-   const remaining=deadline-this.now();
-   if(remaining<=0)throw new AccountError('database_unavailable',MESSAGES.database_unavailable);
-   try{created=await this.call('/v2/accounts/microsoft',{...options,timeout:Math.min(this.timeout,DEFAULT_TIMEOUT,remaining)});break;}
-   catch(error){
-    if(!error.databaseUnavailable||attempt===DATABASE_RESUME_ATTEMPTS)throw error;
-    const delay=Math.min(DATABASE_RESUME_BACKOFF_MS*attempt,deadline-this.now());
-    if(delay<=0)throw error;
-    // Only this safe stage identifier leaves the retry path, never a response body.
-    try{onWait?.('company-waking');}catch{}
-    await this.waitFor(delay,undefined,{signal});
-   }
-  }
+  // A declared database_unavailable response is retried with the same verified identity while
+  // the cluster wakes, through the same window every other operation now has. A network error
+  // or a malformed success is never retried here: its write outcome is unknown.
+  const created=await this.attempt('/v2/accounts/microsoft',{...options,onWait});
   return this.signed(created);
  }
  // Direct sign-in. The identifier is the Easter Company username or the email the
  // account was created with; the server decides which, and this module never sees an
  // email come back. A Company ID is not accepted here by contract.
- async loginPassword(identifier,password,signal){
+ async loginPassword(identifier,password,signal,onWait){
   if(typeof identifier!=='string'||!identifier||typeof password!=='string')throw new AccountError('invalid_credentials',MESSAGES.invalid_credentials);
-  const created=await this.call('/v2/accounts/password/login',{method:'POST',body:{identifier,password,client:this.client},signal});
+  const created=await this.attempt('/v2/accounts/password/login',{method:'POST',body:{identifier,password,client:this.client},signal,onWait});
   return this.signed(created);
  }
  // Whether a username can still be claimed, asked before the player types a password.
@@ -409,9 +435,9 @@ class AccountClient{
  }
  // The username travels only on the call that claims it, together with the first
  // password. It is never sent again once the account has one.
- async setPassword(token,password,replace=false,username=null){
+ async setPassword(token,password,replace=false,username=null,onWait){
   const body={...(username?{username}:{}),password,replace,client:this.client};
-  const created=await this.call('/v2/accounts/password',{method:'POST',token,body});
+  const created=await this.attempt('/v2/accounts/password',{method:'POST',token,body,onWait});
   return this.signed(created);
  }
  signed(created){
@@ -441,10 +467,10 @@ class AccountClient{
  // Select one of those addresses as the login email, or clear the selection with null.
  // The body is exactly `{email}` (or `{email:null}`): no account handle, no token in a
  // field, nothing the renderer could use to name someone else's account.
- async selectLoginEmail(token,email,signal){
+ async selectLoginEmail(token,email,signal,onWait){
   if(email!==null&&(typeof email!=='string'||!sanitizeEmail(email)))throw new AccountError('invalid_request',MESSAGES.invalid_request);
   const body={email:email===null?null:sanitizeEmail(email)};
-  await this.call('/v2/accounts/emails/login',{method:'POST',token,body,signal,timeout:Math.min(this.timeout,15000)});
+  await this.attempt('/v2/accounts/emails/login',{method:'POST',token,body,signal,timeout:Math.min(this.timeout,15000),onWait});
   // The list is re-read rather than trusted from the write's own answer, so what the
   // profile shows is always the record the account service holds. It is also what makes
   // the choice survive a restart: it is asked for, never remembered.
@@ -482,7 +508,7 @@ class AccountClient{
   if(!endpointMatches(found?.endpoint))throw new AccountError('game_target_mismatch',GAME_MESSAGES.target);
   return found===null?null:sanitizeGameStatus(found);
  }
- async refreshSession(token,signal){return this.signed(await this.call('/v2/accounts/session/refresh',{method:'POST',token,signal,body:{client:this.client}}));}
+ async refreshSession(token,signal,onWait){return this.signed(await this.attempt('/v2/accounts/session/refresh',{method:'POST',token,signal,body:{client:this.client},onWait}));}
  // ---- the Minecraft session the account service holds -------------------------
  // Two routes, frozen with the cloud side (doc/launcher-states.md, "The Minecraft session
  // the account service holds"). They are methods of this client for the same reason the game
@@ -515,20 +541,20 @@ class AccountClient{
  // `{"revoked": true|false}`: false is its honest "there was nothing stored", and this returns
  // that value rather than turning it into a claim the launcher cannot support. A 404 is its own
  // code, because then nothing was revoked at all.
- async revokeGameSession(token,signal){
+ async revokeGameSession(token,signal,onWait){
   let found;
-  try{found=await this.call('/v2/game/session/revoke',{method:'POST',token,body:{client:this.client},signal,timeout:Math.min(this.timeout,GAME_SESSION_TIMEOUT_MS)});}
+  try{found=await this.attempt('/v2/game/session/revoke',{method:'POST',token,body:{client:this.client},signal,timeout:Math.min(this.timeout,GAME_SESSION_TIMEOUT_MS),onWait});}
   catch(error){
    if(error?.status===404||error?.code==='service_404')throw new AccountError('route_absent',MESSAGES.route_absent);
    throw error;
   }
   return {revoked:found?.revoked===true};
  }
- async updateProfile(token,body){const found=await this.call('/v2/accounts/profile',{method:'POST',token,body});return sanitizeAccount(found?.account);}
- async logout(token,signal){
+ async updateProfile(token,body,onWait){const found=await this.attempt('/v2/accounts/profile',{method:'POST',token,body,onWait});return sanitizeAccount(found?.account);}
+ async logout(token,signal,onWait){
   // Revocation is best effort. A refusal or a dead network must still let the
   // launcher forget the session locally, so this resolves either way.
-  try{await this.call('/v2/accounts/logout',{method:'POST',token,signal:signal??undefined,timeout:Math.min(this.timeout,8000)});}catch{}
+  try{await this.attempt('/v2/accounts/logout',{method:'POST',token,signal:signal??undefined,timeout:Math.min(this.timeout,8000),onWait});}catch{}
  }
 }
 // Vault session shape and its acceptance check. These live here, next to the

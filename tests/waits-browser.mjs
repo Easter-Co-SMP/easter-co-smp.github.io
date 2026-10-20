@@ -5,7 +5,7 @@ const page=await browser.newPage({viewport:{width:1440,height:900}});const error
 await page.addInitScript(()=>{
  const state={phase:'ready',startupReady:true,companyReady:false,install:{installed:true,location:'/fixture/client'},actions:['signin'],settings:{memoryMB:4096,javaPath:''},graphics:{enabled:false},game:{state:'running',ready:true}};
  let notify=()=>{};window.sendState=update=>{Object.assign(state,update);notify({...state});};
- const wait=()=>new Promise(resolve=>window.finishSlow=resolve);
+ const wait=()=>new Promise((resolve,reject)=>{window.finishSlow=resolve;window.failSlow=reject;});
  window.easterDesktop={mode:'desktop',status:async()=>state,onState:fn=>{notify=fn;},accountProviders:async()=>({providers:[]}),
  signIn:()=>{window.sendState({device:{code:'TEST-CODE',url:'https://microsoft.com/link'},activity:{stage:'microsoft-waiting',message:'Complete sign-in on Microsoft’s page.',startedAt:Date.now()}});return wait();},cancelSignIn:async()=>{},openMicrosoft:async()=>{},loginCompany:wait,checkCompanyUsername:wait,setCompanyPassword:wait,profileEmails:wait,selectLoginEmail:wait,
  play:wait,saveSettings:async x=>x};
@@ -36,7 +36,37 @@ try{
  const beforeWait=await chooser.locator('.company-submit').boundingBox();
  await page.clock.fastForward(11000);assert.deepEqual(await chooser.locator('.company-submit').boundingBox(),beforeWait);assert.match(await chooser.locator('.company-wait').innerText(),/Still working/);
  for(const width of [1440,800,390,320]){await page.setViewportSize({width,height:width<500?740:800});await page.screenshot({path:`/tmp/easter-wait-login-${width}.png`,fullPage:true});assert.equal(await chooser.evaluate(el=>el.scrollWidth<=el.clientWidth),true);}
- await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await chooser.locator('.wait-feedback-mark').evaluate(el=>getComputedStyle(el).animationName),'none');
+ // Entry motion, and its one off switch. With motion allowed, the dialog and its wait line
+ // arrive with one short movement each (never a loop, never a delay that hides content);
+ // with reduced motion asked for, nothing on these surfaces moves at all.
+ const motionOf=el=>getComputedStyle(el).animationName;
+ assert.notEqual(await chooser.evaluate(motionOf),'none','the dialog arrives with one movement');
+ assert.match(await chooser.evaluate(motionOf),/dialog-enter/,'and it is the entrance, not a loop');
+ assert.match(await chooser.locator('.company-wait').evaluate(motionOf),/line-enter/,'the wait line opens under the control that was pressed');
+ await page.emulateMedia({reducedMotion:'reduce'});
+ assert.equal(await chooser.evaluate(motionOf),'none','reduced motion cancels the dialog entrance');
+ assert.equal(await chooser.locator('.company-wait').evaluate(motionOf),'none','and the wait line');
+ assert.equal(await chooser.locator('.wait-feedback-mark').evaluate(el=>getComputedStyle(el).animationName),'none','and the spinner, as before');
+ // Failing loudly, with the way back in still in the player's hands. When the window closes the
+ // sentence arrives in the dialog they are already in, it says what did not happen, the typed
+ // identifier is still there, and the control they pressed is enabled again rather than spent.
+ await page.evaluate(()=>failSlow(Object.assign(new Error('The account service is still waking up, and nothing has changed. Try again in a moment.'),{code:'database_unavailable'})));
+ await chooser.locator('.company-error').waitFor({state:'visible'});
+ assert.match(await chooser.locator('.company-error').innerText(),/still waking up, and nothing has changed/,'the failure says what happened and what did not');
+ assert.equal(await chooser.locator('[name=identifier]').inputValue(),'fixture','and the identifier they typed is kept for the retry');
+ assert.equal(await chooser.locator('.company-submit').isEnabled(),true,'with the pressed control live again');
+ assert.equal(await chooser.locator('.company-wait').isVisible(),false,'and no wait line left running behind a known failure');
+ // The refusal is painted before the dialog finishes unlocking; wait for the control to be live
+ // rather than racing the same tick, which is what a player does by reading the sentence first.
+ await page.waitForFunction(()=>{const button=document.querySelector('#desktop-company-signin .company-submit');return button&&!button.disabled;});
+ // The password field is deliberately cleared by the failed attempt (what the player typed
+ // into it is not kept), while the identifier they will retry with stays. So the retry fills
+ // the secret again, like a person would, and keeps everything else they had already said.
+ assert.equal(await chooser.locator('[name=password]').inputValue(),'','the secret is not kept in the field after a failure');
+ await chooser.locator('[name=password]').fill('fixture-password');
+ await chooser.locator('.company-submit').click();
+ await chooser.locator('.company-wait').waitFor({state:'visible'});
+ assert.equal(await chooser.locator('.company-error').isVisible(),false,'a retry clears the failure it is retrying');
  await page.evaluate(()=>{finishSlow({ok:true});sendState({account:{id:'fixture-account',name:'Fixture',username:'fixture',passwordRequired:false},canPlay:true,companyReady:true,phase:'starting-game',game:{state:'starting',ready:false,waking:true,message:'Starting your server… the first player in a session waits about a minute.',tone:'starting'}});});
  await chooser.waitFor({state:'hidden'});await page.evaluate(()=>sendState({game:{state:'starting',ready:false,waking:true,message:'Starting your server… the first player in a session waits about a minute.',tone:'starting'}}));
  await page.clock.fastForward(11000);for(let i=0;i<10;i++)await page.evaluate(()=>sendState({game:{state:'starting',ready:false,waking:true,message:'Starting your server… the first player in a session waits about a minute.',tone:'starting'}}));
