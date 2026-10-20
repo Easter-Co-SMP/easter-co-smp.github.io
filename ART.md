@@ -8,6 +8,13 @@ The phoenix is the primary silhouette; lettering and maritime details are second
 This replaces the original scene-heavy server artwork. The company favicon remains
 the canonical emblem reference.
 
+The crest is served at 1024 × 1024, re-encoded from the 1254 × 1254 master that was
+committed with it (`git log -- site/assets/crest.jpg`), stripped of metadata, at
+JPEG quality 86. The hero draws the crest at 157–252 CSS px, so 1024 still covers a
+3× display and the file also serves as the `og:image` share card; measured against
+itself at 504 px the re-encode is indistinguishable (PSNR 36.6 dB) and 43% smaller
+(318 KB against 560 KB), which matters on a phone and inside the packaged launcher.
+
 The opening environment is promotional concept art, not a precise view or map of the
 actual saved world. The public atlas always uses real saved terrain.
 
