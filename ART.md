@@ -27,3 +27,10 @@ harbour with stone waterfront, timber bakeries and cottages, distant green islan
 mountains, volumetric mist, water reflections and crisp voxel geometry. Keep the left
 and centre atmospheric and open for text. Restrained navy, teal, wood and amber palette.
 No lettering, logos, oversized characters, interface, frame or watermark.
+
+The harbour cleanup simplifies the ship to two masts, clearer square sails and
+purposeful rigging. Street lamps and rows of glowing deck fixtures are removed
+from the ship; a single cabin lantern remains. Quayside lighting, simpler harbour
+buildings and a clearer ship silhouette retain the original blue-hour composition.
+The site and launcher share this asset; packaged launchers need a new build to
+include the updated background.
