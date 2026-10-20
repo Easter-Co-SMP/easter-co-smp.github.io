@@ -1,3 +1,36 @@
+# Easter Company launcher 1.0.35
+
+The server row, the cold-start fix and the legal pages. Includes custom mod 2.0.2
+and preserves launcher settings, caches and sign-in sessions.
+
+- The server status paragraph is one small LED and one sentence: "Server Online
+  (2 Active Players)", "Server Asleep Zzz (0 Active Players)", "Server Offline
+  (Update in progress...)". Starting and stopping have their own words instead of
+  being called offline, and an unreadable status says so rather than guessing. The
+  dot repeats the meaning the sentence carries, so losing the colour loses nothing.
+- A cold account service no longer reads as "The account service is busy right now".
+  The launcher retries what is safe to retry inside a budget longer than one request,
+  so the first launch of the day waits for the service to wake instead of failing on
+  its first answer. Writes that are not safe to repeat are never silently replayed,
+  and the server row keeps saying it is still checking rather than announcing a
+  verdict it does not have.
+- The Privacy Policy and Terms of Service are published, dated, and linked from every
+  footer on the website and inside the launcher. They describe what the account
+  actually stores, including the Microsoft session held server-side, and they state
+  only the encryption the cluster really provides.
+- The signed-out screen asks for the Easter Company account in one sentence, with no
+  claim that signing in is a Microsoft sign-in. The account chooser stays usable in a
+  short window, and a profile change cannot be made while a sign-in or a game is
+  running.
+- The map strip settles by measuring the room the notice band actually asked for,
+  instead of waiting on a condition that never held, so the two stop overlapping.
+
+Validation covers the launcher unit, browser and Electron suites, including journeys
+that the release gate did not previously run: provider linking against the real account
+handler, the username journey, the cold-start recovery path, and the legal links inside
+the launcher. As with every release, CI builds and packages the installers; it does not
+launch the game or sign a person in, so the first real play on Windows remains manual.
+
 # Easter Company launcher 1.0.34
 
 A standalone banking update, following the general client/UI release. Includes
