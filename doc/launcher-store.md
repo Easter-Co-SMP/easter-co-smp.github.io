@@ -1,9 +1,10 @@
 # Company store frontend — mock commerce
 
-This branch implements a complete store presentation with an in-process mock API.
-It includes the pending aligned-home-card and quiet-profile-refresh changes as
-separate preceding commits. Delta owns final frontend review, backend, payment
-integration, merge and release. No production service, account or world is changed.
+The store implements a complete presentation with an in-process mock API, alongside
+the aligned home cards and quiet profile refresh. The user-authorized mock testing
+rollout and independent review are recorded in `store-testing-rollout.md`. Real
+backend and payment integration remain separate work. No game services, player
+accounts or world data are changed.
 
 ## Experience
 
@@ -122,3 +123,18 @@ Additional validation: a scoped axe WCAG 2 A/AA and WCAG 2.1 AA scan found no
 violations in catalogue, checkout and receipt views. The shared-home browser suite
 also passes all 24 populated/long/empty/failed layout cases. These checks do not
 replace the designated frontend reviewer’s production sign-off.
+
+## Shareable public testing preview
+
+`/store/` is a standalone mock preview using the exact same `store.mjs` interface
+and mock API as the launcher. It opens the storefront immediately; Close/Escape
+returns to a clearly labelled landing page with reopen and website links. It uses
+no native bridge, real account, payment field or external store request. Its demo
+catalogue and prices are not live offers. The website homepage and navigation are
+unchanged. The page is marked noindex/nofollow to distinguish the testing preview
+from a live commercial storefront, but its URL can be shared directly.
+
+Run `tests/store-preview-browser.mjs` with the same Playwright/origin variables to
+verify public-only purchase flow at 1440, 390 and 320 px, mock notices, no external
+requests, legal links, native dialog close/reopen and focus return. Publishing this
+page does not publish a new installer or bypass the packaged-launcher release gates.
