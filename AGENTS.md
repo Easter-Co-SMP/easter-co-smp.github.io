@@ -48,6 +48,12 @@ Keep middle-mouse drag exclusively for camera movement, including in drawing mod
 The Electron desktop entry is desktop/main.cjs. Reuse site/ for the UI. Native capabilities
 must stay behind the isolated preload and origin-checked IPC; do not enable renderer Node
 or expose arbitrary commands, tokens, file access, or remote privileged web content.
+`handle()` refuses a sender frame that is not yet the app's own, so the first ask of a launch
+can be refused once and the refusal is deliberately recorded nowhere. A read the home screen
+starts on mount must therefore be warmed in main (or retried by the renderer) rather than read
+as an outage — that is what 1.0.36 got wrong and 1.0.37 fixed. Reads are bounded: an 8 s
+timeout, a 64 KiB body ceiling, schema validation and a 30-minute cache is the shape
+(`desktop/discovery.cjs`, `doc/launcher-discovery.md`).
 A launcher release must carry the current site/, because the packaged app bundles site/ into
 its own app.asar; scripts/verify_app_bundle.py gates that before publishing.
 Authentication matches /opt/minecraft/launch/mc-auth.py, including its inherited Prism
@@ -69,28 +75,39 @@ Real platform installers are published as GitHub Release assets. No source downl
 Releases follow doc/releasing.md: the tag comes from package.json, the workflow is dispatched by
 hand, the packaged app is checked against site/ before publishing, and /releases/latest ignores
 prereleases, so a launcher release must not be marked prerelease while it is the only one.
+Before bumping the version, run the packaged build and look at its first screen
+(`doc/releasing.md` 1a). 1.0.36 shipped a start-up failure that every unit, browser and Electron
+journey passed, because the unpackaged app was fine and only the package was wrong.
 
-The Privacy Policy and Terms of Service live in site/legal/privacy/ and site/legal/terms/, with
-their layout in site/legal/legal.css, and every page footer links to both. They are the public URLs
-the Google OAuth consent screen names, so they must stay reachable without signing in and keep their
-effective date current. The legal links sit in the span BEFORE the motto in .home-footer: the
-launcher writes "Launcher <version>" into `.home-footer>span:last-child`, so a legal span placed
-last is replaced by the version text on every render. tests/test_legal_pages.py guards that and the
-footers; 404.html must use root-absolute legal hrefs because GitHub Pages serves it for any missing
-path. doc/legal-pages.md records why the documents say what they say, where each factual claim was
-verified, and the retention promises Easter LTD has to be able to keep.
+The Privacy Policy and Terms of Service live in site/legal/privacy/ and site/legal/terms/ (layout
+in site/legal/legal.css) and every footer links to both; they are the URLs the Google OAuth consent
+screen names, so they stay reachable without signing in and keep their effective date current. The
+legal links sit in the span BEFORE the motto in .home-footer: the launcher writes "Launcher
+<version>" into `.home-footer>span:last-child`, so a legal span placed last is replaced on every
+render. tests/test_legal_pages.py guards that and the footers; 404.html needs root-absolute legal
+hrefs because Pages serves it for any missing path. doc/legal-pages.md records why the documents say
+what they say and the retention promises Easter LTD has to keep.
+
+The website's one hand-written data document is site/home.json: the latest dispatch and a
+curated store highlight for the launcher's home cards (`doc/launcher-discovery.md` holds the
+schema, the bounds and the commerce boundary). Nothing in it may invent a post, a price, a
+product or an ownership claim, and the website itself carries none of it.
+
+Artwork belongs to Owen and is not redrawn: take the file he supplies, keep its geometry, and
+serve it at the size the page draws it. Measure before choosing a format — the hero backdrop is
+blurred 3px, so it ships as a JPEG (2.3 MB of PNG became 306 KB, indistinguishable through the
+blur), and the crest ships at 1024 for a 157–252 px slot. Masters stay in Git history rather than
+in the payload. Clamp over-long copy; refuse an identifier rather than truncating it.
 
 Frontend work under site/ gets its final visual and interaction pass from the designated frontend
 reviewer before it reaches production. Passing tests, the browser suite and even the packaged-app
 bundle check are necessary but not sufficient: they prove behaviour, not design. Do not ship a
 site/ change on test evidence alone, and do not treat a green gate as the sign-off.
 
-Owen has given standing authority to diagnose and fix launcher bugs and to ship launcher patch
-releases end to end — investigate, ticket, delegate, verify, publish, report — without asking
-first. Run the whole process here, including the reviewer's pass, and report the outcome rather
-than pausing for permission to fix a bug, cut a release, or do the follow-up work that fix needs.
-Work that leaves this repository's own release process — the world or player data, another
-person's machine, credentials, or restarting a service — still needs its own authorization.
+Owen has standing authority to diagnose and fix launcher bugs and ship patch releases end to end:
+investigate, ticket, delegate, verify, publish, report, including the follow-up work a fix needs.
+Work that leaves this repository's own release process — world or player data, another person's
+machine, credentials, restarting a service — still needs its own authorization.
 
 Text line endings are pinned to LF in .gitattributes and tests/test_line_endings.py enforces it.
 scripts/verify_app_bundle.py compares the packaged app.asar against site/ byte for byte, and the

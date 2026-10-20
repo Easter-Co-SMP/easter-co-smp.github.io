@@ -25,6 +25,25 @@ name from `/releases/latest/download/`. The launcher job is
    neither the server-status LED nor the cold-start retry fix — so the launcher a
    player installed still failed on the first cold Lambda, and the version number
    was already spent. A release cut from a stale branch is worse than a late one.
+1a. **The packaged build runs, and its first screen paints.** This is the one check
+   that no unit, browser or Electron journey performs, and it is where 1.0.36 shipped a
+   bug that every other gate passed: the home cards greeted a first launch with
+   "Dispatches unavailable" because the renderer's first read arrived before its frame
+   was trusted, which main refuses by design and records nowhere. The unpackaged app was
+   fine; only the package was wrong. Before bumping the version:
+
+       npm run pack                                   # ~2 min, writes release/*-unpacked
+       rm -rf /tmp/packcheck && mkdir -p /tmp/packcheck
+       Xvfb :84 -screen 0 1280x800x24 &
+       DISPLAY=:84 HOME=/tmp/packcheck EASTER_TEST_HOME=/tmp/packcheck \
+         ./release/linux-unpacked/easter-company --no-sandbox &
+       sleep 12 && DISPLAY=:84 import -window root /tmp/packcheck/first-screen.png
+
+   Look at the image: the header, the client card and every block that loads data on the
+   home screen, with no "unavailable" sentence over a thing that works. An empty HOME is
+   the point — it is the first launch a new player gets. Repeat for any change that adds a
+   start-up IPC read: `handle()` refuses an untrusted frame, so a read can be refused once
+   and has to be warmed in main or retried by the renderer.
 2. The full check suite passes on that exact tree: `python -m unittest discover -s tests
    -p 'test_*.py'` (use `/root/e-server/.venv/bin/python`), `python scripts/validate.py
    site`, `npm test`, `node tests/drawings.mjs`, `node tests/browser.mjs` against a local

@@ -35,6 +35,16 @@ deploys in a minute and every launcher picks the change up on its next launch, o
 half an hour later. `posts: []` and `featuredItem: null` are honest answers — the home
 screen already has words for both.
 
+**The first ask of a launch can be refused, and that is not an outage.** Every launch IPC
+goes through `handle()`, which refuses a sender frame that is not yet the app's own; the
+renderer mounts the cards early enough that its first ask can arrive before that frame is
+trusted. The refusal is deliberate and is recorded nowhere, which is exactly how 1.0.36
+shipped "Dispatches unavailable" over a document that was there all along (fixed in
+1.0.37). So main reads the document as soon as the process is ready — the answer is
+usually in hand before the screen asks — and the cards retry a failed first ask once,
+quietly, before they say anything is unavailable. Any new start-up read on this bridge
+needs the same two things.
+
 An unknown field is dropped, an unreadable entry is dropped, and the renderer filters
 again on its own: neither side trusts the other, and neither trusts the document.
 
