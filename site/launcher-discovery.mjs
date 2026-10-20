@@ -30,7 +30,8 @@ export function mountDiscovery(host, desktop) {
   if(item){
    store.append(node('span','discovery-category',item.category));message(store,item.title,item.description);
    const view=node('button','discovery-action','Explore item');view.type='button';view.onclick=()=>showItem(item);store.append(view);
-  }else message(store,failed?'Store unavailable':'Store not open yet',failed?'Store highlights couldn’t be loaded. Check back later.':'Featured items will appear here when the Company store opens.');
+  }else message(store,'Explore the Company store','Items, ships, player houses, account upgrades and in-game money. Preview the mock store with no real charges.');
+  const browseStore=node('button','discovery-action','Browse mock store');browseStore.type='button';browseStore.onclick=()=>{void import('./store/store.mjs').then(({openStore})=>openStore()).catch(()=>{browseStore.textContent='Couldn’t open store. Try again';});};store.append(browseStore);
   if(failed && typeof desktop.homeContent==='function'){
    const retry=node('button','discovery-action','Try again');retry.type='button';retry.onclick=load;social.append(retry);
   }

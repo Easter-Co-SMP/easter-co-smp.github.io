@@ -2692,3 +2692,13 @@ are in [launcher-discovery.md](launcher-discovery.md). This content never change
 `canPlay`, installation, authentication, ownership or entitlements, and it is not part of
 the state broadcast: it is one read the home screen asks for when it mounts, and its
 absence, emptiness or failure leaves every other surface exactly as it was.
+
+## Mock commerce surface
+
+The Company store is a separate modal frontend using the in-process mock API in
+`site/store/`. It accepts no launcher account credentials and never updates
+`canPlay`, game currency, inventory, account ownership or queue permissions.
+Real-currency-priced purchases, including in-game money packs, are simulations
+for a fictional recipient. The UI/adapter and future backend contract are in
+[launcher-store.md](launcher-store.md). Existing launcher lifecycle gates remain
+unchanged, including while the store is open.

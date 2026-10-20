@@ -145,3 +145,10 @@ cards sit below it. At 440 px and below, all three stack. Short windows scroll t
 page rather than clipping a client card or creating a separate client scrollbar.
 The browser checks assert these geometry rules for populated, long-copy, empty
 and failed states at 1440, 1100, 900, 600 and 390 px, plus 1100 × 600.
+
+## Mock store frontend
+
+The launcher now offers a separately labelled mock store through its navigation
+and home card. See [launcher-store.md](launcher-store.md) for the full frontend,
+fixture catalogue, quote/order adapter and real-currency integration contract.
+`home.json` remains a public editorial document and is not a commerce authority.
