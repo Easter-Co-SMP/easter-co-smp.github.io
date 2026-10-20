@@ -138,3 +138,31 @@ Run `tests/store-preview-browser.mjs` with the same Playwright/origin variables 
 verify public-only purchase flow at 1440, 390 and 320 px, mock notices, no external
 requests, legal links, native dialog close/reopen and focus return. Publishing this
 page does not publish a new installer or bypass the packaged-launcher release gates.
+
+## Game-scoped storefronts
+
+Game selection is the primary navigation above product categories. Easter Co. SMP
+is the available example; Orbital Racing and Frontier are explicitly fictional
+coming-soon placeholders, not release announcements. Their concept views have no
+SKUs, prices or purchase controls. The selected game has a labelled pressed button,
+gold outline and its own catalogue heading; mobile uses a horizontal game rail.
+
+`GAMES` defines stable game IDs and availability metadata. Every product now has
+`gameId`. Catalogue responses include game metadata, while quote/order snapshots
+and their lines retain authoritative game identity. An optional requested quote
+or line game must match the SKU's game. Unknown products and mismatched games are
+refused; one checkout contains one game's items. Switching views never silently
+clears the cart. Opening a retained cart restores its actual game selection;
+product details, cart rows, delivery confirmation, receipt and order history state
+the target game explicitly.
+
+For future backend work, scope entitlements and currency ledgers by account AND
+game. SMP queue priority and Crowns are not global launcher benefits. If genuine
+launcher-wide upgrades are introduced, model that scope explicitly rather than
+inheriting the last selected game. All store purchases still use real currency;
+in-game currencies stay in their own games and never pay for store purchases.
+
+`tests/store-games-browser.mjs` covers selection, placeholder non-purchasability,
+cart retention and correctly scoped checkout/receipts at 1440, 1100, 800, 390 and
+320 px. The independent frontend reviewer approved desktop/mobile visual and
+keyboard behaviour for this mock-preview update.

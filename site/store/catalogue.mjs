@@ -1,4 +1,38 @@
 // Fictional merchandising fixtures for the explicitly labelled mock store.
+export const GAMES = [
+  {
+    id: "easter-smp",
+    name: "Easter Co. SMP",
+    genre: "Minecraft · Naval survival",
+    status: "available",
+    mark: "EC",
+    description: "Ships, homes and adventures on the Isles.",
+  },
+  {
+    id: "orbital-racing",
+    name: "Orbital Racing",
+    genre: "Arcade racing · Placeholder",
+    status: "coming-soon",
+    mark: "OR",
+    description:
+      "A fictional racing game to demonstrate future launcher support.",
+    previews: ["Vehicle liveries", "Garage themes", "Driver cosmetics"],
+  },
+  {
+    id: "frontier",
+    name: "Frontier",
+    genre: "Co-op exploration · Placeholder",
+    status: "coming-soon",
+    mark: "FR",
+    description:
+      "A fictional exploration game to demonstrate future launcher support.",
+    previews: [
+      "Explorer outfits",
+      "Outpost decorations",
+      "Expedition upgrades",
+    ],
+  },
+];
 export const CATEGORIES = [
   ["all", "Discover"],
   ["items", "Items"],
@@ -174,7 +208,7 @@ export const CATALOGUE = [
     repeatable: true,
     stock: null,
   },
-].map((p) => ({ ...p, currency: "USD" }));
+].map((p) => ({ ...p, gameId: "easter-smp", currency: "USD" }));
 export function money(minor, currency = "USD") {
   return new Intl.NumberFormat(undefined, {
     style: "currency",

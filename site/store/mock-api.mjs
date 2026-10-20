@@ -1,4 +1,4 @@
-import { CATALOGUE } from "./catalogue.mjs";
+import { CATALOGUE, GAMES } from "./catalogue.mjs";
 const clone = (value) => structuredClone(value);
 export class StoreError extends Error {
   constructor(code, message) {
@@ -62,6 +62,10 @@ export function createMockStoreAPI({
       seen.add(line.id);
       const product = catalogue.find((p) => p.id === line.id);
       if (!product) error("UNAVAILABLE", "An item is no longer available.");
+      if (GAMES.find((g) => g.id === product.gameId)?.status !== "available")
+        error("GAME_UNAVAILABLE", "This game’s store is not open yet.");
+      if (line.gameId !== undefined && line.gameId !== product.gameId)
+        error("GAME_MISMATCH", "This item belongs to a different game.");
       if (!product.repeatable && line.quantity !== 1)
         error("INVALID_CART", "This item can only be bought once.");
       if (
@@ -73,6 +77,7 @@ export function createMockStoreAPI({
         error("SOLD_OUT", product.name + " is no longer in stock.");
       return {
         id: product.id,
+        gameId: product.gameId,
         name: product.name,
         quantity: line.quantity,
         unitAmount: product.price,
@@ -88,15 +93,21 @@ export function createMockStoreAPI({
         schema: 1,
         currency: "USD",
         items: clone(catalogue),
+        games: clone(GAMES),
         owned: orders.flatMap((o) => o.lines.map((l) => l.id)),
       };
     },
-    async quote({ lines }, { signal } = {}) {
+    async quote({ lines, gameId }, { signal } = {}) {
       await wait("quote", signal);
       const validated = linesOf(lines),
         subtotal = validated.reduce((n, l) => n + l.totalAmount, 0);
+      if (new Set(validated.map((l) => l.gameId)).size !== 1)
+        error("MIXED_GAMES", "Please check out items for one game at a time.");
+      if (gameId !== undefined && gameId !== validated[0].gameId)
+        error("GAME_MISMATCH", "Review the game selected for this checkout.");
       const q = {
         id: "quote-" + ++sequence,
+        gameId: validated[0].gameId,
         currency: "USD",
         lines: validated,
         subtotal,
@@ -137,6 +148,7 @@ export function createMockStoreAPI({
       const order = {
         id: "DEMO-" + String(++sequence).padStart(5, "0"),
         createdAt: new Date(now()).toISOString(),
+        gameId: q.gameId,
         currency: q.currency,
         lines: clone(q.lines),
         subtotal: q.subtotal,
