@@ -141,11 +141,14 @@ page does not publish a new installer or bypass the packaged-launcher release ga
 
 ## Game-scoped storefronts
 
-Game selection is the primary navigation above product categories. Easter Co. SMP
+Game selection is a vertical list in the sidebar, directly below “BROWSE THE
+STORE” and the current game name, labelled “Chose Your Game”, above item categories. Easter Co. SMP
 is the available example; Orbital Racing and Frontier are explicitly fictional
 coming-soon placeholders, not release announcements. Their concept views have no
 SKUs, prices or purchase controls. The selected game has a labelled pressed button,
-gold outline and its own catalogue heading; mobile uses a horizontal game rail.
+gold outline and its own catalogue heading. On compact screens the labelled
+disclosure starts collapsed, opens the same vertical list, and closes after a game
+is selected; the panel can scroll without covering the catalogue.
 
 `GAMES` defines stable game IDs and availability metadata. Every product now has
 `gameId`. Catalogue responses include game metadata, while quote/order snapshots
