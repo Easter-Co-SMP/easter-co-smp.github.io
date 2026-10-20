@@ -864,7 +864,14 @@
    if(emailStatusOf(answer)==='unavailable'){holdSignInNotice();return true;}
    closeSignIn();return true;
   }).catch(error=>{
-   if(!cancelledSignIn){closeSignIn();report(error);}return false;
+   if(!cancelledSignIn){
+    closeSignIn();
+    // An identity conflict is a refusal about which account is signed in, and it has its own
+    // copy and its own surface (the chooser, not the page notice) whichever sign-in path it
+    // arrived on. Everything else keeps going to the notice.
+    if(error?.code==='identity_conflict'&&companyAuth)companyAuth.conflict(error.message);
+    else report(error);
+   }return false;
   }).finally(()=>{signInPending=false;localActivity=null;authWait?.clear();render(current||{});});
  }
  // Play Now starts the game. It opens nothing: the dialog is for sign-in and client

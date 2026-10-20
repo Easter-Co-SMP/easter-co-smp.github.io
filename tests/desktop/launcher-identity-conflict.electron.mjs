@@ -184,7 +184,8 @@ try{
  await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await chooser.locator('.company-error').filter({hasText:SERVICE_SENTENCE}).waitFor();
  const conflictLines=await chooser.locator('.company-error p').allInnerTexts();
- assert.deepEqual(conflictLines,DIALOG_SENTENCE,'the chooser carries the account service\'s sentence, then what did not change, then the way out: '+JSON.stringify(conflictLines));
+ const slotDump=await chooser.locator('.company-error').evaluate(node=>({text:node.textContent,hidden:node.hidden,children:node.children.length,open:node.closest('dialog')?.open}));
+ assert.deepEqual(conflictLines,DIALOG_SENTENCE,'the chooser carries the account service\'s sentence, then what did not change, then the way out: '+JSON.stringify(conflictLines)+' slot='+JSON.stringify(slotDump));
  assert.match(conflictLines.join(' '),/Nothing on your Easter Company account has changed\./,'the dialog says the account is untouched');
  assert.match(conflictLines.join(' '),/Close this window[\s\S]*[Ss]ign out/,'and points at the profile\'s account switcher, which is where switching happens, once this dialog is closed');
  assert.equal(await chooser.isVisible(),true,'the chooser is back on screen');

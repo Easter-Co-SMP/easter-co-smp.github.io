@@ -250,6 +250,16 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   try{const answer=await desktop.continueMicrosoft();return answer&&typeof answer==='object'?answer:{ok:true,value:answer};}
   catch(cause){return {ok:false,error:cause&&cause.message,code:cause&&cause.code};}
  };
+ // The conflict refusal, whichever path asked. It used to be painted only by the
+ // saved-session shortcut, so the same refusal arriving through the interactive sign-in
+ // fell back to a single sentence on the page notice — and which path a click took
+ // depended on whether this launcher currently believed it held a Microsoft session.
+ // One refusal, one copy, one surface.
+ function conflict(sentence){
+  const lines=identityConflictCopy(sentence);
+  if(!chooser.open){error(chooser,'');chooser.showModal();}
+  error(chooser,lines);
+ }
  async function microsoft(recover=false){
   if(busy)return;
   const useSaved=!recover&&state.microsoftAccount&&typeof desktop.continueMicrosoft==='function';
@@ -273,7 +283,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
     // this answer arrives, so the dialog is reopened once that task has run rather than
     // racing the reset it does.
     await new Promise(resolve=>setTimeout(resolve,0));
-    chooser.showModal();error(chooser,identityConflictCopy(answer.error));return;
+    conflict(answer.error);return;
    }
   }
   const result=await signInMicrosoft({link:recover?Boolean(state.account):Boolean(chooseOptions.link)});
@@ -419,5 +429,5 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   error(chooser,'');if(!chooser.open&&!busy)chooser.showModal();void providerAvailability();
  }
  function openRecovery(){openChoice({link:Boolean(state.account)});chooser.querySelector('.company-recover').click();}
- return {render,setup,open:openChoice,reset:openRecovery,emails:openEmails,refreshEmails};
+ return {render,setup,open:openChoice,reset:openRecovery,emails:openEmails,refreshEmails,conflict};
 }
