@@ -258,7 +258,7 @@ any of it. The count is the service's own integer, never one a view fills in.
 | `stopped` | `asleep` | `Server Online, 0 active players` — the credit-saving sleep is not a fault: pressing Play is what starts it, so the row does not call it offline and says nothing about waking |
 | `starting`, and `running` without `ready` | `starting` | `Server Online, 0 active players` — ordinary states with nobody joinable yet |
 | `stopping` | `stopping` | `Server Online, N active players` — the players still in the game keep their real count; `0 active players` when the service sent none |
-| `stopped` with a service `detail`, and `unknown` after a read or before one | `offline` | `Server Offline` — said only when Online cannot be said |
+| `unknown` after a read or before one | `offline` | `Server Offline` — said only when Online cannot be said |
 | waking (this launcher's own cold start) | `starting`, `stopping` | the wait line's own sentence, unchanged (see *Where it is shown*); the status row stands down while it is up |
 | a timeout, or an expired session (failures) | — | unchanged; they reach the player through the page notice with Play as the retry |
 
@@ -267,10 +267,18 @@ state as text, so a player reading it with a screen reader, or a test asserting 
 `Server Online, 2 active players` and not a colour. Colour only repeats what the words
 already say, and a state whose words are missing paints nothing.
 
-**Offline has one job left.** It is said when the launcher cannot say Online: a stopped
-host the service is doing something to (it sends a `detail`), or no status known yet.
-Nothing about the reason, the wait or the service is printed — the player reads one of
-three sentences and the launch path explains the rest if there is anything to explain.
+**Offline has one job left.** It is said when the launcher cannot say Online: no status
+known yet — never read, or read and failed. Nothing about the reason, the wait or the
+service is printed — the player reads one of three sentences and the launch path explains
+the rest if there is anything to explain.
+
+**The service's `detail` decides nothing.** It used to: the cloud sent *"The SMP host is
+asleep. It starts when someone presses Play."* for `stopped` and *"…is booting."* /
+*"…is shutting down."*, and the 1.0.37 launcher pasted the sentence into this row in
+brackets — `Server Offline (The SMP host is asleep. It starts when someone presses
+Play.)` — which was both slop and wrong (a sleeping host called offline). Since
+2026-10-22 the service answers `detail: null` for every state and this module ignores the
+field entirely, so the words are always the launcher's own three sentences.
 
 **No technical detail reaches this row.** The service's `detail`, the roughly-a-minute
 wake and the shutdown sentence are gone from it. `game.detail` is still sanitized and

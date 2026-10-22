@@ -107,10 +107,12 @@ function onlineLine(players){return Number.isInteger(players)?MESSAGES.online+',
 // - the count is the service's own integer. A `stopped` host has nobody on it, so its
 //   count is 0 whatever it last sent; a `stopping` one may still have players and keeps
 //   their count.
-// - **Offline is said only when Online cannot be said**: the service stated it is doing
-//   something to a stopped host (`detail`), or no status is known yet — before the first
-//   read, and after a read that failed. Nothing about a reason, a wait or a service is
-//   ever printed: the player reads one of three sentences.
+// - **Offline is said only when Online cannot be said**: no status is known yet — before
+//   the first read, and after a read that failed. The service's `detail` decides nothing
+//   and is never printed: it sends an explanatory sentence for the ordinary sleep ("the
+//   SMP host is asleep, it starts when someone presses Play"), and a parenthetical like
+//   that is exactly the slop Owen removed on 2026-10-22. A stopped host is online with
+//   nobody on it whether or not the service feels chatty about it.
 // - `starting`, and `running` without `ready` (the instance answers but its port has not
 //   confirmed a real Minecraft status exchange), are still ordinary states with nobody
 //   joinable yet, so they read online with nobody on.
@@ -118,10 +120,7 @@ function gameStatusLine({state='unknown',ready=false,players=null,detail=null}={
  // The cold start owns its own wait line, so these two are what that line prints.
  if(waking)return {message:state==='stopping'?MESSAGES.wakingStopping:MESSAGES.waking,tone:state==='stopping'?'stopping':'starting'};
  if(state==='running'&&ready)return {message:onlineLine(players),tone:'online'};
- if(state==='stopped'){
-  if(detail)return {message:MESSAGES.offline,tone:'offline'};
-  return {message:onlineLine(0),tone:'asleep'};
- }
+ if(state==='stopped')return {message:onlineLine(0),tone:'asleep'};
  if(state==='stopping')return {message:onlineLine(Number.isInteger(players)?players:0),tone:'stopping'};
  if(state==='running'||state==='starting')return {message:onlineLine(0),tone:'starting'};
  // Nothing known: not yet read, or the read failed. The row says Offline until it knows.

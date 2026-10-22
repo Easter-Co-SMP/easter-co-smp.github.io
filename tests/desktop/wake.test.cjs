@@ -139,9 +139,13 @@ test('the status line is three sentences, and says Offline until it knows',()=>{
  // Shutting down with people on it: they are still in the game, so their count is real.
  assert.equal(line({state:'stopping',players:2}).message,'Server Online, 2 active players');
  assert.equal(line({state:'stopping',players:null}).message,'Server Online, 0 active players');
- // Offline is said only when Online cannot be: the service stated it is doing something to
- // a stopped host, or no status is known yet — never read, or read and failed.
- assert.equal(line({state:'stopped',detail:'Update in progress...'}).message,'Server Offline');
+ // A service detail decides nothing: the service sends an explanatory sentence for the
+ // ordinary sleep, and a stopped host is online with nobody on it either way.
+ assert.equal(line({state:'stopped',detail:'The SMP host is asleep. It starts when someone presses Play.'}).message,'Server Online, 0 active players');
+ assert.equal(line({state:'stopped',detail:'The SMP host is asleep. It starts when someone presses Play.'}).tone,'asleep');
+ // Offline is said only when Online cannot be: no status known yet — never read, or read
+ // and failed.
+ assert.equal(line({state:'stopped',detail:'Update in progress...'}).tone,'asleep');
  assert.equal(line({state:'unknown'},{checked:true}).message,'Server Offline');
  assert.equal(line({state:'unknown'},{checked:false}).message,'Server Offline');
  assert.equal(line({},{checked:false}).message,'Server Offline');
@@ -161,7 +165,7 @@ test('the status line is three sentences, and says Offline until it knows',()=>{
  // what the dot says.
  assert.equal(line({state:'running',ready:true,players:2}).tone,'online');
  assert.equal(line({state:'stopped',players:0}).tone,'asleep');
- assert.equal(line({state:'stopped',detail:'Update in progress...'}).tone,'offline');
+ assert.equal(line({state:'stopped',detail:'Update in progress...'}).tone,'asleep');
  assert.equal(line({state:'starting'}).tone,'starting');
  assert.equal(line({state:'stopping'}).tone,'stopping');
  assert.equal(line({state:'unknown'}).tone,'offline');
