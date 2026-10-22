@@ -220,18 +220,14 @@ try{
  const menu=await page.locator('.desktop-profile-menu').textContent();
  assert(menu.includes(PROBE_FREE),'the profile menu names the username: '+menu);
  assert(!menu.includes('EC-'),'the profile menu shows no Company ID');
- // The profile's own line never names the address (streamer protection): the account service
- // still records which address signs this account in, and the dialog behind the button is
- // where it is read on purpose. The line stays hidden and empty on the menu itself.
- const emailLine=page.locator('.desktop-profile-heading.desktop-email');
+ // The menu of 2026-10-22 is the name, the bare username and the three entries, and it prints
+ // no address and no sentence about one: the account service still records which address signs
+ // this account in, and My Profile's own section is where it is read, on purpose. The entries
+ // are read by their own keys, in Owen's order.
+ assert.deepEqual(await page.locator('.desktop-profile-menu [data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.dataset.profileAction)),['myProfile','linkedAccounts','logout'],'the menu is My Profile, Linked Accounts and Logout, in that order');
  const noAddressLine=async()=>{
-  assert.equal(await emailLine.evaluate(el=>el.hidden),true,'the profile menu prints no login address');
-  assert.equal((await emailLine.textContent()).trim(),'','and the login-email line carries no text');
- };
- // The line still speaks when there is no address to hide: it says which sign-in works.
- const lineIs=async text=>{
-  await emailLine.filter({hasText:text}).waitFor({state:'attached'});
-  assert.equal((await emailLine.textContent()).trim(),text);
+  assert.equal(await page.locator('.desktop-profile-menu .desktop-profile-heading.desktop-email').count(),0,'the profile menu has no login-email line to print an address in');
+  assert(!(await page.locator('.desktop-profile-menu').innerText()).includes('@'),'and no address is anywhere in the menu');
  };
  await noAddressLine();
  await page.screenshot({path:'/tmp/company-username-profile.png',animations:'disabled'});
@@ -257,7 +253,8 @@ try{
 // player choose which address signs them in, one at a time. Nothing about Steam or Discord
 // is built here: the rows are whatever providers the service names.
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Verified emails',exact:true}).click();
+ await page.getByRole('button',{name:'My Profile',exact:true}).click();
+ await page.locator('#company-profile').getByRole('button',{name:'Verified emails',exact:true}).click();
  const emailsDialog=page.locator('#desktop-company-emails');
  await emailsDialog.waitFor();
  const addressRows=emailsDialog.locator('input[name=email]');
@@ -288,7 +285,8 @@ try{
  await page.keyboard.press('Escape');
  await emailsDialog.waitFor({state:'hidden'});
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Verified emails',exact:true}).click();
+ await page.getByRole('button',{name:'My Profile',exact:true}).click();
+ await page.locator('#company-profile').getByRole('button',{name:'Verified emails',exact:true}).click();
  await addressRows.first().waitFor();
  await page.waitForFunction(()=>document.querySelectorAll('#desktop-company-emails input[name=email]')[1]?.checked===true);
  assert.equal(await addressRows.nth(1).isChecked(),true,'the reopened section reads the saved choice back');
@@ -306,7 +304,7 @@ try{
  assert.equal(await emailsDialog.locator('.company-emails-unset').isVisible(),true,'with nothing selected the section says which sign-in works');
  assert.match(await emailsDialog.locator('.company-emails-unset').textContent(),/Sign in with a linked provider or with your username\./);
  assert.equal(await emailsDialog.getByRole('button',{name:'Clear login email',exact:true}).isVisible(),false,'there is nothing left to clear');
- await lineIs('No login email is selected. Sign in with a linked provider or with your username.');
+ assert.equal((await emailsDialog.locator('.company-emails-unset').textContent()).trim(),'No login email is selected. Sign in with a linked provider or with your username.','the section says which sign-in works, and the menu no longer repeats it');
  await page.screenshot({path:'/tmp/company-emails-cleared.png',animations:'disabled'});
  // Choose the second address again, so the restart below has a non-default choice to keep.
  await addressRows.nth(1).check();
@@ -318,13 +316,14 @@ try{
  noEmails=true;
  await page.keyboard.press('Escape');
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Verified emails',exact:true}).click();
+ await page.getByRole('button',{name:'My Profile',exact:true}).click();
+ await page.locator('#company-profile').getByRole('button',{name:'Verified emails',exact:true}).click();
  await emailsDialog.locator('.company-emails-empty').waitFor();
  assert.equal(await emailsDialog.locator('input[name=email]').count(),0,'an account with no verified email shows no list');
  assert.equal((await emailsDialog.locator('.company-emails-empty').textContent()).trim(),'No verified email is recorded for this account. Sign in with a linked provider or with your username.');
  assert.equal(await emailsDialog.getByRole('button',{name:'Save selection',exact:true}).isVisible(),false);
  assert.equal(await emailsDialog.getByRole('button',{name:'Clear login email',exact:true}).isVisible(),false);
- await lineIs('No verified email is recorded for this account. Sign in with a linked provider or with your username.');
+ assert.equal((await emailsDialog.locator('.company-emails-empty').textContent()).trim(),'No verified email is recorded for this account. Sign in with a linked provider or with your username.','the section says it in its own words, and the menu no longer repeats it');
  await page.screenshot({path:'/tmp/company-emails-none.png',animations:'disabled'});
  noEmails=false;
  // A verified address another account already signs in with is refused as unavailable:
@@ -332,7 +331,8 @@ try{
  lostEmail=true;
  await page.keyboard.press('Escape');
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Verified emails',exact:true}).click();
+ await page.getByRole('button',{name:'My Profile',exact:true}).click();
+ await page.locator('#company-profile').getByRole('button',{name:'Verified emails',exact:true}).click();
  await addressRows.nth(2).waitFor();
  assert.equal(await addressRows.count(),3);
  await addressRows.nth(2).check();
@@ -360,29 +360,33 @@ try{
  assert.deepEqual(shippedAddresses.filter(call=>JSON.stringify(call.body).includes('@example.test')).map(call=>call.path),[]
   ,'no request outside the verified-email routes carries an address');
  await page.screenshot({path:'/tmp/company-username-ready.png',animations:'disabled'});
- // 8b. A password change is the password step on its own: no username is asked for again,
- // and the request that changes the password carries none. The reauthentication is what
- // proves the player owns the account, and since provider sign-in (4341b90) it runs through
- // a provider linked to the account: Reset password opens the provider chooser rather than
- // starting Microsoft's sign-in by itself, which is what this block used to wait for. It
- // reauthenticates through Microsoft here because Microsoft is this fixture account's
- // linked provider; the chooser, not the password step, is where that provider is named.
- await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Reset password',exact:true}).click();
- await chooser.waitFor();
- assert.equal(await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).isVisible(),true,'a password change reauthenticates through a provider linked to the account');
- await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();await app.evaluate(()=>global.easterTestApprove());
- const reset=passwordStep;
- await reset.getByRole('heading',{name:'Reset your Easter Company password',exact:true}).waitFor();
- assert.equal(await reset.getByLabel('Username',{exact:true}).count(),0,'a password change never asks for the username');
- assert.equal(await reset.locator('.company-username').isVisible(),false,'and does not name one either');
- assert.equal(await reset.locator('.company-step').isVisible(),false,'it is not step two of the setup flow');
+ // 8b. A password change is My Profile's own form (Owen, 2026-10-22): the new password twice,
+ // never the current one, no username asked for again, and no reset or recovery path in front of
+ // it - the launcher carries none. What the form posts is the account service's set-password
+ // route with replace:true, and this fixture's session is the one this journey just created, so
+ // the service answers it.
  const replacement='replacement fixture passphrase';
+ await page.locator('.desktop-account-nav').click();
+ await page.getByRole('button',{name:'My Profile',exact:true}).click();
+ const reset=page.locator('#company-profile');
+ await reset.waitFor();
+ assert.equal(await reset.getByRole('button',{name:'Reset password',exact:true}).count(),0,'no reset control exists in the launcher');
+ assert.equal(await chooser.getByRole('button',{name:'Forgot your password?',exact:true}).count(),0,'and the sign-in chooser offers no recovery either');
+ assert.match((await chooser.locator('.company-no-reset').textContent()).trim(),/there is no reset: sign in with a linked account, then change the password in My Profile/,'the chooser says what the only route is');
+ assert.equal(await reset.getByLabel('Username',{exact:true}).count(),0,'a password change never asks for the username');
+ assert.equal(await reset.getByLabel(/current password/i,{exact:false}).count(),0,'and never for the password the player already has');
+ await reset.getByLabel('New password',{exact:true}).fill('short');
+ await reset.getByLabel('Confirm password',{exact:true}).fill('short');
+ await reset.getByRole('button',{name:'Change password',exact:true}).click();
+ await reset.locator('.company-error').filter({hasText:'Use 8 to 128 characters.'}).waitFor();
  await reset.getByLabel('New password',{exact:true}).fill(replacement);
+ await reset.getByLabel('Confirm password',{exact:true}).fill('a different fixture passphrase');
+ await reset.getByRole('button',{name:'Change password',exact:true}).click();
+ await reset.locator('.company-error').filter({hasText:'The passwords do not match.'}).waitFor();
  await reset.getByLabel('Confirm password',{exact:true}).fill(replacement);
- await reset.getByRole('button',{name:'Save password',exact:true}).click();
- await reset.waitFor({state:'hidden'});
+ await reset.getByRole('button',{name:'Change password',exact:true}).click();
+ await reset.locator('.company-status').filter({hasText:'Your password is changed.'}).waitFor();
+ await page.keyboard.press('Escape');await reset.waitFor({state:'hidden'});
  assert.equal((await status()).account.username,PROBE_FREE);
  const resets=calls.filter(call=>call.path==='/v2/accounts/password'&&call.body.replace===true);
  assert.equal(resets.length,1,'the reset posted once');
@@ -438,8 +442,10 @@ try{
  assert.equal(restarted.account.username,PROBE_FREE,'the restarted launcher is on the same Easter Company account');
  assert(!JSON.stringify(restarted).includes('@example.test'),'and its state still carries no address');
  await page2.locator('.desktop-account-nav').click();
- await page2.locator('.desktop-profile-heading.desktop-email').evaluate(el=>{if(!el.hidden||el.textContent.trim())throw new Error('restarted launcher prints a login address in its profile menu');return true;});
- await page2.getByRole('button',{name:'Verified emails',exact:true}).click();
+ assert.equal(await page2.locator('.desktop-profile-menu .desktop-profile-heading.desktop-email').count(),0,'the restarted launcher prints no login address in its profile menu');
+ assert(!(await page2.locator('.desktop-profile-menu').innerText()).includes('@'),'and no address of any kind');
+ await page2.getByRole('button',{name:'My Profile',exact:true}).click();
+ await page2.locator('#company-profile').getByRole('button',{name:'Verified emails',exact:true}).click();
  const restartedDialog=page2.locator('#desktop-company-emails');
  await restartedDialog.locator('input[name=email]').first().waitFor();
  await page2.waitForFunction(()=>document.querySelectorAll('#desktop-company-emails input[name=email]')[1]?.checked===true);
@@ -449,5 +455,5 @@ try{
  await page2.screenshot({path:'/tmp/company-emails-restarted.png',animations:'disabled'});
  await page2.keyboard.press('Escape');
  assert.deepEqual(errors2,[]);
- console.log('Company username flow PASS: Sign in / Easter Company account required on signed-out Home and Sign in with Microsoft in the chooser that Home opens, Username or Email identifier login, username chosen before the password with the probe\'s taken and policy refusals each keeping the player on step 1 and writing nothing, verified emails listed and chosen through the real main process with the save, the re-read, the clear, the no-email sentence and the refused address, the choice surviving a restart, a password change that reauthenticates through the provider linked to the account and asks for no username, Play appearing only once the account is ready, exact request bodies, username displayed with no Company ID and no address in the state.');
+ console.log('Company username flow PASS: Sign in / Easter Company account required on signed-out Home and Sign in with Microsoft in the chooser that Home opens, Username or Email identifier login, username chosen before the password with the probe\'s taken and policy refusals each keeping the player on step 1 and writing nothing, verified emails listed and chosen through the real main process with the save, the re-read, the clear, the no-email sentence and the refused address, the choice surviving a restart, a password change through the My Profile form (new password twice, never the current one, the service 8-to-128 rule applied before the request) with no reset or recovery path anywhere in the launcher, Play appearing only once the account is ready, exact request bodies, username displayed with no Company ID and no address in the state.');
 }finally{await app.close();await new Promise(resolve=>stub.close(resolve));await fs.rm(home,{recursive:true,force:true});}

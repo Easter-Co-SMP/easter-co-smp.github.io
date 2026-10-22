@@ -218,8 +218,8 @@ try{
  await d.passwordSignIn();
  await d.hero('play').waitFor();
  await d.page.locator('.desktop-account-nav').click();
- await d.page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
- const profile=d.page.locator('#company-profile');
+ await d.page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
+ const profile=d.page.locator('#company-linked-accounts');
  await profile.waitFor();
  const revoke=profile.getByRole('button',{name:'Sign out of Minecraft everywhere',exact:true});
  await revoke.waitFor();
@@ -243,7 +243,7 @@ try{
  await d.passwordSignIn();
  await d.hero('play').waitFor();
  await d.page.locator('.desktop-account-nav').click();
- await d.page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
+ await d.page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
  await profile.waitFor();
  await profile.getByRole('button',{name:'Sign out of Minecraft everywhere',exact:true}).click();
  await profile.locator('.company-status').filter({hasText:'The launcher cannot sign Minecraft out on other computers yet.'}).waitFor();

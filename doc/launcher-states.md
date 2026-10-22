@@ -958,7 +958,8 @@ scroll for the whole refusal to be inside the box, and nothing at all when the b
 already shows it, so the refusal is still read above the form with Sign in and Forgot
 your password below the fold. **A box that scrolls is not a refusal that is clipped**
 (measured 2026-10-22, ticket de61e4dc). With provider sign-in the chooser is capped at
-`calc(100dvh - 32px)` and its content is 621px, so at 390x844 it scrolls by 28px for its
+`calc(100dvh - 32px)` and its content is 622px (657px at a 390px window, re-measured 2026-10-22
+when the forgotten-password link became a sentence), so at 390x844 it scrolls by 28px for its
 own bottom inset while the refusal is already whole: its three lines sat at 564..735
 inside a scrollport ending at 827 (`scrollHeight` 838 against `clientHeight` 810), the
 dialog correctly stayed at `scrollTop` 0, and
@@ -976,17 +977,22 @@ dialog — a chooser must never show a scrollbar it does not need — and that r
 expectation, because the chooser it was written for no longer exists. It was written when the
 chooser was one Microsoft button above the form, and that chooser fitted an 800x600 window with
 room to spare. Provider sign-in added Google, Steam and Discord above the provider note, and
-the chooser's content is now 621px: close control 36, heading 29, `Sign in with Microsoft` 44,
-three provider buttons 44 each, the provider note 35, and the form 251. The dialog is capped at
+the chooser's content is now 622px: close control 36, heading 29, `Sign in with Microsoft` 44,
+three provider buttons 44 each, the provider note 35, and the form 252 — which since
+2026-10-22 carries the 35px sentence about a forgotten password instead of the link it used
+to carry, a change of one pixel on this element and of one on the whole chooser (measured at
+1440x900 on the profile-menu build; at a 390px window the same content is 657px, where the
+sentence wraps). The dialog is capped at
 `calc(100dvh - 32px)` (`.desktop-company-dialog`), which at the launcher's own 800x600 minimum
 is a 568px box with a 566px client height, so the chooser scrolls there — with a refusal in it
-or without one — while at 1440x900 the same 621px fits inside a 622px dialog. Only short
+or without one — while at 1440x900 the same 622px content fits inside a 622px dialog. Only short
 windows are affected, and that is allowed.
 
 What replaces the rule is an obligation, and it is the one the journey now asserts: **the
 chooser may scroll; it may not clip content, hide a control or leave anything unreachable.**
 Every control — the close control, both Microsoft paths, each provider button, the note above
-them, the Username or Email field, the Password field, Sign in and Forgot your password — is
+them, the Username or Email field, the Password field, Sign in and the sentence about a
+forgotten password — is
 reachable by scrolling at 800x600, and is measured at 1440x900, 390x844 and the short 390x568
 as well. Nothing was removed or shrunk to buy the room: all three provider buttons stay, each
 keeps a 44px touch target, the note keeps its words and the whole form stays.
@@ -1931,20 +1937,46 @@ operation: the renderer sends two booleans, and the main process decides.
 
 Desktop Home uses Settings as its secondary hero action. The header has no client
 settings button. Once signed in it shows the player's display name followed by their
-face (see "The player's own name and face (2026-10-19)" below); that control opens
-Add account, Switch Account and Logout. Add account keeps the
-previous session until sign-in succeeds. Switch Account lists app-owned accounts
-and refreshes the selected session before activation. Logout removes the active
+face (see "The player's own name and face (2026-10-19)" below); that control opens the
+profile menu (*The profile menu*, below). Logout removes the active
 account, including its saved session, without deleting other accounts. Account
 sessions persist only in an OS-backed encrypted vault, otherwise for this process.
-The state includes `accounts` (public usernames and display names only) and an optional skin
-PNG data URL in each public profile. Tokens remain in the main process. Switching is refused
-while Minecraft or authentication is running.
+The state carries the one signed-in account as `state.account` and no account list — the
+app-owned account list, its switch action and its menu were removed with provider sign-in,
+because signing in while signed in is refused — plus an optional skin PNG data URL in the
+public profile. Tokens remain in the main process. Account changes are refused while
+Minecraft or authentication is running (*Launcher UI review*).
 
 Manifest paths identify published files; JARs install under mods/ regardless of
 their public download path. Old chunk records with different installation paths
 require repair through the verified pipeline. Completion re-reads the installed
 marker before reporting ready; installed but signed-out clients request sign-in.
+
+## The profile menu (2026-10-22)
+
+Owen's signed-in dropdown, sent twice and quoted as he sent it: the display name (`OCEaster`),
+then the bare username on its own line (`oceaster`), then three entries — **My Profile**,
+**Linked Accounts**, **Logout**. The `Signs in as ` prefix is gone, and so is the
+`Microsoft / Xbox linked · sign in to play` line: a provider's linked state belongs to the row
+that names that provider on Linked Accounts, so the menu is two lines and three entries and
+prints no address and no sentence about one (streamer protection — the addresses live only
+inside My Profile's verified-emails section). **My Profile** holds the display name and the
+picture, the verified emails (the existing `openEmails` section, opened from it) and a password
+form: a new password and a confirmation, 8 to 128 characters as the account service enforces,
+and no current password, because any active sign-in is enough — Owen, the same day: *"does not
+require them to enter the current password, just have any active login session"*.
+**Linked Accounts** holds the provider rows and the Minecraft session section, and nothing about
+emails or passwords. **Logout** keeps its place and its behaviour, appended unconditionally like
+the other two and answering to the account lock rather than to any account state. There is no
+password reset and no recovery service, so the sign-in chooser's "Forgot your password?" link is
+removed and one sentence stands where it was — sign in with a linked account, then change the
+password in My Profile. While the account service still answers `reauthentication_required` (a
+session older than fifteen minutes, or one minted by a password login), My Profile's form prints
+that sentence and one further line naming the route; when the separate cloud change makes any
+active session sufficient, that code stops arriving and the second line stops being drawn. The
+entries are keyed `data-profile-action="myProfile|linkedAccounts|logout"`, which is how the
+tests read them, and `tests/profile-lock-browser.mjs` asserts that list, and that Logout is
+present in every signed-in state and only ever disabled by that lock.
 
 ## The player's own name and face (2026-10-19)
 
@@ -2566,11 +2598,13 @@ sign in, so two accounts can never claim the same login address. An account whos
 addresses are all unavailable signs in with Microsoft or with its username instead, which
 is exactly what the empty state says.
 
-**The profile section.** The account popover shows the login email in one line (or the
-sentence for the state it is in) and offers **Verified emails**, which opens the section: a
+**The profile section.** My Profile — the first entry of the account menu, since 2026-10-22
+(*The profile menu*) — offers **Verified emails**, which opens the section: a
 one-at-a-time choice of the reported addresses, the current choice marked "signs you in",
 the others marked "recorded, not a login key", one **Save selection** action and one
-**Clear login email** action while a selection exists. The section says, in its own words,
+**Clear login email** action while a selection exists. The account menu itself shows no
+address and no sentence about one: the line it used to carry is gone with the four-entry
+menu, and this section is the only place an address is ever displayed. The section says, in its own words,
 that only the selected address is a login key. The saved choice is the server's record, not
 a launcher preference: it is re-read from `GET /v2/accounts/emails` every time the section
 opens, so it survives a restart by being asked for again rather than by being cached.
@@ -2786,8 +2820,8 @@ object during an account operation:
 
 `scope` exists because the hero is not the only place work starts. An operation the player
 begins from the hero - installing, signing in, playing, waking the server - owns the hero's
-wait line. An operation they begin from a menu or a dialog - opening the profile menu reads
-their verified emails, opening Profile & linked accounts reads the provider list, the
+wait line. An operation they begin from a menu or a dialog - My Profile's verified-emails section reads
+their verified emails, Linked Accounts reads the provider list, the
 username step asks whether a name is free, the verified-emails dialog saves a choice -
 reports in that surface, and may never paint the hero's line. Owen, 2026-10-20: *"when I
 click the profile button in the nav bar an element is toggled within the Easter Co. SMP hero

@@ -889,7 +889,7 @@ try{
    assert.equal('server' in (await callsNamed('saveSettings')).at(-1).payload,false,'and no server address rides along with it');
 
    // Company identity is primary; Microsoft is a linked provider underneath it.
-   assert.equal(await dialog.locator('.desktop-account,.desktop-company').count(),0,'account management has one home in the profile menu');
+   assert.equal(await dialog.locator('.desktop-account').count(),0,'account management has one home in the profile menu');
    await launcherPage.keyboard.press('Escape');
    await pushState({account:{id:'EC-7',username:'captain_owen',name:'Captain Owen',roles:['crew'],passwordRequired:false,microsoftLinked:true},companyReady:true,microsoftConnected:true});
    await launcherPage.locator('.desktop-account-nav').click();
@@ -900,16 +900,26 @@ try{
    assert.equal((await launcherPage.locator('.desktop-account-nav').innerText()).trim(),'Captain Owen','the header shows the display name, not the username');
    const headed=await profileMenu.locator('.desktop-account').textContent();
    assert(headed.startsWith('Captain Owen'),'the display name leads the account menu: '+headed);
-   assert(headed.includes('captain_owen'),'and the username is kept as the sign-in line: '+headed);
-   assert(!headed.startsWith('captain_owen'),'but never in the leading position: '+headed);
+   assert.equal(headed.trim(),'Captain Owencaptain_owen','and the bare username follows it on its own line, with no prefix (Owen, 2026-10-22): '+headed);
+   assert(!headed.includes('Signs in as'),'the "Signs in as " prefix is gone: '+headed);
+   assert(!headed.startsWith('captain_owen'),'but the username is never in the leading position: '+headed);
    assert(!headed.includes('EC-'),'and no Company ID is shown to the player');
-   assert((await profileMenu.locator('.desktop-company').textContent()).includes('Microsoft / Xbox linked'),'Microsoft is shown as a linked provider');
+   // Owen's menu of 2026-10-22 is two lines and three entries, and nothing else. The Microsoft /
+   // Xbox status line leaves it — that state belongs to the provider rows on Linked Accounts —
+   // and so does the login-email line, because the menu prints no address and no sentence about
+   // one. What is left is read by what the player presses.
+   assert.deepEqual(await profileMenu.locator('[data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.textContent)),['My Profile','Linked Accounts','Logout'],'the menu offers exactly My Profile, Linked Accounts and Logout, in that order');
+   assert.deepEqual(await profileMenu.locator('[data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.dataset.profileAction)),['myProfile','linkedAccounts','logout'],'on the keys the menu is read by');
+   assert.equal(await profileMenu.locator('.desktop-company').count(),0,'the menu carries no Microsoft / Xbox status line');
+   assert.equal(await profileMenu.locator('.desktop-profile-heading.desktop-email').count(),0,'and no login-email line');
    assert.equal(await profileMenu.getByRole('button',{name:'Sign out of Easter Company',exact:true}).count(),0,'one primary Logout action');
    // Owen, 2026-10-20: "when I click the profile button in the nav bar an element is toggled
    // within the Easter Co. SMP hero '{spinner} Contacting the account service' ... shouldn't be
-   // in the hero, should be apart of the drop down". The read that opening this menu starts
-   // reports inside the menu, under the line it will fill in, and the hero stays silent about
-   // work it did not start. A hero-owned wait still paints the hero and never the menu.
+   // in the hero, should be apart of the drop down". A surface-scoped account read reports
+   // inside the menu while it is open, and the hero stays silent about work it did not start.
+   // A hero-owned wait still paints the hero and never the menu. Opening the menu no longer
+   // starts a read of its own — it prints no address, so it has nothing to read for (Owen,
+   // 2026-10-22) — but any account read still running while it is open reports here.
    await pushState({activity:{stage:'account-working',message:'Contacting the account service…',startedAt:Date.now(),scope:'surface'}});
    const menuWait=profileMenu.locator('.desktop-profile-wait');
    await menuWait.waitFor({state:'visible'});
@@ -920,17 +930,18 @@ try{
    assert.equal(await menuWait.isVisible(),false,'a hero-owned wait never paints the menu');
    await pushState({activity:null});
    await menuWait.waitFor({state:'hidden'});
-   // The verified emails: the profile names the address that signs the account in, the
-   // section lists what the account service reports, and the choice reaches main as the
-   // chosen address and nothing else. No address is ever part of the state that is pushed.
-   const emailLine=profileMenu.locator('.desktop-profile-heading.desktop-email');
-   // Owen, 2026-10-22, for streamer protection: the profile dropdown must never show the
-   // address. With a login email set the line is not drawn at all.
-   await launcherPage.waitForFunction(()=>document.querySelector('.desktop-profile-menu .desktop-profile-heading.desktop-email')?.hidden===true||document.querySelector('.desktop-profile-menu .desktop-profile-heading.desktop-email')===null);
-   assert.equal(await emailLine.isVisible(),false,'the profile menu draws no Login email line');
-   assert(!(await profileMenu.innerText()).includes('@example.test'),'and no address anywhere in the menu: '+(await profileMenu.innerText()).replace(/\n/g,' | '));
+   // The verified emails are inside My Profile now: the section lists what the account service
+   // reports, and the choice reaches main as the chosen address and nothing else. No address is
+   // ever part of the state that is pushed, and the menu itself says nothing about one — that
+   // is Owen's streamer-protection rule of 2026-10-22, and it is why this menu has no address
+   // line left to hide.
+   assert(!(await profileMenu.innerText()).includes('@example.test'),'no address anywhere in the menu: '+(await profileMenu.innerText()).replace(/\n/g,' | '));
    assert(!JSON.stringify(await launcherPage.evaluate(()=>window.easterRenderer.state)).includes('@example.test'),'the launcher state carries no address');
-   await profileMenu.getByRole('button',{name:'Verified emails',exact:true}).click();
+   await profileMenu.getByRole('button',{name:'My Profile',exact:true}).click();
+   const myProfileDialog=launcherPage.locator('#company-profile');
+   await myProfileDialog.waitFor({state:'visible'});
+   assert(!(await myProfileDialog.innerText()).includes('@example.test'),'My Profile prints no address either: the list is behind its own button');
+   await myProfileDialog.getByRole('button',{name:'Verified emails',exact:true}).click();
    const emailsDialog=launcherPage.locator('#desktop-company-emails');
    await emailsDialog.locator('input[name=email]').first().waitFor();
    assert.equal(await emailsDialog.locator('input[name=email]').count(),2,'both verified addresses are listed');
@@ -949,13 +960,13 @@ try{
    assert.equal((await callsNamed('selectLoginEmail')).at(-1).payload,'crew@example.test','the chosen address is what reaches main');
    await emailsDialog.locator('.company-status').filter({hasText:'Your login email is saved.'}).waitFor();
    assert.equal(await emailsDialog.locator('input[name=email]').nth(1).isChecked(),true,'the saved choice is the marked one');
-   assert.equal(await emailLine.isVisible(),false,'the profile menu still draws no address after the choice changes');
+   assert.equal(await profileMenu.locator('.desktop-profile-heading.desktop-email').count(),0,'the profile menu still draws no address after the choice changes');
    assert(!(await profileMenu.innerText()).includes('crew@example.test'),'and the newly saved address is not printed either');
    await emailsDialog.getByRole('button',{name:'Clear login email',exact:true}).click();
    await emailsDialog.locator('.company-status').filter({hasText:'cleared'}).waitFor();
    assert.equal((await callsNamed('selectLoginEmail')).at(-1).payload,null,'clearing sends an explicit null');
    assert.equal(await emailsDialog.locator('.company-emails-unset').isVisible(),true,'with no selection the section says which sign-in works');
-   assert.equal((await emailLine.textContent()).trim(),'No login email is selected. Sign in with a linked provider or with your username.','and the profile line says the same thing');
+   assert(!(await profileMenu.innerText()).includes('login email'),'and the menu still says nothing about a login email: that sentence belongs to the section');
    await emailsDialog.locator('input[name=email]').nth(1).check();
    await emailsDialog.getByRole('button',{name:'Save selection',exact:true}).click();
    await emailsDialog.locator('.company-status').filter({hasText:'Your login email is saved.'}).waitFor();

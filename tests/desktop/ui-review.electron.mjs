@@ -237,7 +237,7 @@ try{
  // The game these checks are made under is one main really started, not a `running` phase
  // pushed into the renderer. A broadcast carries main's own phase, and the profile's own
  // verified-emails read answers with one about a second after it opens, so a fabricated phase
- // outlives nothing: the four [data-profile-action] controls came back enabled while the
+ // outlives nothing: the three [data-profile-action] controls came back enabled while the
  // assertion below was still to come, and that is how this journey stayed red. The fixture
  // starts the same game the player does, and main then says `running` for real.
  await page.locator('[data-desktop-play][data-action=play]').click();
@@ -296,15 +296,16 @@ try{
  await page.locator('.desktop-advanced summary').click();await shot('settings-advanced');
  await page.keyboard.press('Escape');
  await page.locator('.desktop-account-nav').click();await shot('profile');
+ assert.deepEqual(await page.locator('.desktop-profile-menu [data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.textContent)),['My Profile','Linked Accounts','Logout'],'the menu is the three entries Owen named, in his order');
  for(const action of await page.locator('[data-profile-action]:visible').all())assert(await action.isDisabled(),'account changes disabled while game runs');
- // The verified emails are the profile's own section: the menu prints no address at all
- // (streamer protection), and the section behind the button lists what the account service
- // reports. Both are refused while the game runs, like every other account change.
- const emailButton=page.getByRole('button',{name:'Verified emails',exact:true});
- assert.equal(await emailButton.count(),1,'the profile offers the verified emails section');
- assert.equal(await emailButton.isDisabled(),true,'and cannot change the login email while the game runs');
- assert.equal(await page.locator('.desktop-profile-heading.desktop-email').evaluate(el=>el.hidden),true,'the profile menu prints no login address, even the launcher fixture\'s own');
+ // The verified emails live inside My Profile now, and their section lists what the account
+ // service reports. Both are refused while the game runs, like every other account change: the
+ // entry that would open My Profile is disabled with the rest, and the menu itself prints no
+ // address and no line about one (Owen's menu of 2026-10-22 is two lines and three entries).
+ assert.equal(await page.getByRole('button',{name:'Verified emails',exact:true}).count(),0,'the menu no longer carries a Verified emails entry');
+ assert.equal(await page.locator('.desktop-profile-menu .desktop-profile-heading.desktop-email').count(),0,'the profile menu has no login-email line to print an address in');
  assert(!(await page.locator('.desktop-profile-menu').allTextContents()).join('\n').includes('captain@example.test'),'no address reaches the profile surface');
+ assert.equal(await page.locator('.desktop-profile-menu [data-profile-action=myProfile]').isDisabled(),true,'and My Profile cannot be opened to change the login email while the game runs');
  // The menu only clears once the read above has answered, and the answer is a real
  // broadcast: the first one that arrived after this popover opened is the one that used to
  // hand the account controls back. The lock is made of the phase main still reports.
@@ -317,7 +318,10 @@ try{
  await app.evaluate(()=>global.easterTestGame.emit('exit',0));
  await page.locator('[data-desktop-play][data-action=play]').waitFor();
  await page.locator('.desktop-account-nav').click();
- await emailButton.click();
+ await page.locator('.desktop-profile-menu [data-profile-action=myProfile]').click();
+ const myProfilePanel=page.locator('#company-profile');
+ await myProfilePanel.waitFor();
+ await myProfilePanel.getByRole('button',{name:'Verified emails',exact:true}).click();
  const emailsPanel=page.locator('#desktop-company-emails');
  await emailsPanel.locator('input[name=email]').first().waitFor();
  assert.equal(await emailsPanel.locator('input[name=email]').count(),2,'both verified addresses are listed');
@@ -892,7 +896,7 @@ try{
  // scrollTop 0 (a line box 521-579 against a dialog ending at 551), so it read as a sentence cut
  // off mid-word, and nothing on screen said the box scrolls. The refusal is painted where it
  // was — above the form, before the controls — and the dialog now scrolls to it, which leaves
- // Sign in and Forgot your password below the fold: the order a refusal is read in.
+ // Sign in below the fold: the order a refusal is read in.
  //
  // At 800x600, the launcher's own minimum window, the same refusal made the dialog exactly as
  // tall as the window has room for, so its 28px bottom inset was 12px more than the capped box
@@ -902,7 +906,7 @@ try{
  // The rule that came out of that finding — a chooser must never show a scrollbar it does not
  // need — is SUPERSEDED, and this journey asserted it until it was measured against the four-way
  // chooser. Provider sign-in added Google, Steam and Discord above the provider note, and the
- // chooser's content went from a dialog that fitted every size to 621px: at 800x600 that is 621px
+ // chooser's content went from a dialog that fitted every size to 622px: at 800x600 that is 622px
  // of content in a 566px box (the dialog is capped at the window by
  // `.desktop-company-dialog{max-height:calc(100dvh - 32px)}`), so the box scrolls, and it scrolls
  // whether or not a refusal is in it. The old rule was a good rule for one provider button; it is
@@ -993,7 +997,7 @@ try{
   ['the Username or Email field','input[name=identifier]'],
   ['the Password field','input[name=password]'],
   ['the Sign in button','.company-submit'],
-  ['Forgot your password','.company-recover']
+  ['the sentence about a forgotten password','.company-no-reset']
  ];
  const reachChooser=where=>page.evaluate(({where,controls})=>{
   const dialog=document.querySelector('#desktop-company-signin');
@@ -1052,7 +1056,7 @@ try{
   assert.equal(opening.scrollTop,0,'and at the top of itself at '+at+': '+JSON.stringify(opening.scrollTop));
   // The old rule lived here: `scrollHeight<=clientHeight+1`, a chooser must not show a scrollbar
   // it does not need. It is replaced rather than deleted, because what it stood in for is that
-  // everything stays reachable: at 800x600 the same 621px of content sits in a 566px box, so the
+  // everything stays reachable: at 800x600 the same 622px of content sits in a 566px box, so the
   // chooser scrolls on a short window, and every control still has to be reachable inside it.
   const openedReach=await reachChooser('the chooser with no refusal in it');
   assert(openedReach.scrollWidth<=openedReach.clientWidth+1,'the chooser scrolls in one direction only, so nothing is pushed out sideways at '+at+': '+JSON.stringify({scrollWidth:openedReach.scrollWidth,clientWidth:openedReach.clientWidth}));
@@ -1073,8 +1077,8 @@ try{
   // What was asserted here until 2026-10-22 was `scrollHeight>clientHeight+1 ⇒ scrollTop>0` — "a
   // box that scrolls has scrolled to the refusal" — and that premise died when the chooser grew.
   // It was written when a refusal was the only thing that could make the chooser overflow; with
-  // provider sign-in the content is 621px and the box is capped at `calc(100dvh - 32px)`, so the
-  // box at 390x844 scrolls by 28px for its own bottom inset below "Forgot your password" while
+  // provider sign-in the content is 622px and the box is capped at `calc(100dvh - 32px)`, so the
+  // box at 390x844 scrolls by 28px for its own bottom inset below the sign-in control while
   // the refusal is already whole: measured 2026-10-22 on the shipped 1.0.39, its three lines sat
   // at 564..735 inside a scrollport ending at 827 (scrollHeight 838 against clientHeight 810),
   // the dialog correctly did not move, and this line called that a failure. That is not a

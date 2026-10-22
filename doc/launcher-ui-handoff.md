@@ -8,7 +8,7 @@ Reviewed: 2026-10-18
 
 Home now uses a compact, static crest and control panel over the existing harbour. It has one primary action; the idle dock is omitted on Home, while transfers stay available on every page and idle launch actions remain on Map and Wiki. The desktop stylesheet has been replaced with one coherent set of shell, dialog, form, profile and dock rules.
 
-Settings has aligned preference switches, collapsed advanced fields, one keyboard-submittable Save action, a folder shortcut and version. Account management lives in the profile popover, with separate Microsoft and company identity labels. The launcher preference says “Check for launcher updates” because in-place launcher updating is not implemented.
+Settings has aligned preference switches, collapsed advanced fields, one keyboard-submittable Save action, a folder shortcut and version. Account management lives in the profile popover: two lines (the display name, then the bare username) and the three entries My Profile, Linked Accounts and Logout, with no provider or email line in the menu itself (doc/launcher-states.md, *The profile menu*). The launcher preference says “Check for launcher updates” because in-place launcher updating is not implemented.
 
 Microsoft authentication has its own pending/device-code dialog. Escape, close and Cancel abort it without revealing Settings or discarding an existing account. Account mutations are disabled during authentication or gameplay.
 

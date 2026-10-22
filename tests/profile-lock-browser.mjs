@@ -2,11 +2,17 @@
 //
 // doc/launcher-states.md (*Launcher UI review*) disables account changes while the launcher is
 // authenticating or playing. Two holes were left in that rule: `starting-game`, the server wake,
-// was missing from the list the profile menu was disabled from, and the profile dialog's own
-// controls - Save name, Choose picture, Remove picture, Connect and Sign out of Minecraft
-// everywhere - never consulted the lock at all. Neither was reachable, because the hero offers
-// no Play during a wake and the dialog opens only from a menu entry the lock disables; a guard
-// that holds only because nobody has moved a button is not a guard.
+// was missing from the list the profile menu was disabled from, and the account dialogs' own
+// controls - Save name, Choose picture, Remove picture, the verified emails, the password form,
+// Connect and Sign out of Minecraft everywhere - never consulted the lock at all. Neither was
+// reachable, because the hero offers no Play during a wake and the dialogs open only from a menu
+// entry the lock disables; a guard that holds only because nobody has moved a button is not a
+// guard.
+//
+// The menu is Owen's of 2026-10-22 - My Profile, Linked Accounts, Logout - and the three
+// surfaces behind it answer to the same lock: this journey reads the entries by
+// data-profile-action, and Logout is asserted present in every state because it is the one entry
+// a signed-in account must never lose.
 //
 // This drives the real site/desktop.js and site/company-profile.mjs through a stub of the
 // existing easterDesktop bridge, so it proves the behaviour rather than the source.
@@ -91,90 +97,118 @@ try{
  await menu.waitFor({state:'visible'});
  const menuEntries=()=>page.evaluate(()=>[...document.querySelectorAll('.desktop-profile-menu [data-profile-action]')].map(button=>({action:button.dataset.profileAction,disabled:button.disabled,hidden:button.hidden})));
  const idleMenu=await menuEntries();
- assert.equal(idleMenu.length,4,'the account menu is the four account actions');
- assert(idleMenu.every(entry=>!entry.hidden),'every account action is offered while the launcher is idle');
+ assert.deepEqual(idleMenu.map(entry=>entry.action),['myProfile','linkedAccounts','logout'],'the account menu is the three actions Owen named, in his order: My Profile, Linked Accounts, Logout');
+ assert(idleMenu.every(entry=>!entry.hidden),'every account action is offered while the launcher is idle, Logout included');
  assert(idleMenu.every(entry=>entry.disabled===false),'an idle launcher leaves the account controls usable: '+JSON.stringify(idleMenu));
  for(const phase of LOCKED){
   await pushState({phase});
   await page.waitForFunction(()=>[...document.querySelectorAll('.desktop-profile-menu [data-profile-action]')].every(button=>button.disabled));
   const entries=await menuEntries();
   assert(entries.every(entry=>entry.disabled===true),'phase '+phase+' disables every account action: '+JSON.stringify(entries));
-  assert.equal(entries.length,4,'and the whole account menu is still the four actions at '+phase);
+  assert.deepEqual(entries.map(entry=>entry.action),['myProfile','linkedAccounts','logout'],'and the whole account menu is still the three actions at '+phase);
+  assert(entries.every(entry=>!entry.hidden),'and Logout is still offered - present, and only disabled - at '+phase);
  }
- note('signing-in, refreshing, launching, running and starting-game each disable the whole profile menu; the server wake is locked like every other launch state');
+ note('signing-in, refreshing, launching, running and starting-game each disable the whole profile menu, with Logout present in every one of them; the server wake is locked like every other launch state');
  for(const phase of UNLOCKED){
   await pushState({phase});
   await page.waitForFunction(()=>[...document.querySelectorAll('.desktop-profile-menu [data-profile-action]')].every(button=>button.disabled===false));
  }
  note('the states that are neither authentication nor gameplay leave the account controls usable');
 
- // --- The profile dialog's own controls --------------------------------------
- // While the launcher is idle the dialog works exactly as it did.
+ // --- The two surfaces' own controls ----------------------------------------
+ // While the launcher is idle both dialogs work exactly as they did, and each holds only what
+ // its own name says: My Profile the name, the picture, the verified emails and the password;
+ // Linked Accounts the providers and the Minecraft session.
  await pushState({phase:'ready'});
  await page.waitForFunction(()=>document.querySelector('.desktop-profile-menu [data-profile-action]').disabled===false);
- await menu.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
- const dialog=page.locator('#company-profile');
- await dialog.waitFor({state:'visible'});
- const CONTROL_NAMES=['Save name','Choose picture','Remove picture','Connect Google','Sign out of Minecraft everywhere'];
- const controlStates=()=>page.evaluate(names=>{
+ const controlStates=(id,names)=>page.evaluate(({id,names})=>{
   const found={};
   for(const name of names){
    // A provider's Connect control is labelled by name rather than by its text, which is the
    // verb alone, so both are read.
-   const button=[...document.querySelectorAll('#company-profile button')].find(node=>(node.getAttribute('aria-label')||node.textContent.trim())===name);
+   const button=[...document.querySelectorAll('#'+id+' button')].find(node=>(node.getAttribute('aria-label')||node.textContent.trim())===name);
    found[name]=button?button.disabled:'missing';
   }
   return found;
- },CONTROL_NAMES);
- const closedStates=names=>Object.fromEntries(names.map(name=>[name,false]));
- const openStates=names=>Object.fromEntries(names.map(name=>[name,true]));
- const idleControls=await controlStates();
- assert.deepEqual(idleControls,closedStates(CONTROL_NAMES),'every account control in the dialog is usable while the launcher is idle: '+JSON.stringify(idleControls));
- assert.equal(await dialog.locator('.dialog-close').isDisabled(),false,'the close control is available while idle');
- note('an idle launcher leaves every control in the profile dialog usable');
+ },{id,names});
+ const allAre=names=>Object.fromEntries(names.map(name=>[name,true]));
+ const allAreNot=names=>Object.fromEntries(names.map(name=>[name,false]));
+ const NAME='Captain Owen';
+ const PROFILE_CONTROLS=['Save name','Choose picture','Remove picture','Verified emails','Change password'];
+ const ACCOUNT_CONTROLS=['Connect Google','Sign out of Minecraft everywhere'];
+ await menu.getByRole('button',{name:'My Profile',exact:true}).click();
+ const profile=page.locator('#company-profile');
+ await profile.waitFor({state:'visible'});
+ assert.deepEqual(await controlStates('company-profile',PROFILE_CONTROLS),allAreNot(PROFILE_CONTROLS),'every control in My Profile is usable while the launcher is idle: '+JSON.stringify(await controlStates('company-profile',PROFILE_CONTROLS)));
+ assert.equal(await profile.locator('.dialog-close').isDisabled(),false,'the close control is available while idle');
+ assert.equal(await profile.getByRole('button',{name:'Connect Google',exact:true}).count(),0,'My Profile carries nothing about a provider link');
+ note('an idle launcher leaves every control in My Profile usable, and the surface holds no provider control at all');
 
  // The game running is the state the ticket names: the dialog is open, the lock goes on, and
  // the controls answer to the lock rather than to the disabled opener that let them open.
  await pushState({phase:'running'});
  await page.waitForFunction(()=>document.querySelector('#company-profile button[type=submit]').disabled===true);
- const runningControls=await controlStates();
- assert.deepEqual(runningControls,openStates(CONTROL_NAMES),'the running game disables Save name, both picture controls, Connect and Sign out of Minecraft everywhere: '+JSON.stringify(runningControls));
- assert.equal(await dialog.locator('.dialog-close').isDisabled(),false,'closing the dialog is not an account change and stays available');
+ assert.deepEqual(await controlStates('company-profile',PROFILE_CONTROLS),allAre(PROFILE_CONTROLS),'the running game disables Save name, both picture controls, the verified emails and the password form: '+JSON.stringify(await controlStates('company-profile',PROFILE_CONTROLS)));
+ assert.equal(await profile.locator('.dialog-close').isDisabled(),false,'closing the dialog is not an account change and stays available');
  await page.screenshot({path:`${images}/profile-locked-running-1440.png`,animations:'disabled'});
- note('a running game disables every account control in the profile dialog, with the dialog already open');
+ note('a running game disables every control in My Profile, with the dialog already open');
 
  // Painted disabled is not the whole rule: an action that starts anyway is refused too.
  const beforeForced=await recorded();
- await dialog.locator('form').evaluate(form=>form.requestSubmit());
- for(const selector of ['[data-revoke-minecraft]','[data-picture=upload]','[data-picture=remove]']){
+ await profile.locator('[data-name-form]').evaluate(form=>form.requestSubmit());
+ await profile.locator('[data-password-form]').evaluate(form=>form.requestSubmit());
+ for(const selector of ['[data-picture=upload]','[data-picture=remove]','[data-open-emails]']){
   await page.locator('#company-profile '+selector).evaluate(button=>button.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true})));
  }
- assert.deepEqual(await recorded(),beforeForced,'a save, a picture change and a sign-out everywhere forced past the disabled state reach main not once');
- assert.equal((await page.locator('#company-profile .company-status').innerText()).trim(),'','and nothing claims to have been saved');
- assert.equal((await page.locator('#company-profile .company-error').innerText()).trim(),'','and no failure is invented either');
- note('a forced save, picture change or sign-out is refused while the lock is on, and claims nothing');
+ assert.deepEqual(await recorded(),beforeForced,'a name save, a password change, a picture change and the verified-emails section forced past the disabled state reach main not once');
+ assert.equal((await profile.locator('.company-status').innerText()).trim(),'','and nothing claims to have been saved');
+ assert.equal((await profile.locator('.company-error').innerText()).trim(),'','and no failure is invented either');
+ note('a forced name save, password change, picture change or emails read is refused while the lock is on, and claims nothing');
 
  // The wake locks the same controls, which is the two holes closed together: a launch state the
  // hero does not offer Play on is still a state no account change happens in.
  await pushState({phase:'starting-game'});
  await page.waitForFunction(()=>document.querySelector('#company-profile button[type=submit]').disabled===true);
- assert.deepEqual(await controlStates(),openStates(CONTROL_NAMES),'a server wake disables the dialog\'s own controls too');
- note('a server wake locks the dialog\'s own controls as well');
+ assert.deepEqual(await controlStates('company-profile',PROFILE_CONTROLS),allAre(PROFILE_CONTROLS),'a server wake disables My Profile\'s own controls too');
+ note('a server wake locks My Profile\'s own controls as well');
 
  // And the lock comes off again on the broadcast that ends it.
  await pushState({phase:'ready'});
  await page.waitForFunction(()=>document.querySelector('#company-profile button[type=submit]').disabled===false);
- assert.deepEqual(await controlStates(),closedStates(CONTROL_NAMES),'the controls come back when the launcher is idle again');
- await dialog.getByRole('button',{name:'Save name',exact:true}).click();
+ assert.deepEqual(await controlStates('company-profile',PROFILE_CONTROLS),allAreNot(PROFILE_CONTROLS),'the controls come back when the launcher is idle again');
+ await profile.getByRole('button',{name:'Save name',exact:true}).click();
  await page.waitForFunction(()=>window.__fixture.calls.some(call=>call.name==='updateProfile'));
  const saved=await page.evaluate(()=>window.__fixture.calls.filter(call=>call.name==='updateProfile').at(-1));
- assert.deepEqual(saved,{name:'updateProfile',payload:'Captain Owen'},'an unlocked Save name still reaches main: '+JSON.stringify(saved));
- note('the lock is released on the broadcast that ends it, and the dialog works again');
+ assert.deepEqual(saved,{name:'updateProfile',payload:NAME},'an unlocked Save name still reaches main: '+JSON.stringify(saved));
+ note('the lock is released on the broadcast that ends it, and My Profile works again');
+ await profile.locator('.dialog-close').click();
+ await profile.waitFor({state:'detached'});
 
- await dialog.locator('.dialog-close').click();
- await dialog.waitFor({state:'detached'});
+ // Linked Accounts answers to the same lock, on its own controls.
+ await page.locator('.desktop-account-nav').click();
+ await menu.getByRole('button',{name:'Linked Accounts',exact:true}).click();
+ const linked=page.locator('#company-linked-accounts');
+ await linked.waitFor({state:'visible'});
+ assert.deepEqual(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS),allAreNot(ACCOUNT_CONTROLS),'every control in Linked Accounts is usable while the launcher is idle');
+ assert.equal(await linked.getByRole('button',{name:'Save name',exact:true}).count(),0,'Linked Accounts carries nothing about the profile');
+ await pushState({phase:'running'});
+ await page.waitForFunction(()=>[...document.querySelectorAll('#company-linked-accounts [data-account-change]')].every(button=>button.disabled));
+ assert.deepEqual(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS),allAre(ACCOUNT_CONTROLS),'the running game disables Connect and Sign out of Minecraft everywhere: '+JSON.stringify(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS)));
+ const beforeLinked=await recorded();
+ await page.locator('#company-linked-accounts [data-revoke-minecraft]').evaluate(button=>button.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true})));
+ await page.locator('#company-linked-accounts [aria-label="Connect Google"]').evaluate(button=>button.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true})));
+ assert.deepEqual(await recorded(),beforeLinked,'a sign-out everywhere and a Connect forced past the disabled state reach main not once');
+ await pushState({phase:'ready'});
+ // The two providers this build cannot offer keep their own reason for being unavailable
+ // (data-unavailable), which is not the lock: the wait reads the two controls that are offered.
+ await page.waitForFunction(()=>document.querySelector('#company-linked-accounts [data-revoke-minecraft]').disabled===false&&document.querySelector('#company-linked-accounts [aria-label="Connect Google"]').disabled===false);
+ assert.deepEqual(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS),allAreNot(ACCOUNT_CONTROLS),'and Linked Accounts comes back when the launcher is idle again');
+ note('Linked Accounts holds only the provider rows and the Minecraft session, and both answer to the same lock');
+
+ await linked.locator('.dialog-close').click();
+ await linked.waitFor({state:'detached'});
  assert.deepEqual(errors,[],'the account lock raises no page error');
- console.log(`PROFILE LOCK PASS: ${notes.length} checks — the account lock is one named list in site/desktop.js that includes starting-game, the server wake, and the profile dialog asks the launcher for it instead of carrying a copy: the profile menu and the dialog's own controls are both disabled during signing-in, refreshing, launching, starting-game and running, a forced save, picture change or sign-out is refused while locked, and both surfaces come back when the launcher is idle. Screenshots: ${images}`);
+ console.log(`PROFILE LOCK PASS: ${notes.length} checks — the account lock is one named list in site/desktop.js that includes starting-game, the server wake, and both account dialogs ask the launcher for it instead of carrying a copy: the three menu entries (My Profile, Linked Accounts, Logout, with Logout present in every state) and the controls inside My Profile and Linked Accounts are disabled during signing-in, refreshing, launching, starting-game and running, a forced name save, password change, picture change, emails read, Connect or sign-out-everywhere is refused while locked, and both surfaces come back when the launcher is idle. Screenshots: ${images}`);
 }finally{
  await browser.close();
 }

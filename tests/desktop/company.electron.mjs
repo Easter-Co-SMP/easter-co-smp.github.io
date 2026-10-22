@@ -46,10 +46,18 @@ try{
  assert.match(state.account.id,/^EC-\d+$/,'the state names the account the account service just created: '+state.account.id);
  assert.equal('accounts' in state,false,'the state carries no account list; the one signed-in account is state.account');
  await page.locator('.desktop-account-nav').click();const menu=await page.locator('.desktop-profile-menu').textContent();assert(menu.includes(username),'the account view names the username');assert(!menu.includes('EC-'),'and shows no Company ID');
+ // Owen's menu of 2026-10-22: the name, the bare username, and My Profile / Linked Accounts /
+ // Logout. Nothing else, and no address anywhere in it.
+ assert.deepEqual(await page.locator('.desktop-profile-menu [data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.textContent)),['My Profile','Linked Accounts','Logout'],'the menu is the three entries Owen named, in his order');
+ assert(!menu.includes('@example.com'),'and the menu prints no address: '+menu.replace(/\n/g,' | '));
+ assert.equal(await page.locator('.desktop-profile-menu .desktop-profile-heading.desktop-company').count(),0,'the menu carries no Microsoft / Xbox status line any more');
  // The verified email the account service read from Microsoft, and the choice of which
- // address signs this account in. Everything here is the real handler's answer: the list,
- // the marked address and the two writes that clear and restore it.
- await page.getByRole('button',{name:'Verified emails',exact:true}).click();
+ // address signs this account in, are inside My Profile now. Everything here is the real
+ // handler's answer: the list, the marked address and the two writes that clear and restore it.
+ await page.getByRole('button',{name:'My Profile',exact:true}).click();
+ const myProfilePanel=page.locator('#company-profile');await myProfilePanel.waitFor();
+ assert(!(await myProfilePanel.innerText()).includes('@example.com'),'My Profile prints no address either: the list is behind its own button');
+ await myProfilePanel.getByRole('button',{name:'Verified emails',exact:true}).click();
  const emailsPanel=page.locator('#desktop-company-emails');
  await emailsPanel.locator('input[name=email]').first().waitFor();
  const verifiedAddress=await emailsPanel.locator('input[name=email]').first().inputValue();
@@ -72,12 +80,16 @@ try{
  // address it marked is the one the previous write left behind.
  await page.keyboard.press('Escape');await emailsPanel.waitFor({state:'hidden'});
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Verified emails',exact:true}).click();
+ await page.getByRole('button',{name:'My Profile',exact:true}).click();
+ await page.locator('#company-profile').getByRole('button',{name:'Verified emails',exact:true}).click();
  await emailsPanel.locator('input[name=email]').first().waitFor();
  await page.waitForFunction(()=>document.querySelector('#desktop-company-emails input[name=email]')?.checked===true);
  assert.equal(await emailsPanel.locator('input[name=email]').first().isChecked(),true,'the saved choice is read back from the account service');
- assert.equal(await page.locator('.desktop-profile-heading.desktop-email').evaluate(el=>el.hidden),true,'the profile menu prints no login address even when the service records one');
- assert.equal((await page.locator('.desktop-profile-heading.desktop-email').textContent()).trim(),'','and the login-email line carries no text at all');
+ // The menu neither prints the address nor carries a line about it: Owen's streamer rule of
+ // 2026-10-22 made the menu two lines and three entries, and the address lives only in the
+ // section the player opens on purpose.
+ assert.equal(await page.locator('.desktop-profile-menu .desktop-profile-heading.desktop-email').count(),0,'the profile menu has no login-email line to print an address in');
+ assert(!(await page.locator('.desktop-profile-menu').innerText()).includes('@'),'and no address is anywhere in the menu even when the service records one');
  await page.keyboard.press('Escape');await emailsPanel.waitFor({state:'hidden'});
  // No address appears in the launcher state: the account list, the switch and the skin keep
  // using the account id.
@@ -102,32 +114,42 @@ try{
  // the honest hero this launcher had before the account service held anything: the same sentence
  // main used, with no claim about why the stored session is gone.
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
- const profileDialog=page.locator('#company-profile');await profileDialog.waitFor();
- await profileDialog.getByRole('button',{name:'Sign out of Minecraft everywhere',exact:true}).click();
- await profileDialog.locator('.company-status').filter({hasText:'Signed Minecraft out everywhere.'}).waitFor();
- await page.keyboard.press('Escape');await profileDialog.waitFor({state:'hidden'});
+ await page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
+ const linkedAccountsDialog=page.locator('#company-linked-accounts');await linkedAccountsDialog.waitFor();
+ assert.equal(await linkedAccountsDialog.getByRole('button',{name:'Verified emails',exact:true}).count(),0,'Linked Accounts carries nothing about emails');
+ assert.equal(await linkedAccountsDialog.getByLabel('New password',{exact:true}).count(),0,'and nothing about the password');
+ await linkedAccountsDialog.getByRole('button',{name:'Sign out of Minecraft everywhere',exact:true}).click();
+ await linkedAccountsDialog.locator('.company-status').filter({hasText:'Signed Minecraft out everywhere.'}).waitFor();
+ await page.keyboard.press('Escape');await linkedAccountsDialog.waitFor({state:'hidden'});
  await hero('connect-microsoft').waitFor();
  const withoutSession=await hero('connect-microsoft').innerText();
  assert(withoutSession.replace(/\s+/g,' ').startsWith('Reconnect Microsoft Starts Minecraft as'),'a linked account with no stored session is told to reconnect the Minecraft session, with the identity it starts named: '+withoutSession);
  assert.equal((await status()).canPlay,false,'and Play stays off until it is signed in again');
  await app.evaluate(()=>global.companyUser='2');await hero('connect-microsoft').click();await approve();await page.locator('.desktop-page-notice').waitFor();assert.equal((await status()).account.username,username);assert.equal((await status()).microsoftConnected,false,'wrong Microsoft account cannot replace Company identity');
  await page.getByRole('button',{name:'Dismiss message'}).click();await app.evaluate(()=>global.companyUser='1');await hero('connect-microsoft').click();await approve();await hero('play').waitFor();assert.equal((await status()).account.username,username);
- // Password recovery reauthenticates through a provider linked to this account. Until
- // provider sign-in (4341b90) the Reset password entry started the Microsoft sign-in
- // itself, which is what this journey used to wait for here; the product now opens the
- // provider chooser first, saying which providers this account has linked, and only the
- // linked ones are offered. That is the contract asserted below: only Microsoft is on
- // offer for an account whose only provider is Microsoft, and choosing it reauthenticates
- // and lands on "Reset your Easter Company password" without ever asking for the username.
- await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Reset password',exact:true}).click();
- const recovery=page.locator('#desktop-company-signin');await recovery.waitFor();
- assert.equal((await recovery.locator('.company-recovery-note').textContent()).trim(),'Choose a provider already linked to your account, then set a new Easter Company password.');
- assert.equal(await recovery.getByRole('button',{name:'Sign in with Microsoft',exact:true}).isVisible(),true,'the provider this account is linked to is offered');
- assert.equal(await recovery.locator('.company-provider[data-provider=google]').isVisible(),false,'and a provider it has not linked is not');
- await recovery.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();await approve();await setup.getByRole('heading',{name:'Reset your Easter Company password',exact:true}).waitFor();
- assert.equal(await setup.getByLabel('Username',{exact:true}).count(),0,'a password change never asks for the username');
- await setup.getByLabel('New password',{exact:true}).fill('replacement fixture passphrase');await setup.getByLabel('Confirm password',{exact:true}).fill('replacement fixture passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();await hero('play').waitFor();
+ // The password change, Owen's of 2026-10-22: it is My Profile's own form, it asks for the new
+ // password twice and never for the current one, and there is no reset or recovery path walking
+ // in front of it (the launcher carries none). What the form posts is the account service's own
+ // set-password route with replace:true, and the answer it paints is that service's answer.
+ await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'My Profile',exact:true}).click();
+ const passwordPanel=page.locator('#company-profile');await passwordPanel.waitFor();
+ assert.equal(await passwordPanel.getByRole('button',{name:'Reset password',exact:true}).count(),0,'no reset control exists in the launcher');
+ assert.equal(await page.locator('#desktop-company-signin').getByRole('button',{name:'Forgot your password?',exact:true}).count(),0,'and the sign-in chooser no longer offers one');
+ assert.equal(await passwordPanel.getByLabel(/current password/i,{exact:false}).count(),0,'the form never asks for the password the player already has');
+ // The same rule the account service enforces, refused before the request is made.
+ await passwordPanel.getByLabel('New password',{exact:true}).fill('short');
+ await passwordPanel.getByLabel('Confirm password',{exact:true}).fill('short');
+ await passwordPanel.getByRole('button',{name:'Change password',exact:true}).click();
+ await passwordPanel.locator('.company-error').filter({hasText:'Use 8 to 128 characters.'}).waitFor();
+ await passwordPanel.getByLabel('New password',{exact:true}).fill('replacement fixture passphrase');
+ await passwordPanel.getByLabel('Confirm password',{exact:true}).fill('a different fixture passphrase');
+ await passwordPanel.getByRole('button',{name:'Change password',exact:true}).click();
+ await passwordPanel.locator('.company-error').filter({hasText:'The passwords do not match.'}).waitFor();
+ await passwordPanel.getByLabel('Confirm password',{exact:true}).fill('replacement fixture passphrase');
+ await passwordPanel.getByRole('button',{name:'Change password',exact:true}).click();
+ await passwordPanel.locator('.company-status').filter({hasText:'Your password is changed.'}).waitFor();
+ assert.deepEqual(await page.evaluate(()=>[...document.querySelectorAll('#company-profile input[type=password]')].map(input=>input.value)),['',''],'both fields are cleared once the service has the new password');
+ await page.keyboard.press('Escape');await passwordPanel.waitFor({state:'hidden'});
  assert.equal(await page.locator('input[type=password]').evaluateAll(inputs=>inputs.every(input=>input.value==='')),true);
  const surface=JSON.stringify(await status());for(const secret of ['fixture-xbox:','fixture-private','fixture secret passphrase','replacement fixture passphrase','microsoftSubject'])assert(!surface.includes(secret));
  const ownedId=(await status()).account.id;
@@ -160,6 +182,6 @@ try{
  await setup.getByLabel('New password',{exact:true}).fill('nonowner fixture passphrase');await setup.getByLabel('Confirm password',{exact:true}).fill('nonowner fixture passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();await hero('buy').waitFor();
  assert.equal((await status()).companyReady,true);assert.equal((await status()).canPlay,false);await page.screenshot({path:'/tmp/company-nonowner.png',animations:'disabled'});
  assert.deepEqual(errors,[]);
- console.log('Company identity Electron PASS: real API and PostgreSQL signup with the username chosen before the password, signing in again with the same Microsoft identity after signing out lands in that same account with no second setup and no second account, username sign-in, wrong-provider rejection, matching Microsoft reconnect, password reset that never asks for the username, Wiki continuity, Play gate and no credential exposure.');
+ console.log('Company identity Electron PASS: real API and PostgreSQL signup with the username chosen before the password, signing in again with the same Microsoft identity after signing out lands in that same account with no second setup and no second account, username sign-in, wrong-provider rejection, matching Microsoft reconnect, a password change in My Profile's own form (new password twice, never the current one, no reset or recovery path), Wiki continuity, Play gate and no credential exposure.');
 }catch(error){const page=await app.firstWindow();console.log(await page.evaluate(async()=>{const s=await window.easterDesktop.status();return {phase:s.phase,account:s.account,ready:s.companyReady,connected:s.microsoftConnected,error:s.error,dialogs:[...document.querySelectorAll('dialog[open]')].map(x=>x.id)};}));throw error;}
 finally{await app.close();await fs.rm(home,{recursive:true,force:true});}
