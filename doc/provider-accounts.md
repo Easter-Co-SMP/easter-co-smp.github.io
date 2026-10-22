@@ -10,7 +10,7 @@ No account is merged by display name or email, and no unlink/transfer route exis
 1. Sign in with a provider. Its identity is verified server-side.
 2. Choose a unique Company username and a Company password before continuing.
 3. Use the provider, username/password, or selected verified email/password later.
-4. Link other providers from Profile & linked accounts. A provider identity belongs
+4. Link other providers from Linked Accounts. A provider identity belongs
    to one Company account, and each Company account has at most one link per provider.
 5. Recover a forgotten Company password by reauthenticating through a linked provider.
    Reset requires a provider session created within 15 minutes and revokes older sessions.

@@ -44,8 +44,8 @@
  // name, and both strings live here so the hero and the sticky bar cannot disagree.
  const LOGIN_ACTION='Sign in';
  const LOGIN_NOTE='Easter Company account required';
- let companyAuth=null,companyProfileView=null;
- const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onEmails:setEmailLine,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
+ let companyAuth=null,myProfileView=null,linkedAccountsView=null;
+ const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
  let heroWait=null,authWait=null,profileWait=null,localActivity=null,serverWaitStartedAt=null;
  // Where a wait belongs. `hero` is the default and what every operation the player starts from
@@ -1043,30 +1043,30 @@
  const profileButton=document.createElement('button');profileButton.type='button';profileButton.className='desktop-account-nav';profileButton.hidden=true;profileButton.setAttribute('aria-haspopup','true');profileButton.setAttribute('aria-expanded','false');
  const profileName=document.createElement('span'),face=document.createElement('canvas');face.width=32;face.height=32;face.setAttribute('aria-hidden','true');profileButton.append(profileName,face);document.querySelector('.site-header nav').append(profileButton);
  const profileMenu=document.createElement('div');profileMenu.className='desktop-profile-menu';profileMenu.popover='auto';profileMenu.setAttribute('aria-label','Profile');
- // The account view leads with the name the player is called and keeps the username as the
- // second, smaller line: the username is the sign-in identifier, not what they are called.
+ // Owen's account view, 2026-10-22: the name the player is called, then the bare username on
+ // its own line, then three entries. Nothing else is in this menu - not the Microsoft / Xbox
+ // status line, whose state belongs to the provider rows on Linked Accounts, and not a line
+ // about the login email, because no address is ever printed here at all (streamer
+ // protection; the address lives only inside My Profile's verified-emails section).
  const accountHeading=document.createElement('p');accountHeading.className='desktop-profile-heading desktop-account';
  const accountNameNode=document.createElement('strong');accountNameNode.className='desktop-account-name';
  const accountSignInNode=document.createElement('span');accountSignInNode.className='desktop-account-signin';
  accountHeading.append(accountNameNode,accountSignInNode);profileMenu.append(accountHeading);
- const companyHeading=document.createElement('p');companyHeading.className='desktop-profile-heading desktop-company';profileMenu.append(companyHeading);
- // The verified email is the profile's own line: it names the address that signs this
- // account in, or states which sign-in it has instead. It is written only from the
- // owner-only read the profile section asks for, and it is the only place outside that
- // section an address is ever displayed.
- const emailLine=document.createElement('p');emailLine.className='desktop-profile-heading desktop-email';emailLine.hidden=true;profileMenu.append(emailLine);
- // Email refreshes stay silent when fast. Slow reads get text inside this menu,
- // without the shared spinner or its reserved reassurance row.
+ // Surface reads stay silent when fast. A read still pending after 500ms gets text inside this
+ // menu, without the shared spinner or its reserved reassurance row; the menu no longer starts
+ // one of its own (it reads nothing, and prints nothing, about an email).
  const profileWaitNode=document.createElement('p');profileWaitNode.className='desktop-profile-wait';profileWaitNode.hidden=true;profileMenu.append(profileWaitNode);
  void import('./profile-status.mjs').then(({createProfileStatus})=>{profileWait=createProfileStatus(profileWaitNode);paintProfileWait();});
+ // Both dialogs are account surfaces, so each is handed the account lock itself rather than a
+ // copy of it (*The account lock* above, and site/company-profile.mjs). Each hands back a
+ // syncLock, so a broadcast that changes the lock reaches controls that are already on screen.
+ //
+ // Logout is the third entry in every signed-in state and answers to the same lock as the other
+ // two: it is never conditional, never re-gated, and never built from the account's own answer.
  for(const [label,action,key] of [
-  // The dialog is an account surface, so it is handed the account lock itself rather than a copy
-  // of it (*The account lock* above, and site/company-profile.mjs). It hands back a paint, so a
-  // broadcast that changes the lock reaches controls that are already on screen.
-  ['Profile & linked accounts',()=>{profileMenu.hidePopover();void import('./company-profile.mjs').then(({openCompanyProfile})=>openCompanyProfile({desktop,getState:()=>current,signInMicrosoft,isAccountLocked:()=>accountLocked(current)})).then(view=>{if(view)companyProfileView=view;}).catch(report);},'companyProfile'],
-  ['Logout',()=>{profileMenu.hidePopover();void desktop.signOut().catch(report);},'logout'],
-  ['Reset password',()=>{profileMenu.hidePopover();void companyUI.then(ui=>ui.reset()).catch(report);},'companyPassword'],
-  ['Verified emails',()=>{profileMenu.hidePopover();void companyUI.then(ui=>ui.emails()).catch(report);},'companyEmails']]){
+  ['My Profile',()=>{profileMenu.hidePopover();void import('./company-profile.mjs').then(({openMyProfile})=>openMyProfile({desktop,getState:()=>current,isAccountLocked:()=>accountLocked(current),openEmails:()=>companyUI.then(ui=>ui.emails()),cancelSignIn:()=>desktop.cancelSignIn()})).then(view=>{if(view)myProfileView=view;}).catch(report);},'myProfile'],
+  ['Linked Accounts',()=>{profileMenu.hidePopover();void import('./company-profile.mjs').then(({openLinkedAccounts})=>openLinkedAccounts({desktop,getState:()=>current,signInMicrosoft,isAccountLocked:()=>accountLocked(current),cancelSignIn:()=>desktop.cancelSignIn()})).then(view=>{if(view)linkedAccountsView=view;}).catch(report);},'linkedAccounts'],
+  ['Logout',()=>{profileMenu.hidePopover();void desktop.signOut().catch(report);},'logout']]){
   const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.profileAction=key;button.onclick=action;profileMenu.append(button);
  }
  document.body.append(profileMenu);
@@ -1081,14 +1081,10 @@
  profileButton.onclick=()=>{
   if(!current?.account){signIn();return;}
   profileMenu.togglePopover();positionProfile();
-  // The profile section asks for the account's own verified emails when it opens, which is
-  // the only read of an address in the launcher. A failure is reported inside the section;
-  // the line simply says what it knows.
-  if(profileMenu.matches(':popover-open'))void companyUI.then(ui=>ui.refreshEmails()).catch(()=>{});
  };
  profileMenu.addEventListener('toggle',event=>{profileButton.setAttribute('aria-expanded',String(event.newState==='open'));paintProfileWait();});
  window.addEventListener('resize',positionProfile);
- let faceId=null,facePicture=null,faceSkin=null,emailView=null;
+ let faceId=null,facePicture=null,faceSkin=null;
  // The name the player is called, not the handle they type. state.account.name is the
  // account's own displayName, then its Minecraft name, then its username (accounts.cjs
  // publicAccount), so the username is reached only when an account carries no name at all.
@@ -1098,19 +1094,6 @@
   return name||username;
  };
 
- // The line the profile section last reported. It is kept with the account it was read
- // for, so switching accounts never shows the previous account's address.
- function setEmailLine(view){
-  const account=current?.account;
-  emailView=view&&account&&view.id===account.id?view:null;
-  // No address, no line: the menu says only that a login email is not set yet, or why the
-  // read failed. A set address is not printed here at all (streamer protection), so an
-  // empty line is hidden rather than drawn as a blank row.
-  const text=emailView&&typeof emailView.line==='string'?emailView.line.trim():'';
-  emailLine.hidden=!text;
-  emailLine.textContent=text;
-  emailLine.classList.toggle('is-unavailable',Boolean(emailView?.error));
- }
  function renderProfile(state){
   const account=state.account,name=account?accountName(account):'';
   // Owen's report of 2026-10-19: the header showed the username where it should show the
@@ -1123,30 +1106,26 @@
   const username=typeof account?.username==='string'?account.username.trim():'';
   accountNameNode.textContent=name;
   accountNameNode.hidden=!name;
-  // "signs in as <username>" appears only when the username says something the name does
-  // not: an account whose only identifier is the username already leads with it.
+  // The second line is the bare username - the handle they sign in with, with no prefix
+  // (Owen, 2026-10-22). It is hidden when the account has no username to name, and when the
+  // account's name *is* its username, because then the line above already says it.
   const signIn=Boolean(username)&&username!==name;
-  accountSignInNode.textContent=signIn?'Signs in as '+username:'';
+  accountSignInNode.textContent=signIn?username:'';
   accountSignInNode.hidden=!signIn;
-  // A session held by this machine or minted by the account service both mean the same thing to
-  // the player: Microsoft is linked and there is something to play with. Only the words for a
-  // linked account with no session, and an unlinked one, stay as they were.
-  const heldHereOrThere=['local','server'].includes(minecraftSessionOf(state)?.state||'');
-  companyHeading.hidden=!account;companyHeading.textContent=heldHereOrThere?'Microsoft / Xbox linked'+(state.profile?' · '+state.profile.name:''):account?.microsoftLinked?'Microsoft / Xbox linked · sign in to play':'Microsoft / Xbox not connected';
+  // The three entries are the whole menu and none of them is conditional: Logout is the third
+  // in every signed-in state. What the lock decides is whether they can be pressed - the same
+  // answer for all three, from the one list in this file (*The account lock* above) - and the
+  // menu is not painted at all for an account that is not signed in.
   const locked=accountLocked(state);
-  for(const button of profileMenu.querySelectorAll('[data-profile-action]')){
-   button.disabled=locked;
-   button.hidden=button.dataset.profileAction.startsWith('company')&&!state.account;
-  }
-  // The profile dialog is the second account surface, and the lock reaches it too: its own
-  // controls are disabled by the same answer, not by a disabled opener and a modal dialog
+  for(const button of profileMenu.querySelectorAll('[data-profile-action]'))button.disabled=locked;
+  // My Profile and Linked Accounts are the two account surfaces, and the lock reaches both: their
+  // own controls are disabled by the same answer, not by a disabled opener and a modal dialog
   // (site/company-profile.mjs holds no list of phases of its own). Only that answer is passed on,
   // so a broadcast cannot rebuild a control the player is using.
-  companyProfileView?.syncLock();
+  myProfileView?.syncLock();
+  linkedAccountsView?.syncLock();
 
-  // The email line belongs to one account and to one read of it.
-  if(!emailView||!account||emailView.id!==account.id){emailLine.hidden=true;emailLine.textContent='';}
-  if(!account){emailView=null;if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
+  if(!account){if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
   // ---- The player's face -----------------------------------------------------
   // Precedence, in Owen's order: the picture they uploaded, then the head of the Minecraft
   // skin their linked Microsoft account owns, then the initial tile. state.profile.skin is

@@ -9,24 +9,34 @@ import {createWaitFeedback} from './wait-feedback.mjs';
 // account service's own record, read through the owner-only profile action when the
 // section opens and never cached, so the choice shown is the choice the server holds. Only
 // the selected address is a login key; the others are recorded and cannot sign in.
+//
+// There is no password reset, because no recovery service exists (Owen, 2026-10-22): the
+// chooser says the only route in one sentence - sign in with a linked account, then change
+// the password in My Profile - and this module no longer carries the provider-chooser path
+// that used to imply one. The password step that remains creates a password a new account
+// has never had; changing one afterwards belongs to My Profile (site/company-profile.mjs).
 const PROVIDER_NAMES={microsoft:'Microsoft',xbox:'Xbox',discord:'Discord',steam:'Steam',google:'Google',email:'Email'};
 const providerName=value=>{
  const key=String(value||'').trim().toLowerCase();
  return PROVIDER_NAMES[key]||(key?key[0].toUpperCase()+key.slice(1):'Verified');
 };
+// The password rule the account service enforces (8 to 128 characters). It is exported because
+// the section that changes a password on My Profile (site/company-profile.mjs) applies the same
+// rule, and one literal is how they cannot drift apart.
+export const PASSWORD_POLICY={min:8,max:128,help:'Use 8–128 characters. A long passphrase works well.'};
 const NO_EMAILS='No verified email is recorded for this account. Sign in with a linked provider or with your username.';
 const NO_LOGIN_EMAIL='No login email is selected. Sign in with a linked provider or with your username.';
-export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlineError=null}){
+export function createCompanyAuth({desktop,signInMicrosoft,onInlineError=null}){
  let providerAvailabilityState=null,providerPending=false;
  const providerCancellable=()=>providerPending&&!['company-signing-in','company-waking','account-working'].includes(state.activity?.stage);
- let state={},busy=false,dismissed=null,pendingUsername=null,replacePassword=false,advancing=false;
+ let state={},busy=false,dismissed=null,pendingUsername=null,advancing=false;
  const chooser=document.createElement('dialog'),username=document.createElement('dialog'),password=document.createElement('dialog'),emails=document.createElement('dialog');
  for(const dialog of [chooser,username,password])dialog.className='desktop-company-dialog';
  chooser.id='desktop-company-signin';username.id='desktop-company-username';password.id='desktop-company-password';
  chooser.setAttribute('aria-labelledby','company-signin-title');username.setAttribute('aria-labelledby','company-username-title');password.setAttribute('aria-labelledby','company-password-title');
- chooser.innerHTML='<button class="dialog-close" type="button" aria-label="Close account sign-in">×</button><h2 id="company-signin-title">Easter Company account</h2><button type="button" class="company-microsoft">Sign in with Microsoft</button><p class="company-provider-note">Please sign up using an existing online account provider, and then create an Easter Company account username &amp; password.</p><form><label>Username or Email<input name="identifier" autocomplete="username" maxlength="254" required spellcheck="false"></label><label>Password<input type="password" name="password" autocomplete="current-password" maxlength="128" required></label><div class="company-error" role="alert" hidden></div><button type="submit" class="company-submit">Sign in</button><button type="button" class="company-recover text-link">Forgot your password?</button></form>';
+ chooser.innerHTML='<button class="dialog-close" type="button" aria-label="Close account sign-in">×</button><h2 id="company-signin-title">Easter Company account</h2><button type="button" class="company-microsoft">Sign in with Microsoft</button><p class="company-provider-note">Please sign up using an existing online account provider, and then create an Easter Company account username &amp; password.</p><form><label>Username or Email<input name="identifier" autocomplete="username" maxlength="254" required spellcheck="false"></label><label>Password<input type="password" name="password" autocomplete="current-password" maxlength="128" required></label><div class="company-error" role="alert" hidden></div><button type="submit" class="company-submit">Sign in</button><p class="company-no-reset">If you have forgotten your password there is no reset: sign in with a linked account, then change the password in My Profile.</p></form>';
  username.innerHTML='<button class="dialog-close" type="button" aria-label="Close username setup">×</button><h2 id="company-username-title">Choose your Easter Company username</h2><p class="company-step">Step 1 of 2</p><form><label>Username<input name="username" autocomplete="username" maxlength="20" required spellcheck="false" aria-describedby="company-username-help"></label><p id="company-username-help">This is the name you sign in with, and it cannot be changed later. Use 3–20 characters: letters, numbers, underscores or dashes. Capitals are saved as lowercase.</p><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Continue</button></form>';
- password.innerHTML='<button class="dialog-close" type="button" aria-label="Close password setup">×</button><h2 id="company-password-title">Create your Easter Company password</h2><p class="company-step">Step 2 of 2</p><p class="company-username"></p><p class="company-intro">Use your username or email and password to sign in directly next time.</p><form><label>New password<input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required aria-describedby="company-password-help"></label><p id="company-password-help">Use 8–128 characters. A long passphrase works well.</p><label>Confirm password<input name="confirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></label><label class="company-show"><input type="checkbox" name="show">Show passwords</label><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Save password</button><button type="button" class="company-verify text-link" hidden>Verify with Microsoft</button></form>';
+ password.innerHTML='<button class="dialog-close" type="button" aria-label="Close password setup">×</button><h2 id="company-password-title">Create your Easter Company password</h2><p class="company-step">Step 2 of 2</p><p class="company-username"></p><p class="company-intro">Use your username or email and password to sign in directly next time.</p><form><label>New password<input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required aria-describedby="company-password-help"></label><p id="company-password-help">Use 8–128 characters. A long passphrase works well.</p><label>Confirm password<input name="confirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></label><label class="company-show"><input type="checkbox" name="show">Show passwords</label><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Save password</button></form>';
  // The verified emails section. The list renders whatever the account service reports, so
  // a provider that does not exist yet needs no new code here. Only the selected address is
  // a login key, and that is said in the section itself rather than implied.
@@ -49,8 +59,8 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  // off mid-word. The refusal stays above the form, where it is read before the controls, and
  // the dialog scrolls to it instead — the least it can scroll for the whole refusal to be
  // inside the box. At 390 that is the three lines read in full with the heading still above
- // them, and Sign in and Forgot your password below the fold, which is the order a refusal is
- // read in. A refusal taller than the box is read from its first line. A dialog that can show
+ // them, and Sign in below the fold, which is the order a refusal is read in. A refusal taller
+ // than the box is read from its first line. A dialog that can show
  // the whole refusal at once is not scrolled at all — at 800x600 it no longer can, because
  // Google, Steam and Discord sit above the form and the chooser scrolls there whether or not a
  // refusal is painted (doc/launcher-states.md, *A chooser may scroll when the window is
@@ -132,14 +142,6 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  const emailNodes={list:emails.querySelector('.company-emails'),intro:emails.querySelector('.company-intro'),loading:emails.querySelector('.company-emails-loading'),empty:emails.querySelector('.company-emails-empty'),unset:emails.querySelector('.company-emails-unset'),save:emails.querySelector('.company-submit'),clear:emails.querySelector('.company-clear'),status:emails.querySelector('.company-status')};
  emailNodes.empty.textContent=NO_EMAILS;emailNodes.unset.textContent=NO_LOGIN_EMAIL;
  let emailState={loaded:false,emails:[],loginEmail:null},emailFailure=null,emailBusy=false,emailAccount=null;
- function publishEmails(){
-  if(typeof onEmails!=='function')return;
-  // The profile menu never carries the address. Owen's rule of 2026-10-22: a streamer
- // must be able to open their own profile on screen without showing an email to the
- // audience, so the menu line says only whether a login email is set; the address itself
- // lives in the Verified emails dialog, which the player opens on purpose.
- onEmails(state.account?{id:emailAccount,emails:emailState.emails,loginEmail:emailState.loginEmail,error:emailFailure,line:emailFailure||(emailState.loginEmail?null:emailState.emails.length?NO_LOGIN_EMAIL:NO_EMAILS)}:null);
- }
  // Saving is only offered when there is a choice to save: no row selected, and the row the
  // service already calls its login email, both mean there is nothing to send.
  function syncSave(){
@@ -170,7 +172,6 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
    emailNodes.list.append(label);
   }
   syncSave();
-  publishEmails();
  }
  function showEmails(list){
   const found=list&&typeof list==='object'?list:{};
@@ -225,18 +226,14 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  emails.querySelector('.dialog-close').onclick=()=>{if(!emailBusy)emails.close();};
  emails.addEventListener('cancel',event=>{if(emailBusy)event.preventDefault();});
  emails.addEventListener('close',()=>{endWait(emails);error(emails,'');emailNodes.status.textContent='';emailNodes.loading.hidden=true;});
- // Opening the profile asks for the list; a bridge without the action has nothing to ask,
- // so the line simply stays out of the way rather than claiming a failure.
- async function refreshEmails(){
-  if(emailBusy||!state.account||typeof desktop.profileEmails!=='function')return null;
-  return loadEmails();
- }
+ // Opening the section asks the service for the list; a bridge without the action has
+ // nothing to ask, and the section says which sign-in works instead of claiming a failure.
  async function openEmails(){
   if(emailBusy||emails.open||!state.account)return;
   error(emails,'');emailNodes.status.textContent='';emails.showModal();
   await loadEmails();
  }
- let chooseOptions={},recovering=false;
+ let chooseOptions={};
  // The one refusal in this flow that stops it. `identity_conflict` means the Microsoft
  // account the player just used belongs to a different Easter Company account, so there is
  // nothing to fall through to: completing a fresh sign-in would replace the account they
@@ -277,17 +274,17 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   if(!chooser.open){error(chooser,'');chooser.showModal();}
   error(chooser,lines);
  }
- async function microsoft(recover=false){
+ async function microsoft(){
   if(busy)return;
-  const useSaved=!recover&&state.microsoftAccount&&typeof desktop.continueMicrosoft==='function';
+  const useSaved=state.microsoftAccount&&typeof desktop.continueMicrosoft==='function';
   closing(chooser);
   // The saved Microsoft session is a shortcut, never a dead end. Every failure of it falls
   // through to the fresh interactive sign-in that shows the device code and the browser
   // action, with exactly one stop: an identity conflict means the player must choose the
   // Microsoft account linked to this Easter Company account, and nobody else can do that.
   // Anything else — an expired, invalid or unreachable saved session included — is the
-  // shortcut failing rather than the sign-in, so the player still gets the code that the
-  // Forgot your password path already gives them.
+  // shortcut failing rather than the sign-in, so the player still gets the device code and
+  // the browser action the interactive flow gives everyone.
   if(useSaved){
    chooser.showModal();waitFor(chooser,'Connecting your saved Microsoft account…');lock(true);
    let answer;try{answer=await continueSaved();}finally{lock(false);closing(chooser);render(state);}
@@ -303,11 +300,9 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
     conflict(answer.error);return;
    }
   }
-  const result=await signInMicrosoft({link:recover?Boolean(state.account):Boolean(chooseOptions.link)});
-  if(result&&recover&&state.account&&!state.account.passwordRequired)setup(true);
+  await signInMicrosoft({link:Boolean(chooseOptions.link)});
  }
- chooser.querySelector('.company-microsoft').onclick=()=>void microsoft(recovering);
- const recoveryNote=document.createElement('p');recoveryNote.className='company-recovery-note';recoveryNote.hidden=true;chooser.querySelector('.company-provider-note').after(recoveryNote);
+ chooser.querySelector('.company-microsoft').onclick=()=>void microsoft();
  const providerButtons=[];
  for(const provider of ['google','steam','discord']){
   const button=document.createElement('button');button.type='button';button.className='company-provider';button.dataset.provider=provider;button.textContent='Sign in with '+providerName(provider);
@@ -319,7 +314,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
     if(outcome?.ok===false)error(chooser,outcome.error||'Sign-in could not finish.');
     else{chooser.close();completed=true;}
    }catch(cause){error(chooser,cause.message||'Sign-in could not finish.');}
-   finally{providerPending=false;lock(false);render(state);if(completed&&recovering&&!state.account?.passwordRequired)setup(true);}
+   finally{providerPending=false;lock(false);render(state);}
   };
  }
  async function providerAvailability(){
@@ -327,10 +322,6 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   try{const found=await desktop.accountProviders();providerAvailabilityState=found.providers||[];for(const button of providerButtons){const available=found.providers?.includes(button.dataset.provider);button.disabled=busy||!available;button.title=available?'':'This provider is not configured.';}}
   catch{providerAvailabilityState=[];for(const button of providerButtons){button.disabled=true;button.title='Provider availability could not be checked.';}}
  }
- chooser.querySelector('.company-recover').onclick=()=>{
-  recovering=true;recoveryNote.hidden=false;recoveryNote.textContent='Choose a provider already linked to your account, then set a new Easter Company password.';chooser.querySelector('form').hidden=true;
-  for(const button of providerButtons)button.hidden=Boolean(state.account)&&!state.account.providers?.includes(button.dataset.provider);
- };
  chooser.querySelector('form').onsubmit=async event=>{
   event.preventDefault();if(busy)return;
   const form=event.currentTarget,identifier=form.elements.identifier.value.trim(),secret=form.elements.password.value;
@@ -382,44 +373,38 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  password.querySelector('form').onsubmit=async event=>{
   event.preventDefault();if(busy)return;
   const form=event.currentTarget,secret=form.elements.password.value,claimed=pendingUsername;
-  if([...secret].length<8||[...secret].length>128){error(password,'Use 8 to 128 characters.');return;}
+  if([...secret].length<PASSWORD_POLICY.min||[...secret].length>PASSWORD_POLICY.max){error(password,'Use 8 to 128 characters.');return;}
   if(secret!==form.elements.confirm.value){error(password,'The passwords do not match.');form.elements.confirm.focus();return;}
   error(password,'');lock(true);
   let walkBack=null;
   try{
-   const outcome=await desktop.setCompanyPassword(secret,replacePassword,claimed||undefined);
+   const outcome=await desktop.setCompanyPassword(secret,false,claimed||undefined);
    if(!outcome||outcome.ok!==false){pendingUsername=null;password.close();}
    else{
     const code=outcome.code,message=outcome.error;
     if(code==='username_taken'||code==='username_policy')walkBack={message:message||(code==='username_taken'?usernameTaken:usernamePolicy),value:claimed||''};
-    else{
-     error(password,message||'Password could not be saved. Try again.');
-     password.querySelector('.company-verify').hidden=code!=='reauthentication_required';
-    }
+    else error(password,message||'Password could not be saved. Try again.');
    }
   }
-  catch(cause){
-   error(password,cause.message||'Password could not be saved. Try again.');
-   password.querySelector('.company-verify').hidden=true;
-  }
+  catch(cause){error(password,cause.message||'Password could not be saved. Try again.');}
   finally{lock(false);}
   // The race the step-1 answer could not see: step 1 comes back with the name kept.
   if(walkBack){pendingUsername=walkBack.value;password.close();openUsername(walkBack.message,walkBack.value);}
  };
- password.querySelector('.company-verify').textContent='Verify with a linked provider';
- password.querySelector('.company-verify').onclick=()=>{password.close();openRecovery();};
- function setup(replace=false){
+ // The password this dialog creates is the one a new account has never had. Changing a
+ // password afterwards is My Profile's own form (site/company-profile.mjs), which asks for the
+ // new password twice and never for the current one.
+ function setup(){
   if(!state.account||password.open||busy)return;
   // A player who still has to choose a username starts at step 1, whichever action
   // reached here: the username is never skipped and never asked for out of order.
-  if(!replace&&!pendingUsername&&!state.account.username){openUsername();return;}
+  if(!pendingUsername&&!state.account.username){openUsername();return;}
   if(chooser.open)chooser.close();if(username.open)username.close();
-  replacePassword=replace;password.querySelector('.company-verify').hidden=true;
-  const named=replace?'':pendingUsername||state.account.username||'';
-  password.querySelector('h2').textContent=replace?'Reset your Easter Company password':'Create your Easter Company password';
+  const named=pendingUsername||state.account.username||'';
+  password.querySelector('h2').textContent='Create your Easter Company password';
   // The step count is shown exactly when the username step led here, so a resumed
-  // setup or a password change never claims to be step two of a two-step flow.
-  password.querySelector('.company-step').hidden=!(pendingUsername&&!replace);
+  // setup never claims to be step two of a two-step flow.
+  password.querySelector('.company-step').hidden=!pendingUsername;
   password.querySelector('.company-username').textContent=named?'Your username: '+named:'';
   password.querySelector('.company-username').hidden=!named;
   password.showModal();
@@ -442,9 +427,8 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   if(state.account.username)setup();else openUsername();
  }
  function openChoice(options={}){
-  chooseOptions=options;recovering=false;recoveryNote.hidden=true;chooser.querySelector('form').hidden=false;for(const button of providerButtons)button.hidden=false;
+  chooseOptions=options;
   error(chooser,'');if(!chooser.open&&!busy)chooser.showModal();void providerAvailability();
  }
- function openRecovery(){openChoice({link:Boolean(state.account)});chooser.querySelector('.company-recover').click();}
- return {render,setup,open:openChoice,reset:openRecovery,emails:openEmails,refreshEmails,conflict};
+ return {render,setup,open:openChoice,emails:openEmails,conflict};
 }

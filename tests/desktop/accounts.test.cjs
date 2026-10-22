@@ -527,7 +527,14 @@ test('the password floor is eight characters in every layer that states it',()=>
  assert.equal(dialog.includes('minlength="15"'),false,'no dialog field may still demand 15');
  assert.equal((dialog.match(/minlength="8"/g)||[]).length,2,'both password fields ask for 8');
  assert.match(dialog,/Use 8–128 characters/);
- assert.match(dialog,/\[\.\.\.secret\]\.length<8/);
+ // The rule is one exported literal, and both password surfaces apply it: the create-password
+ // step in site/company-auth.mjs and the change-password form on My Profile
+ // (site/company-profile.mjs imports it rather than restating a number).
+ assert.match(dialog,/export const PASSWORD_POLICY=\{min:8,max:128,help:'Use 8–128 characters\./);
+ assert.match(dialog,/\[\.\.\.secret\]\.length<PASSWORD_POLICY\.min\|\|\[\.\.\.secret\]\.length>PASSWORD_POLICY\.max/);
+ const profileForm=readRepo('site/company-profile.mjs');
+ assert.match(profileForm,/import \{PASSWORD_POLICY\} from '\.\/company-auth\.mjs'/,'the change form on My Profile applies the same rule rather than its own');
+ assert.match(profileForm,/length<PASSWORD_POLICY\.min\|\|length>PASSWORD_POLICY\.max/);
  const main=readRepo('desktop/main.cjs');
  assert.match(main,/length<8/);
  assert.equal(main.includes('length<15'),false);

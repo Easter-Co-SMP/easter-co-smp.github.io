@@ -78,7 +78,7 @@ try{
  await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='Hannah Easter');
  assert.deepEqual(await header(),{text:'Hannah Easter',label:'Account: Hannah Easter',canvasHidden:false},'the header shows the display name, not the username');
  await page.locator('.desktop-account-nav').click();
- assert.deepEqual(await menu(),{name:'Hannah Easter',signIn:'Signs in as hannah_e',raw:'Hannah EasterSigns in as hannah_e'},'the account view leads with the display name and keeps the username as the sign-in line');
+ assert.deepEqual(await menu(),{name:'Hannah Easter',signIn:'hannah_e',raw:'Hannah Easterhannah_e'},'the account view leads with the display name and prints the bare username under it, with no prefix (Owen, 2026-10-22)');
  note('header and account view: display name first, username as the sign-in identifier');
 
  for(const [width,height] of [[1440,900],[800,600],[390,568]]){
@@ -354,26 +354,26 @@ try{
  note('a 50-character display name still fits the header at 390px');
 
  // --- A linked provider offers nothing that can only fail --------------------
- const profileRows=()=>page.evaluate(()=>[...document.querySelectorAll('#company-profile .company-provider-link')].map(row=>({
+ const profileRows=()=>page.evaluate(()=>[...document.querySelectorAll('#company-linked-accounts .company-provider-link')].map(row=>({
   label:row.querySelector('span')?.textContent||'',
   buttons:[...row.querySelectorAll('button')].map(button=>({text:button.textContent,label:button.getAttribute('aria-label'),disabled:button.disabled}))
  })));
  await page.evaluate(()=>sendState({account:{id:'EC-9',username:'hannah_e',name:'Hannah Easter',roles:[],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],picture:null},profile:null}));
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
- await page.locator('#company-profile').waitFor({state:'visible'});
+ await page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
+ await page.locator('#company-linked-accounts').waitFor({state:'visible'});
  const linked=await profileRows();
  const microsoftRow=linked.find(row=>row.label.startsWith('Microsoft'));
  assert.deepEqual(microsoftRow,{label:'Microsoft / Xbox · linked',buttons:[]},'an already-linked Microsoft account is described and not offered');
- assert.equal(await page.locator('#company-profile').getByRole('button',{name:/verify/i}).count(),0,'no Verify control exists on any provider row');
- assert.equal(await page.locator('#company-profile').getByRole('button',{name:'Connect Google',exact:true}).count(),1,'an unlinked provider keeps its Connect action');
- assert.equal(await page.locator('#company-profile').getByRole('button',{name:'Connect Steam',exact:true}).isDisabled(),true,'a provider this build cannot offer is not pressable');
- assert.match(await page.locator('#company-profile').innerText(),/cannot be removed from the launcher yet/,'the dialog says plainly why a linked account carries no control');
+ assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:/verify/i}).count(),0,'no Verify control exists on any provider row');
+ assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:'Connect Google',exact:true}).count(),1,'an unlinked provider keeps its Connect action');
+ assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:'Connect Steam',exact:true}).isDisabled(),true,'a provider this build cannot offer is not pressable');
+ assert.match(await page.locator('#company-linked-accounts').innerText(),/cannot be removed from the launcher yet/,'the dialog says plainly why a linked account carries no control');
  await page.screenshot({path:`${images}/profile-linked-1440.png`,animations:'disabled'});
  for(const [width,height] of [[800,600],[390,568]]){
   await page.setViewportSize({width,height});
-  assert.equal(await page.locator('#company-profile').evaluate(el=>el.scrollWidth<=el.clientWidth),true,'the profile dialog has no horizontal overflow at '+width+'px');
-  const box=await page.locator('#company-profile').boundingBox();
+  assert.equal(await page.locator('#company-linked-accounts').evaluate(el=>el.scrollWidth<=el.clientWidth),true,'the profile dialog has no horizontal overflow at '+width+'px');
+  const box=await page.locator('#company-linked-accounts').boundingBox();
   assert(box.x>=0&&box.x+box.width<=width+1,'the profile dialog fits '+width+'px');
   await page.screenshot({path:`${images}/profile-linked-${width}.png`,animations:'disabled'});
  }
@@ -383,15 +383,15 @@ try{
  const providerCall=await page.evaluate(()=>window.__fixture.calls.filter(call=>call.name==='signInProvider').at(-1));
  assert.deepEqual(providerCall,{name:'signInProvider',payload:{provider:'google',link:true}},'Connect runs the provider link flow');
  note('a linked provider is described with no action; only an unlinked one offers Connect');
- await page.locator('#company-profile .dialog-close').click();
- await page.locator('#company-profile').waitFor({state:'detached'});
+ await page.locator('#company-linked-accounts .dialog-close').click();
+ await page.locator('#company-linked-accounts').waitFor({state:'detached'});
 
  // --- A linked provider's own details ----------------------------------------
  // Owen's specification: under a linked provider, its own values as labelled lines. The state
  // below is the screenshot case - two providers carrying details, one linked provider that
  // knows nothing - and the Minecraft name is the account's own field, not the display name
  // the player may edit and not the copy the cloud may send inside providerDetails.
- const detailRows=()=>page.evaluate(()=>[...document.querySelectorAll('#company-profile .company-provider-link')].map(row=>({
+ const detailRows=()=>page.evaluate(()=>[...document.querySelectorAll('#company-linked-accounts .company-provider-link')].map(row=>({
   label:row.querySelector('.company-provider-name')?.textContent||'',
   lines:[...row.querySelectorAll('.company-provider-detail')].map(line=>line.innerText),
   blocks:row.querySelectorAll('.company-provider-details').length
@@ -399,25 +399,25 @@ try{
  const LINKED_ACCOUNT={id:'EC-20',username:'hannah_e',name:'Hannah Easter',roles:[],passwordRequired:false,microsoftLinked:true,providers:['microsoft','google','steam'],minecraftName:'HannahMC',picture:null};
  await page.evaluate(account=>sendState({account:{...account,providerDetails:{microsoft:{gamertag:'Hannah Wren'},google:{email:'hannah@example.test'},steam:{persona:null}}},profile:null}),LINKED_ACCOUNT);
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
- await page.locator('#company-profile').waitFor({state:'visible'});
+ await page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
+ await page.locator('#company-linked-accounts').waitFor({state:'visible'});
  assert.deepEqual(await detailRows(),[
   {label:'Microsoft / Xbox · linked',lines:['Xbox Gamer Tag: Hannah Wren','Minecraft Username: HannahMC'],blocks:1},
   {label:'Google · linked',lines:['Gmail: hannah@example.test'],blocks:1},
   {label:'Steam · linked',lines:[],blocks:0},
   {label:'Discord',lines:[],blocks:0}
  ],'each linked provider draws its own labelled lines, a linked provider with nothing known draws none, and an unlinked provider has no detail block at all');
- const detailText=await page.locator('#company-profile').innerText();
+ const detailText=await page.locator('#company-linked-accounts').innerText();
  assert(!/undefined|\bnull\b|\{|\}/.test(detailText),'no placeholder, brace, null or undefined reaches the dialog: '+JSON.stringify(detailText.slice(detailText.indexOf('Linked accounts'))));
  for(const line of (await detailRows()).flatMap(row=>row.lines))assert.match(line,/^[A-Za-z][^:]*: \S/,'a drawn line is a label and a value: '+JSON.stringify(line));
  // The section keeps its shape: the sentence, the wording, and Connect only where it can work.
  assert.match(detailText,/Links stay with this Easter Company account/);
- assert.equal(await page.locator('#company-profile').getByRole('button',{name:'Connect Discord',exact:true}).count(),1,'the one unlinked provider still offers Connect');
- assert.equal(await page.locator('#company-profile').getByRole('button',{name:/^Connect (Microsoft|Google|Steam)/}).count(),0,'a linked provider offers no control');
+ assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:'Connect Discord',exact:true}).count(),1,'the one unlinked provider still offers Connect');
+ assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:/^Connect (Microsoft|Google|Steam)/}).count(),0,'a linked provider offers no control');
  await page.screenshot({path:`${images}/profile-provider-details-1440.png`,animations:'disabled'});
  for(const [width,height] of [[800,600],[390,568]]){
   await page.setViewportSize({width,height});
-  assert.equal(await page.locator('#company-profile').evaluate(el=>el.scrollWidth<=el.clientWidth),true,'the detail lines add no horizontal overflow at '+width+'px');
+  assert.equal(await page.locator('#company-linked-accounts').evaluate(el=>el.scrollWidth<=el.clientWidth),true,'the detail lines add no horizontal overflow at '+width+'px');
   await page.screenshot({path:`${images}/profile-provider-details-${width}.png`,animations:'disabled'});
  }
  await page.setViewportSize({width:1440,height:900});
@@ -426,17 +426,17 @@ try{
  // The values are another party's text, so they are only ever text: markup in a value draws
  // nothing, and a record this launcher cannot read renders exactly as the dialog did before
  // providerDetails existed.
- await page.locator('#company-profile .dialog-close').click();
- await page.locator('#company-profile').waitFor({state:'detached'});
+ await page.locator('#company-linked-accounts .dialog-close').click();
+ await page.locator('#company-linked-accounts').waitFor({state:'detached'});
  await page.evaluate(account=>sendState({account:{...account,providerDetails:{steam:{persona:'<b>Wren</b>'}}},profile:null}),LINKED_ACCOUNT);
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
- await page.locator('#company-profile').waitFor({state:'visible'});
- assert.equal(await page.locator('#company-profile .company-provider-detail b, #company-profile .company-provider-detail img').count(),0,'a value that looks like markup draws no element');
- assert.deepEqual(await page.evaluate(()=>[...document.querySelectorAll('#company-profile .company-provider-detail-value')].map(node=>node.textContent)),['HannahMC','<b>Wren</b>'],'each value is shown as the text it is');
+ await page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
+ await page.locator('#company-linked-accounts').waitFor({state:'visible'});
+ assert.equal(await page.locator('#company-linked-accounts .company-provider-detail b, #company-linked-accounts .company-provider-detail img').count(),0,'a value that looks like markup draws no element');
+ assert.deepEqual(await page.evaluate(()=>[...document.querySelectorAll('#company-linked-accounts .company-provider-detail-value')].map(node=>node.textContent)),['HannahMC','<b>Wren</b>'],'each value is shown as the text it is');
  assert.deepEqual((await detailRows())[0],{label:'Microsoft / Xbox · linked',lines:['Minecraft Username: HannahMC'],blocks:1},'the gamertag this state does not carry draws no line, while the account\'s own Minecraft name still does');
- await page.locator('#company-profile .dialog-close').click();
- await page.locator('#company-profile').waitFor({state:'detached'});
+ await page.locator('#company-linked-accounts .dialog-close').click();
+ await page.locator('#company-linked-accounts').waitFor({state:'detached'});
  // A document with no providerDetails at all - the live one, until the cloud ships the field -
  // is today's dialog plus the one line the account state already answers from: the Minecraft
  // name. Nothing else appears, and nothing breaks. (Address validation is the main process's
@@ -449,37 +449,37 @@ try{
  for(const broken of ['details',['microsoft'],[{gamertag:'x'}],{microsoft:'x'},{microsoft:null},{microsoft:{gamertag:5}},{microsoft:{gamertag:'   '}}]){
   await page.evaluate(({account,broken})=>sendState({account:{...account,providerDetails:broken},profile:null}),{account:LINKED_ACCOUNT,broken});
   await page.locator('.desktop-account-nav').click();
-  await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
-  await page.locator('#company-profile').waitFor({state:'visible'});
+  await page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
+  await page.locator('#company-linked-accounts').waitFor({state:'visible'});
   assert.deepEqual(await detailRows(),TODAY,'a record this launcher cannot read renders as today: '+JSON.stringify(broken));
-  await page.locator('#company-profile .dialog-close').click();
-  await page.locator('#company-profile').waitFor({state:'detached'});
+  await page.locator('#company-linked-accounts .dialog-close').click();
+  await page.locator('#company-linked-accounts').waitFor({state:'detached'});
  }
  await page.evaluate(account=>sendState({account,profile:null}),LINKED_ACCOUNT);
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
- await page.locator('#company-profile').waitFor({state:'visible'});
+ await page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
+ await page.locator('#company-linked-accounts').waitFor({state:'visible'});
  assert.deepEqual(await detailRows(),TODAY,'a live document with no providerDetails renders as today');
- await page.locator('#company-profile .dialog-close').click();
- await page.locator('#company-profile').waitFor({state:'detached'});
+ await page.locator('#company-linked-accounts .dialog-close').click();
+ await page.locator('#company-linked-accounts').waitFor({state:'detached'});
  // An account with no Minecraft profile has no Minecraft name to show, and the row falls back
  // to nothing rather than to the display name the player may set to anything.
  await page.evaluate(account=>sendState({account:{...account,minecraftName:null,providerDetails:{microsoft:{gamertag:'Hannah Wren'}}},profile:null}),LINKED_ACCOUNT);
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
- await page.locator('#company-profile').waitFor({state:'visible'});
+ await page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
+ await page.locator('#company-linked-accounts').waitFor({state:'visible'});
  assert.deepEqual((await detailRows())[0].lines,['Xbox Gamer Tag: Hannah Wren'],'with no Minecraft name on the account the row shows only the gamertag - never the display name');
  assert.deepEqual(errors,[],'rendering a malformed record raises no page error');
  note('a value is text and never markup, and a missing or malformed record draws nothing at all');
- await page.locator('#company-profile .dialog-close').click();
- await page.locator('#company-profile').waitFor({state:'detached'});
+ await page.locator('#company-linked-accounts .dialog-close').click();
+ await page.locator('#company-linked-accounts').waitFor({state:'detached'});
 
  // The same for a Microsoft account that is not linked yet: one Connect, which links.
  await page.evaluate(()=>sendState({account:{id:'EC-9',username:'hannah_e',name:'Hannah Easter',roles:[],passwordRequired:false,microsoftLinked:false,providers:[],picture:null},profile:null}));
  await page.locator('.desktop-account-nav').click();
- await page.getByRole('button',{name:'Profile & linked accounts',exact:true}).click();
- await page.locator('#company-profile').waitFor({state:'visible'});
- assert.equal(await page.locator('#company-profile').getByRole('button',{name:'Connect Microsoft / Xbox',exact:true}).count(),1,'an unlinked Microsoft account offers Connect');
+ await page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
+ await page.locator('#company-linked-accounts').waitFor({state:'visible'});
+ assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:'Connect Microsoft / Xbox',exact:true}).count(),1,'an unlinked Microsoft account offers Connect');
  await page.screenshot({path:`${images}/profile-unlinked-1440.png`,animations:'disabled'});
  await page.getByRole('button',{name:'Connect Microsoft / Xbox',exact:true}).click();
  await page.waitForFunction(()=>window.__fixture.calls.some(call=>call.name==='signIn'));

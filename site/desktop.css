@@ -198,7 +198,7 @@
 .desktop-company-dialog label{display:block;font-size:12px;margin:16px 0;color:#d1ded5}.desktop-company-dialog input:not([type=checkbox]):not([type=radio]){display:block;width:100%;padding:10px 12px;margin-top:7px;border:1px solid #ffffff28;border-radius:6px;background:#0b1d25;color:#e5e9df;font:13px/1.5 system-ui}
 .desktop-company-dialog .company-microsoft,.desktop-company-dialog .company-submit{width:100%;padding:12px;border:1px solid var(--app-gold);border-radius:6px;background:var(--app-gold);color:#11252d;font:600 13px/1.4 system-ui;cursor:pointer}.desktop-company-dialog .company-microsoft{margin-top:10px}
 .desktop-company-dialog .company-provider-note{font-size:11px}.desktop-company-dialog .company-step{margin:0 0 6px;font:600 10px/1.4 system-ui;letter-spacing:.08em;text-transform:uppercase;color:var(--app-gold)}
-.desktop-company-dialog .company-recover{display:block;margin:16px auto 0;font-size:11px}.desktop-company-dialog .company-error{color:#f4b6a6}.desktop-company-dialog .company-username{color:var(--app-gold);font-size:15px}.desktop-company-dialog .company-show{display:flex;align-items:center;gap:8px}.company-show input{accent-color:var(--app-gold)}
+.desktop-company-dialog .company-no-reset{margin:14px 0 0;font-size:11px}.desktop-company-dialog .company-error{color:#f4b6a6}.desktop-company-dialog .company-username{color:var(--app-gold);font-size:15px}.desktop-company-dialog .company-show{display:flex;align-items:center;gap:8px}.company-show input{accent-color:var(--app-gold)}
 /* The identity conflict is three lines rather than one paragraph: the sentence, what did not
    change, and the way out. They share the refusal colour and the slot's own spacing, so the
    dialog reads as one answer and each part is separately scannable. */
@@ -231,8 +231,10 @@
 .desktop-company-dialog .company-status{margin:10px 0 0;font-size:11px;line-height:1.6;color:var(--app-gold)}
 .desktop-company-dialog .company-email-actions{display:grid;gap:2px;margin-top:16px}
 .desktop-company-dialog .company-clear{display:block;margin:10px auto 0;font-size:11px}
-.desktop-profile-heading.desktop-email{color:#e4d7b8;overflow-wrap:anywhere}
-.desktop-profile-heading.desktop-email.is-unavailable{color:#f4b6a6}
+/* My Profile carries the sections the menu no longer has entries for: the verified emails and
+   the password. One heading each, and the sentence under it says what the section does. */
+.desktop-company-dialog h3{margin:20px 0 0;font:600 13px/1.4 system-ui;color:#e5e9df}
+.desktop-company-dialog .company-section-note{margin:6px 0 10px;font-size:11px}
 
 /* The map is a full-bleed chart, so there is no page flow for the failure notice's room to be
    reserved on: the docked controls move instead. site/desktop.js measures how far the strip the
@@ -257,7 +259,7 @@
 .desktop-company-dialog .company-provider{display:block;width:100%;margin-top:8px;padding:12px;border:1px solid #ffffff38;border-radius:6px;background:#122b34;color:#e5e9df;font:600 13px/1.4 system-ui;cursor:pointer}
 .desktop-company-dialog button:disabled{opacity:.5;cursor:default}
 .desktop-company-dialog button:focus-visible{outline:2px solid var(--app-gold);outline-offset:3px}
-#company-profile form button,.company-picture-actions button,.company-provider-link button{min-height:40px;padding:9px 13px;border:1px solid #ffffff38;border-radius:6px;background:#17333c;color:#e5e9df;font:600 12px/1.4 system-ui;cursor:pointer}
+#company-profile form button,#company-profile [data-open-emails],.company-picture-actions button,.company-provider-link button{min-height:40px;padding:9px 13px;border:1px solid #ffffff38;border-radius:6px;background:#17333c;color:#e5e9df;font:600 12px/1.4 system-ui;cursor:pointer}
 #company-profile form button{width:100%;border-color:var(--app-gold)}
 .company-picture-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
 .company-provider-links{display:grid;gap:8px}
