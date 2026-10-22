@@ -188,7 +188,7 @@
   // the account service is not asked for anything at all (doc/launcher-states.md, "The Minecraft
   // session the account service holds").
   //
-  // Owen's rule of 2026-10-23, from the 1.0.39 screen that started this: a player who is signed
+  // Owen's rule of 2026-10-22, from the 1.0.39 screen that started this: a player who is signed
   // in and whose Microsoft account is already linked is never told to SIGN IN with Microsoft.
   // His account is linked and his Easter Company session is live, so the press would make the
   // Minecraft session again, not log him in — it reads "Reconnect Microsoft", and it still names

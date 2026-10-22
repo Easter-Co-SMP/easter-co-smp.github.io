@@ -2024,7 +2024,7 @@ The name in these sentences is the account's own `account.minecraftName` (*A lin
 provider's own details*), never the editable display name, and an account that carries no
 Minecraft name gets the sentence with no blank in it rather than a placeholder.
 
-### A signed-in account is never told to sign in (2026-10-23)
+### A signed-in account is never told to sign in (2026-10-22)
 
 Owen's launcher on 1.0.39, signed in with his Microsoft account linked, read **Sign in with
 Microsoft / Starts Minecraft as OwenEaster** — twice, the second time at 08:01:53Z on a restart,

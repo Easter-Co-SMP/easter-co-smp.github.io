@@ -73,7 +73,7 @@ const stub=http.createServer((request,response)=>{
    if(answer==='not-configured')return json(503,{error:'session_key_unconfigured'});
    // A 200 whose body is not the frozen shape: a proxy in the way, a page where JSON should be.
    if(answer==='unreadable')return json(200,{ok:true});
-   // The shape Owen actually hit twice on 2026-10-23: the request is accepted and nothing ever
+   // The shape Owen actually hit twice on 2026-10-22: the request is accepted and nothing ever
    // answers it, so there is no status, no body and no sentence to read.
    if(answer==='hang')return;
    return json(200,mintedBody());
@@ -302,7 +302,7 @@ try{
  await f.close();
 
  // ---- G: a mint that is never answered at all -----------------------------------------
- // Owen's own shape, twice on 2026-10-23: Aurora was resuming, both startup calls sat on the
+ // Owen's own shape, twice on 2026-10-22: Aurora was resuming, both startup calls sat on the
  // account store, and API Gateway recorded no 4xx at all. There was no refusal to read — and the
  // launcher painted the Microsoft demand anyway. Now the whole budget is spent on the checking
  // sentence, and what follows it is the hero's own retry, which asks again.

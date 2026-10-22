@@ -676,7 +676,7 @@ try{
    await heroButton.click();
    await launcherPage.waitForFunction(count=>window.easterRenderer.calls.filter(call=>call.name==='refreshMinecraftSession').length>count,beforeRetry);
    // An answer nobody could read is the same offer and a different sentence, and never Microsoft.
-   await pushState({actions:['connect-microsoft'],canPlay:false,companyReady:true,microsoftConnected:false,minecraftSession:{state:'unknown',serverHeld:false,checkedAt:'2026-10-23T07:48:00Z'}});
+   await pushState({actions:['connect-microsoft'],canPlay:false,companyReady:true,microsoftConnected:false,minecraftSession:{state:'unknown',serverHeld:false,checkedAt:'2026-10-22T07:48:00Z'}});
    heroAction({name:'an answer this launcher could not read',...await hero(),expect:'retry-minecraft'});
    assert.deepEqual(await hero(),{text:'Try again Your Minecraft session could not be checked',action:'retry-minecraft'},'an unreadable answer offers the same question again and says nothing about Microsoft: '+(await hero()).text);
    // The state a linked account has before anything has been asked is a wait, not a demand.

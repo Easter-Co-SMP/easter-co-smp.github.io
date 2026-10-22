@@ -262,7 +262,7 @@ try{
  const unasked=await sessionShapes({minecraftSession:{state:'unknown',serverHeld:false,checkedAt:null}},'busy');
  assert.deepEqual({action:unasked.action,text:unasked.text},{action:'busy',text:'Checking your Minecraft session… Asking your Easter Company account'},'a session nobody has asked about yet is not a Microsoft demand either: '+unasked.text);
  // 2. An answer the launcher could not read: the retry, and never a Microsoft prompt.
- const unreadable=await sessionShapes({actions:['connect-microsoft'],minecraftSession:{state:'unknown',serverHeld:false,checkedAt:'2026-10-23T07:48:00Z'}},'retry-minecraft');
+ const unreadable=await sessionShapes({actions:['connect-microsoft'],minecraftSession:{state:'unknown',serverHeld:false,checkedAt:'2026-10-22T07:48:00Z'}},'retry-minecraft');
  assert.deepEqual({action:unreadable.action,text:unreadable.text},{action:'retry-minecraft',text:'Try again Your Minecraft session could not be checked'},'an unreadable answer earns a retry, not a sign-in: '+unreadable.text);
  assert(!/Microsoft/i.test(unreadable.text),'and it never names Microsoft: '+unreadable.text);
  // 3. A dead Easter Company session — the account is gone, so the account's own sign-in is the
@@ -273,7 +273,7 @@ try{
  assert(!/Microsoft/i.test(deadCompany.text),'the account\'s own sign-in is not a provider\'s: '+deadCompany.text);
  // 4. A linked account whose Minecraft session must be made again — the reconnect, with the
  //    Minecraft identity that will start the game named. Owen's own 07:48 screen, corrected.
- const reconnect=await sessionShapes({actions:['connect-microsoft'],minecraftSession:{state:'reauth',serverHeld:false,checkedAt:'2026-10-23T07:48:00Z'}},'connect-microsoft');
+ const reconnect=await sessionShapes({actions:['connect-microsoft'],minecraftSession:{state:'reauth',serverHeld:false,checkedAt:'2026-10-22T07:48:00Z'}},'connect-microsoft');
  assert.deepEqual({action:reconnect.action,text:reconnect.text},{action:'connect-microsoft',text:'Reconnect Microsoft Starts Minecraft as OwenMC'},'a signed-in linked account reconnects its Minecraft session and names the identity: '+reconnect.text);
  assert(!/Sign in with Microsoft/i.test(reconnect.text),'a signed-in, linked account is never told to sign in with Microsoft: '+reconnect.text);
  assert(!/sign in to minecraft|use your linked microsoft account/i.test(reconnect.text),'the first-time-connect sentence is gone too: '+reconnect.text);
@@ -311,7 +311,7 @@ try{
  await page.waitForFunction(()=>window.__fixture.calls.some(call=>call.name==='signIn'));
  assert.deepEqual(await page.evaluate(()=>window.__fixture.calls.filter(call=>call.name==='signIn').at(-1)),{name:'signIn',payload:{link:true}},'the unlinked action runs the Microsoft link sign-in');
  await page.keyboard.press('Escape');
- await page.evaluate(values=>sendState(values),{account:PASSWORD_ACCOUNT,profile:null,minecraftHead:null,microsoftConnected:false,canPlay:false,actions:['connect-microsoft'],minecraftSession:{state:'reauth',serverHeld:false,checkedAt:'2026-10-23T07:48:00Z'}});
+ await page.evaluate(values=>sendState(values),{account:PASSWORD_ACCOUNT,profile:null,minecraftHead:null,microsoftConnected:false,canPlay:false,actions:['connect-microsoft'],minecraftSession:{state:'reauth',serverHeld:false,checkedAt:'2026-10-22T07:48:00Z'}});
  await page.waitForFunction(()=>document.querySelector('[data-desktop-play]')?.dataset.action==='connect-microsoft');
  await page.locator('[data-desktop-play]').click();
  await page.waitForFunction(()=>window.__fixture.calls.filter(call=>call.name==='signIn').length>=2);
