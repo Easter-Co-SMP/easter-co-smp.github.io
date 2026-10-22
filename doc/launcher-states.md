@@ -2668,6 +2668,30 @@ written key that is absent makes it exit non-zero with the key named; that is th
 and it was checked in both directions (an invented key fails, and a key expected only
 from a mod fails if vanilla turns out to contain it).
 
+**The client itself confirms the setting (2026-10-22).** The paragraphs above measure
+names in artifacts. This one is the running client: the published `data/client.json` was
+installed by the launcher's own pipeline into a throwaway tree, the toggle was driven
+through `applyGraphics`, and the client was launched twice from that same tree with a
+synthetic session — the Realms authorisation fails on purpose and nothing else does.
+Iris, the shader loader the graphics chunk installs, reports the setting back in its own
+log:
+
+| Toggle | The client's own line | Fabric mods loaded |
+|---|---|---|
+| off | `Shaders are disabled because enableShaders is set to false in iris.properties` | 78 |
+| on | `Using shaderpack: ComplementaryUnbound_r5.9.3.zip` | 79, `grassiergrass 1.4.5` among them |
+
+Both launches also reloaded the three resource packs `configureVisuals` had written into
+`options.txt` (`file/fresh-animations.zip`, `file/fa-player-extension.zip`,
+`file/dramatic-skys.zip`), and the only errors either log carried were that synthetic
+session's Realms authorisation and a missing `libflite.so` from vanilla's own
+text-to-speech. No mixin or mod-load failure was recorded.
+
+The limit is what the title screen can show: this is Iris reading the file the launcher
+wrote and loading the pack it names. Shader compilation happens when a world is entered,
+entering one needs a real session, so **in-world compilation is not covered here**, and
+neither is any Windows or macOS run.
+
 ## Stable Microsoft device code (2026-10-19)
 
 Background download progress must never replace an unchanged Microsoft device-code
