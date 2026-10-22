@@ -446,8 +446,11 @@ confused with one another:
 
 The seven words, each of which the launcher only says when it knows it:
 
-- **`local`** — this process holds a Microsoft session of this account and can make a launch out
-  of it. Exactly today's case, unchanged.
+- **`local`** — this process holds a Microsoft session of this account **and can make a launch out
+  of it**: a refresh token of this account, or an access token that has not expired. Holding a
+  matching leg that can do neither is not `local` (2026-10-22, "A refresh token is spent by using
+  it"): the word then comes from the mint, so a session the service has lost is offered the
+  reconnect instead of being claimed.
 - **`server`** — the account service minted a Minecraft session for this account. No local leg is
   needed and none is asked for.
 - **`checking`** — the launcher has asked the account service and is waiting for the answer. It is
@@ -513,6 +516,59 @@ a day; after that every launch mints from the service. The refresh token is gone
 machine, which is the point of the feature: it is the account that authenticates a machine, not a
 Microsoft consent per machine. A password sign-in never has a Microsoft refresh token in the vault
 at all, so there is nothing to drop and nothing to carry.
+
+### A refresh token is spent by using it — the hand-over that never stored (2026-10-22)
+
+Owen's fourth report of the same thing: every launch said **Reconnect Microsoft / Starts Minecraft as
+OwenEaster** and he signed in to Microsoft again before Minecraft started. The account service's own
+audit line agreed with the screen — every mint for account 34 answered `outcome=absent`
+(`/aws/lambda/easter-accounts-api`, 2026-10-22 08:49:02, 09:58:18, 10:37:20, 21:37:32.410 and .424) —
+so the service held no stored Microsoft session, and `absent` is answered `401 reauth_required`,
+which is the prompt.
+
+**The cause was the launcher, and it is one Microsoft rule seen from the wrong side.** A Microsoft
+refresh token is single use: the grant that sends one invalidates it, and the replacement comes back
+only when that request asked for `offline_access`. Two grants in `desktop/auth.cjs` spent the
+launcher's only refresh token without asking for its successor, and kept the copy Microsoft had just
+destroyed:
+
+- `xboxSignIn` reissued the token for `XboxLive.signin`, without `offline_access`, whenever the
+  device-code answer could not prove its own audience — which spends the token and (that scope
+  asking for no refresh token) answers no replacement;
+- `graphAccessToken`, the optional Graph leg for the account's own email, runs on **every** Microsoft
+  sign-in and immediately before the hand-over. It asked for `https://graph.microsoft.com/User.Read`
+  alone and threw the answer's `refresh_token` away.
+
+So the token the sign-in request carried was already dead. The service sealed and stored it, the first
+mint met `invalid_grant`, the row was revoked and wiped, and every later mint answered `absent` →
+`401 reauth_required` → another prompt. Measured at code level against a Microsoft that behaves like
+Microsoft (`tests/desktop/microsoft-fixture.cjs`: single-use tokens, a replacement only with
+`offline_access`): the launcher hands over `fixture-refresh-…-1` while Microsoft holds `[]` — in both
+shapes Microsoft can answer, and in both it does so today.
+
+**The rule now, which is the whole fix:** no request may spend a refresh token without asking for its
+successor. `XBOX_REQUEST_SCOPE` and `GRAPH_REQUEST_SCOPE` add `offline_access` (which names no
+resource, so one-resource-per-request above still holds), and every answer's `refresh_token` replaces
+the one in hand: `graphAccessToken` answers `{accessToken, refreshToken}` and `enrolAccount` adopts the
+successor **before** it decides what to hand over, so the sign-in request and the vault carry the same
+live token. A grant that answers no successor leaves this machine holding nothing it may present, so
+the spent token is dropped rather than vaulted — a dead copy is never kept, handed over, or believed.
+
+**Two consequences in the state machine, both about a machine that cannot make a session:**
+
+- `minecraftSession.state` is `local` only when this machine can make a launch from what it holds — a
+  refresh token of this account, or an access token that has not expired. Holding a matching Microsoft
+  leg that can do neither is not `local` (the word's own sentence below); it reads the mint's own word,
+  so a session the service has lost offers **Reconnect Microsoft** exactly once rather than silently
+  claiming a session this machine cannot produce.
+- **The path a returning player takes.** First launch after this fix: one Microsoft sign-in, which
+  hands over a live refresh token and drops the launcher's own copy once the service proves it holds
+  one. Every later launch: no Microsoft prompt at all — the launcher asks the account service for a
+  session (`minecraftSession.state = server`) and the hero reads **PLAY NOW**. If the stored session is
+  ever genuinely gone the launch reads `reauth` and offers the reconnect once, and that one sign-in
+  replaces it. An account that signed in *before* this fix keeps its local session until the access
+  token it holds expires, then sees that same single reconnect: the launcher cannot hand over a token
+  it never held.
 
 ### `reauth_required`: one sentence, one fallback, never a loop
 
@@ -589,8 +645,20 @@ fixture API. `tests/browser.mjs` proves the hero's own rendering of the session 
 account, a linked one with no session here, one the service will not renew, one it mints, one it
 cannot answer yet (the retry, and never a Microsoft prompt), and the wait while it is asked.
 
+`tests/desktop/handover.test.cjs` proves the rule above against Microsoft's rotation semantics (the
+token kept, the token sent, and the Graph leg's successor), and `tests/desktop/handover.electron.mjs`
+proves it composed: the real main process against the real account service
+(`/root/easter-co-cloud/tests/launcher_api_fixture.py`) behind a proxy that records the request body —
+the sign-in request carries a non-empty `microsoftRefreshToken` **that Microsoft still honours**, the
+service then mints for that account, a second launch of the same install renders **PLAY NOW** with no
+reconnect prompt and no Microsoft dialog at all (`state = server`, `serverHeld = true`), and a stored
+session the service really has lost offers **Reconnect Microsoft** once, ends with one sign-in, and
+asks no second time. That journey is the one that fails on the pre-fix code: it hands over
+`fixture-refresh-…-1` while Microsoft holds `[]`.
+
 Not verified here, and not verifiable from this repository alone: the real routes on the live
-service, a real second machine, and a real launch of the real client on either platform.
+service, a real Microsoft sign-in, a real second machine, and a real launch of the real client on
+either platform.
 
 ## A cold account service, and what the hero says while it wakes (2026-10-19)
 

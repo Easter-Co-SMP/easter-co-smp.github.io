@@ -539,7 +539,14 @@ function launchProfile(){
 function minecraftSessionState(){
  if(!company)return null;
  if(!company.account.microsoftSubject)return 'unlinked';
- if(microsoftConnected()||localTokenLive())return 'local';
+ // `local` is a claim about this machine, and this document's own sentence for the word is
+ // "can make a launch out of it": a refresh token of this account, or an access token that
+ // has not expired. Holding a matching Microsoft leg that can do neither — an expired access
+ // token with no refresh token left, which is exactly what a machine keeps once the stored
+ // session is gone — is not `local`. Said there, the word would keep claiming a session this
+ // machine cannot make, and a dead session could never be offered the reconnect that is the
+ // only way back (measured: the revoke answered `reauth`, the hero still read `local`).
+ if(localRefreshable()||localTokenLive())return 'local';
  if(minecraft.state==='checking'||minecraft.state==='reauth'||minecraft.state==='busy')return minecraft.state;
  if(minecraft.state==='server'&&mintedFor===company.account.id)return 'server';
  // An answer this launcher could not read, or could not get at all, is published as `unknown`:
@@ -712,8 +719,19 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
   // The Microsoft Graph token is what lets the account service read the Microsoft
   // account's own email. It is optional: when it cannot be obtained the sign-in carries
   // on without it, and it is put in the first account request only.
+  //
+  // It also spends the refresh token it is given, so what it answers with is what this
+  // machine now holds — the successor, never the spent copy (desktop/auth.cjs,
+  // OFFLINE_ACCESS). A Graph leg that answered a token but no successor leaves this
+  // launcher holding nothing it may present, so the spent token is dropped here rather
+  // than vaulted and handed over as if it were live.
   update('company-signing-in');
-  const microsoftAccessToken=typeof auth.graphAccessToken==='function'?await auth.graphAccessToken(candidate.refreshToken,controller?.signal):null;
+  const graph=typeof auth.graphAccessToken==='function'?await auth.graphAccessToken(candidate.refreshToken,controller?.signal):null;
+  const microsoftAccessToken=typeof graph?.accessToken==='string'&&graph.accessToken?graph.accessToken:null;
+  if(graph){
+   const {refreshToken,...rest}=candidate;
+   candidate=graph.refreshToken?{...rest,refreshToken:graph.refreshToken}:rest;
+  }
   // The hand-over (doc/launcher-states.md, "The hand-over, exactly once"): this machine's
   // refresh token goes to the account service on this request and no other, so the account —
   // not this computer — is what proves Microsoft from now on.

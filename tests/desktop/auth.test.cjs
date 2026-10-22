@@ -278,7 +278,11 @@ test('a token for another audience is exchanged for XboxLive.signin before it is
  const session=await auth.exchange({access_token:forGraph,refresh_token:'refresh-secret'});
  assert.equal(calls[0].url,'https://login.microsoftonline.com/consumers/oauth2/v2.0/token');
  assert.equal(calls[0].options.body.get('grant_type'),'refresh_token');
- assert.equal(calls[0].options.body.get('scope'),'XboxLive.signin');
+ // The reissue SPENDS the refresh token it sends, so it asks for offline_access too: without
+ // it Microsoft answers a new access token and no replacement refresh token, and the copy the
+ // launcher keeps would be the one this exchange just invalidated (ticket 3027a681, measured
+ // against the account service's `outcome=absent`).
+ assert.equal(calls[0].options.body.get('scope'),'XboxLive.signin offline_access');
  assert.equal(calls[0].options.body.get('refresh_token'),'refresh-secret');
  assert.equal(calls[1].url,'https://user.auth.xboxlive.com/user/authenticate');
  assert.equal(JSON.parse(calls[1].options.body).Properties.RpsTicket,'d=xbox-scope-secret','the Xbox Live token is what signs in');
@@ -374,11 +378,17 @@ test('the Graph token is asked for on its own scope, is optional, and records on
  // owner ended up with an account that had no email address and no way to find out why.
  // The leg still never fails a sign-in; it now says what happened in one whitelisted line.
  const {auth,calls,file}=fixture([{data:{access_token:'graph-secret'}}]);
- assert.equal(await auth.graphAccessToken('refresh-secret'),'graph-secret');
- assert.equal(calls[0].options.body.get('scope'),'https://graph.microsoft.com/User.Read');
+ // It answers both tokens: this grant spends the refresh token it is given, so the answer's
+ // own `refresh_token` is the only live copy left (ticket 3027a681). A grant with no
+ // successor answers null for it — never the spent copy it was sent.
+ assert.deepEqual(await auth.graphAccessToken('refresh-secret'),{accessToken:'graph-secret',refreshToken:null});
+ assert.equal(calls[0].options.body.get('scope'),'https://graph.microsoft.com/User.Read offline_access');
  assert.equal(calls[0].options.body.get('refresh_token'),'refresh-secret');
  assert.match(read(file),/step=email outcome=ok http=200/);
  assert(!read(file).includes('graph-secret'),'the token is never written');
+ const rotated=fixture([{data:{access_token:'graph-secret',refresh_token:'graph-refresh-successor'}}]);
+ assert.deepEqual(await rotated.auth.graphAccessToken('refresh-secret'),{accessToken:'graph-secret',refreshToken:'graph-refresh-successor'},'the successor is what the caller keeps');
+ assert(!read(rotated.file).includes('graph-refresh-successor'),'and it is never written either');
  assert.equal(await new MicrosoftAuth({clientId:'test-app',request:async()=>assert.fail('no request without a refresh token')}).graphAccessToken(''),null);
  for(const [response,pattern] of [[{status:400,data:{error:'invalid_grant'}},/step=email outcome=failed http=400/],[{status:200,data:{}},/step=email outcome=failed/],[{status:500,data:{}},/step=email outcome=failed http=500/]]){
   const broken=fixture([response]);

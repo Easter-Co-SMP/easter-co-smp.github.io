@@ -27,6 +27,25 @@ const GRAPH_SCOPE='https://graph.microsoft.com/User.Read';
 // user.auth.xboxlive.com. It is asked for on its own when the token in hand cannot
 // prove it (see xboxSignIn).
 const XBOX_SCOPE='XboxLive.signin';
+// ---- A REFRESH TOKEN IS SPENT BY USING IT, SO EVERY GRANT ASKS FOR THE NEXT ONE --------
+// Microsoft's refresh tokens are single use: the token a grant sends is invalidated by that
+// grant, and the replacement comes back in the answer ONLY when the request asked for
+// offline_access. Both of the grants below once asked for a resource and nothing else, so
+// each one spent the only refresh token this launcher had and threw the successor away —
+// and the token it then kept, vaulted, and handed to the account service was the one
+// Microsoft had just destroyed. The account service sealed it, the first mint met
+// `invalid_grant`, the stored row was revoked and wiped, and every later mint for account 34
+// answered `absent` (CloudWatch /aws/lambda/easter-accounts-api, 2026-10-22 08:49-21:37:
+// five mints, all `outcome=absent`), which the service reports to the launcher as
+// `401 reauth_required` — Owen's "Reconnect Microsoft" on every launch, four days running.
+//
+// So the rule in this file is one sentence: NO REQUEST MAY SPEND A REFRESH TOKEN WITHOUT
+// ASKING FOR ITS SUCCESSOR. Both grants add offline_access, which is not a resource and
+// cannot make the request span two of them (the `400 invalid_scope` below is about two
+// resources, not about this), and every answer's `refresh_token` replaces the one in hand.
+const OFFLINE_ACCESS='offline_access';
+const XBOX_REQUEST_SCOPE=XBOX_SCOPE+' '+OFFLINE_ACCESS;
+const GRAPH_REQUEST_SCOPE=GRAPH_SCOPE+' '+OFFLINE_ACCESS;
 // Same public client configuration as /opt/minecraft/launch/mc-auth.py.
 // Microsoft displays Prism Launcher for this inherited registration.
 // Set EASTER_MICROSOFT_CLIENT_ID when Easter Company has its own approved registration.
@@ -286,13 +305,18 @@ class MicrosoftAuth{
  // for, so the token is checked by its own claims and — when that is not proof — reissued for
  // `XboxLive.signin` from the same refresh token first. One deterministic path, one log line;
  // the previous silent retry that swallowed its own failure and rethrew the original is gone.
+ // The reissue asks for XBOX_REQUEST_SCOPE, not XBOX_SCOPE: this grant SPENDS the refresh
+ // token it sends, and without offline_access Microsoft answers with a new access token and
+ // no replacement refresh token, so the copy kept here would be the one this exchange had
+ // just destroyed (see OFFLINE_ACCESS above). `refresh` therefore always advances to the
+ // token Microsoft returned.
  async xboxSignIn(msa,oldRefresh,signal){
   const held=typeof msa?.access_token==='string'?msa.access_token:'';
   let access=held,reissued=false;
   let refresh=typeof msa?.refresh_token==='string'&&msa.refresh_token?msa.refresh_token:(typeof oldRefresh==='string'?oldRefresh:null);
   if(!provenForXboxLive(held)&&refresh){
    let scoped;
-   try{scoped=await this.form('/token',{grant_type:'refresh_token',client_id:this.clientId,refresh_token:refresh,scope:XBOX_SCOPE},signal,'xbox-live');}
+   try{scoped=await this.form('/token',{grant_type:'refresh_token',client_id:this.clientId,refresh_token:refresh,scope:XBOX_REQUEST_SCOPE},signal,'xbox-live');}
    catch(error){
     if(error.name==='AbortError'||signal?.aborted||error.code==='network')throw error;
     // The step's own line has been written by the leg above; the sentence says what the
@@ -351,14 +375,25 @@ class MicrosoftAuth{
  // A transient Microsoft Graph token for the account service. The server treats it as
  // optional, so every failure here answers null and the player still signs in. It is not a
  // sign-in step, so it writes no line and names no step.
+ //
+ // It answers with BOTH tokens, because the refresh token it is given is spent by this very
+ // request: the answer's `refresh_token` is the only live copy left, and the caller needs it
+ // to keep (and to hand over) the one Microsoft will still accept. This leg used to answer
+ // the access token alone — which is how the sign-in request that followed carried a refresh
+ // token Microsoft had destroyed a moment earlier (see OFFLINE_ACCESS above), and how the
+ // account service came to store a session that could never mint.
  async graphAccessToken(refreshToken,signal){
   if(typeof refreshToken!=='string'||!refreshToken){this.record('email','failed',{code:'no-refresh'});return null;}
   try{
-   const data=await this.form('/token',{grant_type:'refresh_token',client_id:this.clientId,refresh_token:refreshToken,scope:GRAPH_SCOPE},signal,undefined,{log:false});
+   const data=await this.form('/token',{grant_type:'refresh_token',client_id:this.clientId,refresh_token:refreshToken,scope:GRAPH_REQUEST_SCOPE},signal,undefined,{log:false});
    const token=typeof data?.access_token==='string'&&data.access_token.length<=8192?data.access_token:'';
    if(!token){this.record('email','failed',{code:'no-token'});return null;}
    this.record('email','ok',{status:200});
-   return token;
+   // `refreshToken` is null only when Microsoft answered a spent-credential grant with no
+   // successor, which must never be replaced by the one just spent: an absent successor is
+   // "this machine no longer holds a usable token", not "keep the dead one".
+   const rotated=typeof data?.refresh_token==='string'&&data.refresh_token?data.refresh_token:null;
+   return {accessToken:token,refreshToken:rotated};
   }catch(error){
    if(error.name==='AbortError')return null;
    // Optional leg: it never fails the sign-in. It used to fail SILENTLY, which is how an
