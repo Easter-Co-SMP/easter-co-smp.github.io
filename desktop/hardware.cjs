@@ -485,7 +485,10 @@ async function applyQualitySettings(root,quality,{marker='.easter-client'}={}){
  const irisFile=path.join(base,'config','iris.properties');
  // Minecraft 26.2 split the old graphicsMode into concrete options. Naming a
  // preset in the file does not apply its values (that happens only in the UI).
- // Write the actual supported fields, verified against 26.2 GraphicsPreset.apply.
+ // Every name written here was measured against the shipped 26.2 client jar on
+ // 2026-10-22 with tests/live/option-keys.mjs: each occurs in
+ // net/minecraft/client/Options.class, and graphicsMode occurs only in the two
+ // datafixers that migrated it. doc/launcher-states.md, "Client visual content".
  const fancy=quality.graphicsMode!=='fast';
  const previous=(await readText(optionsFile)??'').replace(/^graphicsMode[:=].*(?:\r?\n|$)/gm,'');
  const options=mergeProperties(previous,{graphicsPreset:JSON.stringify('custom'),renderDistance:String(quality.renderDistance),ao:String(fancy),cutoutLeaves:String(fancy),entityShadows:String(fancy),improvedTransparency:'false',mipmapLevels:fancy?'4':'2',particles:fancy?'0':'1'});

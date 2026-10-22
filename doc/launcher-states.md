@@ -1495,6 +1495,12 @@ The 22 debug actions are pinned by name, because that is the set this client wri
 action with no key, so those 22 rows are unbinds and not invented bindings. An action the
 client stops writing is a name to remove from that list rather than a key left half-bound.
 
+Every action name in that table was measured against the shipped Minecraft 26.2 client
+jar on 2026-10-22 (`tests/live/option-keys.mjs`): the 31 vanilla actions — these 22 and
+the nine named ones — each occur in `net/minecraft/client/Options.class` and in the
+client's own `en_us` language file, and Shippy's action is absent from the vanilla jar
+because the mod provides it. *Client visual content* holds the measurement and its limits.
+
 The sprint/crouch pair is swapped on purpose, exactly as Owen asked, and that is the
 point of the change rather than an accident or a player's rebind: sprint on Left Shift
 and crouch on Left Ctrl is how the household and most other games are laid out, so
@@ -2549,12 +2555,73 @@ server or household installation participates in this process. There are no new
 player-facing controls or separate website graphics settings; the website continues
 to distribute the launcher and its public client manifest.
 
-Automatic vanilla quality writes Minecraft 26.2's actual split fields (ambient
+Automatic vanilla quality writes Minecraft 26.2's own split fields (ambient
 occlusion, cutout leaves, entity shadows, transparency, mipmaps and particles),
 with `graphicsPreset:"custom"` because distances follow the hardware ladder. The
 obsolete `graphicsMode` line is removed. On a detected weak GPU the first install
 also applies the conservative vanilla settings with shaders off; subsequent off
 transitions keep the player's distances and personal settings.
+
+**Those names were measured against the shipped jars on 2026-10-22, not asserted.**
+Until this measurement the write path was asserted and the source comment claimed it
+had been "verified against 26.2 GraphicsPreset.apply" with no artefact behind the
+claim. `node tests/live/option-keys.mjs` is the artefact. It is a live check — network
+only, `npm test` does not run it — and it drives the launcher's own writers
+(`applyQualitySettings`, `applyDisplayDefaults`) into a throwaway tree, reads back the
+`options.txt` and `config/iris.properties` they produced, and searches the real jars
+for every key read back, so the list measured is the list written and cannot drift
+from it.
+
+The two artefacts, which the script downloads into `/tmp/easter-keys-cache` (outside
+the repository) and reuses when the recorded hash matches:
+
+| Artefact | Where it came from | Identity | Size |
+|---|---|---|---|
+| Minecraft 26.2 client jar | `piston-meta` `version_manifest_v2.json` → the `26.2` version json → `downloads.client.url` | `sha1 2dc72797acbc1b63fc16a11c4ac393605f453754` (the version json's own hash) | 39 193 383 bytes |
+| Iris jar | the live published `https://easter-co-smp.github.io/data/client.json`, chunk `graphics`, file `mods/iris-fabric-1.11.4+mc26.2.jar` | `sha512 dee9555809…32a` (the manifest's own hash) | 2 821 616 bytes |
+
+The scan is a **whole-token** match, never a substring, because a short name like `ao`
+occurs inside thousands of unrelated words: every jar entry is decompressed (stored
+entries copied, deflated entries inflated), `.class` entries are parsed for their JVM
+constant-pool UTF-8 strings and compared for exact equality — that pool is the only
+place a class file can hold a name as a string — and text entries (`.json`,
+`.properties`, `.lang`, …) are tokenised into their own quoted strings and `key=`/
+`key:` leads and compared for exact equality. Nothing was unreadable: 31 709 entries
+(10 952 class files, 14 346 text entries) in the client jar and 1 154 entries (970
+class files, 41 text entries) in the Iris jar.
+
+What it found, on those hashes:
+
+| Written where | Keys measured | Result |
+|---|---|---|
+| `options.txt` | `graphicsPreset`, `renderDistance`, `ao`, `cutoutLeaves`, `entityShadows`, `improvedTransparency`, `mipmapLevels`, `particles` (from `applyQualitySettings`), `guiScale`, `fullscreen` (from `applyDisplayDefaults`), and `resourcePacks` (from `configureVisuals`) — 11 names | **11/11 present.** All 11 occur in `net/minecraft/client/Options.class`, which is also the only entry carrying the token `options.txt`, so the class holding the names is the class that owns the file. Occurrences run from 2 (`ao`) to 28 (`particles`) |
+| `options.txt` key bindings | the 31 action names behind the `key_key.` prefixes: 9 named actions (`key.sneak`, `key.sprint`, `key.inventory`, `key.playerlist`, `key.togglePerspective`, `key.chat`, `key.toggleGui`, `key.socialInteractions`, `key.smoothCamera`) and the 22 `key.debug.*` actions | **31/31 present**, each exactly twice: `net/minecraft/client/Options.class` and `assets/minecraft/lang/en_us.json`, 31/31 in each. The debug names are the action names, so `key_key.debug.overlay` is what the client's own `key.debug.overlay` action persists as |
+| `config/iris.properties` | `enableShaders`, `shaderPack`, `shadowDistance`, `maxShadowRenderDistance` | **4/4 present in the Iris jar.** All four occur in `net/irisshaders/iris/config/IrisConfig.class`; `shadowDistance` also in `net/irisshaders/iris/compat/sodium/config/IrisConfig.class`. The file's own name occurs once, in `net/irisshaders/iris/Iris.class` |
+| probe, no pass/fail | `graphicsMode` | **Present, but only as a legacy key:** 2 occurrences, in two datafixer classes and **not** in `Options.class` |
+| probe, no pass/fail | `custom` (the `graphicsPreset` value) | Present, 15 occurrences including `net/minecraft/client/GraphicsPreset.class` |
+| expectation | `key.shippy-ships.isPressingCtrl` | **Absent from the vanilla jar, 0 occurrences** — expected, because the action is the mod's own and a mod-provided binding only exists once the mod has registered it. The script therefore does not fail on it; it fails on a *vanilla* key it cannot find |
+
+The two `graphicsMode` occurrences are
+`net/minecraft/util/datafix/fixes/OptionsFancyGraphicsToGraphicsModeFix.class` and
+`net/minecraft/util/datafix/fixes/OptionsGraphicsModeSplitFix.class`: the datafixers
+are the split this write path relies on, which is why stripping the line is right and
+why writing a `graphicsMode` value would be a legacy statement in options.txt.
+
+So no key written by `desktop/hardware.cjs` or `desktop/visuals.cjs` was measurably
+wrong on 2026-10-22, and nothing in the write path was changed to fix a key.
+
+**The limits of this measurement, stated plainly.** It measures *names in artifacts*:
+that the exact option name exists in the jar that owns the file it is written into. It
+does not run a client, so it does not measure that a running game applies these values,
+and it does not measure the values themselves beyond the `custom` preset name existing
+in the jar. It says nothing about the mods' own registrations: the Shippy action is
+measured absent from vanilla and was not measured against the Shippy jar, and nothing
+here covers Sodium's reading of `iris.properties`. It is also pinned to the two hashes
+above — a different client or Iris build is a new measurement, which is why the script
+prints the hashes it used and re-measures rather than trusting this paragraph. A
+written key that is absent makes it exit non-zero with the key named; that is the gate,
+and it was checked in both directions (an invented key fails, and a key expected only
+from a mod fails if vanilla turns out to contain it).
 
 ## Stable Microsoft device code (2026-10-19)
 
