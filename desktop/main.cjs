@@ -455,6 +455,14 @@ async function forgetCompany(){
  if(token)await accounts.logout(token);
  await vault.remove(companyFile());
 }
+// A session the account service has refused, forgotten in one place for every caller: this
+// file's own copy of the account, the Minecraft session that belonged to it, and the state word
+// with them. Not a logout call — a token the service has refused cannot be logged out — and no
+// cancelMints: the caller may be the mint that just met the refusal.
+async function forgetRefusedCompany(){
+ company=null;mintedSession=null;mintedFor=null;minecraft={state:'unknown',serverHeld:false,checkedAt:null};
+ await vault.remove(companyFile());notify({});
+}
 async function accountOperation(action){
  if(accountWorking||controller||game||(working&&!control))throw Error('Wait for the current operation to finish.');
  accountWorking=true;notify({});
@@ -534,6 +542,12 @@ function minecraftSessionState(){
  if(microsoftConnected()||localTokenLive())return 'local';
  if(minecraft.state==='checking'||minecraft.state==='reauth'||minecraft.state==='busy')return minecraft.state;
  if(minecraft.state==='server'&&mintedFor===company.account.id)return 'server';
+ // An answer this launcher could not read, or could not get at all, is published as `unknown`:
+ // it is not evidence about the player's Microsoft session, and collapsing it into `required` is
+ // what put a Microsoft prompt on Owen's screen for a session nobody had asked about. `required`
+ // is kept for the one case it means — a linked account, nothing asked yet and nothing recorded
+ // — and `minecraft.checkedAt` is what tells the two apart, because every answer sets it.
+ if(minecraft.state==='unknown')return minecraft.checkedAt?'unknown':'required';
  return 'required';
 }
 function minecraftStateField(){
@@ -616,11 +630,15 @@ async function mintMinecraftSession({announce=false}={}){
   //    answered with the interactive flow, and the stored session stops being something this
   //    launcher claims.
   //  * a dead Easter Company session is the ACCOUNT's news: the player signs in to their account
-  //    again, never to Microsoft for it.
+  //    again, never to Microsoft for it. The refused session is forgotten here, in the one
+  //    function that already forgets a refused account session, so the state carries no account
+  //    and the hero offers the account's own sign-in (kind `signin`, LOGIN_ACTION/LOGIN_NOTE)
+  //    instead of a Microsoft prompt — and the chooser it opens has nothing left to refuse.
   //  * a rate limit or a service that cannot answer says nothing about the player's session: Play
   //    stays off for that press, the sentence names the service, and no prompt is opened. This is
   //    the POST-BUDGET verdict: only when the retries above are spent is "busy" true.
-  //  * no such route, no answer, or a body this launcher cannot read is no answer at all.
+  //  * no such route, no answer, or a body this launcher cannot read is no answer at all: the
+  //    state word is `unknown`, which the hero answers with the wait and then a retry.
   if(code==='reauth_required'){
    mintedSession=null;
    minecraft={state:'reauth',serverHeld:false,checkedAt:new Date().toISOString()};
@@ -628,8 +646,7 @@ async function mintMinecraftSession({announce=false}={}){
    return {outcome:'reauth',error};
   }
   if(code==='invalid_session'){
-   minecraft={state:'unknown',serverHeld:Boolean(minecraft.serverHeld),checkedAt:new Date().toISOString()};
-   notify({});
+   await forgetRefusedCompany();
    return {outcome:'account',error};
   }
   if(code==='rate_limited'||code==='identity_provider_unavailable'||code==='session_key_unconfigured'||code==='microsoft_not_configured'||code==='database_unavailable'||error?.status===429||Number(error?.status)>=500){
@@ -637,9 +654,22 @@ async function mintMinecraftSession({announce=false}={}){
    notify({});
    return {outcome:'busy',error};
   }
+  // The service has no mint route at all: a launcher ahead of the cloud. Nothing was said about
+  // this account's session, so nothing is recorded about it (`checkedAt` stays null) and the
+  // state word stays the unasked one — which is `required`, and the interactive Microsoft
+  // sign-in remains the only way to play. It is not `unknown`: a retry would ask a route that
+  // does not exist, and the player would never be offered the press that works.
+  if(code==='route_absent'){
+   minecraft={state:'unknown',serverHeld:Boolean(minecraft.serverHeld),checkedAt:null};
+   notify({});
+   return {outcome:'absent',error};
+  }
+  // No answer, or a body this launcher cannot read. Nothing here is evidence about the player's
+  // Microsoft session, so it is published as `unknown` with the moment it was tried, and the
+  // hero answers it with the wait and then a retry — never a Microsoft prompt.
   minecraft={state:'unknown',serverHeld:Boolean(minecraft.serverHeld),checkedAt:new Date().toISOString()};
   notify({});
-  return {outcome:code==='route_absent'?'absent':'unknown',error};
+  return {outcome:'unknown',error};
  }finally{
   mintRequests.delete(abort);
  }
@@ -710,7 +740,10 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
    const proved=await mintMinecraftSession();
    if(proved?.outcome==='server')await dropSurrenderedRefreshToken();
   }
-  if(announce)notify({message:signed.created?'Easter Company account created. Set a password to finish.':'Signed in to your Easter Company account.'});
+  // The account is announced only while this launcher still holds it: a mint inside that proof can
+  // answer invalid_session and forget the session it was asked about (sessionLost), and a notice
+  // claiming a sign-in the launcher has just dropped would be the one false sentence on screen.
+  if(announce&&company)notify({message:signed.created?'Easter Company account created. Set a password to finish.':'Signed in to your Easter Company account.'});
   // An interactive sign-in is the first moment the launcher can ask the game server
   // anything at all (the status read is authenticated with this session). It is a read
   // and never a wake: pressing Play is the only thing that starts a server.
@@ -1323,9 +1356,15 @@ function foldUsername(value){
  // back from the account service rather than by being cached in the vault.
  // A session the service has refused is forgotten here, without a logout call it could
  // not honour anyway, and the renderer is told as it is on the next broadcast.
+ //
+ // Everything this launcher knew about that account's Minecraft session goes with it: a minted
+ // session whose account has just been refused is not this launcher's to offer the next player,
+ // and the state word returns to the unasked one so nothing is claimed about a session nobody
+ // has. The hero then has no account to ask Microsoft about, which is the whole point: a dead
+ // Easter Company session is answered with the account's own sign-in.
  async function sessionLost(error){
   if(error?.code!=='invalid_session'||!company)return;
-  company=null;await vault.remove(companyFile());notify({});
+  await forgetRefusedCompany();
  }
  async function verifiedEmails(){
   if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
@@ -1644,6 +1683,18 @@ if(instance){
   // Before the first broadcast, so the dialog's own render already knows whether the two
   // entries exist and the window never shows a shortcut state it has to correct.
   await refreshShortcuts();
+  // One mint at startup when this machine's saved Microsoft session cannot launch on its own:
+  // an account whose session lives on the service is ready to play without a prompt, and the
+  // hero can only say that after asking. Never asked when nothing is saved, and never a
+  // failure the player sees when the service has no such route.
+  //
+  // Asked BEFORE the first broadcast, because the ask is what decides the hero's first word: a
+  // linked account whose session has not been asked about yet publishes `unknown`, and a first
+  // frame painted before this call would be the one frame that shows a session word with nothing
+  // behind it (Owen restarted 1.0.39 at 08:01:53Z against a paused Aurora and read the Microsoft
+  // demand before anything had been asked — ticket 24c8c6dc). This call sets `checking` before
+  // it awaits, so the first state the player's window ever receives says the launcher is asking.
+  if(company&&company.account.microsoftSubject&&!localRefreshable()&&!localTokenLive())void probeMinecraftSession();
   notify({message:client.installed?'Client ready.':'Download the game to get started.'});
   if(app.isPackaged)void startupUpdates();
   else void updateOnLaunch()?.catch(()=>{});
@@ -1651,11 +1702,6 @@ if(instance){
   // auto-start waits for them rather than racing them.
   if(wantsAutoStart(process.argv))void autoStart();
   if(company)void renewCompany();
-  // One mint at startup when this machine's saved Microsoft session cannot launch on its own:
-  // an account whose session lives on the service is ready to play without a prompt, and the
-  // hero can only say that after asking. Never asked when nothing is saved, and never a
-  // failure the player sees when the service has no such route.
-  if(company&&company.account.microsoftSubject&&!localRefreshable()&&!localTokenLive())void probeMinecraftSession();
   // One silent status read, so the hero can say honestly that the server is offline
   // before anyone presses Play. Never a wake, and a failure leaves 'unknown' alone.
   if(company)void refreshGameStatus();

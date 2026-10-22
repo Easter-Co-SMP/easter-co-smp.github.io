@@ -17,6 +17,12 @@
 //      answer that would have arrived afterwards paints nothing on the launcher that is left.
 //   D. a silent server-status read answers after the player has signed out: it is discarded,
 //      because it was proved with a session that is no longer anybody's.
+//   E. the mint answers 401 invalid_session: the Easter Company session is dead, so the hero asks
+//      for the ACCOUNT and never for Microsoft, and signing back in recovers the session.
+//   F. the mint answers 200 with a body this launcher cannot read: the hero offers the same
+//      question again ("Try again"), never a Microsoft sign-in, and its retry asks the service.
+//   G. the mint is never answered at all — Owen's own 08:01:53Z shape, twice: the hero says it is
+//      asking for the whole budget and then offers the retry, and neither screen is a demand.
 //
 // The account service is a real loopback HTTP stub; the Microsoft legs and the game process are
 // the harness's fixtures. Nothing here reaches the live API.
@@ -61,8 +67,15 @@ const stub=http.createServer((request,response)=>{
    // A refusal: an answer, not a failure.
    if(answer==='rate-limited')return json(429,{error:'rate_limited'},{'Retry-After':'600'});
    if(answer==='reauth')return json(401,{error:'reauth_required'});
+   // The Easter Company session itself is dead: the account's own news, never Microsoft's.
+   if(answer==='invalid-session')return json(401,{error:'invalid_session'});
    // The service says its own key is missing: a configuration fault that cannot resolve itself.
    if(answer==='not-configured')return json(503,{error:'session_key_unconfigured'});
+   // A 200 whose body is not the frozen shape: a proxy in the way, a page where JSON should be.
+   if(answer==='unreadable')return json(200,{ok:true});
+   // The shape Owen actually hit twice on 2026-10-23: the request is accepted and nothing ever
+   // answers it, so there is no status, no body and no sentence to read.
+   if(answer==='hang')return;
    return json(200,mintedBody());
   }
   if(route==='POST /v2/game/session/revoke')return json(200,{revoked:true});
@@ -235,7 +248,92 @@ try{
  assert.notEqual(landed.game.state,'running','and the previous account\'s server is not painted on the launcher');
  assert(!(await d.page.locator('body').innerText()).includes('Server Online'),'the hero says nothing it cannot prove');
  await d.close();
- console.log('COLD START PASS: a dropped connection, a gateway timeout and a declared database_unavailable recover behind "Checking your Minecraft session…" in one press; a 429 and a declared configuration fault give the existing "Try again" sentence with one request each and recover on the hero\'s own Try again; signing out ends an open mint and discards the answer that lands afterwards; and a status read that answers after the player has signed out is discarded rather than painted.');
+ // ---- E: a dead Easter Company session is the account's own sign-in -------------------
+ // The mint answered 401 invalid_session, which is the Easter Company session expiring and not
+ // the player's Microsoft session dying. Before ticket 24c8c6dc every state word that was not
+ // checking/reauth/busy/server collapsed into `required`, and `required` is the Microsoft
+ // prompt — so a dead account session asked the player to sign in with Microsoft, which cannot
+ // fix it. The hero now asks for the account, and the chooser behind it has nothing to refuse.
+ process.stdout.write('[journey] scenario  E: a dead Easter Company session asks for the account\n');
+ service.mintQueue=[];service.mint='invalid-session';service.mintDelay=0;
+ const e=await launch();
+ await e.passwordSignIn();
+ await e.hero('signin').waitFor();
+ const deadAccount=await e.status();
+ const deadText=await e.heroText();
+ assert.equal(deadAccount.account,null,'a refused Easter Company session is forgotten, not kept as if it were live');
+ assert.equal(deadAccount.minecraftSession,null,'and it leaves no Minecraft session claim behind');
+ assert.equal(deadAccount.canPlay,false,'Play stays off for an account session that has died');
+ assert.equal(deadText.includes('Sign in'),true,'the hero asks for the Easter Company account: '+deadText);
+ assert.equal(/Microsoft/i.test(deadText),false,'and never for a Microsoft sign-in: '+deadText);
+ await e.page.screenshot({path:'/tmp/cold-start-dead-account.png',animations:'disabled'});
+ // The way back in is the account's own sign-in, and it works: the chooser opens with no account
+ // left to refuse it, and the same press reaches Play once the service answers again.
+ service.mint='ok';
+ await e.passwordSignIn();
+ await e.hero('play').waitFor();
+ assert.equal((await e.status()).canPlay,true,'signing back in to the account recovers the session');
+ await e.close();
+
+ // ---- F: an answer nobody could read is a retry, not a sign-in -------------------------
+ // A 200 whose body is not the frozen shape: the launcher has no answer about the session, so it
+ // has nothing to say about Microsoft either. The retry is a real request, and its answer is what
+ // makes Play available.
+ process.stdout.write('[journey] scenario  F: an unreadable answer offers a retry\n');
+ service.mintQueue=[];service.mint='unreadable';service.mintDelay=0;
+ const f=await launch();
+ await f.passwordSignIn();
+ await f.hero('retry-minecraft').waitFor();
+ const unreadable=await f.status();
+ const unreadableText=await f.heroText();
+ assert.equal(unreadable.minecraftSession.state,'unknown','an answer this launcher cannot read is its own state word');
+ assert.equal(typeof unreadable.minecraftSession.checkedAt,'string','and it records the moment it was tried');
+ assert.equal(unreadableText.includes('Try again'),true,'the hero offers the same question again: '+unreadableText);
+ assert.equal(unreadableText.includes('could not be checked'),true,'and says what it could not do: '+unreadableText);
+ assert.equal(/Microsoft/i.test(unreadableText),false,'never a Microsoft sign-in: '+unreadableText);
+ assert.equal(unreadable.canPlay,false,'Play stays off for this press');
+ await f.page.screenshot({path:'/tmp/cold-start-unreadable.png',animations:'disabled'});
+ service.mint='ok';
+ const beforeUnreadableRetry=mintCalls().length;
+ await f.hero('retry-minecraft').click();
+ await f.hero('play').waitFor();
+ assert.equal(mintCalls().length,beforeUnreadableRetry+1,'the hero retry asks the account service again rather than sitting there');
+ assert.equal((await f.status()).canPlay,true,'and the answer it gets offers Play');
+ await f.close();
+
+ // ---- G: a mint that is never answered at all -----------------------------------------
+ // Owen's own shape, twice on 2026-10-23: Aurora was resuming, both startup calls sat on the
+ // account store, and API Gateway recorded no 4xx at all. There was no refusal to read — and the
+ // launcher painted the Microsoft demand anyway. Now the whole budget is spent on the checking
+ // sentence, and what follows it is the hero's own retry, which asks again.
+ process.stdout.write('[journey] scenario  G: a service that never answers is a retry\n');
+ service.mintQueue=[];service.mint='hang';service.mintDelay=0;
+ const g=await launch();
+ await g.passwordSignIn();
+ await g.page.waitForFunction(async()=>Boolean((await window.easterDesktop.status()).account),undefined,{timeout:30000});
+ const asking=await g.status();
+ const askingText=await g.heroText();
+ assert.equal(asking.minecraftSession?.state,'checking','a mint with no answer leaves the hero saying it is asking');
+ assert.equal(/Microsoft/i.test(askingText),false,'nothing is demanded while the service has said nothing at all: '+askingText);
+ await g.page.screenshot({path:'/tmp/cold-start-no-answer-waiting.png',animations:'disabled'});
+ // The client spends its whole mint budget (six bounded attempts inside MINT_RETRY_BUDGET_MS)
+ // before it will call this no answer at all.
+ await g.hero('retry-minecraft').waitFor({timeout:240000});
+ const exhausted=await g.status();
+ const exhaustedText=await g.heroText();
+ assert.equal(exhausted.minecraftSession.state,'unknown','an unanswered mint is never a verdict about the player session');
+ assert.equal(exhaustedText.includes('Try again'),true,'the hero offers the same question again: '+exhaustedText);
+ assert.equal(/Microsoft/i.test(exhaustedText),false,'and never a Microsoft sign-in: '+exhaustedText);
+ assert.equal(exhausted.canPlay,false,'Play stays off while nothing is known');
+ await g.page.screenshot({path:'/tmp/cold-start-no-answer-verdict.png',animations:'disabled'});
+ service.mint='ok';
+ const beforeNoAnswerRecovery=mintCalls().length;
+ await g.hero('retry-minecraft').click();
+ await g.hero('play').waitFor({timeout:60000});
+ assert.equal(mintCalls().length,beforeNoAnswerRecovery+1,'the retry asks again, and that answer is what makes Play available');
+ assert.equal((await g.status()).canPlay,true,'the launcher recovers without restarting the sign-in');
+ await g.close();
+ console.log('COLD START PASS: a dropped connection, a gateway timeout and a declared database_unavailable recover behind "Checking your Minecraft session…" in one press; a 429 and a declared configuration fault give the existing "Try again" sentence with one request each and recover on the hero\'s own Try again; signing out ends an open mint and discards the answer that lands afterwards; a status read that answers after the player has signed out is discarded rather than painted; a 401 invalid_session asks for the Easter Company account, never for Microsoft; a mint with no readable answer and a mint that is never answered at all both offer "Try again" (which asks the service again) and never a Microsoft sign-in.');
 }finally{
  await new Promise(resolve=>stub.close(resolve));
  for(const home of homes)await fs.rm(home,{recursive:true,force:true});

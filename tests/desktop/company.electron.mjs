@@ -109,7 +109,7 @@ try{
  await page.keyboard.press('Escape');await profileDialog.waitFor({state:'hidden'});
  await hero('connect-microsoft').waitFor();
  const withoutSession=await hero('connect-microsoft').innerText();
- assert(withoutSession.replace(/\s+/g,' ').includes('Sign in with Microsoft Starts Minecraft as'),'a linked account with no stored session asks for the same sign-in main always asked for: '+withoutSession);
+ assert(withoutSession.replace(/\s+/g,' ').startsWith('Reconnect Microsoft Starts Minecraft as'),'a linked account with no stored session is told to reconnect the Minecraft session, with the identity it starts named: '+withoutSession);
  assert.equal((await status()).canPlay,false,'and Play stays off until it is signed in again');
  await app.evaluate(()=>global.companyUser='2');await hero('connect-microsoft').click();await approve();await page.locator('.desktop-page-notice').waitFor();assert.equal((await status()).account.username,username);assert.equal((await status()).microsoftConnected,false,'wrong Microsoft account cannot replace Company identity');
  await page.getByRole('button',{name:'Dismiss message'}).click();await app.evaluate(()=>global.companyUser='1');await hero('connect-microsoft').click();await approve();await hero('play').waitFor();assert.equal((await status()).account.username,username);

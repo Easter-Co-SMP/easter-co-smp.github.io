@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
+import fs from 'node:fs/promises';
 import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
 const origin=process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18100';
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
@@ -659,10 +660,11 @@ try{
    assert((await hero()).text.includes('Link Microsoft'),'an account with no Microsoft link says so: '+(await hero()).text);
    await pushState({actions:['connect-microsoft'],canPlay:false,account:linkedAccount,companyReady:true,microsoftConnected:false,minecraftSession:{state:'required',serverHeld:false,checkedAt:null}});
    heroAction({name:'a linked account with no session here',...await hero(),expect:'connect-microsoft'});
-   assert((await hero()).text.includes('OwenTheCaptain'),'and a linked one names the Minecraft identity it would start: '+(await hero()).text);
+   assert.equal((await hero()).text,'Reconnect Microsoft Starts Minecraft as OwenTheCaptain','a signed-in linked account reconnects its Minecraft session and names the identity it starts: '+(await hero()).text);
+   assert(!/Sign in with Microsoft/i.test((await hero()).text),'and is never asked to sign in with Microsoft: '+(await hero()).text);
    await pushState({actions:['connect-microsoft'],canPlay:false,minecraftSession:{state:'reauth',serverHeld:false,checkedAt:'2026-10-19T00:00:00Z'}});
    heroAction({name:'a stored session the service will not renew',...await hero(),expect:'connect-microsoft'});
-   assert((await hero()).text.includes('Starts Minecraft as OwenTheCaptain'),'a stored session that cannot be renewed asks for the same sign-in, in main\'s own sentence and without claiming to know why it is gone: '+(await hero()).text);
+   assert.equal((await hero()).text,'Reconnect Microsoft Starts Minecraft as OwenTheCaptain','a stored session that cannot be renewed asks for the same reconnect, in main\'s own sentence and without claiming to know why it is gone: '+(await hero()).text);
    await pushState({actions:[],canPlay:true,profile:{name:'OwenTheCaptain',id:'1234567890abcdef1234567890abcdef',skin:null},companyReady:true,microsoftConnected:false,minecraftSession:{state:'server',serverHeld:true,checkedAt:'2026-10-19T00:00:00Z'}});
    heroAction({name:'a session the account service mints',...await hero(),expect:'play'});
    assert(!/Microsoft|link/i.test((await hero()).text),'and never asks for Microsoft while it has one: '+(await hero()).text);
@@ -673,10 +675,71 @@ try{
    const beforeRetry=(await callsNamed('refreshMinecraftSession')).length;
    await heroButton.click();
    await launcherPage.waitForFunction(count=>window.easterRenderer.calls.filter(call=>call.name==='refreshMinecraftSession').length>count,beforeRetry);
+   // An answer nobody could read is the same offer and a different sentence, and never Microsoft.
+   await pushState({actions:['connect-microsoft'],canPlay:false,companyReady:true,microsoftConnected:false,minecraftSession:{state:'unknown',serverHeld:false,checkedAt:'2026-10-23T07:48:00Z'}});
+   heroAction({name:'an answer this launcher could not read',...await hero(),expect:'retry-minecraft'});
+   assert.deepEqual(await hero(),{text:'Try again Your Minecraft session could not be checked',action:'retry-minecraft'},'an unreadable answer offers the same question again and says nothing about Microsoft: '+(await hero()).text);
+   // The state a linked account has before anything has been asked is a wait, not a demand.
+   await pushState({minecraftSession:{state:'unknown',serverHeld:false,checkedAt:null}});
+   heroAction({name:'nothing asked yet',...await hero(),expect:'busy'});
+   assert((await hero()).text.startsWith('Checking your Minecraft session'),'an unasked session is a wait, not a Microsoft prompt: '+(await hero()).text);
+   // A dead Easter Company session is the ACCOUNT's news, and the state main publishes for it is
+   // the signed-out one: no account, companyReady false, and no session word at all. The hero
+   // asks for the account, and the chooser it opens is the account's own.
+   await pushState({actions:['signin'],canPlay:false,account:null,companyReady:false,microsoftConnected:false,minecraftSession:null,phase:'ready'});
+   heroAction({name:'a dead Easter Company session',...await hero(),expect:'signin'});
+   assert.equal((await hero()).text,'Sign in Easter Company account required','a dead Easter Company session asks for the account, not for Microsoft: '+(await hero()).text);
    // Waiting for the service is its own state, not a failure and not a sign-in.
-   await pushState({minecraftSession:{state:'checking',serverHeld:false,checkedAt:null}});
+   await pushState({actions:['connect-microsoft'],account:linkedAccount,companyReady:true,microsoftConnected:false,minecraftSession:{state:'checking',serverHeld:false,checkedAt:null}});
    heroAction({name:'while the service is asked',...await hero(),expect:'busy'});
    assert((await hero()).text.includes('Checking your Minecraft session'),'the wait says what it is waiting for: '+(await hero()).text);
+   // ---- Every action kind has its own glyph, and none of them is a pause --------------
+   // Owen's 1.0.39 screen read "Sign in with Microsoft / Starts Minecraft as OwenEaster" under a
+   // two-bar PAUSE icon. The icon was one inline ternary that named five kinds, and every other
+   // kind — connect-microsoft, his — fell through to '<path d="M8 5v14M16 5v14"/>'. The table is
+   // HERO_GLYPHS in site/desktop.js, and primaryAction is the only producer of a kind, so this
+   // reads the kind literals out of primaryAction itself and drives a real state for each one. A
+   // kind added to primaryAction fails the first assertion; a kind with no table entry draws
+   // nothing and fails the second; two kinds sharing a glyph fail the third. No kind may render
+   // the pause path, and the path itself has no home left in the file.
+   const PAUSED_GLYPH='M8 5v14M16 5v14';
+   const desktopSource=await fs.readFile(new URL('../site/desktop.js',import.meta.url),'utf8');
+   const primaryBody=desktopSource.slice(desktopSource.indexOf('function primaryAction('),desktopSource.indexOf('const panel=document.createElement'));
+   assert(primaryBody.length>1000,'primaryAction was found in site/desktop.js');
+   const actionKinds=[...new Set([...primaryBody.matchAll(/kind:'([a-z-]+)'/g)].map(match=>match[1]))].sort();
+   assert.equal(actionKinds.length,13,'primaryAction returns thirteen action kinds: '+actionKinds.join(', '));
+   const linkedSession={state:'required',serverHeld:false,checkedAt:null};
+   const stateForKind={
+    'busy':{startupReady:false},
+    play:{canPlay:true,profile:{name:'OwenTheCaptain'}},
+    running:{phase:'running'},
+    starting:{phase:'starting-game'},
+    download:{install:launcherState({}).install,actions:['download'],phase:'uninstalled'},
+    signin:{actions:['signin'],account:null,companyReady:false},
+    buy:{account:linkedAccount,actions:['connect-microsoft'],minecraftSession:{state:'server',serverHeld:true,checkedAt:'2026-10-19T00:00:00Z'},minecraftAccess:'missing'},
+    'setup-profile':{account:linkedAccount,actions:['connect-microsoft'],minecraftSession:{state:'server',serverHeld:true,checkedAt:'2026-10-19T00:00:00Z'},minecraftAccess:'profile-required'},
+    'check-access':{account:linkedAccount,actions:['connect-microsoft'],minecraftSession:{state:'server',serverHeld:true,checkedAt:'2026-10-19T00:00:00Z'},minecraftAccess:'unknown'},
+    'setup-password':{account:{...linkedAccount,passwordRequired:true},actions:['setup-password']},
+    'link-microsoft':{account:{...linkedAccount,microsoftLinked:false},actions:['link-microsoft'],minecraftSession:{state:'unlinked',serverHeld:false,checkedAt:null}},
+    'connect-microsoft':{account:linkedAccount,actions:['connect-microsoft'],minecraftSession:linkedSession},
+    'retry-minecraft':{account:linkedAccount,actions:['connect-microsoft'],minecraftSession:{state:'busy',serverHeld:false,checkedAt:'2026-10-19T00:00:00Z'}}
+   };
+   assert.deepEqual(Object.keys(stateForKind).sort(),actionKinds,'every kind primaryAction can return has a state in this test, and this test invents none it cannot return');
+   const glyphFor=async(kind,patch)=>{
+    await pushState(Object.assign({phase:'ready',progress:null,paused:false,bar:{visible:false},actions:[],account:null,companyReady:true,canPlay:false,install:installedNow,profile:null,minecraftSession:null,minecraftAccess:'owned',startupReady:true,accessChecking:false,accountWorking:false},patch));
+    await launcherPage.waitForFunction(kind=>document.querySelector('[data-desktop-play]')?.dataset.action===kind,kind);
+    return (await launcherPage.locator('[data-desktop-play] svg').innerHTML()).trim();
+   };
+   const glyphs={};
+   for(const kind of actionKinds)glyphs[kind]=await glyphFor(kind,stateForKind[kind]);
+   for(const kind of actionKinds){
+    assert.notEqual(glyphs[kind],'','the hero draws a glyph for '+kind+', so no kind falls back to no icon at all');
+    assert(!glyphs[kind].includes(PAUSED_GLYPH),'no hero action kind wears the two-bar pause glyph ('+kind+'): '+glyphs[kind]);
+   }
+   const shared=actionKinds.filter(kind=>actionKinds.filter(other=>glyphs[other]===glyphs[kind]).length>1);
+   assert.deepEqual(shared,[],'every kind has its own glyph: '+shared.join(', '));
+   assert.equal(desktopSource.includes(PAUSED_GLYPH),false,'the pause-shaped path has no home left in site/desktop.js');
+   console.log('GLYPH CENSUS PASS: '+actionKinds.length+' hero action kinds, one glyph each, no pause path — '+actionKinds.map(kind=>kind+' '+glyphs[kind].slice(0,28).replace(/\n/g,' ')+'…').join(' | '));
    await pushState({phase:'ready',actions:[],canPlay:true,profile:{name:'Owen'},install:installedNow,companyReady:true,microsoftConnected:true,minecraftSession:null});
    // Transfers retain the minimisable dock on every page.
    await pushState({phase:'downloading',progress:progressFor({percent:42}),actions:['signin'],canPlay:false});
