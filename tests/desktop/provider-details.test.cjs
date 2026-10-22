@@ -19,7 +19,7 @@ test('each linked provider publishes its own details and nothing else',()=>{
  const details={
   microsoft:{gamertag:'Cap. Wren',minecraftName:'NotThisOne'},
   google:{email:'wren@example.test'},
-  steam:{persona:'Captain Wren',steamId:'76561198000000001'},
+  steam:{persona:'Captain Wren'},
   discord:{username:'wren_ec',displayName:'Wren'},
   // A key the contract does not name, a nested object, and a provider the account has not
   // linked: none of them reaches state.
@@ -28,7 +28,7 @@ test('each linked provider publishes its own details and nothing else',()=>{
  assert.deepEqual(view({providers:LINKED,providerDetails:details}).providerDetails,{
   microsoft:{gamertag:'Cap. Wren'},
   google:{email:'wren@example.test'},
-  steam:{persona:'Captain Wren',steamId:'76561198000000001'},
+  steam:{persona:'Captain Wren'},
   discord:{username:'wren_ec',displayName:'Wren'}
  });
  assert.deepEqual(view({providers:['google'],providerDetails:details}).providerDetails,{google:{email:'wren@example.test'}},'an unlinked provider keeps no details');
@@ -63,12 +63,6 @@ test('a value that is not a string is unknown, and unknown draws nothing',()=>{
  assert.deepEqual(held,{microsoft:{gamertag:'Cap. Wren'}},'a kept value is trimmed');
  assert.equal(view({providers:['steam'],providerDetails:{steam:{persona:'   '}}}).providerDetails,null,'whitespace is not a value');
  assert.equal(view({providers:['steam'],providerDetails:{steam:{persona:'x'.repeat(200)}}}).providerDetails.steam.persona,'x'.repeat(64),'a handle is capped at 64 characters');
- // The SteamID64 is an identifier: seventeen digits or nothing. Steam publishes it from the
- // link itself, so a Steam link always has something to show even when the persona is unknown.
- assert.equal(view({providers:['steam'],providerDetails:{steam:{steamId:'76561198000000001'}}}).providerDetails.steam.steamId,'76561198000000001','a 17-digit id is kept');
- for(const bad of ['7656119800000000','76561198000000001x','765611980000000012','abc','',' 7656119800000000 1']){
-  assert.equal(view({providers:['steam'],providerDetails:{steam:{steamId:bad}}}).providerDetails,null,'a steamId of '+JSON.stringify(bad)+' is not an id and draws nothing');
- }
 });
 
 test('a value that could reorder or hide text is not a value',()=>{

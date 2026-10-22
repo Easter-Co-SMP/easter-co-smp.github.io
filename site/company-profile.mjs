@@ -7,7 +7,7 @@ const NAMES={microsoft:'Microsoft / Xbox',google:'Google',steam:'Steam',discord:
 const DETAILS={
  microsoft:[['Xbox Gamer Tag',(account,detail)=>detail?.gamertag],['Minecraft Username',account=>account.minecraftName]],
  google:[['Gmail',(account,detail)=>detail?.email]],
- steam:[['Username',(account,detail)=>detail?.persona],['SteamID',(account,detail)=>detail?.steamId]],
+ steam:[['Username',(account,detail)=>detail?.persona]],
  // Discord carries two names and shows one line: the username, then the display name.
  discord:[['Username',(account,detail)=>detail?.username||detail?.displayName]]
 };

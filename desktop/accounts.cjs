@@ -175,11 +175,8 @@ function serverMessage(status,body){
 // with its gamertag only: the Minecraft name the row shows is the account's own
 // `minecraftName`, which is already validated here and already names the account, so the copy
 // the cloud may carry inside providerDetails is never read - one source, or the two can
-// disagree and the row prints whichever arrived last. Steam carries the persona AND the
-// SteamID64 the link itself asserted, because the persona is only read when Steam links and an
-// account linked before the Web API key existed has none: the id is what Steam signed, so the
-// row can always say who is linked.
-const PROVIDER_DETAIL_FIELDS={microsoft:['gamertag'],google:['email'],steam:['persona','steamId'],discord:['username','displayName']};
+// disagree and the row prints whichever arrived last.
+const PROVIDER_DETAIL_FIELDS={microsoft:['gamertag'],google:['email'],steam:['persona'],discord:['username','displayName']};
 const PROVIDER_DETAIL_MAX=64;
 // Control and bidi-override characters are dropped rather than trimmed: a gamertag is one
 // visible word, and a value that could reorder the text around it is not a gamertag.
@@ -188,13 +185,6 @@ function providerDetailString(value){
  if(typeof value!=='string')return null;
  const text=value.replace(PROVIDER_DETAIL_INVISIBLE,'').trim();
  return text?text.slice(0,PROVIDER_DETAIL_MAX):null;
-}
-// The SteamID64 is an identifier, not a name: exactly seventeen digits, or nothing. The cloud
-// holds the same guard (api/provider_details.py); repeating it here means a value that arrived
-// by another path is still not printed as an account someone could look up.
-function providerSteamId(value){
- const text=typeof value==='string'?value.trim():'';
- return /^[0-9]{17}$/.test(text)?text:null;
 }
 // A payload this launcher cannot read is "no details", never an error: the dialog then draws
 // what it drew before providerDetails existed. Everything kept is rebuilt from the whitelist
@@ -208,7 +198,7 @@ function sanitizeProviderDetails(value,providers){
   const entry=value[provider];
   if(!entry||typeof entry!=='object'||Array.isArray(entry))continue;
   const detail={};
-  for(const field of fields)detail[field]=field==='email'?sanitizeEmail(entry.email):field==='steamId'?providerSteamId(entry.steamId):providerDetailString(entry[field]);
+  for(const field of fields)detail[field]=field==='email'?sanitizeEmail(entry.email):providerDetailString(entry[field]);
   // A provider whose values are all unknown adds nothing: it is left out, so providerDetails
   // itself is null until some linked provider actually has something to show.
   if(Object.values(detail).some(Boolean))details[provider]=detail;

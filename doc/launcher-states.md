@@ -2066,7 +2066,7 @@ is the account service's own record of what each linked provider holds:
 providerDetails: {
   microsoft: {gamertag: string|null, minecraftName: string|null},
   google:    {email: string|null},
-  steam:     {persona: string|null, steamId: string|null},
+  steam:     {persona: string|null},
   discord:   {username: string|null, displayName: string|null}
 }
 ```
@@ -2086,21 +2086,10 @@ account whether or not `providerDetails` has arrived.
 | Microsoft / Xbox | `Minecraft Username: <name>` | `account.minecraftName` |
 | Google | `Gmail: <address>` | `account.providerDetails.google.email` |
 | Steam | `Username: <persona>` | `account.providerDetails.steam.persona` |
-| Steam | `SteamID: <17 digits>` | `account.providerDetails.steam.steamId` |
 | Discord | `Username: <username or display name>` | `account.providerDetails.discord.username`, then `.displayName` |
 
 `account.minecraftName` and `account.providerDetails` are published by `publicAccount`
 (`desktop/accounts.cjs`) next to the fields it already publishes.
-
-**Steam always has the SteamID64.** The persona is read from Steam's Web API only when an
-account links Steam, so a link made before that key existed has no persona and would draw
-no line at all (Owen's Steam row, 2026-10-22). The SteamID64 is different: it is what the
-link's OpenID assertion signed, and the account service publishes it from the stored
-subject, so the row says `SteamID: 7656119…` for every Steam link with no key involved.
-The launcher accepts it only as exactly seventeen digits, the same guard the cloud holds;
-anything else draws nothing. The persona can be filled for existing links with
-`easter-co-cloud/ops/backfill_steam_persona.py` (dry run by default), after which the
-`Username` line appears beside the id.
 
 **No value, no line.** A detail line is drawn only when the value exists. An unlinked
 provider has no detail block at all, and a linked provider with no known value draws no line:
