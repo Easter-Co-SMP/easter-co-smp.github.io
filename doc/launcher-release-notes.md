@@ -1,3 +1,28 @@
+# Easter Company launcher 1.0.38
+
+The server row says less, the graphics toggle works whenever the client is installed, and
+the launcher names the shader pack the published payload actually delivers.
+
+- **The server status row is three sentences.** `Server Online, 2 active players`,
+  `Server Online, 0 active players` — which is also what a sleeping host reads, because it
+  is not offline and pressing Play is what starts it — and `Server Offline`, which is said
+  until the launcher actually knows. Every bracket is gone: no "Asleep Zzz", no "about a
+  minute", no service sentence, no reason. The LED keeps its colours, so the dot still
+  tells a sleeping host from a warm empty one.
+- **No technical detail comes from the service any more.** The game status route used to
+  send a sentence per state, and the launcher printed it in brackets — which is how a
+  sleeping host came to read "Server Offline (The SMP host is asleep. It starts when
+  someone presses Play.)". The service now sends none, and this build never prints one.
+- **Enhanced Graphics & Shaders is offered whenever the client is installed**, not only
+  when a Minecraft session exists: it is a setting for files on this device.
+- **The shader pack name comes from the published payload**, not from a remembered
+  constant. A shader-pack update can no longer leave the toggle switched on with no pack
+  for Iris to load while the launcher reports the effect as installed; if the pack cannot
+  be enabled, the launcher says "Enhanced graphics are installed without shaders, so the
+  shader pack was left off." instead.
+- Nothing else changed: the same home screen, downloads, sign-in, account and update
+  behaviour, and the same client content.
+
 # Easter Company launcher 1.0.37
 
 The home cards load on the first launch, not the second.
