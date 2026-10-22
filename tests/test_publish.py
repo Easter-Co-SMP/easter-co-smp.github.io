@@ -1,6 +1,8 @@
 import base64
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -18,13 +20,15 @@ from scripts.export_world import (FABRIC_FALLBACK, GRAPHICS_COMPANIONS, GRAPHICS
                                   COMPANION_PATH_PREFIX, MANIFEST_KEYS,
                                   MODRINTH_CDN_HOST, PUBLIC_MARKER_KINDS, chunk_version,
                                   declared_fabric, default_resolution_state, ensure_state_writable,
-                                  export_client, export_snapshot, PublishedClientArtifacts, fetch_modrinth_versions,
+                                  export_client, export_world_snapshot,
+                                  PublishedClientArtifacts, fetch_modrinth_versions,
                                   manifest_text, modrinth_resolver, packages, parse_graphics_release,
                                   parse_modrinth_files, public_marker, public_marker_kind,
                                   read_resolution_state, resolve_dependencies, resolved_pins, write_json,
                                   DEPENDENCIES, ZONE)
+from scripts import export_world, sync
 from scripts.sync import publish
-from scripts.validate import validate_data, MARKER_KEYS
+from scripts.validate import MARKER_KEYS, WORLD_KEYS, validate_client, validate_data
 
 PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=')
 NOW = datetime(2026, 10, 15, 14, tzinfo=timezone.utc)
@@ -106,6 +110,38 @@ def fixture_mod_jar(root, ident='easter-navy'):
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(b'own-mod-fixture')
     return target
+
+
+LOCAL_DEPLOYMENT = {'schema': 1, 'serverAddress': '10.0.0.5:25565'}
+#: The production deployment, and the reason the map half has refused since 2026-10-19.
+REMOTE_DEPLOYMENT = {'schema': 1, 'serverAddress': 'smp.easter.company:25565'}
+
+
+def snapshot_source(deployment):
+    """Point the exporter's own gate at a local or a remote game deployment.
+
+    Both the probe and the exporter read this one function, so a patched deployment is what
+    the run really sees: the gate is never bypassed, only aimed.
+    """
+    return mock.patch('scripts.export_world.deployment_metadata', return_value=deployment)
+
+
+def fixture_client_half(version='test', payload=b'own-mod-fixture'):
+    """A client half that publishes a fixture manifest, so tests never touch the network.
+
+    Its output is byte-identical to fixture_export's client manifest by default, so the
+    recovery fixtures keep the published client unchanged unless a test bumps it on purpose.
+    """
+    def publish_client(stage, state_dir, now=None):
+        target = Path(stage) / 'downloads/easter-navy.jar'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+        write_json(Path(stage) / 'data/client.json', {
+            'minecraft': '26.2',
+            'mod': {'version': version, 'sha256': hashlib.sha256(payload).hexdigest()},
+            'dependencies': [],
+        })
+    return publish_client
 
 
 def fixture_export(root, source=None, now=NOW, previous_day=None, markers=None, client=None):
@@ -974,8 +1010,10 @@ class RecoveryTests(unittest.TestCase):
         run_git(self.repo, 'remote', 'add', 'origin', str(self.remote))
         run_git(self.repo, 'push', '-u', 'origin', 'main')
 
-    def capture(self, now=NOW, exporter=fixture_export):
-        return publish(self.repo, self.state, Path('/unused'), now=now, exporter=exporter)
+    def capture(self, now=NOW, exporter=fixture_export, deployment=LOCAL_DEPLOYMENT, client=None):
+        with snapshot_source(deployment):
+            return publish(self.repo, self.state, Path('/unused'), now=now, exporter=exporter,
+                           client_exporter=client or fixture_client_half())
 
     def count(self, root=None):
         return int(run_git(root or self.repo, 'rev-list', '--count', 'main'))
@@ -1029,23 +1067,6 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual((self.repo / 'site/data/world.json').read_bytes(), before)
         self.assertEqual(run_git(self.repo, 'status', '--porcelain'), '')
 
-    def test_remote_deployment_refusal_preserves_the_complete_generated_tree(self):
-        before = {str(path.relative_to(self.repo)): path.read_bytes()
-                  for prefix in ('site/data', 'site/downloads')
-                  for path in (self.repo / prefix).rglob('*') if path.is_file()}
-        with mock.patch('scripts.export_world.deployment_metadata', return_value={
-                'schema': 1, 'serverAddress': 'smp.easter.company:25565'}), \
-                mock.patch('scripts.export_world.importlib.import_module') as imported:
-            with self.assertRaisesRegex(RuntimeError, 'retired local world'):
-                self.capture(exporter=export_snapshot)
-            imported.assert_not_called()
-        after = {str(path.relative_to(self.repo)): path.read_bytes()
-                 for prefix in ('site/data', 'site/downloads')
-                 for path in (self.repo / prefix).rglob('*') if path.is_file()}
-        self.assertEqual(before, after)
-        self.assertEqual(self.count(), 1)
-        self.assertEqual(run_git(self.repo, 'status', '--porcelain'), '')
-
     def test_upstream_website_edits_and_pending_snapshots_both_survive(self):
         run_git(self.repo, 'remote', 'set-url', 'origin', str(self.remote) + '.offline')
         with self.assertRaises(RuntimeError):
@@ -1062,6 +1083,234 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(self.capture())
         self.assertEqual((self.repo / 'README.md').read_text(), 'Upstream design update')
         self.assertEqual(self.count(self.remote), 3)
+
+
+class SplitPublisherTests(unittest.TestCase):
+    """Ticket 766f5564: the client publication stops being hostage to the map capture.
+
+    The fixture is the published tree as it really was on 2026-10-22: world.json frozen on
+    snapshot_day 2026-10-19, the client manifest frozen with it, and the map half refusing
+    every hourly run with 'the production game deployment is remote'. One export_snapshot
+    call used to write both halves, so the refusal also blocked the client release.
+    """
+
+    TODAY = datetime(2026, 10, 22, 15, 0, tzinfo=timezone.utc)  # the failing run's day, in ZONE
+    PUBLISHED_AT = datetime(2026, 10, 19, 4, 18, tzinfo=timezone.utc)
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name)
+        self.repo, self.remote, self.state = root / 'repo', root / 'origin.git', root / 'state'
+        self.repo.mkdir()
+        run_git(self.repo, 'init', '-b', 'main')
+        run_git(self.repo, 'config', 'user.name', 'Fixture')
+        run_git(self.repo, 'config', 'user.email', 'fixture@example.invalid')
+        run_git(root, 'init', '--bare', '--initial-branch=main', str(self.remote))
+        fixture_export(self.repo / 'site', now=self.PUBLISHED_AT)
+        (self.repo / 'README.md').write_text('Website source\n')
+        run_git(self.repo, 'add', '.')
+        run_git(self.repo, 'commit', '-m', 'Baseline')
+        run_git(self.repo, 'remote', 'add', 'origin', str(self.remote))
+        run_git(self.repo, 'push', '-u', 'origin', 'main')
+        self.journal = io.StringIO()
+
+    def published(self):
+        return {str(path.relative_to(self.repo)): path.read_bytes()
+                for prefix in ('site/data', 'site/downloads')
+                for path in (self.repo / prefix).rglob('*') if path.is_file()}
+
+    def run_publish(self, now=None, exporter=fixture_export, deployment=REMOTE_DEPLOYMENT, client=None):
+        """One timer run with its whole journal captured; a failing run still raises."""
+        self.journal = io.StringIO()
+        with snapshot_source(deployment), redirect_stdout(self.journal):
+            return sync.publish(self.repo, self.state, Path('/unused'), now=now or self.TODAY,
+                                exporter=exporter,
+                                client_exporter=fixture_client_half() if client is None else client)
+
+    def lines(self, needle=''):
+        return [line for line in self.journal.getvalue().splitlines() if needle in line]
+
+    def count(self, root=None):
+        return int(run_git(root or self.repo, 'rev-list', '--count', 'main'))
+
+    def test_a_refused_map_source_still_publishes_the_client_half(self):
+        """The acceptance case: the map half refuses, the client half publishes for real."""
+        before = self.published()
+        self.assertEqual(json.loads(before['site/data/world.json'])['snapshot_day'], '2026-10-19')
+        jar = b'own-mod-fixture-2.1.0'
+        captured = self.run_publish(client=fixture_client_half('2.1.0', jar))
+        self.assertFalse(captured, 'the reuse path captured nothing')
+        # The client half is regenerated, jar and manifest agreeing with each other.
+        self.assertEqual((self.repo / 'site/downloads/easter-navy.jar').read_bytes(), jar)
+        client = json.loads((self.repo / 'site/data/client.json').read_text())
+        self.assertEqual(client['mod'], {'version': '2.1.0', 'sha256': hashlib.sha256(jar).hexdigest()})
+        validate_client(self.repo / 'site')
+        # ...and it is published, not merely staged in the checkout: the commit is pushed.
+        self.assertEqual(self.count(), 2)
+        self.assertEqual(self.count(self.remote), 2)
+        self.assertEqual(json.loads(run_git(self.remote, 'show', 'main:site/data/client.json'))['mod']['version'], '2.1.0')
+        self.assertEqual(run_git(self.repo, 'log', '-1', '--format=%s'), 'Client publication · 2026-10-22')
+        # The map half captured nothing and claims nothing.
+        self.assertEqual((self.repo / 'site/data/world.json').read_bytes(), before['site/data/world.json'])
+        self.assertEqual(self.lines('Daily snapshot committed'), [])
+        self.assertEqual(self.lines('Exported '), [])
+        self.assertEqual(run_git(self.repo, 'status', '--porcelain'), '')
+
+    def test_the_reuse_line_names_the_reason_and_the_day_that_is_published(self):
+        world = json.loads((self.repo / 'site/data/world.json').read_text())
+        self.run_publish()
+        reuse = self.lines('reused the published snapshot')
+        self.assertEqual(len(reuse), 1, 'exactly one journal line registers the reuse')
+        line = reuse[0]
+        self.assertIn('nothing was captured', line)
+        self.assertIn(f"snapshot_day {world['snapshot_day']}", line)
+        self.assertIn('the production game deployment is remote', line)
+        self.assertIn('a verified remote snapshot source is required', line)
+        self.assertNotIn('snapshot_day 2026-10-22', line, 'the line never claims today')
+        self.assertEqual(self.lines('committed'), [], 'the reuse path commits nothing of its own')
+
+    def test_the_reuse_path_keeps_world_json_byte_identical_and_adds_no_field(self):
+        """No field records the reuse: the payload is untouched, which is the honest shape."""
+        path = self.repo / 'site/data/world.json'
+        before = path.read_bytes()
+        day = json.loads(before)['snapshot_day']
+        for now in (self.TODAY, self.TODAY + timedelta(days=3), self.TODAY + timedelta(days=30)):
+            with self.subTest(now=now.isoformat()):
+                self.run_publish(now=now)
+                self.assertEqual(path.read_bytes(), before)
+                published = json.loads(path.read_bytes())
+                self.assertEqual(set(published), WORLD_KEYS)
+                self.assertEqual(published['snapshot_day'], day)
+                self.assertEqual(published['captured_at'], json.loads(before)['captured_at'])
+                for field in ('reused', 'reuse', 'refused', 'reason', 'capture_failed', 'stale'):
+                    self.assertNotIn(field, published)
+
+    def test_a_map_source_present_but_broken_still_fails_the_run(self):
+        """This ticket removes a false failure, not the gate."""
+        def broken(stage, source_root, now=None, previous_day=None):
+            raise RuntimeError('Terrain is being saved; retry rather than archive partial chunks')
+        before = self.published()
+        jar = b'own-mod-fixture-2.1.0'
+        with self.assertRaises(RuntimeError) as caught:
+            self.run_publish(exporter=broken, deployment=LOCAL_DEPLOYMENT,
+                             client=fixture_client_half('2.1.0', jar))
+        self.assertIn('Terrain is being saved', str(caught.exception))
+        self.assertEqual(self.lines('reused the published snapshot'), [],
+                         'a broken source is a failure, never a reuse')
+        self.assertEqual((self.repo / 'site/data/world.json').read_bytes(), before['site/data/world.json'])
+        self.assertEqual(self.lines('Daily snapshot committed'), [])
+        # The client half published anyway, which is the whole point of the split.
+        self.assertEqual((self.repo / 'site/downloads/easter-navy.jar').read_bytes(), jar)
+        self.assertEqual(json.loads((self.repo / 'site/data/client.json').read_text())['mod']['version'], '2.1.0')
+        self.assertEqual(self.count(self.remote), 2)
+        self.assertEqual(run_git(self.repo, 'status', '--porcelain'), '')
+
+    def test_a_successful_capture_runs_exactly_as_before(self):
+        before = self.published()
+        captured = self.run_publish(deployment=LOCAL_DEPLOYMENT)
+        self.assertTrue(captured)
+        world = json.loads((self.repo / 'site/data/world.json').read_text())
+        self.assertEqual(world['snapshot_day'], '2026-10-22')
+        self.assertEqual(world['captured_at'], self.TODAY.isoformat())
+        self.assertEqual(world['missed_days'], 2, 'the two uncharted days are recorded, not backdated')
+        self.assertEqual(self.lines('reused the published snapshot'), [])
+        self.assertEqual(run_git(self.repo, 'log', '-1', '--format=%s'), 'World snapshot · 2026-10-22')
+        # One commit: the client half was unchanged, and the world half did not touch its paths.
+        self.assertEqual(self.count(), 2)
+        self.assertEqual(self.count(self.remote), 2)
+        self.assertEqual(json.loads((self.repo / 'site/data/client.json').read_bytes()),
+                         json.loads(before['site/data/client.json']))
+        changed = run_git(self.repo, 'diff', '--name-only', 'HEAD~1', 'HEAD').split()
+        self.assertIn('site/data/world.json', changed)
+        self.assertTrue(all(path == 'site/data/world.json' or path.startswith('site/data/tiles/')
+                            for path in changed), changed)
+        self.assertEqual(validate_data(self.repo / 'site')['snapshot_day'], '2026-10-22')
+        self.assertEqual(run_git(self.repo, 'status', '--porcelain'), '')
+
+    def test_the_world_half_does_not_overwrite_the_client_half_it_staged_beside(self):
+        """The two halves write disjoint paths, so a capture cannot republish an old client."""
+        jar = b'own-mod-fixture-2.1.0'
+        captured = self.run_publish(deployment=LOCAL_DEPLOYMENT, client=fixture_client_half('2.1.0', jar))
+        self.assertTrue(captured)
+        client = json.loads((self.repo / 'site/data/client.json').read_text())
+        self.assertEqual(client['mod']['version'], '2.1.0', 'the world half staged its own client.json and it is not published')
+        self.assertEqual(client['mod']['sha256'], hashlib.sha256(jar).hexdigest())
+        self.assertEqual(json.loads((self.repo / 'site/data/world.json').read_text())['snapshot_day'], '2026-10-22')
+        self.assertEqual(validate_data(self.repo / 'site')['snapshot_day'], '2026-10-22')
+
+    def test_a_broken_client_manifest_fails_the_run_without_freezing_the_map(self):
+        def broken_client(stage, state_dir, now=None):
+            fixture_client_half()(stage, state_dir, now=now)
+            client = json.loads((Path(stage) / 'data/client.json').read_text())
+            client['mod']['sha256'] = 'f' * 64
+            write_json(Path(stage) / 'data/client.json', client)
+        before = self.published()
+        with self.assertRaises(RuntimeError) as caught:
+            self.run_publish(deployment=LOCAL_DEPLOYMENT, client=broken_client)
+        self.assertIn('Client publication failed', str(caught.exception))
+        self.assertIn('does not match the manifest checksum', str(caught.exception))
+        # The broken half is never applied, and the map half still captured.
+        self.assertEqual((self.repo / 'site/data/client.json').read_bytes(), before['site/data/client.json'])
+        self.assertEqual(json.loads((self.repo / 'site/data/world.json').read_text())['snapshot_day'], '2026-10-22')
+        self.assertEqual(run_git(self.repo, 'log', '-1', '--format=%s'), 'World snapshot · 2026-10-22')
+        self.assertEqual(run_git(self.repo, 'status', '--porcelain'), '')
+
+    def test_a_refusal_with_no_published_snapshot_fails_rather_than_pretending(self):
+        run_git(self.repo, 'rm', '-q', 'site/data/world.json')
+        run_git(self.repo, 'commit', '-m', 'No published snapshot yet')
+        run_git(self.repo, 'push')
+        with self.assertRaises(RuntimeError) as caught:
+            self.run_publish()
+        self.assertIn('the production game deployment is remote', str(caught.exception))
+        self.assertEqual(self.lines('reused the published snapshot'), [],
+                         'there is no published snapshot to reuse, so nothing may say there is')
+        self.assertFalse((self.repo / 'site/data/world.json').exists())
+
+    def test_the_world_half_is_gated_on_its_own_and_stages_nothing_when_it_refuses(self):
+        with tempfile.TemporaryDirectory() as temp:
+            stage = Path(temp)
+            with snapshot_source(REMOTE_DEPLOYMENT):
+                with self.assertRaises(export_world.SnapshotSourceUnavailable):
+                    export_world_snapshot(stage, Path('/unused'))
+            self.assertEqual(list(stage.iterdir()), [])
+            with snapshot_source(LOCAL_DEPLOYMENT):
+                self.assertIsNone(export_world.snapshot_source_refusal())
+
+    def test_the_client_half_is_rebuilt_from_the_canonical_artifacts(self):
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(sync, 'export_client') as exported, \
+                mock.patch.object(sync, 'PublishedClientArtifacts') as artifacts:
+            sync.stage_client(Path(temp) / 'stage', Path(temp), now=self.TODAY)
+        self.assertEqual(export_world.CANONICAL_CLIENT_MODS, Path('/opt/minecraft/client-mods'))
+        self.assertEqual(artifacts.call_args, mock.call(), 'the canonical directory is the default source')
+        args, kwargs = exported.call_args
+        self.assertEqual(args[0], Path(temp) / 'stage')
+        self.assertIs(args[1], artifacts.return_value)
+        self.assertEqual(kwargs['state_path'], Path(temp) / 'modrinth.json')
+        self.assertEqual(kwargs['now'], self.TODAY)
+
+    def test_the_remote_snapshot_source_is_one_module_reference(self):
+        """Ticket 9ee87d22 replaces this reference; the split, the reuse path and the tests stay."""
+        self.assertIs(sync.snapshot_source, export_world)
+        calls = []
+
+        class RemoteSource:
+            """Shaped exactly like scripts/export_world for the two names sync.py uses."""
+            @staticmethod
+            def snapshot_source_refusal():
+                calls.append('refusal')
+                return None
+
+            @staticmethod
+            def export_world_snapshot(stage, source_root, now=None, previous_day=None):
+                calls.append(('export', source_root, previous_day))
+                fixture_export(stage, now=now, previous_day=previous_day)
+
+        with mock.patch.object(sync, 'snapshot_source', RemoteSource):
+            self.assertTrue(self.run_publish(exporter=None, deployment=LOCAL_DEPLOYMENT))
+        self.assertEqual(calls, ['refusal', ('export', Path('/unused'), '2026-10-19')])
+        self.assertEqual(json.loads((self.repo / 'site/data/world.json').read_text())['snapshot_day'], '2026-10-22')
 
 
 class ManifestStatePreflightTests(unittest.TestCase):

@@ -47,9 +47,24 @@ The host checkout is `/root/easter-co-smp.github.io`. Install the two units from
 `/etc/systemd/system/`, then enable `easter-co-pages.timer`. The service uses the existing
 e-server Python environment and existing SSH Git credentials, never repository secrets.
 
+One run publishes two independent halves, in this order:
+
+1. **Client publication.** `site/data/client.json` and `site/downloads/` are rebuilt from the
+   canonical `/opt/minecraft/client-mods` artifacts, validated on their own, committed and
+   pushed before the map half starts. A new mod reaches players on the next timer tick, and no
+   map problem can hold it back.
+2. **World snapshot.** The map capture renders the tiles and writes `site/data/world.json`.
+   When the snapshot source cannot be read, the published snapshot is reused **byte for byte**
+   — it keeps its own `snapshot_day`, and nothing in it is rewritten to look newer — with one
+   journal line naming the reason and the day that is actually published, and the run exits 0.
+   A source that is present but broken (unreadable terrain, a failed validation) still fails
+   the run.
+
 - Daily capture at **05:30 America/New_York**, with up to three minutes of jitter.
 - `Persistent=true` plus a boot trigger catches missed runs. An hourly trigger retries
   failures and pushes. Successful retries on the same date do not create extra snapshots.
+- The client half runs on every tick and commits only when the published client actually
+  changed, so a quiet tick is a pushed no-op rather than a new commit.
 - If the network is down, the daily snapshot is committed locally. Later runs push the
   entire pending history, preserving each day that this machine actually captured.
 - After machine downtime, one current snapshot is captured. `missed_days` records the
@@ -305,12 +320,18 @@ in-game menu consumes that file. Play checks the manifest before waking the serv
 and refuses an authenticated game-control response naming a different endpoint.
 No player setting, legacy saved address or tailnet fallback chooses the target.
 
-The scheduled map exporter currently refuses public/remote deployments because its
-terrain reader still targets the retired local world. It preserves the current
-published snapshot until a verified remote snapshot source is implemented. Client
-publication uses canonical `/opt/minecraft/client-mods` artifacts and the reviewed
-published game pins through `PublishedClientArtifacts`; it no longer imports the
-removed e-server download API or derives releases from a local startup log.
+The scheduled map exporter refuses public/remote deployments because its terrain reader
+still targets the retired local world. The refusal is not a failed run: the published
+snapshot is reused unchanged, one journal line names the reason, and the run exits 0 until a
+verified remote snapshot source exists (wake the game host, snapshot the live world, render
+from it). That source replaces the single `snapshot_source` reference in `scripts/sync.py`;
+the split, the reuse path and the tests do not change with it.
+
+Client publication is not part of that refusal and cannot be blocked by it. It uses canonical
+`/opt/minecraft/client-mods` artifacts and the reviewed published game pins through
+`PublishedClientArtifacts`, validates its own half, and is committed and pushed before the map
+half runs. It no longer imports the removed e-server download API or derives releases from a
+local startup log.
 
 The native in-game menu reads the shared deployment address but has no Company
 session and cannot wake a sleeping EC2 instance itself. Start through the launcher

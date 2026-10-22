@@ -152,7 +152,8 @@ def validate_packages(client, mod_id, dependency_ids):
         assert forbidden not in flattened, f'Private detail in the chunk list: {forbidden}'
 
 
-def validate_data(root):
+def validate_world(root):
+    """The map half on its own: data/world.json against the tiles it publishes."""
     root = Path(root)
     world = json.loads((root / 'data/world.json').read_text())
     assert set(world) == WORLD_KEYS, 'Unexpected world fields'
@@ -179,6 +180,12 @@ def validate_data(root):
         assert marker.get('icon') in (None, *PUBLIC_MARKER_ICONS), 'Unexpected marker icon'
         assert all(type(marker[a]) in (int, float) and math.isfinite(marker[a]) for a in ('x', 'z'))
         assert re.fullmatch('[a-f0-9]{20}', marker['id']), 'Raw entity ID refused'
+    return world
+
+
+def validate_client(root):
+    """The client half on its own: data/client.json against the jars site/downloads/ carries."""
+    root = Path(root)
     client = json.loads((root / 'data/client.json').read_text())
     assert set(client) <= CLIENT_KEYS and {'minecraft', 'mod', 'dependencies'} <= set(client), \
         'Unexpected client manifest fields'
@@ -197,6 +204,13 @@ def validate_data(root):
         validate_packages(client, 'easter-navy', set(DEPENDENCIES))
     else:
         assert client.get('fabric') is None, 'A Fabric pin without a chunk list describes nothing'
+    return client
+
+
+def validate_data(root):
+    """The complete published payload: both halves, validated as the pair a launcher reads."""
+    world = validate_world(root)
+    validate_client(root)
     return world
 
 

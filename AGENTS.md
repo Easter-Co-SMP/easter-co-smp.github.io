@@ -13,10 +13,21 @@ Player data must never enter site/ or Git history. Use scripts/export_world.py a
 strict allowlist. Never use the private snapshot endpoint as a public export. Keep
 credentials and runtime state outside this repository. Do not publish third-party JARs.
 
-scripts/sync.py owns generated site/data/ and site/downloads/. It must preserve durable
+scripts/sync.py owns generated site/data/ and site/downloads/. It publishes two independent
+halves, and in this order: the client manifest (site/data/client.json plus site/downloads/,
+rebuilt from /opt/minecraft/client-mods) is committed and pushed first, and only then the map
+snapshot is captured into site/data/world.json and site/data/tiles/. Neither half can block
+the other, so a client release never waits on a map capture. The map half keeps the remote
+deployment refusal in export_world.require_local_snapshot_source(): when the snapshot source
+cannot be read it reuses the published snapshot unchanged, says so in one journal line naming
+the reason and the published snapshot_day, and exits 0 — it never writes a freshness it does
+not have. A source that is present but broken still fails the run. It must preserve durable
 local commits when pushes fail, catch up after boot without inventing historical states,
 and never force-push or discard changes to hand-written files. Run recovery and privacy
 tests after exporter or sync changes; validate the complete site before pushing.
+tests/test_publish.py SplitPublisherTests is the gate for that split; the seam for a verified
+remote snapshot source (wake the game host, snapshot to S3, render from it) is the single
+`from scripts import export_world as snapshot_source` reference in scripts/sync.py.
 
 Never restart e-server, DSH, or Minecraft for a public-site update. The public-site timer
 has its own service. No console mutations, world generation, or changes to game rules.

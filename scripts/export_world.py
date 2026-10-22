@@ -624,6 +624,16 @@ def deployment_metadata():
 CANONICAL_CLIENT_MODS = Path('/opt/minecraft/client-mods')
 
 
+class SnapshotSourceUnavailable(RuntimeError):
+    """The published snapshot stands because no snapshot source could be read.
+
+    This is the one refusal scripts/sync.py keeps the published snapshot for and exits 0
+    on, saying why. A source that is present but broken -- unreadable terrain, a failed
+    validation, a state directory that cannot be written -- is not this: those stay plain
+    failures so the run goes red instead of reusing an old map in silence.
+    """
+
+
 def require_local_snapshot_source():
     """Never archive the retired local world as the migrated public deployment."""
     host = deployment_metadata()['serverAddress'].split(':', 1)[0].lower()
@@ -633,10 +643,25 @@ def require_local_snapshot_source():
     except ValueError:
         local = host == 'localhost'
     if not local:
-        raise RuntimeError('Map export refused: the production game deployment is remote, '
-                           'but this exporter only reads the retired local world. '
-                           'The published snapshot is preserved; a verified remote snapshot '
-                           'source is required before map captures resume.')
+        raise SnapshotSourceUnavailable(
+            'Map export refused: the production game deployment is remote, '
+            'but this exporter only reads the retired local world. '
+            'The published snapshot is preserved; a verified remote snapshot '
+            'source is required before map captures resume.')
+
+
+def snapshot_source_refusal():
+    """Why the capture source cannot be read right now, or None when it can.
+
+    The gate itself stays require_local_snapshot_source(); this only reports it, so the
+    publisher can say out loud that it is keeping the published snapshot instead of
+    deciding for itself whether the export would have been refused.
+    """
+    try:
+        require_local_snapshot_source()
+    except SnapshotSourceUnavailable as error:
+        return str(error)
+    return None
 
 
 class PublishedClientArtifacts:
@@ -755,18 +780,20 @@ def export_client(destination, download_module, resolver=None, now=None, state_p
     return client
 
 
-def export_snapshot(destination, source_root=Path('/root/e-server'), now=None, previous_day=None):
-    """Stage a complete export before touching the publishing checkout."""
+def export_world_snapshot(destination, source_root=Path('/root/e-server'), now=None, previous_day=None):
+    """Stage the world half alone: the refusal gate, the tiles and data/world.json.
+
+    The client manifest is a separate publication -- export_client below, driven by
+    scripts/sync.py -- so a fault in one half can never decide whether the other is
+    published. Nothing here touches site/data/client.json or site/downloads/.
+    """
     require_local_snapshot_source()
     now = now or datetime.now(timezone.utc)
     destination = Path(destination)
-    # Fail in the first second, not after every tile has been rendered.
-    ensure_state_writable(default_resolution_state())
     sys.path.insert(0, str(source_root))
     terrain = importlib.import_module('core.minecraft_map')
     entities = importlib.import_module('core.minecraft_map_data')
     zones = importlib.import_module('core.map_zones')
-    downloads = PublishedClientArtifacts()
     coverage = terrain.metadata()
     if not coverage['regions']:
         raise RuntimeError('No saved terrain; refusing to erase the published world')
@@ -797,8 +824,20 @@ def export_snapshot(destination, source_root=Path('/root/e-server'), now=None, p
         'position_source': 'Last observed ships and NPCs. Player records are excluded at export.',
     }
     write_json(destination / 'data/world.json', snapshot)
-    export_client(destination, downloads)
     print(f'Exported {len(tiles)} tiles, {len(snapshot["regions"])} regions and {len(markers)} non-player markers', flush=True)
+    return snapshot
+
+
+def export_snapshot(destination, source_root=Path('/root/e-server'), now=None, previous_day=None):
+    """Stage a complete export -- the world half, then the client manifest -- before publishing.
+
+    scripts/sync.py publishes the two halves independently; this combined entry point stays
+    for the exporter's own CLI and for callers that want one staged, validated tree.
+    """
+    # Fail in the first second, not after every tile has been rendered.
+    ensure_state_writable(default_resolution_state())
+    snapshot = export_world_snapshot(destination, source_root, now=now, previous_day=previous_day)
+    export_client(destination, PublishedClientArtifacts())
     return snapshot
 
 

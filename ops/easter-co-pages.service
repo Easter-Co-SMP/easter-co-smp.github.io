@@ -1,5 +1,5 @@
 [Unit]
-Description=Chart and publish the Easter Isles public Minecraft map
+Description=Publish the Easter Isles client manifest and chart the public Minecraft map
 Wants=network-online.target
 After=network-online.target
 
@@ -10,6 +10,11 @@ WorkingDirectory=/root/easter-co-smp.github.io
 ExecStart=/root/e-server/.venv/bin/python scripts/sync.py
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=GIT_TERMINAL_PROMPT=0
+# One run publishes the client half (site/data/client.json + site/downloads/, rebuilt from
+# /opt/minecraft/client-mods) and then the map half. A map snapshot source that cannot be
+# read is not a failed run: the published snapshot is reused byte for byte, one line in the
+# journal names the reason and the published snapshot_day, and the unit exits 0. A source
+# that is present but broken still exits 1.
 # The resolution and graphics caches are runtime state. Without this the exporter defaults
 # to ~/.local/state, which ProtectHome=read-only below makes unwritable, so the capture
 # failed on that write after rendering every tile. Keep it inside StateDirectory.
