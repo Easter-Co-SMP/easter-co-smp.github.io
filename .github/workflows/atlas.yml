@@ -1,0 +1,101 @@
+name: Atlas pipeline
+# The public map, the client manifest, and nothing else. Replaces the systemd timer that ran
+# on Owen's personal machine until 2026-10-22: every part of this now runs on a GitHub runner,
+# which is free at any frequency because the repository is public.
+#
+# Least maintenance was the owner's requirement, so there is no long-lived credential here:
+#   * AWS comes from GitHub OIDC (id-token: write) and one role the cloud repository creates;
+#   * publishing uses this workflow's own GITHUB_TOKEN (contents: write);
+#   * the only repository settings are three variables naming the bucket, the instance and the
+#     role, which are not secrets.
+#
+# The pipeline itself lives in scripts/atlas and is documented in doc/atlas-pipeline.md.
+# `scripts/atlas.tests` never runs here for AWS: the tests are fakes, and the scheduled run is
+# the only thing that talks to AWS or GitHub.
+on:
+  schedule:
+    # Hourly, at a minute that is not :00: the busiest minute on GitHub's scheduler.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_capture:
+        description: Capture even if EC2 says the world has not changed
+        type: boolean
+        default: false
+      dry_run:
+        description: Do everything except commit and advance the pointer
+        type: boolean
+        default: false
+permissions:
+  contents: write
+  id-token: write
+# Two runs must never overlap: the second would start the instance the first is capturing from.
+concurrency:
+  group: atlas-pipeline
+  cancel-in-progress: false
+jobs:
+  atlas:
+    runs-on: ubuntu-latest
+    # A capture is minutes, not hours, but the host's own waits are bounded here so a stuck
+    # run dies instead of holding a billable instance.
+    timeout-minutes: 45
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 1
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Lint this workflow
+        # The workflow checks its own syntax on every run, so a broken trigger or a typo in a
+        # permission fails here rather than silently never scheduling anything.
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check actionlint-py==1.7.12.25
+          actionlint .github/workflows/atlas.yml
+      - name: Install the renderer's one dependency
+        # Pillow renders the tiles and nothing else in this pipeline needs an install. The pin
+        # matches the version that produced the published tiles; a different Pillow can encode
+        # the same pixels into different bytes, which would republish every tile for no reason.
+        run: python -m pip install --disable-pip-version-check pillow==13.0.0
+      - name: Configure AWS credentials from GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.ATLAS_ROLE_ARN }}
+          role-session-name: atlas-pipeline
+          aws-region: ${{ vars.ATLAS_AWS_REGION }}
+      - name: Publish the atlas
+        env:
+          ATLAS_BUCKET: ${{ vars.ATLAS_BUCKET }}
+          ATLAS_INSTANCE_ID: ${{ vars.ATLAS_INSTANCE_ID }}
+          ATLAS_GITHUB_TOKEN: ${{ github.token }}
+          # The console command and the systemd unit are host facts, overridable without a
+          # code change; the defaults are named in doc/atlas-pipeline.md.
+          ATLAS_CONSOLE: ${{ vars.ATLAS_CONSOLE }}
+          ATLAS_SERVER_UNIT: ${{ vars.ATLAS_SERVER_UNIT }}
+          ATLAS_RENDER_WORKERS: '4'
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "${{ inputs.force_capture }}" = "true" ]; then args+=(--force-capture); fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then args+=(--dry-run); fi
+          python -m scripts.atlas "${args[@]}" --summary "$RUNNER_TEMP/atlas-summary.json"
+      - name: Publish the run summary
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -f "$RUNNER_TEMP/atlas-summary.json" ]; then
+            {
+              echo '### Atlas pipeline'
+              echo '```json'
+              cat "$RUNNER_TEMP/atlas-summary.json"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Atlas pipeline produced no summary: the run failed before it could.' \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
