@@ -1341,13 +1341,13 @@ try{
    // already running a cold start has not launched.
    const gameLine=launcherPage.locator('.desktop-game-status');
    const gameText=async()=>(await gameLine.locator('.desktop-game-line').innerText()).trim();
-   const asleep={state:'stopped',ready:false,endpoint:'smp.easter.company:25565',since:null,players:0,detail:null,waking:false,checkedAt:'2026-10-18T00:00:00Z',message:'Server Asleep Zzz (0 Active Players)',tone:'asleep'};
+   const asleep={state:'stopped',ready:false,endpoint:'smp.easter.company:25565',since:null,players:0,detail:null,waking:false,checkedAt:'2026-10-18T00:00:00Z',message:'Server Online, 0 active players',tone:'asleep'};
    const readyAccount={id:'EC-7',username:'testcaptain',name:'TestCaptain',roles:['crew'],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],primaryProvider:'microsoft',picture:null};
    const playNow={phase:'ready',progress:null,actions:[],canPlay:true,error:null,device:null,companyReady:true,microsoftConnected:true,minecraftAccess:'owned',profile:{name:'TestCaptain',id:'1234567890abcdef',skin:null},account:readyAccount,install:INSTALLED};
    // The sleeping host, with no reason from the service: his second sentence, in full.
    await pushState({...playNow,game:asleep});
    await gameLine.waitFor({state:'visible'});
-   assert.equal(await gameText(),'Server Asleep Zzz (0 Active Players)','the sleeping host is said once, character for character');
+   assert.equal(await gameText(),'Server Online, 0 active players','a sleeping host reads online with nobody on it, character for character');
    assert.equal(await gameLine.getAttribute('data-tone'),'asleep','and its dot is the dim amber of a normal sleep, not a fault');
    assert.equal(await gameLine.getAttribute('role'),'status','the row is the status live region');
    assert.equal(await gameLine.getAttribute('aria-live'),'polite');
@@ -1358,29 +1358,30 @@ try{
    assert.deepEqual(await visibleErrors(),[],'and it is not raised as a failure either');
    // Offline for a reason the service itself stated: its own words in the brackets, and the
    // only state that turns the dot red. Nothing is invented when it states none.
-   await pushState({game:{...asleep,detail:'Update in progress...',message:'Server Offline (Update in progress...)',tone:'offline'}});
-   assert.equal(await gameText(),'Server Offline (Update in progress...)','the offline reason is the service\'s own sentence');
+   await pushState({game:{...asleep,detail:'Update in progress...',message:'Server Offline',tone:'offline'}});
+   assert.equal(await gameText(),'Server Offline','an offline line carries no reason, no duration and no service sentence');
+   assert(!/update in progress/i.test(await gameText()),'the service detail never reaches the player');
    assert.equal(await gameLine.getAttribute('data-tone'),'offline','and it is the one state that turns the dot red');
    // Online: visible, with the real count. This is the behaviour change — the row used to
    // hide itself here, which left a healthy server saying nothing at all.
-   await pushState({game:{...asleep,state:'running',ready:true,players:2,detail:null,message:'Server Online (2 Active Players)',tone:'online'}});
+   await pushState({game:{...asleep,state:'running',ready:true,players:2,detail:null,message:'Server Online, 2 active players',tone:'online'}});
    assert.equal(await gameLine.isVisible(),true,'an online server is the case the row exists for');
-   assert.equal(await gameText(),'Server Online (2 Active Players)','the count is the service\'s own integer');
+   assert.equal(await gameText(),'Server Online, 2 active players','the count is the service\'s own integer');
    assert.equal(await gameLine.getAttribute('data-tone'),'online');
    heroAction({name:'server-online',...await hero(),expect:'play'});
    // Singular for one, and NO bracket at all when the service sent no count, rather than a
    // false zero.
-   await pushState({game:{...asleep,state:'running',ready:true,players:1,message:'Server Online (1 Active Player)',tone:'online'}});
-   assert.equal(await gameText(),'Server Online (1 Active Player)');
+   await pushState({game:{...asleep,state:'running',ready:true,players:1,message:'Server Online, 1 active player',tone:'online'}});
+   assert.equal(await gameText(),'Server Online, 1 active player');
    await pushState({game:{...asleep,state:'running',ready:true,players:null,message:'Server Online',tone:'online'}});
    assert.equal(await gameText(),'Server Online','a null count claims no number at all');
    // A cold start is normal behaviour, so it reads as starting — amber, never red, never
    // offline. Here nobody in this launcher is waking it, so the row is what says so.
-   await pushState({game:{...asleep,state:'starting',players:null,message:'Server Starting (about a minute)',tone:'starting'}});
-   assert.equal(await gameText(),'Server Starting (about a minute)');
+   await pushState({game:{...asleep,state:'starting',players:null,message:'Server Online, 0 active players',tone:'starting'}});
+   assert.equal(await gameText(),'Server Online, 0 active players','a host coming up is still online with nobody on it');
    assert.equal(await gameLine.getAttribute('data-tone'),'starting','a cold start is amber and pulsing, not a fault');
-   await pushState({game:{...asleep,state:'stopping',players:2,message:'Server Stopping (finishing the last session)',tone:'stopping'}});
-   assert.equal(await gameText(),'Server Stopping (finishing the last session)');
+   await pushState({game:{...asleep,state:'stopping',players:2,message:'Server Online, 2 active players',tone:'stopping'}});
+   assert.equal(await gameText(),'Server Online, 2 active players','a host shutting down still carries the players on it');
    assert.equal(await gameLine.getAttribute('data-tone'),'stopping');
    // The press that starts it: the same Play turns into the cold start, and there is no
    // second Play to press while the first one is waiting for the server.
@@ -1410,17 +1411,14 @@ try{
    assert.deepEqual(await visibleErrors(),[],'the retry leaves no failure behind');
    // An unreachable status is displayed as unknown and claims nothing: never online, never
    // offline, and never red. The launcher does not call a server down it could not look at.
-   await pushState({error:null,game:{...asleep,state:'unknown',ready:false,players:null,message:'Server Status Unknown (the launcher could not read it just now)',tone:'unknown'}});
+   await pushState({error:null,game:{...asleep,state:'unknown',ready:false,players:null,message:'Server Offline',tone:'offline'}});
    await gameLine.waitFor({state:'visible'});
-   assert.equal(await gameText(),'Server Status Unknown (the launcher could not read it just now)');
-   assert.equal(await gameLine.getAttribute('data-state'),'unknown','unknown is displayed as unknown');
-   assert.equal(await gameLine.getAttribute('data-tone'),'unknown','with the neutral dot, not the red one');
-   assert(!/online|offline/i.test(await gameText()),'and never as online or offline');
+   assert.equal(await gameText(),'Server Offline','an unreadable status says Offline until it knows');
+   assert(!/online/i.test(await gameText()),'and never claims the server is online');
    heroAction({name:'server-status-unknown',...await hero(),expect:'play'});
    // A server nobody has asked about yet is the same honest answer, in its own words.
-   await pushState({game:{...asleep,state:'unknown',ready:false,message:'Server Status Unknown (checked when you press Play)',tone:'unknown'}});
-   assert.equal(await gameText(),'Server Status Unknown (checked when you press Play)');
-   assert(!/online|offline/i.test(await gameText()),'a server that was never checked is never called down');
+   await pushState({game:{...asleep,state:'unknown',ready:false,message:'Server Offline',tone:'offline'}});
+   assert.equal(await gameText(),'Server Offline','a server nobody has asked about yet reads the same, with no detail');
    // A main process that publishes no game field at all renders exactly as it did before,
    // which is what lets an older build read a newer view and the reverse.
    await pushState({game:null});
@@ -1428,7 +1426,7 @@ try{
    heroAction({name:'no-game-field',...await hero(),expect:'play'});
    // Before the Play Now stage there is nothing to join, so the row is absent even though the
    // main process is publishing a server state.
-   await pushState({install:{...INSTALLED,installed:false},canPlay:false,phase:'ready',game:{...asleep,state:'running',ready:true,players:3,message:'Server Online (3 Active Players)',tone:'online'}});
+   await pushState({install:{...INSTALLED,installed:false},canPlay:false,phase:'ready',game:{...asleep,state:'running',ready:true,players:3,message:'Server Online, 3 active players',tone:'online'}});
    assert.equal(await gameLine.isVisible(),false,'the row is hidden before the Play Now stage');
    await pushState({install:INSTALLED,canPlay:true,game:asleep});
 
@@ -1437,6 +1435,6 @@ try{
    assert.deepEqual(await launcherPage.evaluate(()=>window.easterRenderer.errors),[],'the fixture saw no page error on its last load');
    await launcherContext.close();
   }finally{await launcherContext.close().catch(()=>{});}
-  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage that carries no server address at all, not even from a stale list or a stored value, with an explained memory setting and no address in the save; the themed enhanced graphics toggle driving setGraphics, a refused graphics change shown once beside the toggle rather than on the page notice as well; the profile\'s verified emails listed and chosen through the owner-only actions with no address in the state; refusals shown; one failure on one visible surface with no page notice painted while any modal dialog is open (Settings and the mandatory update gate) and the same sentence handed back once when the last one closes, repeated at 1440, 800 and 390 wide with the notice reading above the hero card\'s crest and heading, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed, Microsoft\'s email answer kept as a notice an unrelated failure cannot blank, the saved-session branch falling through to a fresh sign-in except on an identity conflict, and Microsoft\'s email-unavailable answer shown as a sign-in notice; the game server\'s own row rendered in every state as one LED plus one status line and asserted as text: \'Server Asleep Zzz (0 Active Players)\' with the dim amber dot, \'Server Offline (Update in progress...)\' from the service detail and the only red dot, \'Server Online (2 Active Players)\' VISIBLE with the real count, singular for one player, no bracket at all for a null count, \'Server Starting (about a minute)\' and \'Server Stopping (finishing the last session)\' as their own honest words rather than an offline one, the neutral \'Server Status Unknown\' both for a status that could not be read and for one nobody has asked about, the dot aria-hidden inside a role=status live region so the words carry the whole state, the cold start as its own hero action with no second Play and its sentence and detail on the one wait line, a wake timeout as one page-notice failure with Play as the retry, and the row absent before the Play Now stage and for a state with no game field; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
+  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage that carries no server address at all, not even from a stale list or a stored value, with an explained memory setting and no address in the save; the themed enhanced graphics toggle driving setGraphics, a refused graphics change shown once beside the toggle rather than on the page notice as well; the profile\'s verified emails listed and chosen through the owner-only actions with no address in the state; refusals shown; one failure on one visible surface with no page notice painted while any modal dialog is open (Settings and the mandatory update gate) and the same sentence handed back once when the last one closes, repeated at 1440, 800 and 390 wide with the notice reading above the hero card\'s crest and heading, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed, Microsoft\'s email answer kept as a notice an unrelated failure cannot blank, the saved-session branch falling through to a fresh sign-in except on an identity conflict, and Microsoft\'s email-unavailable answer shown as a sign-in notice; the game server\'s own row rendered in every state as one LED plus one status line and asserted as text in three sentences and nothing else: \'Server Online, 2 active players\' VISIBLE with the real count and singular for one player, \'Server Online, 0 active players\' for a sleeping host, a host coming up and an empty one, no bracket anywhere and a null count claiming no number at all, \'Server Offline\' with no reason, duration or service sentence for a stopped host the service is working on and for a status that could not be read or was never asked about, the dot aria-hidden inside a role=status live region so the words carry the whole state, the cold start as its own hero action with no second Play and its sentence and detail on the one wait line, a wake timeout as one page-notice failure with Play as the retry, and the row absent before the Play Now stage and for a state with no game field; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
  }
 }finally{await browser.close();}

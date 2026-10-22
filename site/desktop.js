@@ -76,8 +76,8 @@
  // only place a game state is ever written, and both halves of it are main's — the words in
  // `game.message` and the meaning the dot repeats in `game.tone` — so the sentence is
  // readable, and assertable, as text: the dot is aria-hidden and never the only signal. The
- // row shows while the server is online too, because 'Server Online (2 Active Players)' is
- // one of the three sentences it exists for.
+ // row shows while the server is online too, because 'Server Online, 2 active players' is
+ // the ordinary sentence it exists for.
  const gameStatus=document.createElement('p');
  gameStatus.className='desktop-game-status';gameStatus.hidden=true;
  gameStatus.setAttribute('role','status');gameStatus.setAttribute('aria-live','polite');gameStatus.setAttribute('aria-atomic','true');

@@ -20,27 +20,22 @@ const {GAME_STATES,serverAddress,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS,GAME_DETAIL_M
 // reader or to a test that asserts only text without the state being lost with it
 // (doc/launcher-states.md, *The LED and the status line*).
 //
-// Owen's three sentences are the ordinary cases, character for character:
-//   Server Online (2 Active Players)
-//   Server Asleep Zzz (0 Active Players)
-//   Server Offline (Update in progress...)   <- the service's own detail, in the brackets
-// and none of them is invented: gameStatusLine below is the whole rule.
+// Owen's wording, verbatim (2026-10-22): the row says one of three things and carries no
+// technical detail at all.
+//   Server Online, 2 active players
+//   Server Online, 0 active players   <- also the sleeping host: asleep is not offline
+//   Server Offline                    <- and this, until the status is actually known
+// No brackets, no "about a minute", no service sentence, no reason. The player is told
+// whether they can play and how many people are on, and nothing else: what the launcher
+// knows about wake times and shutdowns belongs in its own behaviour, not in this line.
 const MESSAGES={
- // The player count follows, or nothing at all: a null count gets no brackets rather than
- // a false zero.
+ // The state word and, when the service sent one, its own count: `Server Online, 2 active
+ // players`. Silence rather than a false zero when it sent no count at all.
  online:'Server Online',
- // A stopped host is the credit-saving sleep the family sees every night. Normal,
- // expected, and never a fault.
- asleep:'Server Asleep Zzz',
- // Red, and only ever with a reason the service itself stated in `detail`.
+ // Said only when the launcher cannot say the server is online: the service stated it is
+ // doing something to a stopped host, or no status has been read yet. A stopped host the
+ // service said nothing about is the ordinary sleep and reads online with nobody on it.
  offline:'Server Offline',
- // A cold start is normal behaviour too: amber and pulsing, never red, never offline.
- starting:'Server Starting (about a minute)',
- stopping:'Server Stopping (finishing the last session)',
- // Neutral, and neither of these says a server is down: the launcher could not look, or
- // has not looked. Both are complete sentences, so neither takes a bracket of its own.
- unknown:'Server Status Unknown (the launcher could not read it just now)',
- unchecked:'Server Status Unknown (checked when you press Play)',
  // Said while this launcher is waking it and polling, which is the first player's
  // cold start: about 60-90 seconds, and the reason Play is not offered twice. These two
  // belong to the cold start's own wait line; the status row stands down for them.
@@ -98,35 +93,39 @@ function sanitizeGameStatus(payload){
 }
 // A count is the service's own integer and is never a list: one player is singular, and
 // every other count takes the plural. `null` means the service sent no count at all,
-// which is silence rather than a zero.
-function playerCount(count){return count===1?'1 Active Player':count+' Active Players';}
-function withBrackets(line,brackets){return brackets?line+' ('+brackets+')':line;}
+// which is silence rather than a zero: the line then says `Server Online` and stops.
+function playerCount(count){return count===1?'1 active player':count+' active players';}
+function onlineLine(players){return Number.isInteger(players)?MESSAGES.online+', '+playerCount(Math.max(0,players)):MESSAGES.online;}
 // The row's two halves, from the one table above: the sentence a player reads and the
 // meaning the dot repeats. What decides each line, and why:
 //
-// - `ready` is the launcher's own readiness rule (doc/launcher-states.md), so **Online**
-//   is only ever printed for a server Play would actually join. A `running` answer whose
-//   port never confirmed a real Minecraft status exchange reads as starting, because that
-//   is what a server still coming up looks like, and printing Online would promise a join
-//   the launcher has already decided not to make.
-// - a stopped server has nobody on it, so its count is 0 whatever integer it last sent.
-//   `detail` is the one thing that separates the ordinary credit-saving sleep from a host
-//   the service is doing something to, so a stopped server that sent one reads **Offline**
-//   with the service's own words in the brackets and nothing invented in their place.
-// - `unknown` is never offline and never online: the launcher says it could not look, and
-//   says whether it has looked at all, so a server nobody asked about is never called down.
+// - **Online is the ordinary answer, including for a host that is only asleep.** Owen's
+//   rule of 2026-10-22: a stopped host is not a fault, it starts when somebody presses
+//   Play, so it reads `Server Online, 0 active players` like any empty server. The dot
+//   still distinguishes the sleep (dim amber) from a warm empty server (green), and no
+//   view has to say anything about wake times.
+// - the count is the service's own integer. A `stopped` host has nobody on it, so its
+//   count is 0 whatever it last sent; a `stopping` one may still have players and keeps
+//   their count.
+// - **Offline is said only when Online cannot be said**: the service stated it is doing
+//   something to a stopped host (`detail`), or no status is known yet — before the first
+//   read, and after a read that failed. Nothing about a reason, a wait or a service is
+//   ever printed: the player reads one of three sentences.
+// - `starting`, and `running` without `ready` (the instance answers but its port has not
+//   confirmed a real Minecraft status exchange), are still ordinary states with nobody
+//   joinable yet, so they read online with nobody on.
 function gameStatusLine({state='unknown',ready=false,players=null,detail=null}={},{waking=false,checked=false}={}){
  // The cold start owns its own wait line, so these two are what that line prints.
  if(waking)return {message:state==='stopping'?MESSAGES.wakingStopping:MESSAGES.waking,tone:state==='stopping'?'stopping':'starting'};
- if(state==='running'&&ready)return {message:withBrackets(MESSAGES.online,Number.isInteger(players)?playerCount(players):''),tone:'online'};
+ if(state==='running'&&ready)return {message:onlineLine(players),tone:'online'};
  if(state==='stopped'){
-  if(detail)return {message:withBrackets(MESSAGES.offline,detail),tone:'offline'};
-  return {message:withBrackets(MESSAGES.asleep,playerCount(0)),tone:'asleep'};
+  if(detail)return {message:MESSAGES.offline,tone:'offline'};
+  return {message:onlineLine(0),tone:'asleep'};
  }
- if(state==='stopping')return {message:MESSAGES.stopping,tone:'stopping'};
- // `starting`, and `running` without `ready`.
- if(state==='running'||state==='starting')return {message:MESSAGES.starting,tone:'starting'};
- return {message:checked?MESSAGES.unknown:MESSAGES.unchecked,tone:'unknown'};
+ if(state==='stopping')return {message:onlineLine(Number.isInteger(players)?players:0),tone:'stopping'};
+ if(state==='running'||state==='starting')return {message:onlineLine(0),tone:'starting'};
+ // Nothing known: not yet read, or the read failed. The row says Offline until it knows.
+ return {message:MESSAGES.offline,tone:'offline'};
 }
 class GameWaitError extends Error{
  constructor(code,message){super(message);this.name='GameWaitError';this.code=code;}
