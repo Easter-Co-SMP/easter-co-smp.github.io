@@ -68,7 +68,12 @@ run_check() {
 verify_release() {
   local tag="$1" work
   work="$(mktemp -d -t easter-release-verify.XXXXXX)"
-  trap 'rm -rf "$work"' RETURN
+  # A RETURN trap is not scoped to this function: it stays installed and fires again when
+  # the caller returns, by which time this local is gone. Left as it was, `--cut` printed
+  # "release: PASS" and then exited 1 on "work: unbound variable" from the caller's return
+  # (measured 2026-10-22 on 1.0.39, and reproduced in isolation) — a release tool that
+  # reports success and a failing exit code in the same run. Clean up once, then disarm.
+  trap 'rm -rf "$work"; trap - RETURN' RETURN
   local json
   json="$(gh release view "$tag" --json tagName,isDraft,isPrerelease,assets)"
   echo "$json" | "$python" -c '
