@@ -126,11 +126,13 @@ export async function openMyProfile({desktop,getState,isAccountLocked,openEmails
    catch(error){return {ok:false,error:error&&error.message?error.message:'Your password could not be changed. Try again.'};}
    if(outcome&&outcome.ok===false){
     const refusal=outcome.error||'Your password could not be changed. Try again.';
-    // The account service's own sentence, and - only while the service still asks for a fresh
-    // sign-in - the one route this launcher has. There is no password reset: the sign-in
-    // chooser says so too (site/company-auth.mjs). When any active session is enough, the
-    // service stops answering this code and this second line stops being drawn.
-    return {ok:false,error:outcome.code==='reauthentication_required'?[refusal,'Sign out of the launcher, sign in again with a linked provider, then change it here.']:refusal};
+    // The account service's own sentence is the whole refusal. Owen's rule of 2026-10-22 is that
+    // any active sign-in is enough, so the service no longer answers reauthentication_required and
+    // there is no second route to name here; the "sign out and sign in with a linked provider"
+    // line that used to follow it described a rule that no longer exists. There is still no
+    // password reset anywhere in this launcher (site/company-auth.mjs says so on the sign-in
+    // chooser), and a live session is still the only thing that can reach this form.
+    return {ok:false,error:refusal};
    }
    passwordForm.reset();
    return {ok:true};
