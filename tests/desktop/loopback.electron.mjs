@@ -4,6 +4,12 @@
 // recorded in the fixture tree, so the flow under test is the client content:
 // manifest fetch, chunk diff, download with byte progress, pause, resume, and the
 // marker the next run reads.
+//
+// The graphics chunk is the payload the live manifest really publishes — Iris, Sodium,
+// the Complementary shader pack and the cached Grassier Grass jar — clicked through the
+// page's own toggle, so the activation desktop/visuals.cjs performs is exercised rather
+// than skipped. Only the bytes are fixtures; the inventory, paths and versions come from
+// site/data/client.json, which is what the launcher downloads from the public origin.
 // Run: xvfb-run -a node tests/desktop/loopback.electron.mjs
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -14,12 +20,17 @@ import path from 'node:path';
 import {createRequire} from 'node:module';
 import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
 const root=process.cwd();
-// The guiScale rule itself, so the value the launcher writes is compared with the rule
-// applied to this display instead of with a constant that would pass on any screen.
-const {displayGuiScale}=createRequire(import.meta.url)(path.join(root,'desktop','hardware.cjs'));
+// The rule and the constants the launcher itself matches the published payload with, so
+// this journey compares the manifest with the code instead of with a copy of it: the
+// guiScale rule applied to this display, the one shader pack name iris.properties may
+// carry, and the cache path the managed Grassier Grass jar is activated from.
+const {displayGuiScale,SHADER_PACK_NAME}=createRequire(import.meta.url)(path.join(root,'desktop','hardware.cjs'));
+const {GRASS_CACHE,GRASS_ACTIVE}=createRequire(import.meta.url)(path.join(root,'desktop','visuals.cjs'));
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'easter-loopback-test-'));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const sha256=buffer=>crypto.createHash('sha256').update(buffer).digest('hex');
+const sha512=buffer=>crypto.createHash('sha512').update(buffer).digest('hex');
+const exists=async file=>fs.stat(file).then(()=>true,()=>false);
 let failures=0;
 let tunedDistance=null,optionsAtRest=null,expectedScale=null,migratedSettings=null;
 function check(condition,message){if(condition)console.log('  ok   '+message);else{failures++;console.log('  FAIL '+message);}}
@@ -91,10 +102,55 @@ function checkDistinctBindings(text,label){
 
 // ---- the published fixture --------------------------------------------------
 const baseJar=Buffer.from('easter-navy-base-jar');
-const graphicsV2=crypto.randomBytes(512*1024);
-const graphicsV3=Buffer.from('graphics-v3-'+'z'.repeat(64*1024));
-const files={'/files/base.jar':baseJar,'/files/graphics.zip':graphicsV2};
+// The graphics chunk is not one synthetic file any more. It carries the file set the live
+// manifest declares, read from this repository's own copy of it (site/data/client.json is
+// what https://easter-co-smp.github.io/data/client.json serves), because a one-file chunk
+// skipped the whole activation path: the Iris and Sodium names desktop/visuals.cjs matches
+// with its own regexes, the shader pack whose basename has to equal SHADER_PACK_NAME, and
+// the optional-mods cache it requires before it will activate mods/easter-grassier-grass.jar.
+// Only the bytes, hashes and urls are fixtures; nothing here downloads from Modrinth.
+const publishedClient=JSON.parse(await fs.readFile(path.join(root,'site','data','client.json'),'utf8'));
+const publishedGraphics=publishedClient.chunks.find(chunk=>chunk.id==='graphics');
+// What kind of managed file a path is, by the shapes the launcher's own matches use.
+const kindOf=relative=>/^mods\/iris(?:-[^/]*)?\.jar$/.test(relative)?'iris':/^mods\/sodium(?:-[^/]*)?\.jar$/.test(relative)?'sodium':/^shaderpacks\/[^/]+\.zip$/.test(relative)?'shader':relative===GRASS_CACHE?'grass':null;
+const publishedPaths=publishedGraphics.files.map(file=>file.path);
+const publishedOf=kind=>publishedGraphics.files.find(file=>kindOf(file.path)===kind)||null;
+const SHADER_PATH=publishedOf('shader')?.path,IRIS_PATH=publishedOf('iris')?.path,SODIUM_PATH=publishedOf('sodium')?.path,GRASS_PATH=publishedOf('grass')?.path;
+// The release before the one the manifest declares, and one after it. A managed jar that
+// changes its name between versions is what the retirement rule exists for, so the fixture
+// publishes both directions: an older Iris the tree already has, a newer Sodium an update
+// brings.
+const OLD_IRIS='mods/iris-fabric-1.11.3+mc26.2.jar';
+const NEW_SODIUM='mods/sodium-fabric-0.9.3+mc26.2.jar';
+const fixtureBytes=text=>Buffer.from('easter-fixture-'+text);
+const files={'/files/base.jar':baseJar};
 const requests=[];
+// A publisher's file is addressed by its own content, as the CDN's are, so one release
+// never overwrites another's bytes and every fetch names exactly what it received.
+function publishBytes(bytes){const name=sha256(bytes).slice(0,16);files['/files/'+name]=bytes;return 'files/'+name;}
+// Every published field of one file, with fixture bytes in place of the publisher's.
+function graphicsFile(relative,bytes){
+ const kind=kindOf(relative),source=publishedOf(kind),name=path.posix.basename(relative);
+ return {id:source?.id||kind,name:source?.name||name,version:source?.version||'',path:relative,url:publishBytes(bytes),hash:'sha512:'+sha512(bytes),size:bytes.length};
+}
+// One released graphics chunk: `set` is its [path, bytes] pairs in the manifest's own
+// order, and the version is derived from what the release carries.
+function graphicsChunk(set){
+ const entries=set.map(([relative,bytes])=>graphicsFile(relative,bytes));
+ const version='sha256:'+sha256(Buffer.concat(entries.map(entry=>Buffer.from(entry.path+' '+entry.hash))));
+ return {id:'graphics',name:publishedGraphics.name,optional:true,immutable:false,version,files:entries};
+}
+const graphicsRelease=({shader,iris=IRIS_PATH,sodium=SODIUM_PATH})=>graphicsChunk([[SHADER_PATH,shader],[iris,fixtureBytes(path.posix.basename(iris))],[sodium,fixtureBytes(path.posix.basename(sodium))],[GRASS_PATH,fixtureBytes(path.posix.basename(GRASS_PATH))]]);
+// V0 is the release this tree already has; V1 is what the toggle installs, V2 an update
+// that renames Sodium, V3 the transfer the pause/resume section stops and resumes.
+const graphicsV0=graphicsRelease({shader:crypto.randomBytes(96*1024),iris:OLD_IRIS});
+const graphicsV1=graphicsRelease({shader:crypto.randomBytes(320*1024)});
+const graphicsV2=graphicsRelease({shader:crypto.randomBytes(256*1024),sodium:NEW_SODIUM});
+const graphicsV3=graphicsRelease({shader:crypto.randomBytes(512*1024),sodium:NEW_SODIUM});
+// The bytes a release publishes for one path, and the url the stub serves them on.
+const releaseBytes=(chunk,relative)=>files['/'+chunk.files.find(entry=>entry.path===relative).url];
+const releaseUrl=(chunk,relative)=>'/'+chunk.files.find(entry=>entry.path===relative).url;
+const chunkSize=chunk=>chunk.files.reduce((sum,entry)=>sum+entry.size,0);
 // The one non-client document the launcher reads from its own origin, named here once so
 // both "no client content" checks stay about client content (doc/launcher-discovery.md).
 const EDITORIAL_PATHS=new Set(['/home.json']);
@@ -123,7 +179,7 @@ const manifest={
  dependencies:[{id:'fabric-api',name:'Fabric API',version:'0.161.0+26.2'}],
  chunks:[
   {id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(baseJar),files:[{id:'easter-navy',name:'Easter Co. client',version:'2.0.0',path:'mods/easter-navy.jar',url:'files/base.jar',hash:'sha256:'+sha256(baseJar),size:baseJar.length}]},
-  {id:'graphics',name:'Enhanced graphics',optional:true,immutable:false,version:'sha256:'+sha256(graphicsV2),files:[{id:'graphics',name:'Enhanced graphics',version:'1.0.0',path:'shaderpacks/graphics.zip',url:'files/graphics.zip',hash:'sha256:'+sha256(graphicsV2),size:graphicsV2.length}]}
+  graphicsV0
  ]
 };
 files['/data/client.json']=Buffer.from(JSON.stringify(manifest));
@@ -155,17 +211,24 @@ await fs.mkdir(path.join(clientRoot,'versions',fabricVersion),{recursive:true});
 await fs.writeFile(path.join(clientRoot,'versions',fabricVersion,fabricVersion+'.json'),'{}');
 await fs.mkdir(path.join(clientRoot,'mods'),{recursive:true});
 await fs.writeFile(path.join(clientRoot,'mods','easter-navy.jar'),baseJar);
-await fs.mkdir(path.join(clientRoot,'shaderpacks'),{recursive:true});
-await fs.writeFile(path.join(clientRoot,'shaderpacks','graphics.zip'),graphicsV2);
+// The graphics release this tree already carries, at the published paths: the previous
+// Iris, the declared Sodium, the declared shader pack and the cached Grassier Grass jar.
+for(const entry of graphicsV0.files){
+ const target=path.join(clientRoot,entry.path);
+ await fs.mkdir(path.dirname(target),{recursive:true});
+ await fs.writeFile(target,files['/'+entry.url]);
+}
+// The tree carries that release with enhanced graphics switched off, so the toggle under
+// the hero action has both directions to prove and the client has never been tuned.
 await fs.writeFile(path.join(clientRoot,'.easter-client'),'');
 await fs.writeFile(path.join(clientRoot,'installed.json'),JSON.stringify({
  version:fabricVersion,minecraft:'26.2',fabric:'0.19.5',java,
  game:{minecraft:'26.2',fabric:'0.19.5',verified:true},
  chunks:{
   base:{id:'base',version:manifest.chunks[0].version,immutable:true,files:['mods/easter-navy.jar'],verified:true},
-  graphics:{id:'graphics',version:manifest.chunks[1].version,immutable:false,files:['shaderpacks/graphics.zip'],verified:true}
+  graphics:{id:'graphics',version:graphicsV0.version,immutable:false,files:graphicsV0.files.map(entry=>entry.path),verified:true}
  },
- files:['mods/easter-navy.jar','shaderpacks/graphics.zip'],includeGraphics:true,updatedAt:'2026-10-15T00:00:00.000Z'
+ files:['mods/easter-navy.jar',...graphicsV0.files.map(entry=>entry.path)],includeGraphics:false,updatedAt:'2026-10-15T00:00:00.000Z'
 }));
 // The settings file this run is given is the shape both household machines actually carry
 // today: written by cleanSettings when true was the default, so exitOnLaunch is true and
@@ -173,7 +236,7 @@ await fs.writeFile(path.join(clientRoot,'installed.json'),JSON.stringify({
 // graphicsChosen included, which is why the migration's write-back is checked for keeping
 // that flag as well as the rest of the file.
 const settingsPath=path.join(temp,'settings.json');
-await fs.writeFile(settingsPath,JSON.stringify({memoryMB:4096,javaPath:'',server:'100.100.1.0:25565',location:clientRoot,includeGraphics:true,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:true,graphicsChosen:true}));
+await fs.writeFile(settingsPath,JSON.stringify({memoryMB:4096,javaPath:'',server:'100.100.1.0:25565',location:clientRoot,includeGraphics:false,autoUpdateLauncher:true,autoUpdateGame:true,exitOnLaunch:true,graphicsChosen:true}));
 const oldSettingsBytes=await fs.readFile(settingsPath,'utf8');
 // The display-default seam: the tree is installed and current before the app starts,
 // which is the state a returning player is in. options.txt does not exist yet, and the
@@ -208,6 +271,10 @@ try{
   const win=BrowserWindow.getAllWindows()[0];
   global.__states=[];global.__mark=0;
   const send=win.webContents.send.bind(win.webContents);
+  // The original send is kept under its own name: the graphics section needs to hand the
+  // renderer one state the app cannot publish here, and a forged broadcast must not be
+  // mistaken for one the app recorded.
+  global.__rawSend=send;
   win.webContents.send=(channel,...args)=>{if(channel==='launcher:state')global.__states.push(JSON.parse(JSON.stringify(args[0])));return send(channel,...args);};
  });
  const since=async()=>app.evaluate(()=>global.__states.slice(global.__mark));
@@ -227,7 +294,7 @@ try{
  const started=await page.evaluate(()=>window.easterDesktop.status());
  check(started.install.installed===true,'the fixture client tree is recognised as installed');
  check(path.resolve(started.install.location)===path.resolve(clientRoot),'the chosen installation location is the one in use: '+started.install.location);
- check(started.install.includeGraphics===true,'the persisted enhanced graphics toggle is reported');
+ check(started.install.includeGraphics===false,'the persisted enhanced graphics toggle is reported: off, which is how this tree carries its graphics chunk');
  check(started.phase==='ready'&&started.progress===null,'the launch update check found nothing and stayed quiet');
  check(started.canPlay===false,'an installed client with no account is not playable');
  // The renderer also pulls map data through the same origin; no client content is fetched.
@@ -313,30 +380,154 @@ try{
  check(await fs.stat(path.join(clientRoot,'config','iris.properties')).then(()=>'present',()=>'absent')==='absent','the seed is not the graphics step: no iris.properties was written');
  check(requests.every(isClientRead),'and the seed fetched no client content');
 
- console.log('\n2. publishing a new graphics chunk and applying it through the real pipeline');
- files['/data/client.json']=Buffer.from(JSON.stringify({...manifest,chunks:[manifest.chunks[0],{...manifest.chunks[1],version:'sha256:'+sha256(graphicsV3),files:[{...manifest.chunks[1].files[0],hash:'sha256:'+sha256(graphicsV3),size:graphicsV3.length}]}]}));
- files['/files/graphics.zip']=graphicsV3;
+ console.log('\n1c. the one server the launcher targets, and the machine it found');
+ // The launcher targets one fixed production server: this run's settings file carries
+ // the legacy address an existing install has, and the state publishes no choice at all.
+ check(!('servers' in started),'status() publishes no server list');
+ check(!('server' in started.settings),'and the settings carry no server address: '+JSON.stringify(started.settings));
+ check(!('server' in migratedFile),'the address left behind by an older build is not written back into settings.json: '+JSON.stringify(migratedFile));
+ check(JSON.stringify(started).includes(TEST_SERVER)===false,'the test-only override is a main-process environment value and never reaches the renderer state: '+TEST_SERVER);
+ check(Boolean(started.hardware)&&['capable','weak','unknown'].includes(started.hardware.tier),'status() publishes a detected hardware tier: '+JSON.stringify(started.hardware));
+ check(typeof started.hardware?.reason==='string'&&started.hardware.reason.length>0,'with a displayable reason: '+started.hardware?.reason);
+ check(Boolean(started.hardware)&&'vramMB' in started.hardware,'vramMB is published, null when the platform will not report it: '+started.hardware?.vramMB);
+ check(started.hardware.tier==='capable'&&started.hardware.tunable===true,'this run is told to assume a capable adapter, so the quality ladder applies: '+JSON.stringify({tier:started.hardware.tier,tunable:started.hardware.tunable}));
+ check(Boolean(started.graphics)&&'enabled' in started.graphics&&'recommended' in started.graphics&&'tunable' in started.graphics&&'tuned' in started.graphics,'status() publishes the graphics state shape: '+JSON.stringify(started.graphics));
+ check(started.graphics.enabled===false,'the player\'s saved toggle is what graphics.enabled reports');
+
+ console.log('\n2. clicking the real toggle on installs the published graphics chunk and activates it');
+ // The premise, read before anything is clicked: the file set and paths the live manifest
+ // publishes, compared with the constants the launcher itself matches them by. A published
+ // payload that disagreed with any of these would install files the next step refuses to
+ // use, and the shader pack it names would never be loaded.
+ check(publishedGraphics.files.length===4&&publishedPaths.every(relative=>kindOf(relative)!==null),'the published graphics chunk is the four managed files this journey reproduces: '+JSON.stringify(publishedPaths));
+ check(path.posix.basename(SHADER_PATH)===SHADER_PACK_NAME,'and its shader pack carries the one name the launcher writes into iris.properties: '+SHADER_PACK_NAME);
+ check(GRASS_PATH===GRASS_CACHE,'its cached Grassier Grass jar sits at the path desktop/visuals.cjs activates from: '+GRASS_CACHE);
+ check(GRASS_ACTIVE==='mods/easter-grassier-grass.jar','whose activated copy is the managed jar in mods/: '+GRASS_ACTIVE);
+ // The row the player clicks exists at the Play Now stage and nowhere earlier. It is also
+ // hidden while nobody is signed in, which is the page's own rule (graphicsOffered in
+ // site/desktop.js), so this run states that rule and then hands the renderer the one state
+ // it cannot reach here: safeStorage reports basic_text under xvfb, so desktop/main.cjs
+ // cannot save or read a session at all.
+ check(await page.locator('.hero-graphics').count()===1,'the graphics row exists in the real page');
+ check(await page.locator('.hero-graphics').isHidden(),'and stays hidden while no Minecraft session exists, the rule graphicsOffered states: access is '+started.minecraftAccess);
+ // Clicking is what this journey proves, so the two bridge calls the section used to make
+ // are gone: the change handler below is the page's own, and everything under it is real.
+ const forgery=async state=>app.evaluate((_electron,payload)=>global.__rawSend('launcher:state',payload),state);
+ const revealGraphics=async()=>{
+  const state=(await latest())??(await page.evaluate(()=>window.easterDesktop.status()));
+  if(state.minecraftAccess!=='owned'){
+   console.log('  info no session can exist in this run, so the renderer is handed the state main published with minecraftAccess:"owned" and nothing else changed; that is the one state the Play Now row appears in, and every effect below it is the real pipeline');
+   await forgery({...state,minecraftAccess:'owned'});
+  }
+  await page.locator('.hero-graphics').waitFor({state:'visible'});
+ };
+ // One click on the page's own control, then the wait for the real pipeline to finish. The
+ // handler disables the switch for the length of the change, so the control's own disabled
+ // flag is the completion signal, and a change event that fired is what proves the click
+ // reached the page's handler rather than the bridge.
+ const clickGraphicsToggle=async wanted=>{
+  await revealGraphics();
+  const toggle=page.locator('.hero-graphics input[data-graphics-toggle]');
+  check(await toggle.isVisible(),'the real toggle is a visible control in the page');
+  check((await toggle.isChecked())===!wanted,'and shows the state the launcher reported before the click: '+!wanted);
+  await page.evaluate(()=>{
+   window.__graphicsClicked=false;
+   const input=document.querySelector('.hero-graphics input[data-graphics-toggle]');
+   input.addEventListener('change',()=>{window.__graphicsClicked=true;},{once:true,capture:true});
+  });
+  if(wanted)await toggle.check();else await toggle.uncheck();
+  for(let attempt=0;attempt<1600;attempt++){
+   const settled=await page.evaluate(()=>{
+    const input=document.querySelector('.hero-graphics input[data-graphics-toggle]');
+    return Boolean(window.__graphicsClicked)&&Boolean(input)&&!input.disabled;
+   });
+   if(settled)return latest();
+   await sleep(25);
+  }
+  throw Error('timed out waiting for the graphics click to settle; last state '+JSON.stringify(await latest()));
+ };
+ // The publish the click picks up: the release the live manifest declares today.
+ files['/data/client.json']=Buffer.from(JSON.stringify({...manifest,chunks:[manifest.chunks[0],graphicsV1]}));
+ requests.length=0;
+ await mark();
+ const onState=await clickGraphicsToggle(true);
+ // The four files the published chunk declares, on disk with the bytes it published.
+ for(const entry of graphicsV1.files){
+  const onDisk=await fs.readFile(path.join(clientRoot,entry.path)).then(bytes=>bytes,null);
+  check(Boolean(onDisk)&&onDisk.equals(releaseBytes(graphicsV1,entry.path)),'the published file '+entry.path+' is on disk with the bytes the manifest declares ('+entry.size+' bytes)');
+ }
+ check(JSON.stringify(graphicsV1.files.map(entry=>entry.path))===JSON.stringify(publishedPaths),'and the chunk is exactly the published file set, in its order: '+JSON.stringify(publishedPaths));
+ check(requests.some(request=>request.path==='/data/client.json'),'the click read the published manifest: '+JSON.stringify(requests.map(request=>request.path)));
+ check(requests.every(request=>request.path==='/data/client.json'||request.path.startsWith('/files/')),'and fetched nothing but graphics chunk files: '+JSON.stringify(requests.map(request=>request.path)));
+ check(requests.filter(request=>request.path==='/files/base.jar').length===0,'the frozen base chunk was neither fetched nor re-verified');
+ const fetched=graphicsV1.files.map(entry=>releaseUrl(graphicsV1,entry.path)).filter(url=>requests.some(request=>request.path===url));
+ check(fetched.includes(releaseUrl(graphicsV1,SHADER_PATH))&&fetched.includes(releaseUrl(graphicsV1,IRIS_PATH)),'the two files whose bytes changed were fetched: '+JSON.stringify(fetched));
+ check(!fetched.includes(releaseUrl(graphicsV1,SODIUM_PATH))&&!fetched.includes(releaseUrl(graphicsV1,GRASS_PATH)),'and the two the tree already carried byte for byte were verified rather than downloaded again: '+JSON.stringify([SODIUM_PATH,GRASS_PATH]));
+ // The activation desktop/visuals.cjs performs: the cache is copied into a loadable jar,
+ // which only happens when the payload it requires is all present and shaders are named.
+ const activeGrass=path.join(clientRoot,GRASS_ACTIVE),cachedGrass=path.join(clientRoot,GRASS_PATH);
+ const activeBytes=await fs.readFile(activeGrass).then(bytes=>bytes,null);
+ check(Boolean(activeBytes),'mods/easter-grassier-grass.jar is activated in mods/');
+ check(Boolean(activeBytes)&&activeBytes.equals(await fs.readFile(cachedGrass)),'and is a byte-equal copy of the cached '+GRASS_PATH);
+ const irisOn=await fs.readFile(path.join(clientRoot,'config','iris.properties'),'utf8');
+ check(/^enableShaders:true$/m.test(irisOn),'iris.properties carries enableShaders:true');
+ check(irisOn.includes('shaderPack:'+SHADER_PACK_NAME),'and names the shader pack that is on disk: shaderPack:'+SHADER_PACK_NAME);
+ const optionsOn=await fs.readFile(path.join(clientRoot,'options.txt'),'utf8');
+ check(onState.graphics.enabled===true,'the broadcast state has the toggle on');
+ check(onState.graphics.tuned?.shaders===true,'and graphics.tuned reports shaders:true: '+JSON.stringify(onState.graphics.tuned));
+ check(Number.isFinite(onState.graphics.tuned?.renderDistance)&&new RegExp('^renderDistance:'+onState.graphics.tuned.renderDistance+'$','m').test(optionsOn),'options.txt carries the tuned render distance it reports: '+onState.graphics.tuned?.renderDistance);
+ check(/^graphicsPreset:"custom"$/m.test(optionsOn)&&/^ao:(true|false)$/m.test(optionsOn),'and the Minecraft 26.2 quality fields: '+optionsOn.trim().split('\n').join(' '));
+ check(new RegExp('^guiScale:'+expectedScale+'$','m').test(optionsOn)&&/^fullscreen:true$/m.test(optionsOn),'with the display defaults still in place: guiScale:'+expectedScale);
+ check(IMMEDIATE_BINDINGS.every(key=>new RegExp('^'+key.replace(/\./g,'\\.')+':'+WANTED_BINDS[key].replace(/\./g,'\\.')+'$','m').test(optionsOn)),'and all 31 seeded bindings, the 22 debug unbinds included');
+ tunedDistance=onState.graphics.tuned.renderDistance;
+ const markerOn=await marker();
+ check(markerOn.chunks.graphics.version===graphicsV1.version,'the install marker records the graphics chunk version the click installed: '+graphicsV1.version);
+ check(JSON.stringify(markerOn.chunks.graphics.files)===JSON.stringify(publishedPaths),'with the published file list: '+JSON.stringify(markerOn.chunks.graphics.files));
+ check(markerOn.chunks.base.version===manifest.chunks[0].version,'and the base chunk record is untouched');
+ check(markerOn.includeGraphics===true,'the marker records the toggle as on');
+ const savedOn=JSON.parse(await fs.readFile(settingsPath,'utf8'));
+ check(savedOn.includeGraphics===true&&savedOn.graphicsChosen===true,'the click is persisted as the player\'s own choice: '+JSON.stringify({includeGraphics:savedOn.includeGraphics,graphicsChosen:savedOn.graphicsChosen}));
+ check(!(await exists(path.join(clientRoot,OLD_IRIS))),'the Iris jar the previous release installed is retired from mods/: '+OLD_IRIS);
+ check((await since()).every(state=>!state.error),'and the graphics change reported no failure');
+
+ console.log('\n3. a new graphics chunk version retires only the files the previous one installed');
+ // A file the player put in mods/ themselves. No retirement rule may touch it.
+ const playerJar=path.join(clientRoot,'mods','my-own-mod.jar'),playerBytes=Buffer.from('a mod the player added');
+ await fs.writeFile(playerJar,playerBytes);
+ // The published update renames a managed jar: Sodium moves on, Iris does not.
+ files['/data/client.json']=Buffer.from(JSON.stringify({...manifest,chunks:[manifest.chunks[0],graphicsV2]}));
  requests.length=0;
  await mark();
  await page.evaluate(()=>{window.__check=window.easterDesktop.checkUpdates().then(()=> 'done',error=>'error: '+error.message);});
  const downloading=await waitFor(state=>state.progress&&(state.progress.bytesDone||0)>0,'the update to report progress');
  check(await page.evaluate(()=>window.__check)==='done','the update completed');
  check(downloading.phase==='updating','an update reports the updating phase');
- check(typeof downloading.progress.bytesTotal==='number'&&downloading.progress.bytesTotal===graphicsV3.length,'the chunk size the manifest declares is the progress total: '+downloading.progress.bytesTotal);
- check(downloading.progress.bytesDone>0&&downloading.progress.bytesDone<=graphicsV3.length,'progress carries the bytes actually fetched: '+downloading.progress.bytesDone);
- check(requests.length>0&&requests.every(entry=>entry.path==='/data/client.json'||entry.path==='/files/graphics.zip'),'only the changed chunk was fetched: '+JSON.stringify(requests.map(r=>r.path)));
- check(requests.filter(entry=>entry.path==='/files/base.jar').length===0,'the unchanged base chunk was not fetched');
- check(sha256(await fs.readFile(path.join(clientRoot,'shaderpacks','graphics.zip')))===sha256(graphicsV3),'the new chunk file matches its published checksum');
- check((await marker()).chunks.graphics.version==='sha256:'+sha256(graphicsV3),'the marker records the installed chunk version');
- check((await marker()).chunks.base.version===manifest.chunks[0].version,'the base chunk record is untouched');
- check(sha256(await fs.readFile(path.join(clientRoot,'mods','easter-navy.jar')))===sha256(baseJar),'the base chunk file is untouched');
+ check(downloading.progress.bytesTotal===chunkSize(graphicsV2),'the size the manifest declares for the chunk is the progress total: '+downloading.progress.bytesTotal);
+ check(downloading.progress.bytesDone>0&&downloading.progress.bytesDone<=chunkSize(graphicsV2),'progress carries the bytes actually fetched: '+downloading.progress.bytesDone);
+ check(requests.every(request=>request.path==='/data/client.json'||request.path.startsWith('/files/')),'only the changed chunk was fetched: '+JSON.stringify(requests.map(request=>request.path)));
+ check(requests.filter(request=>request.path==='/files/base.jar').length===0,'the unchanged base chunk was not fetched');
+ check(requests.some(request=>request.path===releaseUrl(graphicsV2,SHADER_PATH)),'the shader pack whose bytes changed was fetched');
+ check(!requests.some(request=>request.path===releaseUrl(graphicsV2,IRIS_PATH)),'the Iris jar whose bytes did not change was not fetched again');
+ check(requests.some(request=>request.path===releaseUrl(graphicsV2,NEW_SODIUM)),'and the renamed Sodium release was fetched');
+ check(!(await exists(path.join(clientRoot,SODIUM_PATH))),'the Sodium jar the previous version installed is gone from mods/: '+SODIUM_PATH);
+ check(await exists(path.join(clientRoot,NEW_SODIUM)),'and the one this version installs is on disk: '+NEW_SODIUM);
+ check(await exists(path.join(clientRoot,IRIS_PATH)),'the Iris jar this version still declares is kept: '+IRIS_PATH);
+ check(await exists(path.join(clientRoot,GRASS_PATH)),'the cached foliage jar is kept: '+GRASS_PATH);
+ check(await exists(playerJar),'a file the player added to mods/ is untouched: '+path.posix.basename(playerJar));
+ check((await fs.readFile(playerJar)).equals(playerBytes),'and byte-identical');
+ check((await fs.readFile(path.join(clientRoot,SHADER_PATH))).equals(releaseBytes(graphicsV2,SHADER_PATH)),'the shader pack on disk is the new release');
+ const markerUpdate=await marker();
+ check(markerUpdate.chunks.graphics.version===graphicsV2.version,'the marker records the new graphics chunk version');
+ check(JSON.stringify(markerUpdate.chunks.graphics.files)===JSON.stringify(graphicsV2.files.map(entry=>entry.path)),'with the file list the new version installs, the renamed Sodium included: '+JSON.stringify(markerUpdate.chunks.graphics.files));
+ check(markerUpdate.chunks.base.version===manifest.chunks[0].version,'and the base chunk record is untouched');
+ check(sha256(await fs.readFile(path.join(clientRoot,'mods','easter-navy.jar')))===sha256(baseJar),'so is the base chunk file');
+ check((await fs.readFile(activeGrass)).equals(await fs.readFile(cachedGrass)),'the activated foliage jar still matches its cache');
  const ready=await latest();
  check(ready.phase==='ready'&&ready.install.installed===true,'the launcher settles back to ready');
  check(ready.actions.length===1&&ready.actions[0]==='signin','the only remaining requirement is the sign-in');
 
- console.log('\n3. pausing and resuming that transfer in the running app');
- files['/data/client.json']=Buffer.from(JSON.stringify({...manifest,chunks:[manifest.chunks[0],{...manifest.chunks[1],version:'sha256:'+sha256(graphicsV2),files:[{...manifest.chunks[1].files[0],hash:'sha256:'+sha256(graphicsV2),size:graphicsV2.length}]}]}));
- files['/files/graphics.zip']=graphicsV2;
+ console.log('\n4. pausing and resuming that transfer in the running app');
+ files['/data/client.json']=Buffer.from(JSON.stringify({...manifest,chunks:[manifest.chunks[0],graphicsV3]}));
  requests.length=0;
  await mark();
  await page.evaluate(()=>{window.__check2=window.easterDesktop.checkUpdates().then(()=> 'done',error=>'error: '+error.message);});
@@ -354,65 +545,43 @@ try{
  const resumed=await waitFor(state=>state.paused===false&&state.progress&&state.progress.bytesDone>frozenAt,'the resumed state');
  check(resumed.progress.bytesDone>frozenAt,'bytesDone advances after resume ('+frozenAt+' -> '+resumed.progress.bytesDone+')');
  check(await page.evaluate(()=>window.__check2)==='done','the resumed update completed');
- check(sha256(await fs.readFile(path.join(clientRoot,'shaderpacks','graphics.zip')))===sha256(graphicsV2),'the resumed file matches its checksum');
- check((await marker()).chunks.graphics.version==='sha256:'+sha256(graphicsV2),'the marker records the resumed chunk version');
- check(moving.progress.bytesTotal===graphicsV2.length,'the transfer knew its total from the manifest');
+ check((await fs.readFile(path.join(clientRoot,SHADER_PATH))).equals(releaseBytes(graphicsV3,SHADER_PATH)),'the resumed shader pack matches the published bytes');
+ check((await marker()).chunks.graphics.version===graphicsV3.version,'the marker records the resumed chunk version');
+ check(moving.progress.bytesTotal===chunkSize(graphicsV3),'the transfer knew its total from the manifest: '+chunkSize(graphicsV3));
 
- console.log('\n4. the enhanced graphics toggle in the running app');
- // The launcher targets one fixed production server: this run's settings file carries
- // the legacy address an existing install has, and the state publishes no choice at all.
- check(!('servers' in started),'status() publishes no server list');
- check(!('server' in started.settings),'and the settings carry no server address: '+JSON.stringify(started.settings));
- check(!('server' in migratedFile),'the address left behind by an older build is not written back into settings.json: '+JSON.stringify(migratedFile));
- check(JSON.stringify(started).includes(TEST_SERVER)===false,'the test-only override is a main-process environment value and never reaches the renderer state: '+TEST_SERVER);
- check(Boolean(started.hardware)&&['capable','weak','unknown'].includes(started.hardware.tier),'status() publishes a detected hardware tier: '+JSON.stringify(started.hardware));
- check(typeof started.hardware?.reason==='string'&&started.hardware.reason.length>0,'with a displayable reason: '+started.hardware?.reason);
- check(Boolean(started.hardware)&&'vramMB' in started.hardware,'vramMB is published, null when the platform will not report it: '+started.hardware?.vramMB);
- check(Boolean(started.graphics)&&'enabled' in started.graphics&&'recommended' in started.graphics&&'tunable' in started.graphics&&'tuned' in started.graphics,'status() publishes the graphics state shape: '+JSON.stringify(started.graphics));
- check(started.graphics.enabled===true,'the player\'s saved toggle is what graphics.enabled reports');
- // The client is installed and the manifest publishes the graphics chunk, so the
- // toggle has real work to do in both directions.
+ console.log('\n5. clicking the toggle off removes the activated mod, keeps the cache and fetches nothing');
  requests.length=0;
  await mark();
- await page.evaluate(()=>{window.__off=window.easterDesktop.setGraphics(false).then(()=> 'done',error=>'error: '+error.message);});
- check(await page.evaluate(()=>window.__off)==='done','turning enhanced graphics off settles');
- const offState=await latest();
+ const offState=await clickGraphicsToggle(false);
  check(offState.graphics.enabled===false,'the toggle is off in the broadcast state');
- check(requests.every(entry=>!entry.path.startsWith('/files/')),'switching off fetches no client content: '+JSON.stringify(requests.map(entry=>entry.path)));
- check(sha256(await fs.readFile(path.join(clientRoot,'shaderpacks','graphics.zip')))===sha256(graphicsV2),'and removes nothing that was already installed');
- check((await marker()).chunks.graphics.version==='sha256:'+sha256(graphicsV2),'the installed graphics record survives with the toggle off');
- check((await marker()).chunks.base.version===manifest.chunks[0].version,'the base chunk is still the verified one');
- const savedOff=JSON.parse(await fs.readFile(path.join(temp,'settings.json'),'utf8'));
+ check(offState.graphics.tuned?.shaders===false,'and graphics.tuned reports the shaders the client now carries: '+JSON.stringify(offState.graphics.tuned));
+ check(requests.every(request=>!request.path.startsWith('/files/')),'switching off fetches no chunk file: '+JSON.stringify(requests.map(request=>request.path)));
+ check(!(await exists(activeGrass)),'the activated mods/easter-grassier-grass.jar is removed');
+ check(await exists(cachedGrass),'the cached '+GRASS_PATH+' stays on disk for the next enable');
+ check((await fs.readFile(cachedGrass)).equals(releaseBytes(graphicsV3,GRASS_PATH)),'still carrying the published bytes');
+ check(await exists(path.join(clientRoot,SHADER_PATH)),'so does the shader pack: '+SHADER_PATH);
+ check(/^enableShaders:false$/m.test(await fs.readFile(path.join(clientRoot,'config','iris.properties'),'utf8')),'iris.properties is rewritten with enableShaders:false');
+ const markerOff=await marker();
+ check(markerOff.chunks.graphics.version===graphicsV3.version,'the install marker keeps the graphics chunk version');
+ check(markerOff.chunks.base.version===manifest.chunks[0].version,'and the base chunk record');
+ check(markerOff.includeGraphics===false,'and records the toggle as off');
+ const savedOff=JSON.parse(await fs.readFile(settingsPath,'utf8'));
  check(savedOff.includeGraphics===false&&savedOff.graphicsChosen===true,'the choice is persisted as the player\'s own: '+JSON.stringify({includeGraphics:savedOff.includeGraphics,graphicsChosen:savedOff.graphicsChosen}));
- // Turning it back on downloads the payload only when the published chunk differs,
- // and writes the client's own quality settings inside the app-owned tree.
- files['/data/client.json']=Buffer.from(JSON.stringify({...manifest,chunks:[manifest.chunks[0],{...manifest.chunks[1],version:'sha256:'+sha256(graphicsV3),files:[{...manifest.chunks[1].files[0],hash:'sha256:'+sha256(graphicsV3),size:graphicsV3.length}]}]}));
- files['/files/graphics.zip']=graphicsV3;
+ check((await since()).every(state=>!state.error),'and switching it off reported no failure');
+ // Switching it back on with nothing changed on the publisher's side is local work: the
+ // chunk is installed and current, so no chunk file is fetched and the foliage jar is
+ // activated from the cache the off direction deliberately kept.
  requests.length=0;
  await mark();
- await page.evaluate(()=>{window.__on=window.easterDesktop.setGraphics(true).then(()=> 'done',error=>'error: '+error.message);});
- const graphicsProgress=await waitFor(state=>state.progress&&(state.progress.bytesDone||0)>0,'the graphics transfer to report progress');
- check(await page.evaluate(()=>window.__on)==='done','turning enhanced graphics on settles');
- check(requests.every(entry=>entry.path==='/data/client.json'||entry.path==='/files/graphics.zip'),'only the graphics chunk was fetched: '+JSON.stringify(requests.map(entry=>entry.path)));
- check(requests.filter(entry=>entry.path==='/files/base.jar').length===0,'the frozen base chunk was neither fetched nor re-verified');
- check(typeof graphicsProgress.progress.bytesTotal==='number','the sticky bar carried the transfer with a total: '+graphicsProgress.progress.bytesTotal);
- check(graphicsProgress.phase==='updating'||graphicsProgress.phase==='downloading','through the existing pipeline phases: '+graphicsProgress.phase);
- check(sha256(await fs.readFile(path.join(clientRoot,'shaderpacks','graphics.zip')))===sha256(graphicsV3),'the fetched shader chunk matches its published checksum');
- const onState=await latest();
- check(onState.graphics.enabled===true,'the toggle is on in the broadcast state');
- check(onState.graphics.tuned&&typeof onState.graphics.tuned.renderDistance==='number','graphics.tuned reports what was written into the client: '+JSON.stringify(onState.graphics.tuned));
- const options=await fs.readFile(path.join(clientRoot,'options.txt'),'utf8');
- const iris=await fs.readFile(path.join(clientRoot,'config','iris.properties'),'utf8');
- check(/^graphicsPreset:"custom"$/m.test(options)&&/^ao:(true|false)$/m.test(options),'the client options carry Minecraft 26.2 quality fields: '+options.trim().split('\n').join(' '));
- check(new RegExp('^renderDistance:'+onState.graphics.tuned.renderDistance+'$','m').test(options),'and the render distance that was reported');
- check(new RegExp('^guiScale:'+expectedScale+'$','m').test(options)&&/^fullscreen:true$/m.test(options),'the display defaults are still there after the graphics write: guiScale:'+expectedScale);
- check(IMMEDIATE_BINDINGS.every(key=>new RegExp('^'+key.replace(/\./g,'\\.')+':'+WANTED_BINDS[key].replace(/\./g,'\\.')+'$','m').test(options)),'and so are all 31 bindings, the 22 debug unbinds included');
- check(/^enableShaders:true$/m.test(iris),'the shader loader is switched on');
- check(/^shaderPack:ComplementaryUnbound_r5\.9\.3\.zip$/m.test(iris),'and names the pack Owen chose');
- check(onState.graphics.tuned.shaders===true||onState.graphics.tuned.shaders===false,'shaders are reported as written');
- tunedDistance=onState.graphics.tuned.renderDistance;
+ const againState=await clickGraphicsToggle(true);
+ check(againState.graphics.enabled===true,'the toggle is on again in the broadcast state');
+ check(requests.every(request=>!request.path.startsWith('/files/')),'switching it back on fetches no chunk file: '+JSON.stringify(requests.map(request=>request.path)));
+ check((await fs.readFile(activeGrass)).equals(await fs.readFile(cachedGrass)),'the foliage jar is activated again from its own cache');
+ check(/^enableShaders:true$/m.test(await fs.readFile(path.join(clientRoot,'config','iris.properties'),'utf8')),'and the shader loader is switched back on');
+ check(againState.graphics.tuned?.shaders===true,'graphics.tuned reports shaders:true again: '+JSON.stringify(againState.graphics.tuned));
+ tunedDistance=againState.graphics.tuned.renderDistance;
 
- console.log('\n5. the state the running app broadcasts');
+ console.log('\n6. the state the running app broadcasts');
  console.log(JSON.stringify({final:await latest()},null,1));
  // What the files look like at rest, so the fresh run below can be shown to leave them
  // exactly as they are.
@@ -427,7 +596,7 @@ try{
 
 // A fresh run of the app keeps the player's choice rather than re-deciding it. The
 // first instance has to be gone first: the launcher holds a single-instance lock.
-console.log('\n6. a fresh run keeps the player\'s own choice');
+console.log('\n7. a fresh run keeps the player\'s own choice');
 // A file that already carries the field is the player's own record: this is the choice a
 // build with the setting could have saved, so it must survive the load as it was saved.
 // The pair is compared as values rather than bytes, because the launcher's existing
@@ -454,14 +623,14 @@ try{
   check(optionsAfterRestart.equals(optionsAtRest.bytes),'a second app run leaves options.txt byte-identical: '+JSON.stringify(optionsAfterRestart.toString('utf8')));
   check((await fs.stat(optionsPath)).mtimeMs===optionsAtRest.mtimeMs,'and does not touch it: mtime unchanged');
   check((await fs.stat(displayRecordPath)).mtimeMs===optionsAtRest.recordMtimeMs,'the seed record is written once, never again');
-  check((await marker()).chunks.graphics.version==='sha256:'+sha256(graphicsV3),'and the install marker still records the chunks it had before the restart');
+  check((await marker()).chunks.graphics.version===graphicsV3.version,'and the install marker still records the chunks it had before the restart');
  }finally{await relaunch.close();}
 
  // A tree the previous build had already seeded carries a schema-2 record, and one whose
  // client has run with the mod since carries the Shippy hotkey on Left Ctrl. That tree must
  // get exactly the keys the record does not cover once — the mod's hotkey included, moved
  // off the Left Ctrl crouch owns — with every value it already covers left alone.
- console.log('\n7. a schema-2 tree gets exactly the keys it does not cover added, and the Shippy hotkey with them');
+ console.log('\n8. a schema-2 tree gets exactly the keys it does not cover added, and the Shippy hotkey with them');
  const appliedAt='2026-10-18T09:00:00.000Z';
  const beforeUpgrade=['version:4903','fullscreen:false','guiScale:1',...bindLines(SEVEN_KEYS),DEFERRED_VANILLA,'fov:0.5'].join('\n')+'\n';
  await fs.writeFile(optionsPath,beforeUpgrade);
@@ -529,5 +698,5 @@ try{
  await fs.rm(temp,{recursive:true,force:true});
 }
 
-console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the whole approved control set: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key, third person on R, chat on enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift, the 22 vanilla debug keys unbound and the mod-provided Shippy hotkey left for the client to register, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-2 tree with exactly the keys its record did not cover — the Shippy hotkey moved off Left Ctrl in the same pass, inventory and the player list together so no two actions share tab — and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware and graphics state and no server choice at all, with the legacy address its settings file still carried accepted, ignored and dropped, applied the enhanced graphics toggle in both directions by writing the client\'s own quality files, and migrated the old default this box actually carries — exitOnLaunch:true with no trayOnLaunch — to both off once while keeping the saved graphics answer, leaving a player\'s own later choice unchanged on the next load and a second start over the migrated file itself leaving it alone':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
+console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the whole approved control set: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key, third person on R, chat on enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift, the 22 vanilla debug keys unbound and the mod-provided Shippy hotkey left for the client to register, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-2 tree with exactly the keys its record did not cover — the Shippy hotkey moved off Left Ctrl in the same pass, inventory and the player list together so no two actions share tab — and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware and graphics state and no server choice at all, with the legacy address its settings file still carried accepted, ignored and dropped, installed the enhanced graphics chunk the live manifest really declares — the shader pack, Iris, Sodium and the cached Grassier Grass jar, at the published paths — by clicking the page\'s own toggle on in the running app, which activated mods/easter-grassier-grass.jar as a byte-equal copy of that cache and wrote iris.properties with enableShaders:true and shaderPack:ComplementaryUnbound_r5.9.3.zip, options.txt with the tuned render distance the state reports and state.graphics.tuned with shaders:true, retired exactly the managed jar the previous graphics version had installed while leaving a file the player added to mods/ untouched, then clicked the same toggle off to remove that jar and write enableShaders:false while keeping the cached payload, the shader pack, the chunk version and the base chunk record and fetching no chunk file at all, switched it back on from that cache without a download, and migrated the old default this box actually carries — exitOnLaunch:true with no trayOnLaunch — to both off once while keeping the saved graphics answer, leaving a player\'s own later choice unchanged on the next load and a second start over the migrated file itself leaving it alone':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
 process.exitCode=failures===0?0:1;
