@@ -182,6 +182,163 @@ name from `/releases/latest/download/`. The launcher job is
    carries its own copy of `site/` inside `app.asar`, so the app is only current if it was
    built from the tree being released. `scripts/verify_app_bundle.py` enforces this in the
    workflow and fails the release naming each file that differs.
+5. The live client payload gate passes: `node tests/live/client-payload.mjs` twice, on a
+   fresh root and then on the same root (see "The live client payload gate" below). It is
+   the only check in this repository that touches what is actually published, so run it
+   before a release that changes `site/data/client.json`, any file it names, or the client's
+   own content. It is not part of `npm test`, and must not be: it needs the public network,
+   about 1 GB of free space and several minutes.
+
+## The live client payload gate
+
+Precondition 5 is one command, run by hand against the public origin, that answers the
+question no other check here answers: **can the launcher download the client, every intended
+mod and the graphics payload from what is published right now?** Everything else in this
+repository runs against a stub, a loopback origin or a prepared tree.
+
+    node tests/live/client-payload.mjs     # 1st run, fresh root: downloads the payload
+    node tests/live/client-payload.mjs     # 2nd run, same root: proves it is quiet
+
+It takes no arguments. The origin is `https://easter-co-smp.github.io/` — a positional URL or
+`EASTER_LIVE_ORIGIN` points it at a staging page — and the tree it installs into is
+`/var/tmp/easter-live-payload`, overridable with `--root <folder>` or `EASTER_LIVE_ROOT`. The
+persistent root is why it is built this way: the first run proves the download, and the second
+proves that a finished tree costs nothing.
+
+It refuses, deliberately: a folder that already holds files and carries no `.easter-client`
+marker (the launcher's own app-owned-tree rule, so it can never adopt somebody's directory), a
+second run while one is in progress (it holds `<root>.lock`), an origin that is not HTTPS
+outside loopback, and a published manifest with no graphics chunk — there it stops and says
+so rather than passing the half of the gate that has nothing to drive.
+
+**Do not run it beside an Electron journey.** It pulls about half a gigabyte and takes
+minutes; a concurrent suite competes for the same network and disk.
+
+### What it proves
+
+Every item is a check in the script and the phase name in the output says which one.
+
+- **manifest** — the live `data/client.json` still pins minecraft 26.2 and fabric 0.19.5, and
+  the three chunks still have the shape the contract freezes (`doc/launcher-states.md`,
+  "Content chunks"): `base` 6 files, required and immutable; `graphics` 4 files, optional;
+  `visuals` 9 files, required and immutable.
+- **install** — a fresh root installs through the real `installClient`, with the toggle off
+  and a `{vramMB:8188,tier:'capable'}` profile, and reports "Client ready." with version id
+  `26.2-fabric0.19.5`.
+- **chunk files** — all 15 files the required chunks declare are present with their declared
+  size and their declared sha256/sha512; the 4 optional graphics files are asserted *absent*
+  while the toggle is off; the install marker records exactly the manifest's files and
+  nothing else.
+- **game** — `versions/26.2-fabric0.19.5/26.2-fabric0.19.5.json` parses with mainClass
+  `net.fabricmc.loader.impl.launch.knot.KnotClient` and `inheritsFrom` 26.2; the
+  `net.fabricmc:fabric-loader:0.19.5` library is named; `versions/26.2/26.2.jar` is installed;
+  the asset index parses, the objects on disk equal the index's own entries and every object
+  it names is present; and the Mojang runtime the launcher installed
+  (`runtime/java-runtime-epsilon`) reports `openjdk version "25.0.1"` when executed.
+- **graphics on** — the toggle fetches exactly the optional chunk's bytes and no other
+  chunk's; all four files match their hashes; `config/iris.properties` says
+  `enableShaders:true`, `shadowDistance:12` and names the shader pack the chunk itself
+  delivered (read from the chunk's own `shaderpacks/*.zip` name, never from a constant);
+  `options.txt` carries `renderDistance:16`, the top rung of `QUALITY_LADDER` for the profile
+  the gate passes; and `mods/easter-grassier-grass.jar` is the activated, byte-equal copy of
+  `optional-mods/grassier-grass.jar.disabled`.
+- **mods** — every jar in `mods/` is a whole zip: every entry is inflated and its CRC checked
+  against the central directory. Every `fabric.mod.json` require resolves against the
+  installed set counted together with the jar-in-jar modules in `META-INF/jars`, and each
+  top-level require edge is printed with what resolved it. Two of the shipped metadata files
+  are not strict JSON — entity model features and entity texture features carry a raw newline
+  inside a description string — so the gate reads those the way Gson, and therefore Fabric,
+  reads them, and names them in its output rather than calling a mod that loads broken. The
+  gate also runs the blind checks
+  a naive reader makes, so the nesting is proven load-bearing rather than assumed: reading
+  only `mods/*.jar` reports 21 ids missing today, a reader that lets each jar see only its own
+  nested modules reports 2, and 5 requires are satisfied only by fabric-api's nested modules.
+- **graphics off** — 0 bytes fetched, 0 hashes read, `enableShaders:false`, the activated
+  foliage jar removed, and the shader pack and the `.jar.disabled` cache kept for the next
+  enable.
+- **quiet install** — a second install over the finished tree fetches 0 bytes, reads 0 hashes,
+  reports unchanged, and leaves `options.txt`'s mtime and bytes untouched.
+- **player edit** — a simulated player edit (`renderDistance:8`, crouch moved to left alt)
+  survives the next install pass, which does not write `options.txt` at all.
+
+Any failed check exits non-zero, and the run ends with a phase table and one summary line per
+install. The gate pins the numbers it was measured with and prints a `DRIFT` line when the
+*published payload* has moved under it — a mod republished, a shader pack updated. A drift is a
+finding to read and confirm, never a reason to edit a pin to match; the checks that fail the
+gate are about behaviour.
+
+### The 2026-10-22 measurement
+
+Measured on this household server against `https://easter-co-smp.github.io/data/client.json`.
+The gate's own two runs, which are the numbers a re-run should be read against — byte counts
+are stable, durations are that day's network:
+
+    # first run, fresh root
+    summary install (fresh root)  "Client ready."  508,051,649 bytes · 5073 hash reads · 6m 16s
+    summary graphics on            7,595,639 bytes · 393 ms · ComplementaryUnbound_r5.9.3.zip
+    summary graphics off           0 bytes · 5 ms
+    summary second install         "Client ready."  0 bytes · 0 hash reads · 1 ms
+    summary player-edit pass       0 bytes · 1 ms
+    summary downloaded this run     515,647,288 bytes (491.8 MB)
+    gate PASS · 154 checks · none failed · 2 recorded numbers drifted from the 2026-10-22 measurement
+
+    # second run, same root
+    summary install (same root)  "Client ready."  0 bytes · 0 hash reads · 3 ms
+    summary graphics on            0 bytes · 4 ms · ComplementaryUnbound_r5.9.3.zip
+    summary graphics off           0 bytes · 5 ms
+    summary second install         "Client ready."  0 bytes · 0 hash reads · 1 ms
+    summary player-edit pass       0 bytes · 0 ms
+    summary downloaded this run     0 bytes (0 bytes)
+    gate PASS · 152 checks · none failed · 1 skipped · 2 recorded numbers drifted from the 2026-10-22 measurement
+
+The single skipped check on the second run is the one that asserts the optional graphics files
+are absent: the first run's payload is still on disk, and switching the toggle off keeps it
+there by design. The fresh root is where that assertion belongs.
+
+The final run started 01:49:10 and answered "Client ready." at 01:55:26 — 6 min 16 s for the
+same 508 MB, against 3 min 8 s for the hand measurement this gate was written from
+(05:09:09 → 05:12:17) and 4 min 0 s for an earlier run of the same script. The duration is the
+network's, not the payload's; the byte counts are what a later run should be read against.
+What every one of those runs establishes:
+
+- 15 non-optional files and 4 optional ones, every one matching its declared size and hash.
+  The graphics chunk is 7,595,639 bytes of files.
+- 5,057 asset objects, equal to the asset index's own entry count, every one on disk.
+- `openjdk version "25.0.1"` from `runtime/java-runtime-epsilon`, the runtime Mojang ships.
+- 15 jars in `mods/`, all zip-integrity clean, 84 require edges (65 of them declared by
+  jar-in-jar modules) and none unresolved.
+- 732 MB on disk after the first run; the second run adds nothing to it.
+
+Three of the hand-measured numbers the gate cannot reproduce are printed as drifts rather than
+adopted, and are recorded here so a later reader is not surprised:
+
+- **7,631,839 bytes for the graphics chunk** matches no published graphics payload: the chunk
+  has declared 7,595,639 bytes in every manifest since 2026-10-19 (5,260,588 before that), and
+  the toggle fetches exactly that. The gate asserts the invariant — the bytes fetched equal
+  the bytes the chunk declares — and pins the declared total.
+- **45 nested modules in fabric-api**: the jar carries 44 `META-INF/jars/*.jar` entries. A
+  text listing also prints the `META-INF/jars/` directory, which is the 45th line and is not a
+  module.
+- **"a check that ignores nested jars reports 5 missing"** is reproduced exactly as the set of
+  requires only fabric-api's nested modules satisfy: fabric-block-getter-api-v2,
+  fabric-command-api-v2, fabric-rendering-fluids-v1, fabric-resource-loader-v0 and
+  fabric-resource-loader-v1. That is the figure the gate pins; the two blunter blind checks
+  report 21 and 2, and all three are printed.
+
+### What it does not prove
+
+- **That the client renders, or even starts.** The game is never launched, so a mod that is
+  present, whole and dependency-satisfied can still crash the client at load.
+- **That a sign-in works.** No account, token or session is involved anywhere in this gate.
+- **That Windows or macOS behave the same.** It ran on Linux x64 with Mojang's linux runtime.
+- **That the `fabric.mod.json` version predicates are satisfiable.** The ids are resolved and
+  every edge is printed with its predicate, but the predicate itself is not evaluated; Fabric
+  does that when the client loads.
+- **Anything about the server** — its mod set, the world, the wake path — or about the
+  launcher's Play, account and update paths.
+- **That a player sees the same bytes.** The gate passes the manifest it read into the install,
+  so its own run is one consistent snapshot; a change at the origin between two runs is not
+  something it can see.
 
 ## The fixture `company.electron.mjs` needs
 
@@ -446,3 +603,8 @@ Then confirm, rather than assume:
   account. A real desktop's own icon-permission behaviour, a real Windows Start menu and a
   real macOS desktop are not covered, and the two entries are not removed by any
   uninstaller this repository builds.
+- The live client payload gate ("The live client payload gate" above) proves the published
+  client, every declared mod, the game's own files and the enhanced graphics toggle install
+  and verify against the real origin. It never starts the game, so it says nothing about
+  whether the client renders, loads every mod or reaches the server, and nothing about a
+  sign-in.
