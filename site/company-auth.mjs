@@ -121,7 +121,11 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  let emailState={loaded:false,emails:[],loginEmail:null},emailFailure=null,emailBusy=false,emailAccount=null;
  function publishEmails(){
   if(typeof onEmails!=='function')return;
-  onEmails(state.account?{id:emailAccount,emails:emailState.emails,loginEmail:emailState.loginEmail,error:emailFailure,line:emailFailure||(emailState.loginEmail?'Login email: '+emailState.loginEmail:emailState.emails.length?NO_LOGIN_EMAIL:NO_EMAILS)}:null);
+  // The profile menu never carries the address. Owen's rule of 2026-10-22: a streamer
+ // must be able to open their own profile on screen without showing an email to the
+ // audience, so the menu line says only whether a login email is set; the address itself
+ // lives in the Verified emails dialog, which the player opens on purpose.
+ onEmails(state.account?{id:emailAccount,emails:emailState.emails,loginEmail:emailState.loginEmail,error:emailFailure,line:emailFailure||(emailState.loginEmail?null:emailState.emails.length?NO_LOGIN_EMAIL:NO_EMAILS)}:null);
  }
  // Saving is only offered when there is a choice to save: no row selected, and the row the
  // service already calls its login email, both mean there is nothing to send.

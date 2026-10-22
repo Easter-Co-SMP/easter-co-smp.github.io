@@ -220,15 +220,20 @@ try{
  const menu=await page.locator('.desktop-profile-menu').textContent();
  assert(menu.includes(PROBE_FREE),'the profile menu names the username: '+menu);
  assert(!menu.includes('EC-'),'the profile menu shows no Company ID');
- // The profile's own line names the address that signs this account in, and only that.
+ // The profile's own line never names the address (streamer protection): the account service
+ // still records which address signs this account in, and the dialog behind the button is
+ // where it is read on purpose. The line stays hidden and empty on the menu itself.
  const emailLine=page.locator('.desktop-profile-heading.desktop-email');
- // The line lives in the profile popover, which is closed while the email section is open,
- // so it is read by its content rather than by visibility.
+ const noAddressLine=async()=>{
+  assert.equal(await emailLine.evaluate(el=>el.hidden),true,'the profile menu prints no login address');
+  assert.equal((await emailLine.textContent()).trim(),'','and the login-email line carries no text');
+ };
+ // The line still speaks when there is no address to hide: it says which sign-in works.
  const lineIs=async text=>{
   await emailLine.filter({hasText:text}).waitFor({state:'attached'});
   assert.equal((await emailLine.textContent()).trim(),text);
  };
- await lineIs('Login email: '+EMAIL);
+ await noAddressLine();
  await page.screenshot({path:'/tmp/company-username-profile.png',animations:'disabled'});
  await page.keyboard.press('Escape');
  // The state surface carries no address at all: the account list, the account switch and
@@ -276,7 +281,7 @@ try{
  assert.equal(await addressRows.nth(1).isChecked(),true);
  assert.equal(await addressRows.nth(0).isChecked(),false);
  assert.deepEqual(await emailsDialog.locator('.company-email-meta').allTextContents(),['Microsoft · recorded, not a login key','Microsoft · signs you in']);
- await lineIs('Login email: '+SECOND_EMAIL);
+ await noAddressLine();
  await page.screenshot({path:'/tmp/company-emails-saved.png',animations:'disabled'});
  // Closed and reopened: the section re-reads the service's own record, so the marked
  // address is the choice that was saved rather than anything this launcher remembered.
@@ -433,7 +438,7 @@ try{
  assert.equal(restarted.account.username,PROBE_FREE,'the restarted launcher is on the same Easter Company account');
  assert(!JSON.stringify(restarted).includes('@example.test'),'and its state still carries no address');
  await page2.locator('.desktop-account-nav').click();
- await page2.locator('.desktop-profile-heading.desktop-email').filter({hasText:'Login email: '+SECOND_EMAIL}).waitFor();
+ await page2.locator('.desktop-profile-heading.desktop-email').evaluate(el=>{if(!el.hidden||el.textContent.trim())throw new Error('restarted launcher prints a login address in its profile menu');return true;});
  await page2.getByRole('button',{name:'Verified emails',exact:true}).click();
  const restartedDialog=page2.locator('#desktop-company-emails');
  await restartedDialog.locator('input[name=email]').first().waitFor();

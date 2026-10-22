@@ -261,14 +261,15 @@ try{
  await page.keyboard.press('Escape');
  await page.locator('.desktop-account-nav').click();await shot('profile');
  for(const action of await page.locator('[data-profile-action]:visible').all())assert(await action.isDisabled(),'account changes disabled while game runs');
- // The verified emails are the profile's own section: the line beneath the account states
- // which address signs it in, and the section behind the button lists what the account
- // service reports. Both are refused while the game runs, like every other account change.
+ // The verified emails are the profile's own section: the menu prints no address at all
+ // (streamer protection), and the section behind the button lists what the account service
+ // reports. Both are refused while the game runs, like every other account change.
  const emailButton=page.getByRole('button',{name:'Verified emails',exact:true});
  assert.equal(await emailButton.count(),1,'the profile offers the verified emails section');
  assert.equal(await emailButton.isDisabled(),true,'and cannot change the login email while the game runs');
- await page.locator('.desktop-profile-heading.desktop-email').filter({hasText:'Login email: captain@example.test'}).waitFor();
- // That address is written only once the read above has answered, and the answer is a real
+ assert.equal(await page.locator('.desktop-profile-heading.desktop-email').evaluate(el=>el.hidden),true,'the profile menu prints no login address, even the launcher fixture\'s own');
+ assert(!(await page.locator('.desktop-profile-menu').allTextContents()).join('\n').includes('captain@example.test'),'no address reaches the profile surface');
+ // The menu only clears once the read above has answered, and the answer is a real
  // broadcast: the first one that arrived after this popover opened is the one that used to
  // hand the account controls back. The lock is made of the phase main still reports.
  assert.equal((await page.evaluate(()=>window.easterDesktop.status())).phase,'running','the profile read its own state without the launcher forgetting the game is running');

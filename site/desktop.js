@@ -1053,8 +1053,12 @@
  function setEmailLine(view){
   const account=current?.account;
   emailView=view&&account&&view.id===account.id?view:null;
-  emailLine.hidden=!emailView;
-  emailLine.textContent=emailView?emailView.line:'';
+  // No address, no line: the menu says only that a login email is not set yet, or why the
+  // read failed. A set address is not printed here at all (streamer protection), so an
+  // empty line is hidden rather than drawn as a blank row.
+  const text=emailView&&typeof emailView.line==='string'?emailView.line.trim():'';
+  emailLine.hidden=!text;
+  emailLine.textContent=text;
   emailLine.classList.toggle('is-unavailable',Boolean(emailView?.error));
  }
  function renderProfile(state){

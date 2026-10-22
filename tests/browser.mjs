@@ -861,8 +861,11 @@ try{
    // section lists what the account service reports, and the choice reaches main as the
    // chosen address and nothing else. No address is ever part of the state that is pushed.
    const emailLine=profileMenu.locator('.desktop-profile-heading.desktop-email');
-   await emailLine.filter({hasText:'Login email: captain@example.test'}).waitFor();
-   assert.equal((await emailLine.textContent()).trim(),'Login email: captain@example.test');
+   // Owen, 2026-10-22, for streamer protection: the profile dropdown must never show the
+   // address. With a login email set the line is not drawn at all.
+   await launcherPage.waitForFunction(()=>document.querySelector('.desktop-profile-menu .desktop-profile-heading.desktop-email')?.hidden===true||document.querySelector('.desktop-profile-menu .desktop-profile-heading.desktop-email')===null);
+   assert.equal(await emailLine.isVisible(),false,'the profile menu draws no Login email line');
+   assert(!(await profileMenu.innerText()).includes('@example.test'),'and no address anywhere in the menu: '+(await profileMenu.innerText()).replace(/\n/g,' | '));
    assert(!JSON.stringify(await launcherPage.evaluate(()=>window.easterRenderer.state)).includes('@example.test'),'the launcher state carries no address');
    await profileMenu.getByRole('button',{name:'Verified emails',exact:true}).click();
    const emailsDialog=launcherPage.locator('#desktop-company-emails');
@@ -883,7 +886,8 @@ try{
    assert.equal((await callsNamed('selectLoginEmail')).at(-1).payload,'crew@example.test','the chosen address is what reaches main');
    await emailsDialog.locator('.company-status').filter({hasText:'Your login email is saved.'}).waitFor();
    assert.equal(await emailsDialog.locator('input[name=email]').nth(1).isChecked(),true,'the saved choice is the marked one');
-   assert.equal((await emailLine.textContent()).trim(),'Login email: crew@example.test','the profile line follows the saved choice');
+   assert.equal(await emailLine.isVisible(),false,'the profile menu still draws no address after the choice changes');
+   assert(!(await profileMenu.innerText()).includes('crew@example.test'),'and the newly saved address is not printed either');
    await emailsDialog.getByRole('button',{name:'Clear login email',exact:true}).click();
    await emailsDialog.locator('.company-status').filter({hasText:'cleared'}).waitFor();
    assert.equal((await callsNamed('selectLoginEmail')).at(-1).payload,null,'clearing sends an explicit null');

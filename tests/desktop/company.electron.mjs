@@ -76,7 +76,8 @@ try{
  await emailsPanel.locator('input[name=email]').first().waitFor();
  await page.waitForFunction(()=>document.querySelector('#desktop-company-emails input[name=email]')?.checked===true);
  assert.equal(await emailsPanel.locator('input[name=email]').first().isChecked(),true,'the saved choice is read back from the account service');
- assert.equal(await page.locator('.desktop-profile-heading.desktop-email').textContent(),'Login email: '+verifiedAddress);
+ assert.equal(await page.locator('.desktop-profile-heading.desktop-email').evaluate(el=>el.hidden),true,'the profile menu prints no login address even when the service records one');
+ assert.equal((await page.locator('.desktop-profile-heading.desktop-email').textContent()).trim(),'','and the login-email line carries no text at all');
  await page.keyboard.press('Escape');await emailsPanel.waitFor({state:'hidden'});
  // No address appears in the launcher state: the account list, the switch and the skin keep
  // using the account id.
