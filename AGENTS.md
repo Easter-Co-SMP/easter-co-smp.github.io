@@ -18,6 +18,17 @@ local commits when pushes fail, catch up after boot without inventing historical
 and never force-push or discard changes to hand-written files. Run recovery and privacy
 tests after exporter or sync changes; validate the complete site before pushing.
 
+The atlas pipeline (`scripts/atlas/`, `.github/workflows/atlas.yml`, doc/atlas-pipeline.md)
+is the cloud replacement for that timer's map half, and it publishes the same two generated
+paths under the same split: the client half first in its own failure domain, the map half only
+after a capture. Rules that hold for it: it never writes outside `site/data` and
+`site/downloads`; it starts a game instance only when EC2 says the world may have changed and
+stops it again on every exit path (asserted, one test per failing stage); a run in which
+nothing changed makes no AWS call beyond one describe and one pointer read, and no commit; its
+renderer is a generated copy of e-server's, so re-vendoring goes through
+`scripts/atlas/renderer/vendor.py` and never by editing a vendored file; and `site/data/` is
+not touched by hand while the scheduled run owns it.
+
 Never restart e-server, DSH, or Minecraft for a public-site update. The public-site timer
 has its own service. No console mutations, world generation, or changes to game rules.
 
