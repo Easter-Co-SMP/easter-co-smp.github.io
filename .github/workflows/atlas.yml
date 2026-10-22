@@ -1,44 +1,39 @@
 name: Atlas pipeline
-# The public map, the client manifest, and nothing else. Replaces the systemd timer that ran
-# on Owen's personal machine until 2026-10-22: every part of this now runs on a GitHub runner,
-# which is free at any frequency because the repository is public.
+# Commits the atlas bundle the AWS half leaves in the bucket. That is this workflow's whole
+# job: it renders nothing, captures nothing and holds no AWS credential.
 #
-# Least maintenance was the owner's requirement, so there is no long-lived credential here:
-#   * AWS comes from GitHub OIDC (id-token: write) and one role the cloud repository creates;
-#   * publishing uses this workflow's own GITHUB_TOKEN (contents: write);
-#   * the only repository settings are three variables naming the bucket, the instance and the
-#     role, which are not secrets.
+# Why it is this thin: GitHub OIDC is denied in this AWS account (measured 2026-10-22:
+# iam:GetOpenIDConnectProvider, iam:ListOpenIDConnectProviders and
+# iam:CreateOpenIDConnectProvider are each refused by organisation SCP o-yk9cqpb570 /
+# p-vt1ibhxo), so a workflow here cannot assume a role. AWS does the capture and the render and
+# publishes a bundle at publish/latest.json; this workflow reads it over plain HTTPS, because
+# the object is public and holds nothing the site does not already show, and commits it with
+# its own GITHUB_TOKEN. There is no secret to rotate on either side.
 #
-# The pipeline itself lives in scripts/atlas and is documented in doc/atlas-pipeline.md.
-# `scripts/atlas.tests` never runs here for AWS: the tests are fakes, and the scheduled run is
-# the only thing that talks to AWS or GitHub.
+# The pipeline code lives in scripts/atlas and is documented in doc/atlas-pipeline.md.
 on:
   schedule:
-    # Hourly, at a minute that is not :00: the busiest minute on GitHub's scheduler.
+    # Hourly, at a minute that is not :00: the busiest minute on GitHub's scheduler. The AWS
+    # half decides whether a capture is needed; this run usually finds the pointer unchanged.
     - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
-      force_capture:
-        description: Capture even if EC2 says the world has not changed
-        type: boolean
-        default: false
       dry_run:
-        description: Do everything except commit and advance the pointer
+        description: Fetch and verify the bundle, but commit nothing
         type: boolean
         default: false
 permissions:
+  # The workflow's own token is the only credential: it needs to write the two generated trees.
+  # No id-token, because this workflow never talks to AWS.
   contents: write
-  id-token: write
-# Two runs must never overlap: the second would start the instance the first is capturing from.
+# Two runs must never overlap: the second would race the first on site/data.
 concurrency:
   group: atlas-pipeline
   cancel-in-progress: false
 jobs:
   atlas:
     runs-on: ubuntu-latest
-    # A capture is minutes, not hours, but the host's own waits are bounded here so a stuck
-    # run dies instead of holding a billable instance.
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - name: Check out main
         uses: actions/checkout@v6
@@ -56,31 +51,13 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check actionlint-py==1.7.12.25
           actionlint .github/workflows/atlas.yml
-      - name: Install the renderer's one dependency
-        # Pillow renders the tiles and nothing else in this pipeline needs an install. The pin
-        # matches the version that produced the published tiles; a different Pillow can encode
-        # the same pixels into different bytes, which would republish every tile for no reason.
-        run: python -m pip install --disable-pip-version-check pillow==13.0.0
-      - name: Configure AWS credentials from GitHub OIDC
-        uses: aws-actions/configure-aws-credentials@v5
-        with:
-          role-to-assume: ${{ vars.ATLAS_ROLE_ARN }}
-          role-session-name: atlas-pipeline
-          aws-region: ${{ vars.ATLAS_AWS_REGION }}
-      - name: Publish the atlas
+      - name: Publish the atlas bundle
         env:
-          ATLAS_BUCKET: ${{ vars.ATLAS_BUCKET }}
-          ATLAS_INSTANCE_ID: ${{ vars.ATLAS_INSTANCE_ID }}
+          ATLAS_PUBLISH_URL: ${{ vars.ATLAS_PUBLISH_URL }}
           ATLAS_GITHUB_TOKEN: ${{ github.token }}
-          # The console command and the systemd unit are host facts, overridable without a
-          # code change; the defaults are named in doc/atlas-pipeline.md.
-          ATLAS_CONSOLE: ${{ vars.ATLAS_CONSOLE }}
-          ATLAS_SERVER_UNIT: ${{ vars.ATLAS_SERVER_UNIT }}
-          ATLAS_RENDER_WORKERS: '4'
         run: |
           set -euo pipefail
           args=()
-          if [ "${{ inputs.force_capture }}" = "true" ]; then args+=(--force-capture); fi
           if [ "${{ inputs.dry_run }}" = "true" ]; then args+=(--dry-run); fi
           python -m scripts.atlas "${args[@]}" --summary "$RUNNER_TEMP/atlas-summary.json"
       - name: Publish the run summary

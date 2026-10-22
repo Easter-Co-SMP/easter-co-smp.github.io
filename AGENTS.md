@@ -19,15 +19,14 @@ and never force-push or discard changes to hand-written files. Run recovery and 
 tests after exporter or sync changes; validate the complete site before pushing.
 
 The atlas pipeline (`scripts/atlas/`, `.github/workflows/atlas.yml`, doc/atlas-pipeline.md)
-is the cloud replacement for that timer's map half, and it publishes the same two generated
-paths under the same split: the client half first in its own failure domain, the map half only
-after a capture. Rules that hold for it: it never writes outside `site/data` and
-`site/downloads`; it starts a game instance only when EC2 says the world may have changed and
-stops it again on every exit path (asserted, one test per failing stage); a run in which
-nothing changed makes no AWS call beyond one describe and one pointer read, and no commit; its
-renderer is a generated copy of e-server's, so re-vendoring goes through
-`scripts/atlas/renderer/vendor.py` and never by editing a vendored file; and `site/data/` is
-not touched by hand while the scheduled run owns it.
+is the cloud replacement for that timer's map half. It is only the *committer*: the capture and
+the render happen in `easter-co-cloud/pipeline/atlas/` (a scheduled Lambda), because GitHub OIDC
+is denied in this account and a workflow here therefore cannot hold an AWS credential. Rules
+that hold for this half: it holds no AWS credential and no secret, and reads the bundle from a
+public HTTPS URL into `site/data` and `site/downloads` only; it commits the client half and the
+map half as two independent commits, client first; a bundle whose `snapshot_day` is not later
+than the published one commits nothing and says so in one line, leaving `site/data/world.json`
+byte for byte unchanged; and `site/data/` is not edited by hand while the scheduled run owns it.
 
 Never restart e-server, DSH, or Minecraft for a public-site update. The public-site timer
 has its own service. No console mutations, world generation, or changes to game rules.

@@ -1,4 +1,4 @@
-"""`python -m scripts.atlas` -- the entry point the workflow runs."""
+"""`python -m scripts.atlas` -- what `.github/workflows/atlas.yml` runs."""
 from __future__ import annotations
 
 import sys
