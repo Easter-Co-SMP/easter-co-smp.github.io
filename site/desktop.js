@@ -133,7 +133,11 @@
  // while `launcherUpdate.phase` is `checking`. Everything else stays usable.
  const checkingForUpdate=state=>state?.launcherUpdate?.phase==='checking';
  const settingsOffered=state=>atPlayNow(state)&&!transferring(state)&&!checkingForUpdate(state);
- const graphicsOffered=state=>(!state.minecraftAccess||state.minecraftAccess==='owned')&&Boolean(graphicsOf(state))&&typeof setGraphicsAction==='function'&&atPlayNow(state)&&!transferring(state);
+ // Enhanced graphics is a local client setting, so the row follows Settings rather than Play:
+ // it is offered at the Play Now stage whether or not a Minecraft session exists. Main records
+ // the choice and applies it from files on this device (applyGraphics), which needs no account,
+ // so no access value may gate the row (doc/launcher-states.md, "Enhanced Graphics & Shaders").
+ const graphicsOffered=state=>Boolean(graphicsOf(state))&&typeof setGraphicsAction==='function'&&atPlayNow(state)&&!transferring(state);
 
  // The hero's primary action and the sticky bar both read this one function,
  // so no second view can invent its own version of the gate.

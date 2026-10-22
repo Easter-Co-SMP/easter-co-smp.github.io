@@ -1403,6 +1403,12 @@ Grassier Grass without downloading anything or invalidating the base chunk; cach
 shader files remain available for the next enable. Render distance and personal
 settings survive switching the effect off.
 
+**It is a client setting, not an account one.** The toggle is offered at the Play Now
+stage whether or not a Minecraft session exists: main records the player's choice and
+otherwise applies the graphics files on this device through `applyGraphics`, so no
+account state gates the row — the sign-in gate belongs to Play, exactly as Settings is
+offered at the same stage.
+
 **The machine decides the default, once, honestly.** "On unless the GPU is clearly
 weak": integrated graphics and a software renderer (llvmpipe, SwiftShader) are
 clearly weak, so enhanced graphics stay off there. An adapter the platform will not
