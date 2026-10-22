@@ -271,10 +271,6 @@ try{
   const win=BrowserWindow.getAllWindows()[0];
   global.__states=[];global.__mark=0;
   const send=win.webContents.send.bind(win.webContents);
-  // The original send is kept under its own name: the graphics section needs to hand the
-  // renderer one state the app cannot publish here, and a forged broadcast must not be
-  // mistaken for one the app recorded.
-  global.__rawSend=send;
   win.webContents.send=(channel,...args)=>{if(channel==='launcher:state')global.__states.push(JSON.parse(JSON.stringify(args[0])));return send(channel,...args);};
  });
  const since=async()=>app.evaluate(()=>global.__states.slice(global.__mark));
@@ -403,30 +399,23 @@ try{
  check(path.posix.basename(SHADER_PATH)===SHADER_PACK_NAME,'and its shader pack carries the one name the launcher writes into iris.properties: '+SHADER_PACK_NAME);
  check(GRASS_PATH===GRASS_CACHE,'its cached Grassier Grass jar sits at the path desktop/visuals.cjs activates from: '+GRASS_CACHE);
  check(GRASS_ACTIVE==='mods/easter-grassier-grass.jar','whose activated copy is the managed jar in mods/: '+GRASS_ACTIVE);
- // The row the player clicks exists at the Play Now stage and nowhere earlier. It is also
- // hidden while nobody is signed in, which is the page's own rule (graphicsOffered in
- // site/desktop.js), so this run states that rule and then hands the renderer the one state
- // it cannot reach here: safeStorage reports basic_text under xvfb, so desktop/main.cjs
- // cannot save or read a session at all.
+ // The row the player clicks exists at the Play Now stage and nowhere earlier, and no account
+ // gate stands in front of it: enhanced graphics is a local client setting, so it is offered
+ // with the client installed whether or not a Minecraft session exists (graphicsOffered in
+ // site/desktop.js, doc/launcher-states.md). This run is signed out — safeStorage reports
+ // basic_text under xvfb, so desktop/main.cjs cannot save or read a session at all — and that
+ // signed-out state is exactly what the row and both clicks below are proved against.
  check(await page.locator('.hero-graphics').count()===1,'the graphics row exists in the real page');
- check(await page.locator('.hero-graphics').isHidden(),'and stays hidden while no Minecraft session exists, the rule graphicsOffered states: access is '+started.minecraftAccess);
+ check(await page.locator('.hero-graphics').isVisible(),'and is offered with the client installed while no Minecraft session exists, the documented rule: access is '+started.minecraftAccess+', install.installed is '+started.install.installed);
+ check(await page.locator('.hero-graphics input[data-graphics-toggle]').isChecked()===started.graphics.enabled,'and the toggle reports the state main published, graphics.enabled: '+started.graphics.enabled);
  // Clicking is what this journey proves, so the two bridge calls the section used to make
  // are gone: the change handler below is the page's own, and everything under it is real.
- const forgery=async state=>app.evaluate((_electron,payload)=>global.__rawSend('launcher:state',payload),state);
- const revealGraphics=async()=>{
-  const state=(await latest())??(await page.evaluate(()=>window.easterDesktop.status()));
-  if(state.minecraftAccess!=='owned'){
-   console.log('  info no session can exist in this run, so the renderer is handed the state main published with minecraftAccess:"owned" and nothing else changed; that is the one state the Play Now row appears in, and every effect below it is the real pipeline');
-   await forgery({...state,minecraftAccess:'owned'});
-  }
-  await page.locator('.hero-graphics').waitFor({state:'visible'});
- };
  // One click on the page's own control, then the wait for the real pipeline to finish. The
  // handler disables the switch for the length of the change, so the control's own disabled
  // flag is the completion signal, and a change event that fired is what proves the click
  // reached the page's handler rather than the bridge.
  const clickGraphicsToggle=async wanted=>{
-  await revealGraphics();
+  await page.locator('.hero-graphics').waitFor({state:'visible'});
   const toggle=page.locator('.hero-graphics input[data-graphics-toggle]');
   check(await toggle.isVisible(),'the real toggle is a visible control in the page');
   check((await toggle.isChecked())===!wanted,'and shows the state the launcher reported before the click: '+!wanted);

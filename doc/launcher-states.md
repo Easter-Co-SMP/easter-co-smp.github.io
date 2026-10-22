@@ -1442,6 +1442,11 @@ the tuned report says `shaders:false`, and the launcher says "Enhanced graphics 
 installed without shaders, so the shader pack was left off." rather than naming a pack it
 does not have or calling the effect installed with shaders. The render distances are still
 written, because they are the machine's own answer and are not the shader step.
+**It is a client setting, not an account one.** The toggle is offered at the Play Now
+stage whether or not a Minecraft session exists: main records the player's choice and
+otherwise applies the graphics files on this device through `applyGraphics`, so no
+account state gates the row — the sign-in gate belongs to Play, exactly as Settings is
+offered at the same stage.
 
 **The machine decides the default, once, honestly.** "On unless the GPU is clearly
 weak": integrated graphics and a software renderer (llvmpipe, SwiftShader) are
