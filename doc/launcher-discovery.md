@@ -29,6 +29,7 @@ What main enforces, and why each bound exists:
 | Links | `https:` only, no credentials, ≤2048 | Main's window-open handler checks again before anything leaves for the browser |
 | Cache | 30 minutes, one request in flight at a time | One read per half hour however many times the screen renders; concurrent asks share it |
 | Failure | `content_unavailable`, no transport detail | The renderer shows its own unavailable state and the player keeps playing; an answer already in hand survives a later failure |
+| Startup gate | `home-content` answers before the mandatory-update gate opens | The document is public, read-only, warmed at `whenReady` and bounded above; the gate protects installing, playing and signing in, so holding this read behind it threw away an answer that was already in hand (fixed in 1.0.39, "The startup gate" below) |
 
 Publishing a dispatch or a featured item is editing `site/home.json` and pushing: the site
 deploys in a minute and every launcher picks the change up on its next launch, or at most
@@ -47,6 +48,35 @@ needs the same two things.
 
 An unknown field is dropped, an unreadable entry is dropped, and the renderer filters
 again on its own: neither side trusts the other, and neither trusts the document.
+
+## The startup gate
+
+`startupReady` is false in a packaged build from the first moment of the process, and it
+stays false through the launcher-update check and — for a player who already has the
+client installed — the game update that follows it. `handle()` refuses every command that
+is not in `REACHABLE_BEFORE_STARTUP` (`desktop/main.cjs`) while that is so. `home-content`
+is in that list, and the list is the whole of the rule: `status`, the four commands that
+resolve or pause the gate, and this one read. Nothing that installs, plays, signs in or
+writes settings is reachable through it.
+
+That read is listed because the gate protects nothing by holding it. The document is
+public, read-only, downloaded rather than applied, warmed at `whenReady` so main usually
+has the answer before the cards ask, and bounded by the table above. Measured, three
+release builds, three answers: **1.0.36** (cards introduced, no warm read and no retry)
+refused and showed "Dispatches unavailable"; **1.0.37** (warm read plus the one quiet
+retry) answered the empty-HOME launch and still refused the returning player, whose
+installed client is being verified at that moment; **1.0.38** carried 1.0.37's behaviour
+unchanged. The refusal was `Updates must finish before this launcher can be used.` — main's
+gate, not the fetch — and the read was answered with `posts: 1` the moment the gate opened,
+so the answer had been in hand the whole time. The empty first launch passed only because
+it has no client update to verify and the gate opens inside the renderer's 1.2 s retry
+window; that is why no unit, browser or Electron suite saw it and why the packaged
+first-screen check did.
+
+A new read on this bridge belongs in `REACHABLE_BEFORE_STARTUP` only if it is public,
+read-only and bounded the way this one is; anything else keeps the gate. The rule is
+asserted by `tests/desktop/home-content-gate.electron.mjs`, which holds a returning
+player's game verify open on a promise rather than on a stopwatch.
 
 ```json
 {
@@ -110,7 +140,9 @@ or advertised products.
 
 Implemented checks: `tests/desktop/discovery.test.cjs` holds the document's bounds and
 the cache, `tests/discovery-browser.mjs` holds the three layout widths and the renderer's
-states, and `tests/desktop/loopback.electron.mjs` reads a published fixture document
+states, `tests/desktop/home-content-gate.electron.mjs` holds the startup gate above (a
+returning player's verify held open, the read answered, Play still refused), and
+`tests/desktop/loopback.electron.mjs` reads a published fixture document
 through the real preload and real main — including a `javascript:` entry and a duplicate
 that must not survive the trip. The website must have no discovery region and keep its
 headline. Inspect desktop and compact launcher layouts plus short-height screens.

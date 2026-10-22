@@ -143,6 +143,12 @@ name from `/releases/latest/download/`. The launcher job is
    arrival waits for it, Play, sign-in and download are refused until it finishes, Escape
    cannot dismiss it, a failed launcher or game check starts nothing, a failed retry leaves
    Play off and a successful one restores it, and there is no opt-out control), and
+   `xvfb-run -a node tests/desktop/home-content-gate.electron.mjs` (the one read the gate
+   does not hold: a returning player's client update is held open on a promise rather than
+   on a stopwatch, the home screen's editorial read answers from the warm document with no
+   second fetch while `startupReady` is false, the LATEST NEWS card paints the dispatch
+   instead of "News unavailable", and Play and the download are still refused until the gate
+   opens), and
    `xvfb-run -a node tests/desktop/wiki.electron.mjs` (the wiki the launcher bundles, served
    from its own `easter://` origin with no network read: all twelve articles, search, deep
    links and a narrow window; `EASTER_PACKAGED_LAUNCHER` points the same journey at a
@@ -156,7 +162,8 @@ name from `/releases/latest/download/`. The launcher job is
 
    That is every Electron journey in `tests/desktop` except one: `electron.mjs` and the
    twenty `*.electron.mjs` files, of which ten were named here before 2026-10-19, eight were
-   added that day and `cold-start.electron.mjs` on 2026-10-19 with the retry policy. None of
+   added that day and `cold-start.electron.mjs` on 2026-10-19 with the retry policy, plus
+   `home-content-gate.electron.mjs` on 2026-10-22 with the startup gate. None of
    the nine needs a fixture: each starts its own stub, harness
    or payload, and none of them reads 18796–18798 (the detail is under "The other Electron
    journeys need no fixture"). The nine that had been left out were left out silently, and

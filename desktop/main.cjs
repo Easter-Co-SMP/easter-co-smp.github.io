@@ -1138,11 +1138,24 @@ async function autoStart(){
   return {start:false,reason:'failed',error:safeError(error)};
  }finally{autoStarting=false;}
 }
+// What may answer while the mandatory-update gate is still closed. Three kinds and no
+// more: the read that reports on the gate (`status`), the four commands that resolve or
+// pause it, and the home screen's own editorial read (`home-content`).
+//
+// That last one belongs here because it protects nothing the gate protects. The document
+// is public, read-only, downloaded rather than applied, and already being read by the warm
+// call at whenReady; its bounds are 8 s and 64 KiB in desktop/discovery.cjs, and nothing it
+// returns can install, play or sign in. Holding it behind the gate is how a returning
+// player, whose installed client is being verified on that launch, was told
+// "News unavailable" over a document that was in hand the whole time: the gate threw the
+// warm answer away and the cards had already spent their one retry (measured on 1.0.36,
+// 1.0.37 and 1.0.38; doc/launcher-discovery.md, "The startup gate").
+const REACHABLE_BEFORE_STARTUP=Object.freeze(['status','retry-updates','pause-install','resume-install','cancel-install','home-content']);
 function registerIPC(){
  const handle=(name,fn)=>ipcMain.handle('launcher:'+name,async(event,...args)=>{
   if(!trustedFrame(event))throw Error('Untrusted launcher request.');
   try{
-   if(!startupReady&&!['status','retry-updates','pause-install','resume-install','cancel-install'].includes(name))throw Error('Updates must finish before this launcher can be used.');
+   if(!startupReady&&!REACHABLE_BEFORE_STARTUP.includes(name))throw Error('Updates must finish before this launcher can be used.');
    return {ok:true,value:await fn(...args)};
   }catch(error){return {ok:false,error:safeError(error),code:['invalid_grant','invalid_session','invalid_microsoft_token','identity_conflict','reauthentication_required','password_policy','username_taken','username_policy','rate_limited'].includes(error.code)?error.code:undefined};}
  });

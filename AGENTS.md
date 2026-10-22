@@ -51,7 +51,10 @@ or expose arbitrary commands, tokens, file access, or remote privileged web cont
 `handle()` refuses a sender frame that is not yet the app's own, so the first ask of a launch
 can be refused once and the refusal is deliberately recorded nowhere. A read the home screen
 starts on mount must therefore be warmed in main (or retried by the renderer) rather than read
-as an outage — that is what 1.0.36 got wrong and 1.0.37 fixed. Reads are bounded: an 8 s
+as an outage — that is what 1.0.36 got wrong and 1.0.37 fixed. A read like that one is also
+answered while the mandatory-update gate is still closed (`REACHABLE_BEFORE_STARTUP` in
+`desktop/main.cjs`), because gating it told every returning player "News unavailable" over a
+document main was already holding (1.0.36 through 1.0.38). Reads are bounded: an 8 s
 timeout, a 64 KiB body ceiling, schema validation and a 30-minute cache is the shape
 (`desktop/discovery.cjs`, `doc/launcher-discovery.md`).
 A launcher release must carry the current site/, because the packaged app bundles site/ into
