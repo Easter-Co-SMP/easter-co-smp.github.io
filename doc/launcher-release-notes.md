@@ -1,3 +1,26 @@
+# Easter Company launcher 1.0.39
+
+The LATEST NEWS card loads for a player who already has the client installed, and the
+profile menu no longer shows your email address.
+
+- **The news card loads on every launch again.** Once the client was installed, the home
+  screen's LATEST NEWS card read "News unavailable — the latest post couldn't be loaded.",
+  even though the launcher already had the dispatch in hand: while the installed client was
+  being checked at start-up, the launcher held back every request, including the cards' own
+  public read, and the card's single retry fell inside that window. That read is now
+  answered during the check, so the card shows the latest dispatch on a first launch and on
+  a launch with a client installed alike. Nothing that installs, plays or signs in became
+  reachable while those checks run: Play and Download are still refused until they finish.
+- **Your login address is not printed in the profile dropdown.** Opening the profile on
+  screen used to draw `Login email:` and the address itself, which is the wrong thing to
+  have on a stream. The menu now carries no address at all. It still tells you when no
+  login email is set — "No login email is selected. Sign in with a linked provider or with
+  your username." — and when your verified emails could not be read, but which address you
+  signed up with is only in the Verified emails section, which you open on purpose.
+- Nothing else changed: the same home screen, server row, downloads, sign-in, account and
+  update behaviour, and the same client content.
+
+
 # Easter Company launcher 1.0.38
 
 The server row says less, the graphics toggle works whenever the client is installed, and

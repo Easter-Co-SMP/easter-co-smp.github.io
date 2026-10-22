@@ -1,6 +1,6 @@
 {
   "name": "easter-company-launcher",
-  "version": "1.0.38",
+  "version": "1.0.39",
   "description": "Easter Company Minecraft launcher, world map and crew companion",
   "main": "desktop/bootstrap.cjs",
   "desktopName": "easter-company.desktop",
@@ -46,7 +46,7 @@
   "build": {
     "appId": "ltd.easter.company.launcher",
     "productName": "Easter Co. Launcher",
-    "copyright": "Copyright \u00a9 Easter LTD. All rights reserved.",
+    "copyright": "Copyright © Easter LTD. All rights reserved.",
     "directories": {
       "output": "release"
     },
