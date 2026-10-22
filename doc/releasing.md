@@ -198,6 +198,7 @@ repository runs against a stub, a loopback origin or a prepared tree.
 
     node tests/live/client-payload.mjs     # 1st run, fresh root: downloads the payload
     node tests/live/client-payload.mjs     # 2nd run, same root: proves it is quiet
+    node tests/live/client-payload.mjs --self-check   # offline: every refusal ends FAIL
 
 It takes no arguments. The origin is `https://easter-co-smp.github.io/` — a positional URL or
 `EASTER_LIVE_ORIGIN` points it at a staging page — and the tree it installs into is
@@ -210,6 +211,13 @@ marker (the launcher's own app-owned-tree rule, so it can never adopt somebody's
 second run while one is in progress (it holds `<root>.lock`), an origin that is not HTTPS
 outside loopback, and a published manifest with no graphics chunk — there it stops and says
 so rather than passing the half of the gate that has nothing to drive.
+
+Every way it can stop — the normal path, an early stop, and a refusal to start at all — ends
+in one summary line whose verdict and exit code come from the same failure count, so a
+refusal can never print PASS. `--self-check` pins that: it drives four refusal paths offline
+(a root another run holds, a folder the gate did not create, an origin that is not a URL, and
+an origin nothing answers on) and asserts each one exits non-zero with exactly one verdict
+line saying FAIL.
 
 **Do not run it beside an Electron journey.** It pulls about half a gigabyte and takes
 minutes; a concurrent suite competes for the same network and disk.
@@ -273,33 +281,33 @@ Measured on this household server against `https://easter-co-smp.github.io/data/
 The gate's own two runs, which are the numbers a re-run should be read against — byte counts
 are stable, durations are that day's network:
 
-    # first run, fresh root
-    summary install (fresh root)  "Client ready."  508,051,649 bytes · 5073 hash reads · 6m 3s
-    summary graphics on            7,595,639 bytes · 504 ms · ComplementaryUnbound_r5.9.3.zip
-    summary graphics off           0 bytes · 4 ms
+    # first run, fresh root (exit code 0)
+    summary install (fresh root)  "Client ready."  508,051,649 bytes · 5073 hash reads · 3m 7s
+    summary graphics on            7,595,639 bytes · 351 ms · ComplementaryUnbound_r5.9.3.zip
+    summary graphics off           0 bytes · 7 ms
     summary second install         "Client ready."  0 bytes · 0 hash reads · 2 ms
     summary player-edit pass       0 bytes · 1 ms
     summary downloaded this run     515,647,288 bytes (491.8 MB)
     gate PASS · 154 checks · none failed · 2 recorded numbers drifted from the 2026-10-22 measurement
 
-    # second run, same root
-    summary install (same root)  "Client ready."  0 bytes · 0 hash reads · 5 ms
-    summary graphics on            0 bytes · 4 ms · ComplementaryUnbound_r5.9.3.zip
-    summary graphics off           0 bytes · 7 ms
+    # second run, same root (exit code 0)
+    summary install (same root)  "Client ready."  0 bytes · 0 hash reads · 4 ms
+    summary graphics on            0 bytes · 3 ms · ComplementaryUnbound_r5.9.3.zip
+    summary graphics off           0 bytes · 5 ms
     summary second install         "Client ready."  0 bytes · 0 hash reads · 2 ms
     summary player-edit pass       0 bytes · 1 ms
-    summary downloaded this run     0 bytes (0 bytes)
+    summary downloaded this run     0 bytes
     gate PASS · 152 checks · none failed · 1 skipped · 2 recorded numbers drifted from the 2026-10-22 measurement
 
 The single skipped check on the second run is the one that asserts the optional graphics files
 are absent: the first run's payload is still on disk, and switching the toggle off keeps it
 there by design. The fresh root is where that assertion belongs.
 
-The run above started 01:56:16 and answered "Client ready." at 02:02:19 — 6 min 3 s for the
-same 508 MB, against 3 min 8 s for the hand measurement this gate was written from
-(05:09:09 → 05:12:17) and 4 min 0 s and 6 min 16 s for two earlier runs of the same script. The
-duration is the network's, not the payload's; the byte counts are what a later run should be
-read against. What every one of those runs establishes:
+The run above started 02:08:01 and answered "Client ready." at 02:11:08 — 3 min 7 s for the
+same 508 MB. Across the runs made while writing this gate that one install took 3 min 7 s,
+4 min 0 s, 6 min 3 s and 6 min 16 s, and the hand measurement this gate was written from took
+3 min 8 s (05:09:09 → 05:12:17): the duration is the network's, not the payload's. The byte
+counts are what a later run should be read against. What every one of those runs establishes:
 
 - 15 non-optional files and 4 optional ones, every one matching its declared size and hash.
   The graphics chunk is 7,595,639 bytes of files.

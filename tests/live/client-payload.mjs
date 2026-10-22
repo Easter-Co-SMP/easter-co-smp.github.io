@@ -43,7 +43,8 @@ import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import {execFile} from 'node:child_process';
+import os from 'node:os';
+import {execFile,spawn} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {createRequire} from 'node:module';
 import {promisify} from 'node:util';
@@ -96,6 +97,7 @@ const USAGE=[
  '  origin           defaults to '+DEFAULT_ORIGIN+' (env EASTER_LIVE_ORIGIN)',
  '  --root <folder>  defaults to '+DEFAULT_ROOT+' (env EASTER_LIVE_ROOT)',
  '  --help           this text',
+ '  --self-check     prove every refusal ends FAIL with a non-zero exit (no network)',
  '',
  'Run it twice on the same root: the first run downloads and verifies everything, the',
  'second proves the same tree is quiet (0 bytes, 0 hash reads, options.txt untouched).'
@@ -320,11 +322,12 @@ function modMetadata(entries,label){
 
 // ---- arguments, origin and root ---------------------------------------------
 function parseArguments(argv){
- const parsed={origin:'',root:'',help:false};
+ const parsed={origin:'',root:'',help:false,selfCheck:false};
  const positional=[];
  for(let index=0;index<argv.length;index++){
   const arg=argv[index];
   if(arg==='--help'||arg==='-h')parsed.help=true;
+  else if(arg==='--self-check')parsed.selfCheck=true;
   else if(arg==='--root'){
    const value=argv[++index];
    if(!value||value.startsWith('-'))throw Error('--root needs a folder.');
@@ -379,10 +382,65 @@ async function lockRoot(clientRoot){
  return release;
 }
 
+// ---- the self-check ----------------------------------------------------------
+// This gate's own ending is the part that failed once: a run that refused to start
+// printed "gate PASS · none failed". The refusal paths are driven here in child
+// processes, offline, and each one must end with a non-zero exit, exactly one verdict
+// line, and that line saying FAIL. The inverse — a refusal printing PASS — is the bug,
+// so that is what is asserted against.
+function capture(args){
+ return new Promise(resolve=>{
+  const child=spawn(process.execPath,args,{cwd:repo});
+  let stdout='',stderr='';
+  child.stdout.on('data',chunk=>{stdout+=String(chunk);});
+  child.stderr.on('data',chunk=>{stderr+=String(chunk);});
+  child.on('close',code=>resolve({code,stdout,stderr}));
+ });
+}
+async function selfCheck(){
+ const temp=await fs.mkdtemp(path.join(os.tmpdir(),'easter-gate-selfcheck-'));
+ const self=fileURLToPath(import.meta.url);
+ const cases=[];
+ // The lock refusal: a root another run holds. This is the refusal that lied on
+ // 2026-10-22, so our own pid stands in for the other run's.
+ const held=path.join(temp,'held');
+ await fs.mkdir(held,{recursive:true});
+ await fs.writeFile(held+'.lock',String(process.pid),{mode:0o600});
+ cases.push({name:'a root another run holds (the lock refusal)',args:['--root',held]});
+ // A folder this gate did not create and must not adopt.
+ const foreign=path.join(temp,'foreign');
+ await fs.mkdir(foreign,{recursive:true});
+ await fs.writeFile(path.join(foreign,'someone-elses-notes.txt'),'not ours\n');
+ cases.push({name:'a folder the gate did not create',args:['--root',foreign]});
+ // An argument that cannot be used at all: refused before anything is touched.
+ cases.push({name:'an origin that is not a URL',args:['not a url','--root',path.join(temp,'a')]});
+ // An origin nothing answers on, so the refusal happens inside the first phase.
+ cases.push({name:'an origin nothing answers on',args:['http://127.0.0.1:1/','--root',path.join(temp,'b')]});
+ console.log('gate self-check: every refusal must end with a FAIL verdict and a non-zero exit');
+ let failures=0;
+ for(const item of cases){
+  const result=await capture([self,...item.args]);
+  const verdicts=result.stdout.split('\n').filter(line=>line.startsWith('gate '));
+  const verdict=verdicts[0]||'';
+  const good=result.code!==0&&verdicts.length===1&&/^gate FAIL [?·]/.test(verdict)&&!/gate PASS/.test(result.stdout)&&!/none failed/.test(verdict);
+  if(!good){
+   failures++;
+   console.log('  FAIL  '+item.name+' → exit '+result.code+', '+verdicts.length+' verdict line(s): '+(verdict||'(none printed)'));
+   console.log(result.stdout.split('\n').slice(-4).map(line=>'        '+line).join('\n'));
+  }else{
+   console.log('  ok    '+item.name+' → exit '+result.code+', one verdict: '+verdict.trim());
+  }
+ }
+ await fs.rm(temp,{recursive:true,force:true});
+ console.log('self-check '+(failures?'FAIL':'PASS')+' · '+cases.length+' refusal paths · every one ended FAIL with a non-zero exit code');
+ process.exitCode=failures?1:0;
+}
+
 // ---- the phases --------------------------------------------------------------
 async function main(){
  const args=parseArguments(process.argv.slice(2));
- if(args.help){console.log(USAGE);return 0;}
+ if(args.help){console.log(USAGE);return;}
+ if(args.selfCheck)return selfCheck();
  const origin=originUrl(args.origin);
  const clientRoot=path.resolve(args.root);
  const refused=locationProblem(clientRoot,{});
@@ -425,8 +483,8 @@ async function main(){
   summarise('26.2 · fabric 0.19.5 · base '+requiredChunks.find(c=>c.id==='base')?.files.length+' + visuals '+requiredChunks.find(c=>c.id==='visuals')?.files.length+' = '+requiredFiles.length+' required, graphics '+graphicsFiles.length+' optional');
   if(!graphicsChunk){
    console.log('\nThe published manifest has no graphics chunk, so the toggle half of this gate has nothing to drive. Stopping here: that is itself a finding to report.');
-   printTable();printSummary();
-   return phases.some(phase=>phase.failures)?1:0;
+   finish();
+   return;
   }
 
   // 2. the install itself
@@ -572,9 +630,6 @@ async function main(){
   const iris=properties(irisText||'');
   check(iris.get('enableShaders')==='true','config/iris.properties enables shaders',String(iris.get('enableShaders')||'absent'));
   check(Boolean(shaderPackName)&&iris.get('shaderPack')===shaderPackName,'iris.properties names the pack the chunk delivered ('+String(shaderPackName)+')',String(iris.get('shaderPack')||'absent'));
-  if(shaderPackName&&hardware.SHADER_PACK_NAME!==shaderPackName){
-   info('the launcher’s own SHADER_PACK_NAME constant is '+hardware.SHADER_PACK_NAME+', while the chunk delivers '+shaderPackName+' — naming a pack that was never installed is the 1.0.8 defect, so this is worth a ticket');
-  }
   check(Number(iris.get('shadowDistance'))===ladder.shadowDistance,'iris.properties shadowDistance is '+ladder.shadowDistance,String(iris.get('shadowDistance')||'absent'));
   const optionsText=await fs.readFile(path.join(clientRoot,'options.txt'),'utf8').catch(()=>null);
   const options=properties(optionsText||'');
@@ -769,15 +824,23 @@ async function main(){
   summarise('renderDistance 8 and the sneak rebind kept, options.txt untouched, '+exact(passMoved.bytesFetched));
   facts.edit={ms:passMs,bytes:passMoved.bytesFetched};
 
-  printTable();
-  printSummary();
-  return phases.some(phase=>phase.failures)?1:0;
+  finish();
  }finally{
   release();
  }
 }
 
 // ---- the final table and the summary ----------------------------------------
+// One ending for every way this gate can stop: the normal path, an early stop, and a
+// thrown refusal all come through finish(), and printSummary derives BOTH the verdict
+// word and the exit code from the same failure count. They cannot disagree, which is
+// the defect the coordinator hit on 2026-10-22: a run that refused to start printed
+// "gate PASS · 0 checks · none failed" because it counted failures from an empty phase
+// list while the throw sat outside it. A refusal is a failed gate, and it now says so.
+function finish(){
+ printTable();
+ printSummary();
+}
 function printTable(){
  console.log('────────────────────────────────────────────────────────────────────────────────');
  console.log('  phase'.padEnd(20)+'result'.padEnd(9)+'checks'.padEnd(9)+'detail');
@@ -794,13 +857,14 @@ function printSummary(){
  const failed=phases.reduce((sum,phase)=>sum+phase.failures,0);
  const skipped=phases.reduce((sum,phase)=>sum+phase.checks.filter(entry=>entry.status==='skip').length,0);
  const totalBytes=(facts.install?.bytes||0)+(facts.graphics?.bytes||0)+(facts.quiet?.bytes||0)+(facts.edit?.bytes||0);
+ const totalPretty=bsize(totalBytes);
  console.log('');
  if(facts.install)console.log('summary install ('+(facts.install.fresh?'fresh root':'same root')+')  "'+facts.install.message+'"  '+exact(facts.install.bytes)+' · '+facts.install.hashReads+' hash reads · '+duration(facts.install.ms));
  if(facts.graphics)console.log('summary graphics on            '+exact(facts.graphics.bytes)+' · '+duration(facts.graphics.ms)+' · '+facts.graphics.shaderPack);
  if(facts.off)console.log('summary graphics off           '+exact(facts.off.bytes)+' · '+duration(facts.off.ms));
  if(facts.quiet)console.log('summary second install         "'+facts.quiet.message+'"  '+exact(facts.quiet.bytes)+' · '+facts.quiet.hashReads+' hash reads · '+duration(facts.quiet.ms));
  if(facts.edit)console.log('summary player-edit pass       '+exact(facts.edit.bytes)+' · '+duration(facts.edit.ms));
- console.log('summary downloaded this run     '+exact(totalBytes)+' ('+bsize(totalBytes)+')');
+ console.log('summary downloaded this run     '+exact(totalBytes)+(totalPretty===exact(totalBytes)?'':' ('+totalPretty+')'));
  console.log('');
  const failures=phases.flatMap(phase=>phase.checks.filter(entry=>entry.status==='fail').map(entry=>({phase:phase.title,...entry})));
  if(failures.length){
@@ -808,19 +872,29 @@ function printSummary(){
   for(const entry of failures)console.log('  · ['+entry.phase+'] '+entry.name+(entry.detail?'  ['+entry.detail+']':''));
   console.log('');
  }
- console.log('gate '+(failed?'FAIL':'PASS')+' · '+checks+' checks · '+(failed?failed+' failed':'none failed')+(skipped?' · '+skipped+' skipped':'')+(drift?' · '+drift+' recorded number'+(drift===1?'':'s')+' drifted from the 2026-10-22 measurement':''));
- if(failed)console.log('A red check here is a finding about the published payload or the launcher, not something to fix by editing this script’s expectations.');
+ const verdict=failed?'FAIL':'PASS';
+ const redRows=phases.reduce((sum,phase)=>sum+phase.checks.filter(entry=>entry.status==='fail').length,0);
+ console.log('gate '+verdict+' · '+checks+' check'+(checks===1?'':'s')+' · '+(failed?failed+' failed':'none failed')+(skipped?' · '+skipped+' skipped':'')+(drift?' · '+drift+' recorded number'+(drift===1?'':'s')+' drifted from the 2026-10-22 measurement':''));
+ // The invariant the sentence above depends on, asserted rather than assumed: a red
+ // row and a PASS verdict can never be printed by the same run.
+ if(redRows&&!failed)throw Error('the gate printed a FAIL row but counted no failure');
+ if(failed&&redRows!==failed)throw Error('the gate counted '+failed+' failures and printed '+redRows+' FAIL rows');
+ if(failed)console.log('A red check is a finding to read and report, never something to fix by editing this script’s expectations.');
+ process.exitCode=failed?1:0;
 }
 
 // A thrown phase is a failure too, and it is reported in the same table: the gate ends
-// with the phase name and the error rather than a bare stack trace and no summary.
+// with the phase name and the error rather than a bare stack trace and no summary. A
+// refusal that happens before any phase started gets a phase of its own, so it is a
+// counted failure and the verdict says FAIL.
 try{
- const code=await main();
- process.exitCode=code?1:0;
+ await main();
 }catch(error){
- if(current){current.failures++;current.checks.push({status:'fail',name:current.title+' did not finish',detail:String(error.message||error)});}
- console.log('\n  FAIL  '+(current?current.title:'the gate')+' did not finish: '+String(error.message||error));
- printTable();
- printSummary();
- process.exitCode=1;
+ const label=current?current.title+' did not finish':'the gate did not start';
+ if(!current){
+  begin('start-up','nothing was downloaded or written');
+  summarise('refused before anything was downloaded or written');
+ }
+ fail(label,String(error.message||error));
+ finish();
 }
