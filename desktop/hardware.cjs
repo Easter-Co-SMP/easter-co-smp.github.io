@@ -413,6 +413,9 @@ async function detectHardware({gpuInfo=null,featureStatus=null,platform=process.
 // machine reported, and shaders are only turned on where there is memory for them;
 // a machine that reports nothing gets the conservative settings and no shader pack
 // promise, exactly like the toggle's own `tunable` flag.
+// Not a statement about what the payload publishes and never written into a client by
+// install.cjs, which names the pack from the installed graphics chunk itself: this is only
+// this ladder's default answer to "could this GPU carry shaders".
 const SHADER_PACK_NAME='ComplementaryUnbound_r5.9.3.zip';
 const QUALITY_LADDER=[
  {minVRAM:0,renderDistance:6,shadowDistance:4,graphicsMode:'fast',shaders:false},
