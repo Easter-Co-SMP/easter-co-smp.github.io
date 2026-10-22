@@ -354,3 +354,49 @@
  .discovery-title{font-size:21px}
 }
 @media(max-width:440px){.launcher-discovery{grid-template-columns:1fr}.discovery-card{min-height:230px}}
+
+/* Home is the launcher's shell, not a page: it has to fit every window the window itself
+   allows, and `desktop/main.cjs` pins that window at `minWidth` 800 and `minHeight` 600
+   (doc/launcher-states.md, *The launcher is an application window, not the website*).
+   The two-row form above 1000px wide does not fit a short window, and below 1000px it is
+   stacked: measured 2026-10-22 on 1.0.39, 800x600 needed 890px of document height, so both
+   cards' only actions (Read post at 703..743, Explore item at the same offset) and the whole
+   footer (844..890) sat below the fold — the smallest window the launcher allows cut the
+   review's own cards in half. So the supporting cards pair *beside* the client on a short
+   window, exactly as they already do above 1000px, with the tighter rhythm a short window
+   affords. Nothing is dropped or shrunk to buy the room: both cards keep their label, date,
+   title, copy and action, every control keeps its touch target, and the counts the review
+   asserts are unchanged. The trim below applies at every height a narrow window has before the
+   stacked form fits with its designed rhythm, so the trimmed form's own need (748px measured)
+   is what decides whether a window has room for two rows; at 800px wide the stacked form is
+   used from 760px of window height up, and its 12px of slack is what keeps the switch from
+   being a knife edge. Above 960px of height the stacked form fits untrimmed (908px measured),
+   so the trim stops there and a tall narrow window keeps the spacing it always had. */
+@media(min-width:701px) and (max-width:1000px) and (max-height:960px){
+ .desktop-mode .home-hero>.hero-copy{padding:20px}
+ .desktop-home-heading{margin-bottom:16px}
+ .desktop-install-details{margin-top:14px;padding-top:12px}
+ .desktop-mode body.home>.home-content{padding:calc(16px + var(--launcher-notice-space,0px)) 40px 24px}
+ .discovery-card{min-height:0;padding:20px 18px}
+ .discovery-label{margin-bottom:10px}
+ .discovery-date,.discovery-category{margin-bottom:6px}
+ .discovery-title{margin-bottom:8px}
+ .discovery-copy{margin-bottom:10px}
+}
+@media(min-width:701px) and (max-width:1000px) and (max-height:760px){
+ .desktop-mode .home .home-hero{grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);max-width:1000px;gap:16px}
+ .desktop-mode .home-hero>.hero-copy{min-height:0}
+ .launcher-discovery{gap:16px}
+ /* A headline has less width beside the client than below it, so it gets a fourth line here
+    rather than being ellipsised where the stacked form showed it whole: "The server row, the
+    cold start and the legal pages" is 48 characters and needs four lines of a 142px card. */
+ .discovery-title{-webkit-line-clamp:4}
+}
+/* The room the fixed failure notice reserves comes out of the same height, so a short window
+   closes up its own padding rather than pushing the footer under the edge. This repeats the
+   `@media(max-height:700px)` block near the top of this file because the rule that follows it
+   would otherwise win, and it is what lets a wide window keep the notice and its footer on
+   screen at the shortest height the launcher allows. */
+@media(min-width:601px) and (max-height:700px){
+ .desktop-mode body.home>.home-content{padding:calc(16px + var(--launcher-notice-space,0px)) 40px 24px}
+}

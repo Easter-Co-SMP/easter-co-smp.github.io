@@ -177,11 +177,25 @@ name from `/releases/latest/download/`. The launcher job is
    pass, not a gate: it drives the launcher at several widths and writes screenshots to
    `EASTER_REVIEW_IMAGES` for a person to look at, and what it asserts about behaviour is
    already asserted here by `electron.mjs`, `deslop.electron.mjs` and
-   `launcher-identity-conflict.electron.mjs`. It has also been red intermittently for a
-   notice-band race that ticket 80bf173e owns; all three of its runs on 2026-10-19 passed,
-   which is exactly what an intermittent failure looks like. A required check that fails at
-   random teaches people to skip required checks. Run it when the frontend reviewer asks for
+   `launcher-identity-conflict.electron.mjs`. A required check that fails at random
+   teaches people to skip required checks. Run it when the frontend reviewer asks for
    it, and read its images.
+
+   Its reason for being red was mis-recorded here, and the correction matters to whoever
+   reads this next. On 2026-10-19 this note called it red *intermittently* for a
+   notice-band race that ticket 80bf173e owns, on the evidence of three passing runs. That
+   was not what kept it red: on committed main it failed **deterministically**, twice,
+   before it reached the parts it exists to review, and both failures were measured layout
+   defects of the shipped UI rather than timing (ticket de61e4dc, fixed on the branch
+   `fix/ui-review-red` on 2026-10-22). At 800x600 — the launcher's own `minWidth`/`minHeight`
+   — Home needed 890px of document height, so both news/store cards' only actions and the
+   entire footer sat below the fold; and the account chooser's three-line conflict refusal
+   was asserted to have been scrolled into view whenever the box could scroll, which is not
+   what the product promises: at 390x844 the refusal was already whole at `scrollTop` 0
+   while the box scrolled by 28px for its own bottom inset. (See doc/launcher-states.md,
+   *The launcher is an application window, not the website* and *A box that scrolls is not
+   a refusal that is clipped*.) It passes on that branch now, one run, exit 0. The
+   notice-band race is a separate and older suspicion; it is not what was measured here.
 
 3. The version in `package.json` is higher than the published one. The tag is derived
    from it, so forgetting this step produces a release that cannot be created.

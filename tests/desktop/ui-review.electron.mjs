@@ -24,10 +24,46 @@ try{
   try{await page.waitForFunction(condition,undefined,{timeout});}
   catch(error){throw Error(where+' never settled: '+error.message);}
  };
- for(const [width,height] of [[1360,920],[800,600]]){
+ // Home is the launcher's shell, not a page, and the window it lives in declares its own floor:
+ // `desktop/main.cjs` pins `minWidth` 800 and `minHeight` 600, so a player can have exactly that
+ // window and doc/launcher-states.md (*The launcher is an application window, not the website*)
+ // makes fitting it the rule for this surface. Measured 2026-10-22 on the shipped 1.0.39: the
+ // stacked form above 1000px wide needed 890px at 800 wide, so documentElement.scrollHeight 890
+ // against innerHeight 600 left 290px of overflow — .home-content ending at 844,
+ // .launcher-discovery at 772 with both cards' only actions (Read post, Explore item) at
+ // 703..743, and the whole footer at 844..890 — and the page grew a scrollbar at its own
+ // minimum. The fix is layout, not a smaller claim: below the height the stacked form needs, the
+ // supporting cards pair beside the client exactly as they already do above 1000px wide
+ // (site/desktop.css, the short-window block at the end). So this is still asserted at 800x600 —
+ // and at 1280x800, where the reviewer reads the same screen — and every piece of Home is
+ // measured against the viewport edges rather than only the document, because a card whose only
+ // control is under the bottom edge is not "fitting" even where the document stops at 600.
+ const homeEdges=()=>page.evaluate(()=>{
+  const past=[];
+  for(const node of document.querySelectorAll('.site-header,.home-content,.home-hero,.hero-copy,.launcher-discovery,.discovery-card,.home-footer')){
+   if(!node.getClientRects().length)continue;
+   const rect=node.getBoundingClientRect();
+   if(rect.bottom>innerHeight+1||rect.right>innerWidth+1||rect.top<-1||rect.left<-1)
+    past.push({element:node.className||node.tagName,top:Math.round(rect.top),bottom:Math.round(rect.bottom),left:Math.round(rect.left),right:Math.round(rect.right)});
+  }
+  const controls=[];
+  for(const node of document.querySelectorAll('.home-hero button,.home-hero a,.discovery-card button,.discovery-card a,.home-footer a')){
+   if(!node.getClientRects().length)continue;
+   const rect=node.getBoundingClientRect();
+   controls.push({text:(node.textContent||node.getAttribute('aria-label')||'').trim().slice(0,28),
+    inside:rect.top>=-1&&rect.left>=-1&&rect.bottom<=innerHeight+1&&rect.right<=innerWidth+1});
+  }
+  return {past,unreachable:controls.filter(control=>!control.inside).map(control=>control.text),controls:controls.length,
+   scrollWidth:document.documentElement.scrollWidth,scrollHeight:document.documentElement.scrollHeight,innerWidth,innerHeight};
+ });
+ for(const [width,height] of [[1360,920],[800,600],[1280,800]]){
   await page.setViewportSize({width,height});await shot('first-run-'+width);
-  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'no horizontal overflow');
-  assert(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1),'Home fits window');
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'no horizontal overflow at '+width+'x'+height);
+  assert(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight+1),'Home fits window at '+width+'x'+height);
+  const edges=await homeEdges();
+  assert(edges.controls>=3,'Home actually offers the actions this measures, rather than a selector matching nothing at '+width+'x'+height+': '+JSON.stringify(edges));
+  assert.deepEqual(edges.past,[],'every piece of Home is inside the window at '+width+'x'+height+': '+JSON.stringify(edges));
+  assert.deepEqual(edges.unreachable,[],'and every action Home offers is inside it too, at '+width+'x'+height+': '+JSON.stringify(edges));
  }
  await page.setViewportSize({width:1360,height:920});
  const initial=await page.evaluate(()=>window.easterDesktop.status());
@@ -1032,13 +1068,35 @@ try{
   assert.equal(painted.refusal.inside,true,'and every one of them is inside the box that scrolls at '+at+': '+JSON.stringify(painted));
   // The refusal is the one thing that has to be seen without asking for it: it is painted above
   // the form and before the controls, and a box too short to show it whole scrolls to it rather
-  // than leaving its last line under its own edge. A box that can show it whole does not move at
-  // all — which at 800x600 with three provider buttons above it is no longer a size the chooser
-  // can be in. It scrolls there, and that is allowed.
-  if(painted.scrollHeight>painted.clientHeight+1){
-   assert(painted.scrollTop>0,'a chooser too short to show the whole refusal scrolls to it instead of leaving its last line under its own edge at '+at+': '+JSON.stringify(painted));
+  // than leaving its last line under its own edge.
+  //
+  // What was asserted here until 2026-10-22 was `scrollHeight>clientHeight+1 ⇒ scrollTop>0` — "a
+  // box that scrolls has scrolled to the refusal" — and that premise died when the chooser grew.
+  // It was written when a refusal was the only thing that could make the chooser overflow; with
+  // provider sign-in the content is 621px and the box is capped at `calc(100dvh - 32px)`, so the
+  // box at 390x844 scrolls by 28px for its own bottom inset below "Forgot your password" while
+  // the refusal is already whole: measured 2026-10-22 on the shipped 1.0.39, its three lines sat
+  // at 564..735 inside a scrollport ending at 827 (scrollHeight 838 against clientHeight 810),
+  // the dialog correctly did not move, and this line called that a failure. That is not a
+  // regression a player could see; it is the assertion asking a question the product never
+  // promised to answer. So the property asserted is the one site/company-auth.mjs `reveal()`
+  // actually promises: at rest every line of the refusal is inside the box — checked above — and
+  // the box has scrolled exactly when it would otherwise have clipped one, measured by taking the
+  // dialog back to the top and reading where the refusal's own lines fall.
+  const atTop=await page.evaluate(()=>{
+   const dialog=document.querySelector('#desktop-company-signin'),node=dialog.querySelector('.company-error');
+   const start=dialog.scrollTop;dialog.scrollTop=0;
+   const field=dialog.getBoundingClientRect(),top=field.top+dialog.clientTop,bottom=top+dialog.clientHeight;
+   const rect=node.getBoundingClientRect();
+   const needed=rect.top<top-1?Math.round(rect.top-top):rect.bottom>bottom+1?Math.round(rect.bottom-bottom):0;
+   dialog.scrollTop=start;
+   return {needed,restored:Math.round(dialog.scrollTop)};
+  });
+  assert.equal(atTop.restored,painted.scrollTop,'measuring where the refusal sits at the top leaves the chooser where it was at '+at+': '+JSON.stringify({atTop,painted}));
+  if(atTop.needed>0){
+   assert(painted.scrollTop>0,'a refusal its box would clip at the top is scrolled into view instead of left under the edge at '+at+': '+JSON.stringify({atTop,painted}));
   }else{
-   assert.equal(painted.scrollTop,0,'a chooser that already shows the whole refusal is not scrolled at '+at);
+   assert.equal(painted.scrollTop,0,'a chooser whose box already shows the whole refusal at rest is not scrolled at '+at+', however much of it scrolls below the refusal: '+JSON.stringify({atTop,painted}));
   }
   const paintedReach=await reachChooser('the chooser carrying a refusal');
   assert(paintedReach.scrollWidth<=paintedReach.clientWidth+1,'and still nothing is pushed out sideways with the refusal painted at '+at+': '+JSON.stringify({scrollWidth:paintedReach.scrollWidth,clientWidth:paintedReach.clientWidth}));

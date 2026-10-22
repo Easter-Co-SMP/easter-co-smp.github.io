@@ -954,7 +954,19 @@ On a window too short to show all three lines at once, the chooser scrolls the r
 into view rather than leaving its last line under the dialog's own edge: the least it can
 scroll for the whole refusal to be inside the box, and nothing at all when the box
 already shows it, so the refusal is still read above the form with Sign in and Forgot
-your password below the fold.
+your password below the fold. **A box that scrolls is not a refusal that is clipped**
+(measured 2026-10-22, ticket de61e4dc). With provider sign-in the chooser is capped at
+`calc(100dvh - 32px)` and its content is 621px, so at 390x844 it scrolls by 28px for its
+own bottom inset while the refusal is already whole: its three lines sat at 564..735
+inside a scrollport ending at 827 (`scrollHeight` 838 against `clientHeight` 810), the
+dialog correctly stayed at `scrollTop` 0, and
+`tests/desktop/ui-review.electron.mjs` was still asserting "a scrolling box has
+scrolled". The journey now asserts the property `reveal()` in `site/company-auth.mjs`
+promises instead: at rest every line of the refusal is inside the box, and the box has
+scrolled exactly when it would otherwise have clipped one — read by taking the dialog
+back to the top and measuring where the refusal's own lines fall. At 800x600 (68px) and
+390x568 (184px) it scrolls; at 390x844 and 1440x900 it does not, and that is the
+correct answer at both.
 
 **A chooser may scroll when the window is short (decided 2026-10-19, superseding the
 no-unnecessary-scrollbar rule).** The round-three review produced one rule about this
@@ -1766,6 +1778,30 @@ detail under the hero action, so the crest, the name, the single download action
 that detail all stay on screen at 800x600 without the shell ever scrolling. The
 narrow-width fallback is the website's stacked layout, which only desktop mode in a
 browser can reach.
+
+The news and store cards belong to the same rule, and for a while they broke it
+(measured 2026-10-22 on 1.0.39, fixed in ticket de61e4dc). They arrived under a
+`@media(max-width:760px),(max-height:650px)` form that let Home scroll, and the
+follow-up that aligned the tiles (`4a01aa1`) dropped those conditions and made the
+whole shell `height:auto; overflow-y:auto` at every width — so at 800x600 the page
+measured `documentElement.scrollHeight` 890 against `innerHeight` 600: `.home-content`
+ending at 844, `.launcher-discovery` at 772 with both cards' only actions (Read post,
+Explore item) at 703..743, and the entire footer at 844..890 below the fold. The
+smallest window the launcher allows cut the review's own cards in half, so the rule
+is not "it always overflowed" and it is not "raise the minimum": raising `minHeight`
+to the 890 the stacked form needs would put the launcher off a 1366x768 laptop's
+screen. Home fits, and the supporting cards pair **beside** the client on a short
+window exactly as they already do above 1000px wide
+(`site/desktop.css`, the short-window block at the end of the file). The stacked form
+needs 748px at 800 wide once its rhythm is trimmed, so 760px of window height is the
+switch; nothing is dropped or shrunk to buy the room — both cards keep their label,
+date, title (four lines beside the client, where the width is smaller), copy and
+action, and every control keeps its touch target. Measured after the fix at 800x600
+and 1280x800: no element past a viewport edge, no horizontal scrollbar, no vertical
+one, and the footer whole — with the fixed failure notice painted as well, which
+re-reserves its own room and still leaves the crest and heading below the band.
+`tests/desktop/ui-review.electron.mjs` asserts both sizes and measures every home
+element and action against the viewport edges, not only the document.
 
 ## Game shortcuts and the auto-start argument
 
