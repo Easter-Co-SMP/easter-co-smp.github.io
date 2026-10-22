@@ -274,20 +274,20 @@ The gate's own two runs, which are the numbers a re-run should be read against �
 are stable, durations are that day's network:
 
     # first run, fresh root
-    summary install (fresh root)  "Client ready."  508,051,649 bytes · 5073 hash reads · 6m 16s
-    summary graphics on            7,595,639 bytes · 393 ms · ComplementaryUnbound_r5.9.3.zip
-    summary graphics off           0 bytes · 5 ms
-    summary second install         "Client ready."  0 bytes · 0 hash reads · 1 ms
+    summary install (fresh root)  "Client ready."  508,051,649 bytes · 5073 hash reads · 6m 3s
+    summary graphics on            7,595,639 bytes · 504 ms · ComplementaryUnbound_r5.9.3.zip
+    summary graphics off           0 bytes · 4 ms
+    summary second install         "Client ready."  0 bytes · 0 hash reads · 2 ms
     summary player-edit pass       0 bytes · 1 ms
     summary downloaded this run     515,647,288 bytes (491.8 MB)
     gate PASS · 154 checks · none failed · 2 recorded numbers drifted from the 2026-10-22 measurement
 
     # second run, same root
-    summary install (same root)  "Client ready."  0 bytes · 0 hash reads · 3 ms
+    summary install (same root)  "Client ready."  0 bytes · 0 hash reads · 5 ms
     summary graphics on            0 bytes · 4 ms · ComplementaryUnbound_r5.9.3.zip
-    summary graphics off           0 bytes · 5 ms
-    summary second install         "Client ready."  0 bytes · 0 hash reads · 1 ms
-    summary player-edit pass       0 bytes · 0 ms
+    summary graphics off           0 bytes · 7 ms
+    summary second install         "Client ready."  0 bytes · 0 hash reads · 2 ms
+    summary player-edit pass       0 bytes · 1 ms
     summary downloaded this run     0 bytes (0 bytes)
     gate PASS · 152 checks · none failed · 1 skipped · 2 recorded numbers drifted from the 2026-10-22 measurement
 
@@ -295,11 +295,11 @@ The single skipped check on the second run is the one that asserts the optional 
 are absent: the first run's payload is still on disk, and switching the toggle off keeps it
 there by design. The fresh root is where that assertion belongs.
 
-The final run started 01:49:10 and answered "Client ready." at 01:55:26 — 6 min 16 s for the
+The run above started 01:56:16 and answered "Client ready." at 02:02:19 — 6 min 3 s for the
 same 508 MB, against 3 min 8 s for the hand measurement this gate was written from
-(05:09:09 → 05:12:17) and 4 min 0 s for an earlier run of the same script. The duration is the
-network's, not the payload's; the byte counts are what a later run should be read against.
-What every one of those runs establishes:
+(05:09:09 → 05:12:17) and 4 min 0 s and 6 min 16 s for two earlier runs of the same script. The
+duration is the network's, not the payload's; the byte counts are what a later run should be
+read against. What every one of those runs establishes:
 
 - 15 non-optional files and 4 optional ones, every one matching its declared size and hash.
   The graphics chunk is 7,595,639 bytes of files.
