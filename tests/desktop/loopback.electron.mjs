@@ -22,9 +22,13 @@ import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/p
 const root=process.cwd();
 // The rule and the constants the launcher itself matches the published payload with, so
 // this journey compares the manifest with the code instead of with a copy of it: the
-// guiScale rule applied to this display, the one shader pack name iris.properties may
-// carry, and the cache path the managed Grassier Grass jar is activated from.
-const {displayGuiScale,SHADER_PACK_NAME}=createRequire(import.meta.url)(path.join(root,'desktop','hardware.cjs'));
+// guiScale rule applied to this display, and the cache path the managed Grassier Grass jar
+// is activated from. The shader pack's name is deliberately not imported from a constant:
+// desktop/install.cjs names the pack from the installed graphics chunk itself, so the
+// expected name here is that chunk's own basename (SHADER_NAME below). hardware.cjs's own
+// pack-name constant answers a different question — whether this GPU can carry shaders — and
+// is never evidence of what the publisher ships.
+const {displayGuiScale}=createRequire(import.meta.url)(path.join(root,'desktop','hardware.cjs'));
 const {GRASS_CACHE,GRASS_ACTIVE}=createRequire(import.meta.url)(path.join(root,'desktop','visuals.cjs'));
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'easter-loopback-test-'));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -32,7 +36,7 @@ const sha256=buffer=>crypto.createHash('sha256').update(buffer).digest('hex');
 const sha512=buffer=>crypto.createHash('sha512').update(buffer).digest('hex');
 const exists=async file=>fs.stat(file).then(()=>true,()=>false);
 let failures=0;
-let tunedDistance=null,optionsAtRest=null,expectedScale=null,migratedSettings=null;
+let tunedDistance=null,optionsAtRest=null,expectedScale=null,migratedSettings=null,provedGraphics=null;
 function check(condition,message){if(condition)console.log('  ok   '+message);else{failures++;console.log('  FAIL '+message);}}
 // The household's approved controls, and vanilla's, as read off the real clients.
 const DEFERRED_KEY='key_key.shippy-ships.isPressingCtrl';
@@ -106,7 +110,7 @@ const baseJar=Buffer.from('easter-navy-base-jar');
 // manifest declares, read from this repository's own copy of it (site/data/client.json is
 // what https://easter-co-smp.github.io/data/client.json serves), because a one-file chunk
 // skipped the whole activation path: the Iris and Sodium names desktop/visuals.cjs matches
-// with its own regexes, the shader pack whose basename has to equal SHADER_PACK_NAME, and
+// with its own regexes, the shader pack that chunk names for itself, and
 // the optional-mods cache it requires before it will activate mods/easter-grassier-grass.jar.
 // Only the bytes, hashes and urls are fixtures; nothing here downloads from Modrinth.
 const publishedClient=JSON.parse(await fs.readFile(path.join(root,'site','data','client.json'),'utf8'));
@@ -116,6 +120,16 @@ const kindOf=relative=>/^mods\/iris(?:-[^/]*)?\.jar$/.test(relative)?'iris':/^mo
 const publishedPaths=publishedGraphics.files.map(file=>file.path);
 const publishedOf=kind=>publishedGraphics.files.find(file=>kindOf(file.path)===kind)||null;
 const SHADER_PATH=publishedOf('shader')?.path,IRIS_PATH=publishedOf('iris')?.path,SODIUM_PATH=publishedOf('sodium')?.path,GRASS_PATH=publishedOf('grass')?.path;
+// The pack name iris.properties may carry, taken from the payload rather than from a
+// constant: desktop/install.cjs reads exactly one `shaderpacks/*.zip` path out of the
+// installed chunk and writes that basename (shaderPackName, install.cjs). So the published
+// chunk's own path is the only authority here, and a publisher that renames its file
+// tomorrow moves this name with it instead of turning a correct tree red.
+const SHADER_NAME=path.posix.basename(String(SHADER_PATH||''));
+// The synthetic pack a later section publishes instead: a name no constant in this tree
+// contains, and none any earlier release carried, so writing it can only come from the
+// chunk that declares it.
+const PROOF_SHADER_PATH='shaderpacks/ProofPack_r9.9.9.zip',PROOF_SHADER_NAME=path.posix.basename(PROOF_SHADER_PATH);
 // The release before the one the manifest declares, and one after it. A managed jar that
 // changes its name between versions is what the retirement rule exists for, so the fixture
 // publishes both directions: an older Iris the tree already has, a newer Sodium an update
@@ -140,7 +154,10 @@ function graphicsChunk(set){
  const version='sha256:'+sha256(Buffer.concat(entries.map(entry=>Buffer.from(entry.path+' '+entry.hash))));
  return {id:'graphics',name:publishedGraphics.name,optional:true,immutable:false,version,files:entries};
 }
-const graphicsRelease=({shader,iris=IRIS_PATH,sodium=SODIUM_PATH})=>graphicsChunk([[SHADER_PATH,shader],[iris,fixtureBytes(path.posix.basename(iris))],[sodium,fixtureBytes(path.posix.basename(sodium))],[GRASS_PATH,fixtureBytes(path.posix.basename(GRASS_PATH))]]);
+// `shaderPath` is the pack's own path in that release. Everything else in the chunk is
+// fixtured, but the path the shader pack is published at is what the launcher names the
+// pack by, so one release below deliberately publishes it under a name no constant carries.
+const graphicsRelease=({shader,shaderPath=SHADER_PATH,iris=IRIS_PATH,sodium=SODIUM_PATH})=>graphicsChunk([[shaderPath,shader],[iris,fixtureBytes(path.posix.basename(iris))],[sodium,fixtureBytes(path.posix.basename(sodium))],[GRASS_PATH,fixtureBytes(path.posix.basename(GRASS_PATH))]]);
 // V0 is the release this tree already has; V1 is what the toggle installs, V2 an update
 // that renames Sodium, V3 the transfer the pause/resume section stops and resumes.
 const graphicsV0=graphicsRelease({shader:crypto.randomBytes(96*1024),iris:OLD_IRIS});
@@ -392,11 +409,12 @@ try{
 
  console.log('\n2. clicking the real toggle on installs the published graphics chunk and activates it');
  // The premise, read before anything is clicked: the file set and paths the live manifest
- // publishes, compared with the constants the launcher itself matches them by. A published
+ // publishes, compared with the shapes the launcher itself matches them by. A published
  // payload that disagreed with any of these would install files the next step refuses to
- // use, and the shader pack it names would never be loaded.
+ // use, and the shader pack it names would never be loaded. The pack's expected name is the
+ // name that payload publishes — SHADER_NAME — never a constant this repository carries.
  check(publishedGraphics.files.length===4&&publishedPaths.every(relative=>kindOf(relative)!==null),'the published graphics chunk is the four managed files this journey reproduces: '+JSON.stringify(publishedPaths));
- check(path.posix.basename(SHADER_PATH)===SHADER_PACK_NAME,'and its shader pack carries the one name the launcher writes into iris.properties: '+SHADER_PACK_NAME);
+ check(SHADER_NAME===path.posix.basename(SHADER_PATH)&&SHADER_NAME.endsWith('.zip')&&SHADER_NAME===path.posix.basename(SHADER_NAME),'and its shader pack is the single file desktop/install.cjs names out of that chunk: '+SHADER_NAME);
  check(GRASS_PATH===GRASS_CACHE,'its cached Grassier Grass jar sits at the path desktop/visuals.cjs activates from: '+GRASS_CACHE);
  check(GRASS_ACTIVE==='mods/easter-grassier-grass.jar','whose activated copy is the managed jar in mods/: '+GRASS_ACTIVE);
  // The row the player clicks exists at the Play Now stage and nowhere earlier, and no account
@@ -460,7 +478,11 @@ try{
  check(Boolean(activeBytes)&&activeBytes.equals(await fs.readFile(cachedGrass)),'and is a byte-equal copy of the cached '+GRASS_PATH);
  const irisOn=await fs.readFile(path.join(clientRoot,'config','iris.properties'),'utf8');
  check(/^enableShaders:true$/m.test(irisOn),'iris.properties carries enableShaders:true');
- check(irisOn.includes('shaderPack:'+SHADER_PACK_NAME),'and names the shader pack that is on disk: shaderPack:'+SHADER_PACK_NAME);
+ // The one line that names a pack, compared with the name the payload published rather than
+ // with any name this repository remembers: exactly one shaderPack line, carrying exactly
+ // the basename of the shader pack the installed chunk declares, which is on disk.
+ const irisPackLines=irisOn.split('\n').filter(line=>line.startsWith('shaderPack:'));
+ check(irisPackLines.length===1&&irisPackLines[0]==='shaderPack:'+SHADER_NAME&&await exists(path.join(clientRoot,SHADER_PATH)),'and names the shader pack the payload published, the one on disk: '+JSON.stringify(irisPackLines));
  const optionsOn=await fs.readFile(path.join(clientRoot,'options.txt'),'utf8');
  check(onState.graphics.enabled===true,'the broadcast state has the toggle on');
  check(onState.graphics.tuned?.shaders===true,'and graphics.tuned reports shaders:true: '+JSON.stringify(onState.graphics.tuned));
@@ -570,6 +592,39 @@ try{
  check(againState.graphics.tuned?.shaders===true,'graphics.tuned reports shaders:true again: '+JSON.stringify(againState.graphics.tuned));
  tunedDistance=againState.graphics.tuned.renderDistance;
 
+ console.log('\n5b. a payload that names its shader pack something else is installed under exactly that name');
+ // The assertion this journey exists for, and the only one of its checks that a
+ // reintroduced hardcoded name would fail. The publisher renames its pack to a file no
+ // constant in this tree contains, published by the same chunk, downloaded and verified by
+ // the same pipeline; iris.properties and the install marker must both end up carrying that
+ // name and nothing else. A launcher that named the pack from the hardware ladder's own
+ // constant, from a remembered value or from an earlier install would write the
+ // previous name here and go red, which is the whole point: the name follows the payload.
+ check(PROOF_SHADER_NAME!==SHADER_NAME,'the proof scenario publishes a pack name the real payload does not use: '+PROOF_SHADER_NAME);
+ const graphicsV4=graphicsRelease({shader:crypto.randomBytes(192*1024),shaderPath:PROOF_SHADER_PATH});
+ files['/data/client.json']=Buffer.from(JSON.stringify({...manifest,chunks:[manifest.chunks[0],graphicsV4]}));
+ requests.length=0;
+ await mark();
+ // Off first, so the on click below is a cycle of the real control rather than a state the
+ // page already reported; off itself stays local and touches no chunk file.
+ await clickGraphicsToggle(false);
+ const proofState=await clickGraphicsToggle(true);
+ check(requests.some(request=>request.path===releaseUrl(graphicsV4,PROOF_SHADER_PATH)),'the renamed pack was fetched from the manifest that publishes it: '+releaseUrl(graphicsV4,PROOF_SHADER_PATH));
+ check((await fs.readFile(path.join(clientRoot,PROOF_SHADER_PATH))).equals(releaseBytes(graphicsV4,PROOF_SHADER_PATH)),'and is on disk with the bytes its own release declares');
+ const proofIris=await fs.readFile(path.join(clientRoot,'config','iris.properties'),'utf8');
+ const proofPackLines=proofIris.split('\n').filter(line=>line.startsWith('shaderPack:'));
+ check(proofPackLines.length===1&&proofPackLines[0]==='shaderPack:'+PROOF_SHADER_NAME,'iris.properties carries exactly the name the payload published: '+JSON.stringify(proofPackLines));
+ check(!proofIris.includes('shaderPack:'+SHADER_NAME),'and not the name any earlier release or constant carried: '+SHADER_NAME);
+ const proofMarker=await marker();
+ check(JSON.stringify(proofMarker.chunks.graphics.files)===JSON.stringify(graphicsV4.files.map(entry=>entry.path))&&proofMarker.chunks.graphics.files.includes(PROOF_SHADER_PATH),'the marker records the renamed pack as the installed chunk\'s own file: '+JSON.stringify(proofMarker.chunks.graphics.files));
+ check(proofMarker.chunks.graphics.version===graphicsV4.version,'at the version that release carries: '+graphicsV4.version);
+ check(proofMarker.quality?.shaderPack===PROOF_SHADER_NAME&&proofMarker.quality?.shaders===true,'and its quality record carries the same name, with shaders on for it: '+JSON.stringify({shaders:proofMarker.quality?.shaders,shaderPack:proofMarker.quality?.shaderPack}));
+ check(proofState.graphics.tuned?.shaders===true,'graphics.tuned reports the shaders the client really carries: '+JSON.stringify(proofState.graphics.tuned));
+ check((await since()).every(state=>!state.error),'and the rename reported no failure');
+ tunedDistance=proofState.graphics.tuned.renderDistance;
+ // The chunk the tree now carries, for the checks after the restart below.
+ provedGraphics=graphicsV4;
+
  console.log('\n6. the state the running app broadcasts');
  console.log(JSON.stringify({final:await latest()},null,1));
  // What the files look like at rest, so the fresh run below can be shown to leave them
@@ -612,7 +667,12 @@ try{
   check(optionsAfterRestart.equals(optionsAtRest.bytes),'a second app run leaves options.txt byte-identical: '+JSON.stringify(optionsAfterRestart.toString('utf8')));
   check((await fs.stat(optionsPath)).mtimeMs===optionsAtRest.mtimeMs,'and does not touch it: mtime unchanged');
   check((await fs.stat(displayRecordPath)).mtimeMs===optionsAtRest.recordMtimeMs,'the seed record is written once, never again');
-  check((await marker()).chunks.graphics.version===graphicsV3.version,'and the install marker still records the chunks it had before the restart');
+  check((await marker()).chunks.graphics.version===(provedGraphics||graphicsV3).version,'and the install marker still records the chunks it had before the restart');
+  // The renamed pack is read back from the client, not from a constant: a fresh run of the
+  // app reports the pack the installed chunk names, which is the synthetic one this tree now
+  // carries.
+  const restartedIris=await fs.readFile(path.join(clientRoot,'config','iris.properties'),'utf8');
+  check(restartedIris.split('\n').filter(line=>line.startsWith('shaderPack:')).join('|')==='shaderPack:'+PROOF_SHADER_NAME,'and iris.properties still names the pack the payload published across a restart: '+PROOF_SHADER_NAME);
  }finally{await relaunch.close();}
 
  // A tree the previous build had already seeded carries a schema-2 record, and one whose
@@ -687,5 +747,5 @@ try{
  await fs.rm(temp,{recursive:true,force:true});
 }
 
-console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the whole approved control set: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key, third person on R, chat on enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift, the 22 vanilla debug keys unbound and the mod-provided Shippy hotkey left for the client to register, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-2 tree with exactly the keys its record did not cover — the Shippy hotkey moved off Left Ctrl in the same pass, inventory and the player list together so no two actions share tab — and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware and graphics state and no server choice at all, with the legacy address its settings file still carried accepted, ignored and dropped, installed the enhanced graphics chunk the live manifest really declares — the shader pack, Iris, Sodium and the cached Grassier Grass jar, at the published paths — by clicking the page\'s own toggle on in the running app, which activated mods/easter-grassier-grass.jar as a byte-equal copy of that cache and wrote iris.properties with enableShaders:true and shaderPack:ComplementaryUnbound_r5.9.3.zip, options.txt with the tuned render distance the state reports and state.graphics.tuned with shaders:true, retired exactly the managed jar the previous graphics version had installed while leaving a file the player added to mods/ untouched, then clicked the same toggle off to remove that jar and write enableShaders:false while keeping the cached payload, the shader pack, the chunk version and the base chunk record and fetching no chunk file at all, switched it back on from that cache without a download, and migrated the old default this box actually carries — exitOnLaunch:true with no trayOnLaunch — to both off once while keeping the saved graphics answer, leaving a player\'s own later choice unchanged on the next load and a second start over the migrated file itself leaving it alone':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
+console.log(failures===0?'\nLOOPBACK PASS: the real launcher seeded the client\'s display defaults, at the GUI scale its own display asks for and with the whole approved control set: crouch on Left Ctrl and sprint on Left Shift swapped from vanilla, inventory on tab, the player list on the grave key, third person on R, chat on enter, the GUI toggle on F10, social interactions on I, smooth camera on right shift, the 22 vanilla debug keys unbound and the mod-provided Shippy hotkey left for the client to register, from its startup path on an already-installed tree, wrote nothing on the second run, upgraded a schema-2 tree with exactly the keys its record did not cover — the Shippy hotkey moved off Left Ctrl in the same pass, inventory and the player list together so no two actions share tab — and nothing on the run after, fetched a fixture manifest from an overridden client origin, applied only the changed chunk, reported byte progress, paused and resumed that transfer, recorded what it installed, published the detected hardware and graphics state and no server choice at all, with the legacy address its settings file still carried accepted, ignored and dropped, installed the enhanced graphics chunk the live manifest really declares — the shader pack, Iris, Sodium and the cached Grassier Grass jar, at the published paths — by clicking the page\'s own toggle on in the running app, which activated mods/easter-grassier-grass.jar as a byte-equal copy of that cache and wrote iris.properties with enableShaders:true and shaderPack:'+SHADER_NAME+', options.txt with the tuned render distance the state reports and state.graphics.tuned with shaders:true, retired exactly the managed jar the previous graphics version had installed while leaving a file the player added to mods/ untouched, then clicked the same toggle off to remove that jar and write enableShaders:false while keeping the cached payload, the shader pack, the chunk version and the base chunk record and fetching no chunk file at all, switched it back on from that cache without a download, then installed a later release that renames its shader pack to '+PROOF_SHADER_NAME+' and wrote exactly that name into iris.properties and the marker because that is the name the payload carries, and migrated the old default this box actually carries — exitOnLaunch:true with no trayOnLaunch — to both off once while keeping the saved graphics answer, leaving a player\'s own later choice unchanged on the next load and a second start over the migrated file itself leaving it alone':'\nLOOPBACK FAIL: '+failures+' check(s) failed');
 process.exitCode=failures===0?0:1;
