@@ -241,7 +241,7 @@ class PublisherTests(unittest.TestCase):
     def test_the_two_halves_are_two_commits(self):
         map_half = self.half({"site/data/world.json": "{}", "site/data/tiles/0/0.png": b"A"},
                              paths=("site/data/world.json", "site/data/tiles"),
-                             message=contract.MAP_COMMIT_MESSAGE.format(snapshot_id="s1"))
+                             message=contract.MAP_COMMIT_MESSAGE.format(snapshot_day="2026-10-23"))
         client_half = self.half({"site/data/client.json": "{}",
                                  "site/downloads/easter-navy.jar": b"jar"},
                                 paths=("site/data/client.json", "site/downloads"),
@@ -251,7 +251,7 @@ class PublisherTests(unittest.TestCase):
         self.assertTrue(first.committed)
         self.assertTrue(second.committed)
         self.assertEqual(len(self.fake.commits), 2)
-        self.assertIn("Publish the atlas terrain for s1", self.fake.commits[0]["message"])
+        self.assertIn("Publish the atlas terrain for 2026-10-23", self.fake.commits[0]["message"])
         self.assertEqual(self.fake.commits[1]["message"], contract.CLIENT_COMMIT_MESSAGE)
         # Each commit *changes* only its own half's paths, which is what makes them
         # independent rather than two copies of one publication.
