@@ -50,7 +50,9 @@ name from `/releases/latest/download/`. The launcher job is
    preview, `xvfb-run -a node tests/desktop/electron.mjs`,
    `xvfb-run -a node tests/desktop/company.electron.mjs` (the Company identity journey
    against the real account handler and PostgreSQL: signup with the username chosen before
-   the password, username sign-in, wrong-provider rejection, matching Microsoft reconnect
+   the password, signing in again with the same Microsoft identity after signing out and
+   landing in that same account with no second setup step, username sign-in, wrong-provider
+   rejection, matching Microsoft reconnect
    and a password reset that goes through a linked provider — this one needs the fixture
    below, and fails without it), `xvfb-run -a node tests/desktop/accounts.electron.mjs`
    (the account transport and vault: the exact public account shape the renderer receives,
@@ -98,7 +100,9 @@ name from `/releases/latest/download/`. The launcher job is
    its own; without one it fails early on an unreachable account service), and
    `xvfb-run -a node tests/desktop/providers.electron.mjs` (provider linking end to end
    against the real account handler: Discord signup, the mandatory username and password,
-   Google linking, display-name and picture editing, the encrypted fixture restart,
+   signing out and back in with the same linked Discord identity to the same account id with
+   no second username or password step and no second account, Google linking, display-name
+   and picture editing, the encrypted fixture restart,
    password login and Discord password recovery. It needs its own fixture instance on 18797
    started WITH `EASTER_PROVIDER_FIXTURE=1`, which is the only thing that serves the
    provider stub; the exact commands are under "The provider journey needs its own
@@ -248,7 +252,7 @@ needs it on **18797**, not 18796. Run it like this, from a clean start:
 Add `EASTER_FIXTURE_LOG=1` to the fixture for one line per request; that is how a request
 sequence gets settled when a journey fails.
 
-Three ways this bites, all measured on 2026-10-19:
+Four ways this bites, all measured on 2026-10-19 and 2026-10-20:
 
 - **Run it alone.** This journey fails when other Electron or xvfb suites are running at
   the same time. One run failed while three other agents were starting worktrees and
@@ -269,6 +273,15 @@ Three ways this bites, all measured on 2026-10-19:
   press. Because each fixture process creates its own database and drops it on exit, the
   limiter resets when you restart the fixture — so a journey that starts failing after a
   few green runs is asking you to restart the fixture, not to debug the launcher.
+- **`page.waitForFunction` with an async predicate waits for nothing.** The account service
+  answers a sign-in a moment after Microsoft's browser flow ends, so a journey that waits
+  for the account has to poll. Measured 2026-10-20 on Playwright 1.61.1: a predicate written
+  as `()=>window.easterDesktop.status().then(s=>s.account!==null)` resolved immediately
+  while `status()` still reported `account: null`, and the assertion two lines later read a
+  null account — which looks exactly like a product fault and is not one. Poll
+  `status()` in a bounded loop with a failure message instead. `company.electron.mjs` and
+  `providers.electron.mjs` did this on 2026-10-20; a bare `waitForFunction` over
+  `window.easterDesktop.status()` anywhere in a journey asserts nothing.
 
 The other Electron journeys need no fixture. `accounts.electron.mjs` starts its own
 loopback stub and reads the account shape from it, and `company-username.electron.mjs`

@@ -9,6 +9,18 @@ const launch=()=>electron.launch({executablePath:path.resolve('node_modules/elec
 let app=await launch();
 try{
  let page=await app.firstWindow();page.setDefaultTimeout(18000);
+ // Every condition on the launcher's own status is polled here. `page.waitForFunction`
+ // resolves an async predicate without awaiting it (doc/releasing.md, "The provider journey
+ // needs its own fixture"), so the two waits this journey used to make that way asserted
+ // nothing at all; the bounded loop below fails loudly instead.
+ const waitForStatus=async(predicate,what)=>{
+  for(let attempt=0;attempt<60;attempt++){
+   const snapshot=await page.evaluate(()=>window.easterDesktop.status());
+   if(predicate(snapshot))return snapshot;
+   await page.waitForTimeout(250);
+  }
+  throw Error('Timed out waiting for '+what+'.');
+ };
  await page.keyboard.press('Escape');
  await page.locator('.desktop-account-nav').click();
  const chooser=page.locator('#desktop-company-signin');
@@ -42,9 +54,9 @@ try{
  const pictureFile=home+'/fixture-avatar.png';await fs.writeFile(pictureFile,Buffer.from(bitmap,'base64'));
  await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});},pictureFile);
  await profile.getByRole('button',{name:'Choose picture',exact:true}).click();
- await page.waitForFunction(()=>window.easterDesktop.status().then(s=>s.account.picture?.startsWith('data:image/png;base64,')));
+ await waitForStatus(s=>s.account?.picture?.startsWith('data:image/png;base64,'),'the chosen picture to be stored');
  await profile.getByRole('button',{name:'Remove picture',exact:true}).click();
- await page.waitForFunction(()=>window.easterDesktop.status().then(s=>s.account.picture===null));
+ await waitForStatus(s=>s.account?.picture===null,'the picture to be removed');
  await page.screenshot({path:'/tmp/provider-account-profile.png'});
  await profile.getByRole('button',{name:'Close profile',exact:true}).click();
  // Restart the actual process with the synthetic encrypted vault and restore the session.
@@ -66,6 +78,20 @@ try{
  await page.locator('.desktop-account-nav').click();
  assert.equal(await page.locator('.desktop-profile-heading.desktop-account .desktop-account-signin').innerText(),'Signs in as '+name,'the account view names the username as the sign-in identifier');
  await page.keyboard.press('Escape');
+ // Signing up and signing in are one flow: the button that created this account has to put a
+ // returning player back into it, with no second account and no setup step asked twice. The
+ // fixture derives the provider subject from the code, so this second Discord sign-in IS the
+ // same person as the one who signed up at the top of this journey.
+ const returningId=(await page.evaluate(()=>window.easterDesktop.status())).account.id;
+ await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Logout',exact:true}).click();
+ await page.locator('.desktop-account-nav').click();
+ await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Discord',exact:true}).click();
+ const returning=await waitForStatus(s=>s.account?.id===returningId,'the returning Discord sign-in to land in the account it is linked to');
+ assert.equal(returning.account.username,name,'and it is the account whose username was already chosen');
+ assert.deepEqual(returning.account.providers,['discord','google'],'the links are unchanged by signing in again');
+ assert.equal(await page.locator('#desktop-company-username').isVisible(),false,'a returning sign-in never asks for the username again');
+ assert.equal(await page.locator('#desktop-company-password').isVisible(),false,'a returning sign-in never asks for a password again');
+ assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'and it reports no failure');
  // Recover through an already linked non-Microsoft provider.
  await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Logout',exact:true}).click();
  await page.locator('.desktop-account-nav').click();
@@ -76,5 +102,5 @@ try{
  await reset.getByLabel('New password',{exact:true}).fill('replacement provider fixture passphrase');
  await reset.getByLabel('Confirm password',{exact:true}).fill('replacement provider fixture passphrase');
  await reset.getByRole('button',{name:'Save password',exact:true}).click();await reset.waitFor({state:'hidden'});
- console.log('PASS: Discord signup, mandatory username/password, Google linking, profile and avatar editing, encrypted fixture restart persistence, password login and Discord password recovery; Minecraft access remains gated.');
+ console.log('PASS: Discord signup, mandatory username/password, signing in again with the same linked Discord identity lands in that same account with no second setup and no second account, Google linking, profile and avatar editing, encrypted fixture restart persistence, password login and Discord password recovery; Minecraft access remains gated.');
 }finally{await app.close();await fs.rm(home,{recursive:true,force:true});}

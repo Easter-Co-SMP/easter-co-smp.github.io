@@ -129,6 +129,28 @@ try{
  await setup.getByLabel('New password',{exact:true}).fill('replacement fixture passphrase');await setup.getByLabel('Confirm password',{exact:true}).fill('replacement fixture passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();await hero('play').waitFor();
  assert.equal(await page.locator('input[type=password]').evaluateAll(inputs=>inputs.every(input=>input.value==='')),true);
  const surface=JSON.stringify(await status());for(const secret of ['fixture-xbox:','fixture-private','fixture secret passphrase','replacement fixture passphrase','microsoftSubject'])assert(!surface.includes(secret));
+ const ownedId=(await status()).account.id;
+ await page.evaluate(()=>window.easterDesktop.signOut());await hero('signin').waitFor();
+ // The same button that enrols an account signs it in again. This is the same Microsoft
+ // identity as the one above (the fixture derives it from the seed and the user number), so a
+ // returning sign-in has to land in that account: not in a second one, and not in the username
+ // or password setup asked at the top of this journey.
+ await hero('signin').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();await approve();
+ // The account service answers the sign-in a moment after the browser flow ends, so wait for
+ // the account itself. page.waitForFunction cannot do this job with an async predicate: it
+ // resolved while `status()` still reported no account, which is what a bare waitForFunction
+ // here measured.
+ let returning=null;
+ for(let attempt=0;attempt<60&&!returning;attempt++){
+  const snapshot=await status();
+  if(snapshot.account)returning=snapshot;else await page.waitForTimeout(250);
+ }
+ assert(returning,'the returning Microsoft sign-in never produced an account');
+ assert.equal(returning.account.id,ownedId,'a returning Microsoft sign-in lands in the account that identity owns');
+ assert.equal(returning.account.username,username,'and it is the account whose username was already chosen');
+ assert.equal(await usernameStep.isVisible(),false,'a returning sign-in never asks for the username again');
+ assert.equal(await setup.isVisible(),false,'a returning sign-in never asks for a password again');
+ assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'and it reports no failure');
  await page.evaluate(()=>window.easterDesktop.signOut());await hero('signin').waitFor();
  await app.evaluate(()=>{global.companyUser='3';global.companyMode='missing';});
  await hero('signin').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();await approve();await usernameStep.waitFor();
@@ -137,6 +159,6 @@ try{
  await setup.getByLabel('New password',{exact:true}).fill('nonowner fixture passphrase');await setup.getByLabel('Confirm password',{exact:true}).fill('nonowner fixture passphrase');await setup.getByRole('button',{name:'Save password',exact:true}).click();await hero('buy').waitFor();
  assert.equal((await status()).companyReady,true);assert.equal((await status()).canPlay,false);await page.screenshot({path:'/tmp/company-nonowner.png',animations:'disabled'});
  assert.deepEqual(errors,[]);
- console.log('Company identity Electron PASS: real API and PostgreSQL signup with the username chosen before the password, username sign-in, wrong-provider rejection, matching Microsoft reconnect, password reset that never asks for the username, Wiki continuity, Play gate and no credential exposure.');
+ console.log('Company identity Electron PASS: real API and PostgreSQL signup with the username chosen before the password, signing in again with the same Microsoft identity after signing out lands in that same account with no second setup and no second account, username sign-in, wrong-provider rejection, matching Microsoft reconnect, password reset that never asks for the username, Wiki continuity, Play gate and no credential exposure.');
 }catch(error){const page=await app.firstWindow();console.log(await page.evaluate(async()=>{const s=await window.easterDesktop.status();return {phase:s.phase,account:s.account,ready:s.companyReady,connected:s.microsoftConnected,error:s.error,dialogs:[...document.querySelectorAll('dialog[open]')].map(x=>x.id)};}));throw error;}
 finally{await app.close();await fs.rm(home,{recursive:true,force:true});}
