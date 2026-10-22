@@ -225,24 +225,67 @@ try{
  await awaitingFace([83,107,102],[1,1]);
  note('a failed read, an unlinked account and a value that is not a data URL all leave the letter tile');
 
- // --- What a password sign-in says -------------------------------------------
- // The hero used to read "Sign in to Minecraft / Use your linked Microsoft account", which is
- // the first-time-connect sentence. Two situations, two sentences: the linked one names the
- // identity that starts the game, and the unlinked one says what it will attach.
- const heroNow=()=>page.locator('[data-desktop-play]').evaluate(node=>({action:node.dataset.action,text:node.innerText.replace(/\s+/g,' ').trim()}));
+ // --- What the hero says about the Minecraft session -------------------------
+ // The hero used to read "Sign in to Minecraft / Use your linked Microsoft account", which is the
+ // first-time-connect sentence. Then 1.0.39 told Owen — signed in, Microsoft account linked — to
+ // "Sign in with Microsoft" again, over a pause icon, because `connect-microsoft` shared its words
+ // with a signed-out screen. His rule: a player who is signed in and linked is never asked to
+ // sign in with Microsoft again; the press reconnects a Minecraft session, it does not log him in.
+ // So every shape `minecraftSession.state` can take is asserted here, with the words and the
+ // glyph, and the two shapes that used to fall through to the Microsoft demand (a session the
+ // launcher could not read, and the wait while it asks) are asserted to say something else.
+ const paused='M8 5v14M16 5v14';
+ const heroNow=()=>page.locator('[data-desktop-play]').evaluate(node=>({
+  action:node.dataset.action,
+  text:node.innerText.replace(/\s+/g,' ').trim(),
+  icon:node.querySelector('svg').innerHTML
+ }));
  const heroFor=async(patch,action)=>{
   await page.evaluate(values=>sendState(values),patch);
   await page.waitForFunction(action=>document.querySelector('[data-desktop-play]')?.dataset.action===action,action);
   return heroNow();
  };
- const linkedHero=await heroFor({account:PASSWORD_ACCOUNT,profile:null,minecraftHead:null,microsoftConnected:false,canPlay:false,actions:['connect-microsoft']},'connect-microsoft');
- assert.deepEqual(linkedHero,{action:'connect-microsoft',text:'Sign in with Microsoft Starts Minecraft as OwenMC'},'a linked account with no live token says signing in starts Minecraft, and names it');
- assert(!/sign in to minecraft|use your linked microsoft account/i.test(linkedHero.text),'the first-time-connect sentence is gone: '+linkedHero.text);
- await page.screenshot({path:`${images}/hero-linked-password-1440.png`,animations:'disabled',clip:await page.locator('.hero-copy').boundingBox()});
- const namelessHero=await heroFor({account:{...PASSWORD_ACCOUNT,minecraftName:null},profile:null,minecraftHead:null,microsoftConnected:false,canPlay:false,actions:['connect-microsoft']},'connect-microsoft');
- assert.deepEqual(namelessHero,{action:'connect-microsoft',text:'Sign in with Microsoft Starts Minecraft with your linked Microsoft account'},'a linked account with no Minecraft name gets the same sentence with no blank in it');
- const unlinkedHero=await heroFor({account:{...PASSWORD_ACCOUNT,microsoftLinked:false,minecraftName:null},profile:null,minecraftHead:null,microsoftConnected:false,canPlay:false,actions:['connect-microsoft']},'link-microsoft');
- assert.deepEqual(unlinkedHero,{action:'link-microsoft',text:'Link Microsoft Attach the Microsoft account that owns Minecraft'},'an account with no Microsoft link offers the action that links one');
+ // Every shape starts from the same base: a client that is installed, a signed-in Easter Company
+ // account with a linked Microsoft account, and no Play until the session says so.
+ const sessionShapes=async(patch,action)=>{
+  const hero=await heroFor({account:PASSWORD_ACCOUNT,profile:null,minecraftHead:null,microsoftConnected:false,companyReady:true,canPlay:false,actions:[],minecraftAccess:'owned',install:INSTALLED,minecraftSession:null,...patch},action);
+  assert(!hero.icon.includes(paused),'no hero shape wears the two-bar pause glyph ('+action+'): '+hero.icon);
+  return hero;
+ };
+ const INSTALLED={installed:true,location:'/fixture/client',defaultLocation:'/fixture/client',version:'26.2'};
+ // 1. A mint is in flight: the launcher is asking, so the hero says what it is waiting for and
+ //    never names a provider it has not established anything about.
+ const probing=await sessionShapes({actions:['connect-microsoft'],minecraftSession:{state:'checking',serverHeld:false,checkedAt:null}},'busy');
+ assert.deepEqual({action:probing.action,text:probing.text},{action:'busy',text:'Checking your Minecraft session… Asking your Easter Company account'},'while the account service is being asked the hero says so: '+probing.text);
+ // The same words for the state a linked account has before the first answer: nothing is known,
+ // so nothing may be demanded. `checkedAt` is what tells this from an answer nobody could read.
+ const unasked=await sessionShapes({minecraftSession:{state:'unknown',serverHeld:false,checkedAt:null}},'busy');
+ assert.deepEqual({action:unasked.action,text:unasked.text},{action:'busy',text:'Checking your Minecraft session… Asking your Easter Company account'},'a session nobody has asked about yet is not a Microsoft demand either: '+unasked.text);
+ // 2. An answer the launcher could not read: the retry, and never a Microsoft prompt.
+ const unreadable=await sessionShapes({actions:['connect-microsoft'],minecraftSession:{state:'unknown',serverHeld:false,checkedAt:'2026-10-23T07:48:00Z'}},'retry-minecraft');
+ assert.deepEqual({action:unreadable.action,text:unreadable.text},{action:'retry-minecraft',text:'Try again Your Minecraft session could not be checked'},'an unreadable answer earns a retry, not a sign-in: '+unreadable.text);
+ assert(!/Microsoft/i.test(unreadable.text),'and it never names Microsoft: '+unreadable.text);
+ // 3. A dead Easter Company session — the account is gone, so the account's own sign-in is the
+ //    answer. This is the state main publishes after a mint answers 401 invalid_session: no
+ //    account, companyReady false, and no session word at all.
+ const deadCompany=await sessionShapes({account:null,companyReady:false,actions:['signin'],minecraftSession:null},'signin');
+ assert.deepEqual({action:deadCompany.action,text:deadCompany.text},{action:'signin',text:'Sign in Easter Company account required'},'a dead Easter Company session asks for the account, not for Microsoft: '+deadCompany.text);
+ assert(!/Microsoft/i.test(deadCompany.text),'the account\'s own sign-in is not a provider\'s: '+deadCompany.text);
+ // 4. A linked account whose Minecraft session must be made again — the reconnect, with the
+ //    Minecraft identity that will start the game named. Owen's own 07:48 screen, corrected.
+ const reconnect=await sessionShapes({actions:['connect-microsoft'],minecraftSession:{state:'reauth',serverHeld:false,checkedAt:'2026-10-23T07:48:00Z'}},'connect-microsoft');
+ assert.deepEqual({action:reconnect.action,text:reconnect.text},{action:'connect-microsoft',text:'Reconnect Microsoft Starts Minecraft as OwenMC'},'a signed-in linked account reconnects its Minecraft session and names the identity: '+reconnect.text);
+ assert(!/Sign in with Microsoft/i.test(reconnect.text),'a signed-in, linked account is never told to sign in with Microsoft: '+reconnect.text);
+ assert(!/sign in to minecraft|use your linked microsoft account/i.test(reconnect.text),'the first-time-connect sentence is gone too: '+reconnect.text);
+ await page.screenshot({path:`${images}/hero-reconnect-1440.png`,animations:'disabled',clip:await page.locator('.hero-copy').boundingBox()});
+ // The link state from the account's own document says the same thing as the session word.
+ const linkedHero=await sessionShapes({actions:['connect-microsoft']},'connect-microsoft');
+ assert.deepEqual(linkedHero,reconnect,'the linked-but-nothing-asked shape reads the same reconnect sentence');
+ const namelessHero=await sessionShapes({account:{...PASSWORD_ACCOUNT,minecraftName:null},actions:['connect-microsoft'],minecraftSession:{state:'required',serverHeld:false,checkedAt:null}},'connect-microsoft');
+ assert.deepEqual({action:namelessHero.action,text:namelessHero.text},{action:'connect-microsoft',text:'Reconnect Microsoft Starts Minecraft with your linked Microsoft account'},'a linked account with no Minecraft name gets the same sentence with no blank in it');
+ // 5. An account with no Microsoft link at all attaches one.
+ const unlinkedHero=await sessionShapes({account:{...PASSWORD_ACCOUNT,microsoftLinked:false,minecraftName:null},actions:['connect-microsoft'],minecraftSession:{state:'unlinked',serverHeld:false,checkedAt:null}},'link-microsoft');
+ assert.deepEqual({action:unlinkedHero.action,text:unlinkedHero.text},{action:'link-microsoft',text:'Link Microsoft Attach the Microsoft account that owns Minecraft'},'an account with no Microsoft link offers the action that links one');
  await page.screenshot({path:`${images}/hero-unlinked-1440.png`,animations:'disabled',clip:await page.locator('.hero-copy').boundingBox()});
  for(const [width,height] of [[800,600],[390,568]]){
   await page.setViewportSize({width,height});
@@ -252,21 +295,27 @@ try{
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'the longer note adds no horizontal overflow at '+width+'px');
  }
  await page.setViewportSize({width:1440,height:900});
- assert.notEqual(linkedHero.text,unlinkedHero.text,'the two situations can never produce the same words');
- assert.notEqual(linkedHero.action,unlinkedHero.action,'and they are not the same action either');
- note('a linked account and an unlinked one read differently and offer different actions');
+ assert.notEqual(reconnect.text,unlinkedHero.text,'the two situations can never produce the same words');
+ assert.notEqual(reconnect.action,unlinkedHero.action,'and they are not the same action either');
+ // The five shapes are five different screens, and none of them is another one's words.
+ const shapes=[probing,unreadable,deadCompany,reconnect,unlinkedHero];
+ assert.equal(new Set(shapes.map(hero=>hero.action)).size,shapes.length,'every shape is its own action: '+shapes.map(hero=>hero.action).join(', '));
+ assert.equal(new Set(shapes.map(hero=>hero.text)).size,shapes.length,'and its own words: '+shapes.map(hero=>hero.text).join(' | '));
+ assert.equal(new Set(shapes.map(hero=>hero.icon)).size,shapes.length,'and its own glyph, so no two actions share an icon');
+ note('probing, unreadable, dead-company, reconnect and unlinked are five different screens: their own words, their own actions, their own glyphs, and no pause anywhere');
 
- // Both kinds run the Microsoft link sign-in, because signing in again and linking are the
- // same flow: one attaches the account that is already known, the other attaches a new one.
+ // Both kinds run the Microsoft link sign-in, because reconnecting a session and linking one
+ // are the same flow: one attaches the account that is already known, the other attaches a new
+ // one. Nothing here opens a Microsoft prompt on its own, and neither enables Play.
  await page.locator('[data-desktop-play]').click();
  await page.waitForFunction(()=>window.__fixture.calls.some(call=>call.name==='signIn'));
  assert.deepEqual(await page.evaluate(()=>window.__fixture.calls.filter(call=>call.name==='signIn').at(-1)),{name:'signIn',payload:{link:true}},'the unlinked action runs the Microsoft link sign-in');
  await page.keyboard.press('Escape');
- await page.evaluate(values=>sendState(values),{account:PASSWORD_ACCOUNT,profile:null,minecraftHead:null,microsoftConnected:false,canPlay:false,actions:['connect-microsoft']});
+ await page.evaluate(values=>sendState(values),{account:PASSWORD_ACCOUNT,profile:null,minecraftHead:null,microsoftConnected:false,canPlay:false,actions:['connect-microsoft'],minecraftSession:{state:'reauth',serverHeld:false,checkedAt:'2026-10-23T07:48:00Z'}});
  await page.waitForFunction(()=>document.querySelector('[data-desktop-play]')?.dataset.action==='connect-microsoft');
  await page.locator('[data-desktop-play]').click();
  await page.waitForFunction(()=>window.__fixture.calls.filter(call=>call.name==='signIn').length>=2);
- assert.equal(await page.evaluate(()=>window.__fixture.calls.filter(call=>call.name==='signIn').length),2,'the linked action runs the same sign-in, once');
+ assert.equal(await page.evaluate(()=>window.__fixture.calls.filter(call=>call.name==='signIn').length),2,'the reconnect action runs the same sign-in, once');
  for(const dialog of await page.locator('dialog[open]').all())await dialog.evaluate(node=>node.close());
  note('both hero actions run the same Microsoft sign-in with the link intent');
 
@@ -440,7 +489,7 @@ try{
 
  assert.deepEqual(errors,[],'the launcher raises no page error');
  assert.deepEqual(requests.filter(url=>!/^data:/.test(url)&&!url.startsWith(origin)),[],'the renderer reads nothing over the network of its own: every request it made was for the page itself');
- console.log(`IDENTITY PASS: ${notes.length} checks — display name first in the header and the account view, the Minecraft head from state.profile.skin or state.minecraftHead with the initial tile last, the two password sign-in sentences, no provider control that can only fail, and each linked provider's own details drawn as text with no line where there is no value. Screenshots: ${images}`);
+ console.log(`IDENTITY PASS: ${notes.length} checks — display name first in the header and the account view, the Minecraft head from state.profile.skin or state.minecraftHead with the initial tile last, five Minecraft-session shapes with their own words, action and glyph (probing, unreadable answer, dead Easter Company session, reconnect, unlinked) and no pause icon and no "Sign in with Microsoft" over a signed-in linked account, no provider control that can only fail, and each linked provider's own details drawn as text with no line where there is no value. Screenshots: ${images}`);
 }finally{
  await browser.close();
 }

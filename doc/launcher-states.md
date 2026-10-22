@@ -556,15 +556,17 @@ machine was signed out on evidence it does not have.
 ### Where it is shown
 
 - **The hero action**, from `minecraftSession.state`: `unlinked` gives **Link Microsoft**
-  (action `link-microsoft`), `required` and `reauth` give today's **Sign in to Minecraft** (action
-  `connect-microsoft`, both with main's own sentence — *Sign in with Microsoft / Starts Minecraft as
+  (action `link-microsoft`), `required` and `reauth` give **Reconnect Microsoft** (action
+  `connect-microsoft`, both with main's own sentence — *Reconnect Microsoft / Starts Minecraft as
   <name>* — because `required` and `reauth` are the same thing to the player: this account has a
-  session and it has to be proved here. The launcher never says **why** a stored session is gone,
-  because the account service cannot tell a revoked session from one that was never stored), `busy`
-  gives **Try again** (action `retry-minecraft`, which asks the service
+  session and it has to be made again here. The launcher never says **why** a stored session is
+  gone, because the account service cannot tell a revoked session from one that was never stored;
+  *A signed-in account is never told to sign in* below says why the label is not **Sign in**),
+  `busy` gives **Try again** (action `retry-minecraft`, which asks the service
   once more and never opens a Microsoft prompt), `checking` gives a busy hero that says the launcher
-  is asking the account service, and `server` leaves Play available with no Microsoft prompt
-  anywhere on the screen.
+  is asking the account service, `unknown` gives the same wait while nothing has been asked and the
+  retry once an answer could not be read, and `server` leaves Play available with no Microsoft
+  prompt anywhere on the screen.
 - **`actions`** carries `link-microsoft` for a genuinely unlinked account and `connect-microsoft`
   for a linked one this machine cannot launch with, so a view that renders the list of remaining
   requirements says the true one.
@@ -1972,7 +1974,7 @@ will start the game whenever it knows it:
 
 | Situation | State | Hero label | Hero note | Action kind |
 |---|---|---|---|---|
-| The account is Microsoft-linked; this session holds no Microsoft token | `account.microsoftLinked` true, `microsoftConnected` false | `Sign in with Microsoft` | `Starts Minecraft as <Minecraft name>`; `Starts Minecraft with your linked Microsoft account` when the name is unknown | `connect-microsoft` |
+| The account is Microsoft-linked; this session holds no Microsoft token | `account.microsoftLinked` true, `microsoftConnected` false | `Reconnect Microsoft` (was `Sign in with Microsoft`; see *A signed-in account is never told to sign in*) | `Starts Minecraft as <Minecraft name>`; `Starts Minecraft with your linked Microsoft account` when the name is unknown | `connect-microsoft` |
 | The account has no Microsoft link at all | `account.microsoftLinked` false | `Link Microsoft` | `Attach the Microsoft account that owns Minecraft` | `link-microsoft` |
 
 `link-microsoft` is new in the view and is not a new native action: it runs the same
@@ -1985,6 +1987,27 @@ the two sentences applies"; no view may re-word it, and neither kind enables Pla
 The name in these sentences is the account's own `account.minecraftName` (*A linked
 provider's own details*), never the editable display name, and an account that carries no
 Minecraft name gets the sentence with no blank in it rather than a placeholder.
+
+### A signed-in account is never told to sign in (2026-10-23)
+
+Owen's launcher on 1.0.39, signed in with his Microsoft account linked, read **Sign in with
+Microsoft / Starts Minecraft as OwenEaster** — twice, the second time at 08:01:53Z on a restart,
+when the account store was paused and API Gateway recorded no 4xx at all. Nothing had refused
+anything; the launcher simply had no answer and painted a demand. Two rules follow, and they are
+the contract now. **A signed-in account whose Microsoft account is linked is never told to sign
+in with Microsoft**: the press makes the Minecraft session again, so the label is **Reconnect
+Microsoft** with the same note, and **Sign in with Microsoft** survives only as the sign-in
+dialog's own title. And **an unanswered mint is never a verdict**: `minecraftSession.state`
+publishes `unknown` for an answer the launcher could not read (and for a session nobody has asked
+about yet), the hero says **Checking your Minecraft session…** while the question is open and
+**Try again** (action `retry-minecraft`, which re-asks the account service) once it is closed, and
+the Microsoft demand appears only for a real `reauth_required` refusal — or where the service
+publishes no mint route at all, because then the interactive sign-in genuinely is the only way
+this account can get a session. A real `invalid_session` is the Easter Company session expiring:
+main forgets it, and the hero asks for the account (**Sign in / Easter Company account required**,
+action `signin`), never for Microsoft. Each action kind also carries its own glyph from one table
+in `site/desktop.js` — the pause-shaped fallback that accompanied Owen's screen is gone — and
+`tests/browser.mjs` fails when a kind `primaryAction` can return has no entry.
 
 ### The head without a live Microsoft token
 

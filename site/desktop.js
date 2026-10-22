@@ -139,6 +139,40 @@
  // so no access value may gate the row (doc/launcher-states.md, "Enhanced Graphics & Shaders").
  const graphicsOffered=state=>Boolean(graphicsOf(state))&&typeof setGraphicsAction==='function'&&atPlayNow(state)&&!transferring(state);
 
+ // ---- The hero's glyph, one per action kind ---------------------------------
+ // Owen's launcher on 1.0.39 read "Sign in with Microsoft / Starts Minecraft as OwenEaster"
+ // under a PAUSE icon while he was signed in and his Microsoft account was linked. The cause was
+ // the absence of this table: the icon was one inline ternary that named five kinds, and every
+ // other kind — `connect-microsoft`, his — fell through to a two-bar path that is a pause symbol.
+ // So every kind primaryAction can return has its own entry here, `busy` and `starting` and
+ // `running` included, and a kind with no entry draws no glyph at all rather than borrowing
+ // another action's icon. No entry is a shape: this table is enumerated and compared against
+ // primaryAction's own `kind:` literals by tests/browser.mjs, which fails on a missing entry and
+ // on two kinds sharing a glyph.
+ const HERO_GLYPHS={
+  // The Easter Company account, signed out.
+  signin:'<path fill="currentColor" stroke="none" d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/>',
+  play:'<path fill="currentColor" stroke="none" d="M7 4v16l13-8z"/>',
+  buy:'<path d="M4.5 8h15l-1.4 12H5.9z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>',
+  'setup-profile':'<circle cx="12" cy="8" r="3.6"/><path d="M5 20a7 7 0 0 1 14 0"/>',
+  'check-access':'<path d="M12 3.5 19 6v5.5c0 4.2-3 7.4-7 9-4-1.6-7-4.8-7-9V6z"/><path d="M12 9.5v3.5"/><circle cx="12" cy="16.6" r=".9" fill="currentColor" stroke="none"/>',
+  download:'<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>',
+  // Reconnect Microsoft: two links of one chain, because the account is already joined to a
+  // Minecraft identity and it is the session between them that a press makes again.
+  'connect-microsoft':'<path d="M9.5 14.5 14.5 9.5"/><path d="M13.2 6.6a4 4 0 0 1 5.6 5.6l-1.8 1.8"/><path d="M10.8 17.4a4 4 0 0 1-5.6-5.6l1.8-1.8"/>',
+  // Link Microsoft: a plug — the one action that attaches an account that is not attached.
+  'link-microsoft':'<path d="M9 3.5v4m6-4v4"/><path d="M6.5 7.5h11v3a5.5 5.5 0 0 1-11 0z"/><path d="M12 16v4.5"/>',
+  // Try again: the same question asked once more, and never a sign-in.
+  'retry-minecraft':'<path d="M20 7.5V12h-4.5"/><path d="M20 12a8 8 0 1 0-2.4 6.2"/>',
+  'setup-password':'<circle cx="8.5" cy="12" r="4"/><path d="M12.5 12H21m-3.5 0v3.5m-3-3.5V15"/>',
+  // Anything the launcher is waiting on.
+  busy:'<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3.2 2"/>',
+  // The first player of a session, waiting for the server to wake.
+  starting:'<path d="M4 17a8 8 0 0 1 16 0"/><circle cx="12" cy="17" r="1.6" fill="currentColor" stroke="none"/>',
+  // Minecraft is running: the client's own window.
+  running:'<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M9 20.5h6"/>'
+ };
+
  // The hero's primary action and the sticky bar both read this one function,
  // so no second view can invent its own version of the gate.
  function primaryAction(state){
@@ -150,23 +184,37 @@
   if(state?.account?.passwordRequired)return {kind:'setup-password',label:'Create your password',note:'Finish your Easter Company account'};
   // The Microsoft/Minecraft session, from the field that answers the account's question rather
   // than this computer's: a genuinely unlinked account is told to link, a linked one whose
-  // session has to be proved here is told to sign in, and a linked one whose session lives on
+  // session has to be re-proved is told to reconnect, and a linked one whose session lives on
   // the account service is not asked for anything at all (doc/launcher-states.md, "The Minecraft
-  // session the account service holds"). The wording for the linked case is the one a password
-  // sign-in already used: it names the Minecraft identity that will start the game.
-  const sessionState=minecraftSessionOf(state)?.state;
+  // session the account service holds").
+  //
+  // Owen's rule of 2026-10-23, from the 1.0.39 screen that started this: a player who is signed
+  // in and whose Microsoft account is already linked is never told to SIGN IN with Microsoft.
+  // His account is linked and his Easter Company session is live, so the press would make the
+  // Minecraft session again, not log him in — it reads "Reconnect Microsoft", and it still names
+  // the Minecraft identity it starts. "Sign in with Microsoft" is left to the one place it is
+  // true, the sign-in dialog's own title, and `link-microsoft` keeps the attach case.
+  const session=minecraftSessionOf(state);
+  const sessionState=session?.state;
   const minecraftName=typeof state?.account?.minecraftName==='string'?state.account.minecraftName.trim():'';
   if(sessionState==='unlinked')return {kind:'link-microsoft',label:'Link Microsoft',note:'Attach the Microsoft account that owns Minecraft'};
   if(sessionState==='checking')return {kind:'busy',label:'Checking your Minecraft session…',note:'Asking your Easter Company account'};
-  // `required` and `reauth` are the same thing to the player: this account has a session and it
-  // has to be proved on this machine. They share main's sentence, and the hero never claims to
-  // know WHY a stored session is gone — the account service cannot tell a revoked session from
-  // one that was never stored, so neither does the launcher.
-  if(sessionState==='required'||sessionState==='reauth')return {kind:'connect-microsoft',label:'Sign in with Microsoft',note:minecraftName?'Starts Minecraft as '+minecraftName:'Starts Minecraft with your linked Microsoft account'};
+  // `required` and `reauth` are the same thing to the player: this account has a linked Microsoft
+  // account and its Minecraft session has to be made here. They share main's sentence, and the
+  // hero never claims to know WHY a stored session is gone — the account service cannot tell a
+  // revoked session from one that was never stored, so neither does the launcher.
+  if(sessionState==='required'||sessionState==='reauth')return {kind:'connect-microsoft',label:'Reconnect Microsoft',note:minecraftName?'Starts Minecraft as '+minecraftName:'Starts Minecraft with your linked Microsoft account'};
   // The account service could not make a session just now — it is rate-limiting mints, or it
   // cannot answer. None of that is the player's Microsoft session dying, so this offers a retry
   // and never a Microsoft sign-in.
   if(sessionState==='busy')return {kind:'retry-minecraft',label:'Try again',note:'The account service is busy right now'};
+  // `unknown` is a question with no readable answer, and it is never a Microsoft demand either.
+  // With no `checkedAt` the launcher has not been answered yet and is still asking (main starts
+  // one mint at startup for a linked account), so the hero says what it is waiting for; after an
+  // answer it could not read, the honest offer is the same question once more.
+  if(sessionState==='unknown')return session.checkedAt
+   ?{kind:'retry-minecraft',label:'Try again',note:'Your Minecraft session could not be checked'}
+   :{kind:'busy',label:'Checking your Minecraft session…',note:'Asking your Easter Company account'};
   if(state?.companyReady===false&&!state.account&&(install.installed||state.microsoftAccount))return {kind:'signin',label:LOGIN_ACTION,note:LOGIN_NOTE};
   if(state?.minecraftAccess==='missing')return {kind:'buy',label:'Buy Now',note:'Minecraft Java Edition required'};
   if(state?.minecraftAccess==='profile-required')return {kind:'setup-profile',label:'Set up Java profile',note:'Choose your Java player name'};
@@ -788,7 +836,9 @@
    const icon=heroButton.querySelector('svg');
    if(icon){
     icon.setAttribute('viewBox','0 0 24 24');
-    icon.innerHTML=action.kind==='signin'?'<path fill="currentColor" stroke="none" d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/>':action.kind==='play'?'<path fill="currentColor" stroke="none" d="M7 4v16l13-8z"/>':['buy','setup-profile'].includes(action.kind)?'<path d="M14 3h7v7m0-7L10 14M10 3H3v18h18v-7"/>':action.kind==='check-access'?'<path d="M20 7v5h-5m5 0a8 8 0 1 0-2 6"/>':action.kind==='download'?'<path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/>':'<path d="M8 5v14M16 5v14"/>';
+    // One table, one glyph per kind (HERO_GLYPHS, above primaryAction). A kind with no entry
+    // draws nothing: an action that has no icon is a missing icon, never another action's.
+    icon.innerHTML=HERO_GLYPHS[action.kind]||'';
    }
    heroButton.querySelector('span').firstChild.textContent=action.label;
    heroButton.querySelector('small').textContent=action.kind==='play'?joinParts([action.note,current.profile?.name]):action.note;

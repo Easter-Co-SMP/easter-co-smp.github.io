@@ -107,7 +107,7 @@ try{
  assert.equal(state.profile,null,'which is why there is no session skin at all');
  // The hero says what signing in will start, and names it.
  await page.waitForFunction(()=>document.querySelector('[data-desktop-play]')?.dataset.action==='connect-microsoft');
- assert.deepEqual(await hero(page),{action:'connect-microsoft',text:'Sign in with Microsoft Starts Minecraft as FixtureCaptain'},'the hero names the linked Minecraft identity instead of reading as a first-time connect');
+ assert.deepEqual(await hero(page),{action:'connect-microsoft',text:'Reconnect Microsoft Starts Minecraft as FixtureCaptain'},'the hero names the linked Minecraft identity instead of reading as a first-time connect, and reconnects rather than logging in');
  // The head arrives as a data URL in state, from the account's own uuid and then the texture
  // that profile names, with nothing else fetched.
  await page.waitForFunction(()=>window.easterDesktop.status().then(current=>typeof current.minecraftHead==='string'&&current.minecraftHead.startsWith('data:image/png;base64,')));
@@ -155,7 +155,7 @@ try{
  // before the 1.2 s stub answers: a face is never something the launcher waits for.
  await page.waitForFunction(()=>document.querySelector('[data-desktop-play]')?.dataset.action==='connect-microsoft',null,{timeout:800});
  const heroBeforeRead=await hero(page);
- assert.deepEqual(heroBeforeRead,{action:'connect-microsoft',text:'Sign in with Microsoft Starts Minecraft as FixtureCaptain'},'the hero is answered before any head read');
+ assert.deepEqual(heroBeforeRead,{action:'connect-microsoft',text:'Reconnect Microsoft Starts Minecraft as FixtureCaptain'},'the hero is answered before any head read');
  state=await status(page);
  assert.equal(state.minecraftHead,null,'the head is absent while the read is still in flight');
  assert.equal(state.error,null,'and an unfinished read is not a failure either');

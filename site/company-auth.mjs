@@ -102,6 +102,19 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   usernameField.value=folded;
   if(typeof at==='number')usernameField.setSelectionRange(at,at);
  });
+ // The chooser's close event is its own task, and its handler resets the form and clears the
+ // error slot. A refusal painted after the chooser closed must therefore wait for that handler
+ // instead of guessing at a timeout: on 1.0.39 the identity-conflict sentence was repainted into
+ // a dialog whose close task had not run yet, and the close cleared it a moment later, leaving
+ // the chooser open with no explanation at all (tests/desktop/launcher-identity-conflict caught
+ // it on one run in three on main). `closing` counts the closes this module asks for and
+ // `closesSettled` resolves once their handlers have run; a dialog that is already closed is
+ // not counted, because closing it fires nothing.
+ let pendingCloses=0;
+ const closeWaiters=[];
+ const closing=dialog=>{if(!dialog.open)return;pendingCloses++;dialog.close();};
+ const closed=()=>{pendingCloses=Math.max(0,pendingCloses-1);if(!pendingCloses)for(const resolve of closeWaiters.splice(0))resolve();};
+ const closesSettled=()=>pendingCloses?new Promise(resolve=>closeWaiters.push(resolve)):Promise.resolve();
  for(const dialog of [chooser,username,password]){
   dialog.querySelector('.dialog-close').onclick=()=>{if(dialog===chooser&&providerPending){if(providerCancellable())void desktop.cancelSignIn();return;}if(!busy)dialog.close();};
   dialog.addEventListener('cancel',event=>{if(busy){event.preventDefault();if(dialog===chooser&&providerCancellable())void desktop.cancelSignIn();}});
@@ -109,7 +122,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
    // Step 1 is the choice; closing it forgets it. Step 2 keeps the username from step 1
    // so a dismissal answers the same question rather than starting the flow over, and a
    // step that moved the player on keeps it too.
-   if(dialog===username){if(!advancing)pendingUsername=null;advancing=false;}});
+   if(dialog===username){if(!advancing)pendingUsername=null;advancing=false;}closed();});
  }
  // ---- Verified emails --------------------------------------------------------
  // One address at a time, and the account service's answer is the only thing on screen:
@@ -267,7 +280,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  async function microsoft(recover=false){
   if(busy)return;
   const useSaved=!recover&&state.microsoftAccount&&typeof desktop.continueMicrosoft==='function';
-  chooser.close();
+  closing(chooser);
   // The saved Microsoft session is a shortcut, never a dead end. Every failure of it falls
   // through to the fresh interactive sign-in that shows the device code and the browser
   // action, with exactly one stop: an identity conflict means the player must choose the
@@ -277,16 +290,16 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
   // Forgot your password path already gives them.
   if(useSaved){
    chooser.showModal();waitFor(chooser,'Connecting your saved Microsoft account…');lock(true);
-   let answer;try{answer=await continueSaved();}finally{lock(false);chooser.close();render(state);}
+   let answer;try{answer=await continueSaved();}finally{lock(false);closing(chooser);render(state);}
    if(!answer||answer.ok!==false)return;
    if(answer.code==='identity_conflict'){
     // Identity conflict is the one stop: the player has to choose the Microsoft account linked
     // to this Easter Company account, so the chooser comes back carrying that sentence and
     // nothing else opens. No device code, no second sign-in, and the account stays as it was.
     // Choosing Microsoft closed the chooser, and its own close handler runs as a task after
-    // this answer arrives, so the dialog is reopened once that task has run rather than
-    // racing the reset it does.
-    await new Promise(resolve=>setTimeout(resolve,0));
+    // this answer arrives and clears the error slot with the rest of the reset. So the refusal
+    // is painted once that handler has actually run (`closesSettled`), not on a guessed delay.
+    await closesSettled();
     conflict(answer.error);return;
    }
   }
@@ -335,7 +348,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onEmails=null,onInlin
  // player is asked for a password, so a taken name is not discovered at the end.
  function openUsername(message='',value=''){
   if(busy||username.open)return;
-  if(chooser.open)chooser.close();if(password.open)password.close();
+  closing(chooser);if(password.open)password.close();
   username.querySelector('[name=username]').value=value||pendingUsername||'';
   error(username,message);username.showModal();username.querySelector('[name=username]').focus?.();
  }
