@@ -75,6 +75,13 @@ Real platform installers are published as GitHub Release assets. No source downl
 Releases follow doc/releasing.md: the tag comes from package.json, the workflow is dispatched by
 hand, the packaged app is checked against site/ before publishing, and /releases/latest ignores
 prereleases, so a launcher release must not be marked prerelease while it is the only one.
+- **Cut and verify a release only with `scripts/release.sh`.** `--check` runs the
+preconditions and the fast suites; `--cut <version> --notes <file>` runs the packaged build
+and `scripts/check-packaged-first-screen.mjs` before bumping, then commits, pushes, dispatches
+the workflow, watches it and verifies the published assets; `--verify <tag>` checks
+SHA256SUMS, both update ASARs and the AppImage's ASAR against `site/` byte for byte, and the
+published AppImage's own first screen. Never type the bump, the dispatch or the asset checks
+by hand: every step in that script exists because a hand-run release once skipped it.
 Before bumping the version, run the packaged build and look at its first screen
 (`doc/releasing.md` 1a). 1.0.36 shipped a start-up failure that every unit, browser and Electron
 journey passed, because the unpackaged app was fine and only the package was wrong.
