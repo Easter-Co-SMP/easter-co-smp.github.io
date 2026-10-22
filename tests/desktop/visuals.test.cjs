@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto'),http=require('node:http');
 const {configureVisuals,GRASS_CACHE,GRASS_ACTIVE,PACKS}=require('../../desktop/visuals.cjs');
-const {installClient,applyGraphics,checkForUpdates}=require('../../desktop/install.cjs');
+const {installClient,applyGraphics,checkForUpdates,SHADERS_WITHHELD}=require('../../desktop/install.cjs');
 const {MARKER}=require('../../desktop/config.cjs');
 const VERSION='26.2-fabric0.19.5';
 const SHADER_FILES=['mods/iris.jar','mods/sodium.jar','shaderpacks/ComplementaryUnbound_r5.9.3.zip'];
@@ -106,6 +106,28 @@ test('missing or deselected shader payload cannot activate foliage and a scoped 
  assert.deepEqual(result.skipped,['visuals'],'pending required content remains for the regular update');
 });
 
+test('what configureVisuals could not enable is what the launcher reports, and says so',async t=>{
+ // The chunk names one pack and the pack and its loaders are on disk, but the cached
+ // foliage module the effect is activated with is not part of it. configureVisuals
+ // therefore withholds shaders, and that answer — not the request — is what the player
+ // is told: the tuned report says off, the loader is not switched on, no pack name is
+ // left behind, and the sentence is the honest one.
+ const {root,record}=await fixture(t);
+ record.chunks.graphics={version:'graphics-1',files:SHADER_FILES};
+ for(const file of SHADER_FILES){await fs.mkdir(path.dirname(path.join(root,file)),{recursive:true});await fs.writeFile(path.join(root,file),'verified-payload');}
+ await fs.writeFile(path.join(root,'installed.json'),JSON.stringify(record));
+ const file=p=>({id:p,name:p,version:'1',path:p,url:'https://cdn.modrinth.com/'+p,hash:'sha256:'+'a'.repeat(64),size:1});
+ const graphics={id:'graphics',name:'Complementary Shaders - Unbound and Iris Shaders for Minecraft 26.2',version:'graphics-1',optional:true,immutable:false,files:SHADER_FILES.map(file)};
+ const published={minecraft:'26.2',fabric:'0.19.5',dependencies:[],chunks:[graphics]};
+ const result=await applyGraphics({root,enabled:true,published,hardware:{tier:'capable',vramMB:8192}});
+ assert.equal(result.quality.shaders,false,'the tuned report is what configureVisuals could enable');
+ assert.equal(result.graphicsMessage,SHADERS_WITHHELD,'and the sentence says the shaders were left off');
+ assert.equal(result.message.includes(graphics.name+' installed.'),false,'nothing claims the effect was installed');
+ await assert.rejects(fs.access(path.join(root,GRASS_ACTIVE)),{code:'ENOENT'});
+ const iris=await fs.readFile(path.join(root,'config','iris.properties'),'utf8');
+ assert.match(iris,/enableShaders[:=]false/,'the loader is not switched on');
+ assert.equal(/shaderPack/.test(iris),false,'and no pack is named: '+JSON.stringify(iris.split('\n')));
+});
 test('a detected low-memory first install tunes vanilla graphics even with enhanced effects off',async t=>{
  const {root}=await fixture(t);
  const body=Buffer.from('required visual payload');

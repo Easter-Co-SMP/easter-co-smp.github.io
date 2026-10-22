@@ -6,7 +6,7 @@ const {Version,generateArguments,launch}=require('@xmcl/core');
 const installer=require('@xmcl/installer');
 const {Agent,interceptors}=require('undici');
 const {locationProblem,MARKER,clientOrigin,serverAddress,BUNDLED_DEPLOYMENT,DEPLOYMENT_PATH,validateDeployment,configureDeployment}=require('./config.cjs');
-const {qualitySettings,applyQualitySettings,recordQuality,applyDisplayDefaults,SHADER_PACK_NAME}=require('./hardware.cjs');
+const {qualitySettings,applyQualitySettings,recordQuality,applyDisplayDefaults}=require('./hardware.cjs');
 const {configureVisuals,disableShaders}=require('./visuals.cjs');
 const dispatcher=new Agent({connections:8,connect:{family:4,timeout:30000},headersTimeout:45000,bodyTimeout:90000}).compose(interceptors.retry({maxRetries:3}));
 const ORIGIN='https://easter-co-smp.github.io/';
@@ -592,14 +592,40 @@ async function installGame({root,settings={},client,chunks,notify,control=null,m
 // refused, which is the same rule that keeps an existing ~/.minecraft, another
 // launcher and the server untouched.
 function deriveQuality(hardware){return qualitySettings({vramMB:hardware?.vramMB??null,tier:hardware?.tier||'unknown'});}
-// What was actually written, never what was intended: a failed write leaves the
-// tuned record untouched and says so. `shaders` may be forced off when the shader
-// payload is not published, because naming a shader pack that was never installed
-// would be a claim the client cannot honour.
-async function applyQuality(root,hardware,notify,{shaders}={}){
- const quality={...deriveQuality(hardware),...(typeof shaders==='boolean'?{shaders}:{})};
- if(typeof shaders==='boolean'&&!shaders)quality.shaderPack=null;
- if(typeof shaders==='boolean'&&shaders)quality.shaderPack=quality.shaderPack||SHADER_PACK_NAME;
+// ---- naming the shader pack -------------------------------------------------
+// The pack's name is the chunk's own file, never a remembered constant: the publisher
+// names the artifact, scripts/export_world.py publishes it at shaderpacks/<cdn filename>,
+// and Iris reads exactly that one file out of the client's shaderpacks directory. A chunk
+// that names no single pack names nothing here either, so no name is ever invented.
+const SHADER_PACK_FILE=/^shaderpacks\/([^/]+\.zip)$/;
+function shaderPackName(chunk){
+ if(!chunk||!Array.isArray(chunk.files))return null;
+ const packs=new Set();
+ for(const file of chunk.files){
+  const match=SHADER_PACK_FILE.exec(String(file?.path||''));
+  if(match)packs.add(match[1]);
+ }
+ return packs.size===1?[...packs][0]:null;
+}
+// A pack is only written as a name the client's loader can open: one plain file name, no
+// directory and no separator of the other kind, exactly as visuals.cjs reads it back.
+function shaderPackFile(name){
+ const value=typeof name==='string'?name:'';
+ return value&&!value.includes('/')&&!value.includes('\\')&&value.endsWith('.zip')?value:null;
+}
+// What was actually written, never what was intended: a failed write leaves the tuned
+// record untouched and says so.
+//
+// Shaders are switched on only for a pack this call is told the client receives, and the
+// name written is that pack's. The hardware ladder answers "could this GPU carry shaders",
+// never "which pack is installed", so it supplies no name: with no pack to name, shaders
+// are written off rather than switched on against a file the client does not have.
+async function applyQuality(root,hardware,notify,{shaders,shaderPack}={}){
+ const quality={...deriveQuality(hardware)};
+ const pack=shaderPackFile(shaderPack);
+ const wanted=typeof shaders==='boolean'?shaders:Boolean(quality.shaders);
+ quality.shaders=Boolean(wanted)&&Boolean(pack);
+ quality.shaderPack=quality.shaders?pack:null;
  try{
   await applyQualitySettings(root,quality);
   await recordQuality(root,quality);
@@ -607,7 +633,7 @@ async function applyQuality(root,hardware,notify,{shaders}={}){
   await disableShaders(root);
   throw Error('The client’s quality settings could not be written into the client folder.',{cause:error});
  }
- return {quality,tuned:quality?{renderDistance:quality.renderDistance,shadowDistance:quality.shadowDistance,shaders:Boolean(quality.shaders)}:null,message:null};
+ return {quality,tuned:{renderDistance:quality.renderDistance,shadowDistance:quality.shadowDistance,shaders:Boolean(quality.shaders)},message:null};
 }
 // The display defaults are not a graphics choice: a player's first launch is already
 // fullscreen at the GUI scale their own display asks for whether enhanced graphics are
@@ -623,6 +649,32 @@ async function seedDisplayDefaults(root,notify,guiScale=null){
   return null;
  }
 }
+// The one sentence a player reads when the enhanced graphics landed without the effect
+// they are named for. It is the same shape as the "not published yet" sentence beside it:
+// what was installed, then what was left off.
+const SHADERS_WITHHELD='Enhanced graphics are installed without shaders, so the shader pack was left off.';
+// What the client folder carries afterwards, which is not the same thing as what this run
+// meant to do. The quality files are written for the pack this run's payload names, the
+// display defaults are seeded beside them, and configureVisuals then decides what the
+// client can really load — it needs the pack, its loader and the cached foliage module on
+// disk, in the chunk's own record, before Iris is switched on. When it withholds shaders,
+// the settings are rewritten as withheld so iris.properties, the marker and the report
+// agree with the client. Its own answer is returned verbatim, never a guess.
+async function applyGraphicsSettings({root,hardware=null,notify=()=>{},includeGraphics=false,chunk=null,record=null,chunks=undefined,guiScale=null,tune=undefined}){
+ const pack=includeGraphics?shaderPackName(chunk):null;
+ const wantShaders=includeGraphics&&Boolean(pack)&&deriveQuality(hardware).shaders;
+ // A chunked install tunes the client when the toggle is on, and once for a machine whose
+ // hardware is tunable and whose tree carries no tuned record yet. A manifest without
+ // chunks keeps its former rule and tunes only while the toggle is on.
+ const write=tune===undefined?(includeGraphics||(!record?.quality&&hardware?.tunable)):Boolean(tune);
+ let quality={quality:null,tuned:null,message:null};
+ if(write)quality=await applyQuality(root,hardware,notify,{shaders:wantShaders,shaderPack:pack});
+ await seedDisplayDefaults(root,notify,guiScale);
+ if(!includeGraphics)await disableShaders(root);
+ const visuals=await configureVisuals(root,{record:chunks===undefined?record:{chunks},includeGraphics});
+ if(wantShaders&&!visuals.shaders)quality=await applyQuality(root,hardware,notify,{shaders:false,shaderPack:null});
+ return {quality,visuals,pack,shaders:Boolean(visuals.shaders)};
+}
 // The graphics chunk is the optional half of the same pipeline: it is fetched only
 // while the toggle is on, its files are checksum verified like every other file,
 // and switching the toggle off fetches nothing and invalidates nothing.
@@ -631,14 +683,17 @@ function graphicsSelection(chunks,includeGraphics){
  const selected=selectedChunks(chunks,includeGraphics);
  return {selected,graphics:chunks.find(chunk=>chunk.id==='graphics')||null,selectedGraphics:selected.find(chunk=>chunk.id==='graphics')||null};
 }
-function graphicsMessageFor({includeGraphics,graphicsChunk,pending,record,only=null}){
+function graphicsMessageFor({includeGraphics,graphicsChunk,pending,record,only=null,shaders=null}){
  // A graphics-only run is about the optional chunk. When there is no such chunk to
  // install, saying so would be off-topic: the toggle's own handler reports it.
  if(only&&only.size&&!only.has('graphics'))return null;
  if(!includeGraphics)return null;
  if(pending)return 'Enhanced graphics are not published yet, so the client was installed without them.';
  const installed=Boolean(graphicsChunk)&&(pending===undefined?Boolean(record?.chunks?.graphics):true);
- return installed?graphicsChunk.name+' installed.':null;
+ if(!installed)return null;
+ // The chunk's own name is a claim about shaders, so it is only said when the client's
+ // shaders are really on. Otherwise the player is told what actually happened.
+ return shaders===false?SHADERS_WITHHELD:graphicsChunk.name+' installed.';
 }
 // ---- installing a chunk's files --------------------------------------------
 async function installChunkFiles(chunk,{root,notify,control,step}){
@@ -677,25 +732,24 @@ async function installChunked({root,client,chunks,record,settings,notify,control
  const gameCurrent=Boolean(record&&record.game&&record.game.minecraft===client.minecraft&&record.game.fabric===pins.fabric&&record.java)&&await exists(record.java)&&await exists(path.join(root,'versions',record.version,record.version+'.json'));
  const graphicsChunk=selection.graphics;
  const graphicsPending=!graphicsChunk;
- const graphicsMessage=graphicsMessageFor({includeGraphics,graphicsChunk,pending:graphicsPending,record,only:scope});
  // Nothing published changed and the game is whole: report the client as ready
  // without downloading or re-verifying anything. This is also the honest answer
  // when the manifest has no graphics chunk and the toggle is on.
  if(!pending.length&&gameCurrent){
-  const quality=includeGraphics?await applyQuality(root,hardware,notify,{shaders:Boolean(graphicsChunk)&&deriveQuality(hardware).shaders}):{quality:null,tuned:null,message:null};
-  await seedDisplayDefaults(root,notify,guiScale);
-  if(!includeGraphics)await disableShaders(root);
-  await configureVisuals(root,{record,includeGraphics});
+  const applied=await applyGraphicsSettings({root,hardware,notify,includeGraphics,chunk:graphicsChunk,record,guiScale});
+  const quality=applied.quality;
   const installedGraphics=record.chunks?.graphics||null;
-  return {version:record.version,javaPath:record.java,updatedAt:record.updatedAt,includeGraphics,graphics:installedGraphics?.version||null,message:updating?'Client is up to date.':'Client ready.',unchanged:true,graphicsMessage,graphicsApplied:Boolean(installedGraphics),quality:quality.tuned,qualityMessage:quality.message,qualitySettings:quality.quality};
+  return {version:record.version,javaPath:record.java,updatedAt:record.updatedAt,includeGraphics,graphics:installedGraphics?.version||null,message:updating?'Client is up to date.':'Client ready.',unchanged:true,graphicsMessage:graphicsMessageFor({includeGraphics,graphicsChunk,pending:graphicsPending,record,only:scope,shaders:applied.shaders}),graphicsApplied:Boolean(installedGraphics),quality:quality.tuned,qualityMessage:quality.message,qualitySettings:quality.quality};
  }
  const installing=pending.filter(chunk=>!scope||scope.has(chunk.id));
  const installingBase=installing.some(chunk=>chunk.id==='base');
  if(!installing.length){
-  const quality=includeGraphics?await applyQuality(root,hardware,notify,{shaders:Boolean(record?.chunks?.graphics)&&Boolean(graphicsChunk)&&deriveQuality(hardware).shaders}):{quality:null,tuned:null,message:null};
-  if(!includeGraphics)await disableShaders(root);
-  await configureVisuals(root,{record,includeGraphics});
-  return {version:record?.version??null,javaPath:record?.java??null,updatedAt:record?.updatedAt??null,includeGraphics,graphics:record?.chunks?.graphics?.version||null,message:'Graphics settings applied.',unchanged:true,graphicsMessage:null,skipped:pending.map(chunk=>chunk.id),quality:quality.tuned,qualitySettings:quality.quality};
+  const applied=await applyGraphicsSettings({root,hardware,notify,includeGraphics,chunk:graphicsChunk,record,guiScale});
+  const quality=applied.quality;
+  // A run scoped away from the graphics chunk still has to say when the client's own
+  // shaders are not running, rather than leave the toggle silently pretending.
+  const withheld=includeGraphics&&!applied.shaders;
+  return {version:record?.version??null,javaPath:record?.java??null,updatedAt:record?.updatedAt??null,includeGraphics,graphics:record?.chunks?.graphics?.version||null,message:withheld?SHADERS_WITHHELD:'Graphics settings applied.',unchanged:true,graphicsMessage:withheld?SHADERS_WITHHELD:null,skipped:pending.map(chunk=>chunk.id),quality:quality.tuned,qualitySettings:quality.quality};
  }
  let version=record?.version,javaPath=record?.java,fabric=record?.fabric;
  // The game component is only touched when it is not already whole. A chunk-scoped
@@ -706,12 +760,12 @@ async function installChunked({root,client,chunks,record,settings,notify,control
   version=game.version;javaPath=game.javaPath;fabric=game.fabric;
  }
  const records={...(record?.chunks||{})};
- let graphicsMessageOut=graphicsMessage,graphicsInstalled=false;
+ let graphicsInstalled=false;
  for(const chunk of installing){
   await control?.gate();
   await installChunkFiles(chunk,{root,notify,control,step});
   records[chunk.id]={id:chunk.id,version:chunk.version,immutable:chunk.immutable,files:chunk.files.map(entry=>entry.path),verified:true,updatedAt:new Date().toISOString()};
-  if(chunk.id==='graphics'){graphicsMessageOut=chunk.name+' installed.';graphicsInstalled=true;}
+  if(chunk.id==='graphics')graphicsInstalled=true;
  }
  const files=[...new Set(Object.values(records).flatMap(chunk=>chunk.files||[]))];
  // A renamed or removed managed mod must not survive alongside its replacement.
@@ -726,10 +780,11 @@ async function installChunked({root,client,chunks,record,settings,notify,control
   if(!retained.has(targetKey(target)))await fs.rm(target,{force:true});
  }
  const updatedAt=new Date().toISOString();
- const quality=(includeGraphics||(!record?.quality&&hardware?.tunable))?await applyQuality(root,hardware,notify,{shaders:includeGraphics&&Boolean(graphicsChunk)&&deriveQuality(hardware).shaders}):{quality:null,tuned:null,message:null};
- await seedDisplayDefaults(root,notify,guiScale);
- if(!includeGraphics)await disableShaders(root);
- await configureVisuals(root,{record:{chunks:records},includeGraphics});
+ // The settings step answers with what the client carries, so the marker's quality record
+ // and the sentence the player reads are the outcome, not the intention.
+ const applied=await applyGraphicsSettings({root,hardware,notify,includeGraphics,chunk:graphicsChunk,record,chunks:records,guiScale});
+ const quality=applied.quality;
+ const graphicsMessageOut=graphicsMessageFor({includeGraphics,graphicsChunk,pending:graphicsPending,record,only:scope,shaders:applied.shaders});
  await atomicJSON(path.join(root,'installed.json'),{
   version,minecraft:client.minecraft,fabric,mod:client.mod?.version,modSha256:client.mod?.sha256,
   dependencies:(client.dependencies||[]).map(entry=>({id:entry.id,version:entry.version})),
@@ -762,10 +817,10 @@ async function installFlat({root,client,settings,notify,control,includeGraphics,
   await fs.rm(partState(path.join(root,'mods',mod.filename)),{force:true});
  }
  if(!moved)notify({phase:step('verifying'),message:'Verifying the client files',progress:countProgress('Verifying the client files',100)});
- let graphics=null,graphicsMessage=null,graphicsFile=null;
+ let graphics=null,graphicsFile=null,notPublished=null;
  const plan=graphicsPlan(client,includeGraphics,origin);
  if(plan.state!=='skipped'){
-  if(plan.state==='not-published'){graphics='not-published';graphicsMessage=plan.message;}
+  if(plan.state==='not-published'){graphics='not-published';notPublished=plan.message;}
   else{
    const entry=plan.entry;
    await control?.gate();
@@ -774,17 +829,17 @@ async function installFlat({root,client,settings,notify,control,includeGraphics,
    notify({phase:step('downloading'),message:label,progress:meter.snapshot()});
    await downloadVerified(entry.url,path.join(root,'shaderpacks',entry.filename),entry.hash,'sha256',{control,meter,onProgress:snapshot=>notify({phase:step('downloading'),message:label,progress:snapshot})});
    graphics=entry.hash;graphicsFile='shaderpacks/'+entry.filename;
-   graphicsMessage=plan.message;
   }
  }
  const updatedAt=new Date().toISOString();
- // The quality settings follow the same rule on a manifest without chunks: they
- // are written when the toggle is on, and the payload's own absence is reported
- // rather than papered over by turning shaders on with no shader pack to load.
- const quality=includeGraphics?await applyQuality(root,hardware,notify,{shaders:Boolean(graphicsFile)&&deriveQuality(hardware).shaders}):{quality:null,tuned:null,message:null};
- await seedDisplayDefaults(root,notify,guiScale);
- if(!includeGraphics)await disableShaders(root);
- await configureVisuals(root,{record:null,includeGraphics});
+ // The quality settings follow the same rule on a manifest without chunks: the pack that
+ // was actually fetched is the one named, and the outcome is still configureVisuals'
+ // own answer. A flat manifest records no chunks, so there is nothing for it to verify
+ // the pack's loader and cached foliage against, and shaders are reported as withheld
+ // rather than claimed.
+ const applied=await applyGraphicsSettings({root,hardware,notify,includeGraphics,chunk:graphicsFile?{files:[{path:graphicsFile}]}:null,record:null,guiScale,tune:includeGraphics});
+ const quality=applied.quality;
+ const graphicsMessage=includeGraphics?(graphicsFile?(applied.shaders?plan.message:SHADERS_WITHHELD):notPublished):null;
  await atomicJSON(path.join(root,'installed.json'),{version:game.version,minecraft:client.minecraft,fabric:game.fabric,mod:client.mod.version,modSha256:client.mod.sha256,dependencies:client.dependencies.map(d=>({id:d.id,version:d.version})),files:[...mods.map(m=>'mods/'+m.filename),...(graphicsFile?[graphicsFile]:[])],game:{minecraft:client.minecraft,fabric:game.fabric,verified:true},graphics:graphics==='not-published'?null:graphics,includeGraphics,java:game.javaPath,updatedAt,...(quality.quality?{quality:{...quality.tuned,graphicsMode:quality.quality.graphicsMode,shaderPack:quality.quality.shaders?quality.quality.shaderPack:null,updatedAt}}:{})});
  const message=[(updating?'Client updated.':'Client ready.'),graphicsMessage,quality.message].filter(Boolean).join(' ');
  notify({phase:'ready',message,progress:countProgress('Client ready',100)});
@@ -868,4 +923,4 @@ async function checkForUpdates({root,settings={},notify=()=>{},control=null,incl
 }
 // The Play gate, computed here in the main process and nowhere else.
 function canPlay(install,profile){return Boolean(install?.installed)&&profile!==null&&profile!==undefined;}
-module.exports={loadDeployment,syncDeployment,setFailureLog,downloadFault,execOptions,ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,seedDisplayDefaults,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};
+module.exports={SHADERS_WITHHELD,shaderPackName,shaderPackFile,applyGraphicsSettings,loadDeployment,syncDeployment,setFailureLog,downloadFault,execOptions,ORIGIN,FABRIC,MARKER,HASH,originBase,modFile,Transfer,TransferControl,Cancelled,createControl,countProgress,json,atomicJSON,checksum,partPath,partState,downloadVerified,resolveMod,chunkList,selectedChunks,pendingChunks,gamePins,graphicsEntry,graphicsPlan,graphicsSelection,graphicsMessageFor,deriveQuality,applyQuality,seedDisplayDefaults,javaMajor,tracked,installAssets,launchOptions,publishedManifest,readInstalled,isInstalled,clientStatus,sameDependencies,installDiff,installChunkFiles,installGame,installClient,applyGraphics,prepare,checkForUpdates,canPlay,transferStats,resetTransferStats,generateArguments,launch};

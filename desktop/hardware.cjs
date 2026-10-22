@@ -492,7 +492,11 @@ async function applyQualitySettings(root,quality,{marker='.easter-client'}={}){
  const fancy=quality.graphicsMode!=='fast';
  const previous=(await readText(optionsFile)??'').replace(/^graphicsMode[:=].*(?:\r?\n|$)/gm,'');
  const options=mergeProperties(previous,{graphicsPreset:JSON.stringify('custom'),renderDistance:String(quality.renderDistance),ao:String(fancy),cutoutLeaves:String(fancy),entityShadows:String(fancy),improvedTransparency:'false',mipmapLevels:fancy?'4':'2',particles:fancy?'0':'1'});
- const iris=mergeProperties(await readText(irisFile)??'',{enableShaders:String(Boolean(quality.shaders)),shadowDistance:String(quality.shadowDistance),maxShadowRenderDistance:String(quality.shadowDistance),...(quality.shaders&&quality.shaderPack?{shaderPack:quality.shaderPack}:{})});
+ // A pack name is never carried over from an earlier write: it is the installed payload's
+ // own file, so with the loader off nothing is loading it and the name would be a claim
+ // about a pack the client is not running. Writing shaders off therefore drops it.
+ const written=await readText(irisFile)??'';
+ const iris=mergeProperties(quality.shaders?written:written.replace(/^shaderPack[:=].*(?:\r?\n|$)/gm,''),{enableShaders:String(Boolean(quality.shaders)),shadowDistance:String(quality.shadowDistance),maxShadowRenderDistance:String(quality.shadowDistance),...(quality.shaders&&quality.shaderPack?{shaderPack:quality.shaderPack}:{})});
  await fs.mkdir(path.dirname(irisFile),{recursive:true});
  await fs.writeFile(optionsFile,options,{mode:0o600});
  await fs.writeFile(irisFile,iris,{mode:0o600});

@@ -3,7 +3,7 @@
 // servers; no upstream download is involved.
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),crypto=require('node:crypto'),http=require('node:http');
-const {installClient,applyGraphics,clientStatus,downloadVerified,createControl,Transfer,chunkList,selectedChunks,pendingChunks,gamePins,installDiff,transferStats,resetTransferStats,partPath,modFile,graphicsEntry,publishedManifest}=require('../../desktop/install.cjs');
+const {installClient,applyGraphics,clientStatus,downloadVerified,createControl,Transfer,chunkList,selectedChunks,pendingChunks,gamePins,installDiff,transferStats,resetTransferStats,partPath,modFile,graphicsEntry,publishedManifest,SHADERS_WITHHELD,shaderPackName}=require('../../desktop/install.cjs');
 const {clientOrigin,DEFAULT_CLIENT_ORIGIN}=require('../../desktop/config.cjs');
 const {setTimeout:sleep}=require('node:timers/promises');
 const sha256=buffer=>crypto.createHash('sha256').update(buffer).digest('hex');
@@ -395,15 +395,95 @@ async function graphicsTree({extraFiles=[]}={}){
  await fs.writeFile(path.join(fixture.root,'.easter-client'),'');
  return fixture;
 }
+// The graphics payload the exporter actually publishes (scripts/export_world.py,
+// packages()): the pack itself under its publisher's own filename, the loader that
+// makes the pack do anything, and the cached foliage module. The pack's path is
+// `shaderpacks/<cdn filename>`, so it is the one place a pack name comes from.
+const SHADER_LOADERS=[
+ {path:'mods/iris-fabric-1.11.4+mc26.2.jar',body:Buffer.from('iris-loader')},
+ {path:'mods/sodium-fabric-0.9.2+mc26.2.jar',body:Buffer.from('sodium-loader')}
+];
+const GRASS_CACHE_FILE={path:'optional-mods/grassier-grass.jar.disabled',body:Buffer.from('grass-cache')};
+function payloadFiles(packs,{loaders=true,grass=true}={}){
+ const list=packs.map(pack=>({path:pack,body:Buffer.from('pack:'+pack)}));
+ if(loaders)list.push(...SHADER_LOADERS);
+ if(grass)list.push(GRASS_CACHE_FILE);
+ return list;
+}
+function payloadRoutes(files){return Object.fromEntries(files.map(file=>['/files/'+path.posix.basename(file.path),file.body]));}
+function payloadChunk(server,files,{name='Complementary Shaders - Unbound and Iris Shaders for Minecraft 26.2',version='graphics-r6'}={}){
+ return {id:'graphics',name,optional:true,immutable:false,version,
+  files:files.map(file=>entry(server.origin+'/files/'+path.posix.basename(file.path),file.path,file.body))};
+}
+const irisFile=root=>path.join(root,'config','iris.properties');
+// An installed client that has never had the graphics chunk, and a published chunk made
+// of the given files. Everything a run touches is a fixture: the loopback stub, the temp
+// tree, and the quality files inside the tree the launcher owns.
+async function graphicsCase(files,{base=Buffer.from('base-mod-jar'),chunk={}}={}){
+ const server=await fileServer({'/files/base.jar':base,...payloadRoutes(files)});
+ const tree=await graphicsTree();
+ const baseChunk={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(base),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',base)]};
+ const record=tree.record();
+ record.chunks={base:{id:'base',version:baseChunk.version,immutable:true,files:['mods/easter-navy.jar'],verified:true}};
+ record.files=['mods/easter-navy.jar'];
+ await fs.writeFile(path.join(tree.root,'installed.json'),JSON.stringify(record));
+ const graphicsChunk=payloadChunk(server,files,chunk);
+ return {server,tree,graphicsChunk,published:chunkFixture({base:baseChunk,graphics:graphicsChunk})};
+}
+// Everything the acceptance talks about, in one place: the file the client's loader reads,
+// the tuned report, the foliage module the effect needs, and the two sentences offered.
+async function graphicsOutcome(setup,result){
+ const iris=await fs.readFile(irisFile(setup.tree.root),'utf8').catch(()=>'');
+ const grass=await fs.readFile(path.join(setup.tree.root,'mods','easter-grassier-grass.jar')).then(()=>'present',()=>'absent');
+ return {iris,grass,tuned:result.quality?{...result.quality}:null,message:result.message,graphicsMessage:result.graphicsMessage,pack:shaderPackName(setup.graphicsChunk)};
+}
+
+// ---- the measured defect -----------------------------------------------------
+// Measured on 2026-10-22 against the published payload: the chunk carried
+// shaderpacks/ComplementaryUnbound_r6.0.0.zip, and the launcher wrote a remembered
+// r5.9.3 into iris.properties, withheld Grassier Grass, and still reported the
+// enhanced graphics as installed with shaders on. Every expectation below is the
+// honest answer: the name comes from the chunk, and the report describes the client.
+test('the pack named in iris.properties is the one the graphics chunk delivers',async()=>{
+ const base=Buffer.from('base-mod-jar'),r6='shaderpacks/ComplementaryUnbound_r6.0.0.zip';
+ const files=payloadFiles([r6]);
+ const server=await fileServer({'/files/base.jar':base,...payloadRoutes(files)});
+ const tree=await graphicsTree();
+ try{
+  const baseChunk={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(base),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',base)]};
+  const record=tree.record();
+  record.chunks={base:{id:'base',version:baseChunk.version,immutable:true,files:['mods/easter-navy.jar'],verified:true}};
+  record.files=['mods/easter-navy.jar'];
+  await fs.writeFile(path.join(tree.root,'installed.json'),JSON.stringify(record));
+  const graphicsChunk=payloadChunk(server,files);
+  const published=chunkFixture({base:baseChunk,graphics:graphicsChunk});
+  const result=await applyGraphics({root:tree.root,published,origin:server.origin,includeGraphics:true,hardware:{vramMB:8188,tier:'capable'}});
+  const iris=await fs.readFile(irisFile(tree.root),'utf8');
+  assert.match(iris,/^shaderPack:ComplementaryUnbound_r6\.0\.0\.zip$/m,'the pack the chunk delivered, never a remembered name: '+JSON.stringify(iris.split('\n')));
+  assert.match(iris,/^enableShaders:true$/m);
+  assert.equal(iris.includes('ComplementaryUnbound_r5.9.3.zip'),false,'the old name is not left behind anywhere');
+  // The foliage module is activated from the chunk's own cached copy, byte for byte.
+  assert.deepEqual(await fs.readFile(path.join(tree.root,'mods','easter-grassier-grass.jar')),GRASS_CACHE_FILE.body,'the cached foliage copy is the one activated');
+  assert.equal(await fs.readFile(path.join(tree.root,GRASS_CACHE_FILE.path),'utf8'),'grass-cache','and the cache is kept');
+  assert.deepEqual({...result.quality},{renderDistance:16,shadowDistance:12,shaders:true});
+  assert.match(result.message,new RegExp(graphicsChunk.name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+' installed\\.$'));
+  assert.equal(tree.record().quality.shaderPack,'ComplementaryUnbound_r6.0.0.zip','the marker records the pack that is installed');
+ }finally{await server.close();await tree.cleanup();}
+});
 
 test('turning enhanced graphics on fetches only the graphics chunk and writes the quality files',async()=>{
- const base=Buffer.from('base-mod-jar'),graphics=Buffer.from('shader-bundle-v1');
- const server=await fileServer({'/files/base.jar':base,'/files/graphics.zip':graphics});
+ const base=Buffer.from('base-mod-jar');
+ // The chunk the exporter publishes: the pack under the publisher's own filename, the
+ // Iris and Sodium that load it, and the cached foliage module. The fixture carries the
+ // whole payload because shaders that are reported as on are the client's real state.
+ const files=payloadFiles(['shaderpacks/ComplementaryUnbound_r5.9.3.zip']);
+ const total=files.reduce((sum,file)=>sum+file.body.length,0);
+ const server=await fileServer({'/files/base.jar':base,...payloadRoutes(files)});
  const tree=await graphicsTree();
  try{
   await fs.writeFile(path.join(tree.root,'.easter-client'),'');
   const baseChunk={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(base),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',base)]};
-  const graphicsChunk={id:'graphics',name:'Enhanced graphics',optional:true,immutable:false,version:'sha256:'+sha256(graphics),files:[entry(server.origin+'/files/graphics.zip','shaderpacks/graphics.zip',graphics)]};
+  const graphicsChunk=payloadChunk(server,files,{name:'Enhanced graphics',version:'graphics-v1'});
   const record=tree.record();
   record.chunks={base:{id:'base',version:baseChunk.version,immutable:true,files:['mods/easter-navy.jar'],verified:true}};
   record.files=['mods/easter-navy.jar'];
@@ -412,8 +492,8 @@ test('turning enhanced graphics on fetches only the graphics chunk and writes th
   const published=chunkFixture({base:baseChunk,graphics:graphicsChunk});
   const progress=[];
   const result=await applyGraphics({root:tree.root,published,origin:server.origin,includeGraphics:true,control:createControl(),notify:patch=>progress.push(patch),hardware:{vramMB:8188,tier:'capable'}});
-  assert.deepEqual(server.requests.map(request=>request.path),['/files/graphics.zip'],'only the optional chunk was fetched');
-  assert.equal(await fs.readFile(path.join(tree.root,'shaderpacks','graphics.zip'),'utf8'),'shader-bundle-v1');
+  assert.deepEqual(server.requests.map(request=>request.path),files.map(file=>'/files/'+path.posix.basename(file.path)),'only the optional chunk was fetched');
+  assert.equal(await fs.readFile(path.join(tree.root,'shaderpacks','ComplementaryUnbound_r5.9.3.zip'),'utf8'),'pack:shaderpacks/ComplementaryUnbound_r5.9.3.zip');
   assert.equal((await fs.stat(path.join(tree.root,'mods','easter-navy.jar'))).mtimeMs,baseBefore.mtimeMs,'the base chunk was not touched');
   assert.equal(tree.record().chunks.base.version,baseChunk.version,'nor its record');
   assert.equal(tree.record().graphics,graphicsChunk.version);
@@ -423,8 +503,8 @@ test('turning enhanced graphics on fetches only the graphics chunk and writes th
   assert(reported.length>0,'the toggle reports progress');
   for(const patch of reported)for(const field of ['label','percent','bytesDone','bytesTotal','bytesPerSecond','etaSeconds'])assert.equal(field in patch.progress,true,'progress.'+field);
   assert.match(reported[0].progress.label,/Enhanced graphics/);
-  assert.equal(reported.some(patch=>patch.progress.bytesTotal===graphics.length),true,'the transfer knows its size');
-  assert.equal(reported.some(patch=>patch.progress.bytesDone===graphics.length),true,'and reports the bytes it moved');
+  assert.equal(reported.some(patch=>patch.progress.bytesTotal===total),true,'the transfer knows its size');
+  assert.equal(reported.some(patch=>patch.progress.bytesDone===total),true,'and reports the bytes it moved');
   // The quality settings are inside the client tree, derived from the reported memory.
   assert.deepEqual({renderDistance:result.quality.renderDistance,shadowDistance:result.quality.shadowDistance,shaders:result.quality.shaders},{renderDistance:16,shadowDistance:12,shaders:true});
   assert.match(await fs.readFile(path.join(tree.root,'options.txt'),'utf8'),/^renderDistance:16$/m);
@@ -432,6 +512,7 @@ test('turning enhanced graphics on fetches only the graphics chunk and writes th
   assert.match(iris,/^enableShaders:true$/m);
   assert.match(iris,/^shaderPack:ComplementaryUnbound_r5\.9\.3\.zip$/m);
   assert.match(iris,/^shadowDistance:12$/m);
+  assert.equal(await fs.readFile(path.join(tree.root,'mods','easter-grassier-grass.jar'),'utf8'),'grass-cache','the cached foliage module is activated, because the shaders it goes with are really on');
   // A second toggle-on with nothing changed fetches nothing and reports nothing new.
   const before=server.requests.length;
   const again=await applyGraphics({root:tree.root,published,origin:server.origin,includeGraphics:true,hardware:{vramMB:8188,tier:'capable'}});
@@ -513,15 +594,26 @@ test('the graphics toggle refuses a client that is not installed',async()=>{
 // ---- the toggle against the published manifest shape -------------------------
 // The manifest the exporter publishes, read from the sibling worktree when it is
 // present so the case cannot be satisfied by a fixture that agrees with the parser
-// instead of with what ships. Its one remote file is served from the loopback stub.
+// instead of with what ships. Its remote files are served from the loopback stub.
+//
+// The chunk carries what packages() puts in it: the pack under its publisher's own
+// filename, the loader that makes the pack do anything, and the cached foliage module.
+// The pack's `path` is the only place a shader pack name comes from, which is why the
+// case keeps naming ComplementaryUnbound_r5.9.3.zip while a newer payload would not.
 const PUBLISHED_MANIFEST_PATH='/root/wt-launcher-graphics/site/data/client.json';
+const PUBLISHED_GRAPHICS_FILES=[
+ {id:'R6NEzAwj',name:'Complementary Shaders - Unbound',version:'r5.9.3',path:'shaderpacks/ComplementaryUnbound_r5.9.3.zip',url:'https://cdn.modrinth.com/data/R6NEzAwj/versions/B1kyfoUZ/ComplementaryUnbound_r5.9.3.zip',hash:'sha512:'+'3'.repeat(128),size:553400},
+ {id:'iris',name:'Iris Shaders',version:'1.11.4+26.2-fabric',path:'mods/iris-fabric-1.11.4+mc26.2.jar',url:'https://cdn.modrinth.com/data/YL57xq9U/versions/iris/iris-fabric-1.11.4+mc26.2.jar',hash:'sha512:'+'4'.repeat(128),size:1811207},
+ {id:'sodium',name:'Sodium',version:'mc26.2-0.9.2-fabric',path:'mods/sodium-fabric-0.9.2+mc26.2.jar',url:'https://cdn.modrinth.com/data/AANobbMI/versions/sodium/sodium-fabric-0.9.2+mc26.2.jar',hash:'sha512:'+'5'.repeat(128),size:1212516},
+ {id:'grassier-grass',name:'Grassier Grass',version:'1.4.5',path:'optional-mods/grassier-grass.jar.disabled',url:'https://cdn.modrinth.com/data/3jCB9cn2/versions/8AHVOlSX/grassiergrass-fabric-1.4.5%2Bmc26.2.jar',hash:'sha512:'+'6'.repeat(128),size:2335051}
+];
 const PUBLISHED_GRAPHICS_SHAPE={
  minecraft:'26.2',fabric:'0.19.5',
  mod:{name:'Easter Co. Mod Pack: Guards & Villagers',version:'2.0.0',sha256:'1'.repeat(64),url:'downloads/easter-navy.jar'},
  dependencies:[],
  chunks:[
   {id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+'0'.repeat(64),fabric:'0.19.5',java:25,files:[{id:'easter-navy',name:'Easter Co. Mod Pack: Guards & Villagers',version:'2.0.0',path:'downloads/easter-navy.jar',url:'downloads/easter-navy.jar',hash:'sha256:'+'1'.repeat(64),size:656819}]},
-  {id:'graphics',name:'Complementary Shaders - Unbound for Minecraft 26.2',optional:true,immutable:false,version:'sha256:'+'2'.repeat(64),files:[{id:'R6NEzAwj',name:'Complementary Shaders - Unbound',version:'r5.9.3',path:'shaderpacks/ComplementaryUnbound_r5.9.3.zip',url:'https://cdn.modrinth.com/data/R6NEzAwj/versions/B1kyfoUZ/ComplementaryUnbound_r5.9.3.zip',hash:'sha512:'+'3'.repeat(128),size:553400}]}
+  {id:'graphics',name:'Complementary Shaders - Unbound for Minecraft 26.2',optional:true,immutable:false,version:'sha256:'+'2'.repeat(64),files:PUBLISHED_GRAPHICS_FILES}
  ]
 };
 function publishedManifestFixture(){
@@ -536,12 +628,12 @@ test('the toggle fetches the published graphics chunk and reports it as availabl
  assert(graphicsChunk&&graphicsChunk.optional===true,'the published manifest carries an optional graphics chunk');
  assert.equal('graphics' in published,false,'the bundle is a chunk, not a top-level field');
  assert.equal(graphicsChunk.files[0].path,'shaderpacks/ComplementaryUnbound_r5.9.3.zip');
- const body=Buffer.from('published-complementary-shaders-fixture');
- const server=await fileServer({'/shaderpacks/ComplementaryUnbound_r5.9.3.zip':body});
+ // Every remote file the chunk names is answered by the loopback stub at its own path.
+ const bodies=Object.fromEntries(graphicsChunk.files.map((file,index)=>['/'+file.path,Buffer.from('published-graphics-fixture-'+index)]));
+ const server=await fileServer(bodies);
  const tree=await graphicsTree();
  try{
-  // The one remote URL is answered by the loopback stub at the path the chunk names.
-  const manifest={...published,chunks:published.chunks.map(chunk=>chunk.id!=='graphics'?chunk:{...chunk,files:chunk.files.map(file=>({...file,url:server.origin+'/'+file.path,hash:'sha256:'+sha256(body),size:body.length}))})};
+  const manifest={...published,chunks:published.chunks.map(chunk=>chunk.id!=='graphics'?chunk:{...chunk,files:chunk.files.map(file=>({...file,url:server.origin+'/'+file.path,hash:'sha256:'+sha256(bodies['/'+file.path]),size:bodies['/'+file.path].length}))})};
   assert.deepEqual(chunkList(manifest,server.origin).map(chunk=>chunk.id),published.chunks.map(chunk=>chunk.id));
   const record=tree.record();
   record.chunks={base:{id:'base',version:manifest.chunks.find(chunk=>chunk.id==='base').version,immutable:true,files:['mods/easter-navy.jar'],verified:true}};
@@ -553,8 +645,8 @@ test('the toggle fetches the published graphics chunk and reports it as availabl
   assert.equal(result.graphicsAvailable,true,'the published chunk is reported as available');
   assert.doesNotMatch(result.message||'',/not published yet/,'and not as missing');
   assert.match(result.message||'',/installed/);
-  assert.deepEqual(server.requests.map(request=>request.path),['/shaderpacks/ComplementaryUnbound_r5.9.3.zip'],'only the shader file was fetched');
-  assert.equal(await fs.readFile(path.join(tree.root,'shaderpacks','ComplementaryUnbound_r5.9.3.zip'),'utf8'),'published-complementary-shaders-fixture','the shader pack landed where the chunk said');
+  assert.deepEqual(server.requests.map(request=>request.path),graphicsChunk.files.map(file=>'/'+file.path),'only the graphics chunk’s own files were fetched');
+  assert.equal(await fs.readFile(path.join(tree.root,'shaderpacks','ComplementaryUnbound_r5.9.3.zip'),'utf8'),bodies['/shaderpacks/ComplementaryUnbound_r5.9.3.zip'].toString(),'the shader pack landed where the chunk said');
   assert.equal(tree.record().chunks.graphics.version,graphicsChunk.version);
   assert.equal((await fs.stat(path.join(tree.root,'mods','easter-navy.jar'))).mtimeMs,baseBefore.mtimeMs,'the base chunk was not touched');
   assert.equal(progressLabels(progress).some(label=>/Unbound|graphics/i.test(label)),true,'the sticky bar carried the transfer: '+JSON.stringify(progressLabels(progress)));
@@ -566,9 +658,67 @@ test('the toggle fetches the published graphics chunk and reports it as availabl
   const before=server.requests.length;
   const off=await applyGraphics({root:tree.root,published:manifest,origin:server.origin,includeGraphics:false,hardware:{vramMB:8188,tier:'capable'}});
   assert.equal(server.requests.length,before,'nothing is fetched when the toggle goes off');
-  assert.equal(await fs.readFile(path.join(tree.root,'shaderpacks','ComplementaryUnbound_r5.9.3.zip'),'utf8'),'published-complementary-shaders-fixture');
+  assert.equal(await fs.readFile(path.join(tree.root,'shaderpacks','ComplementaryUnbound_r5.9.3.zip'),'utf8'),bodies['/shaderpacks/ComplementaryUnbound_r5.9.3.zip'].toString(),'the cached pack is kept');
   assert.equal(off.includeGraphics,false);
  }finally{await server.close();await tree.cleanup();}
+});
+
+// ---- the honest answer when the payload does not name one pack ----------------
+// A graphics chunk that names no single pack names nothing at all: the launcher does not
+// fall back to a remembered name, does not switch shaders on against a file the client
+// cannot load, and does not call the effect installed.
+async function assertWithheld({files,label}){
+ const setup=await graphicsCase(files);
+ try{
+  const result=await applyGraphics({root:setup.tree.root,published:setup.published,origin:setup.server.origin,includeGraphics:true,hardware:{vramMB:8188,tier:'capable'}});
+  const outcome=await graphicsOutcome(setup,result);
+  assert.equal(outcome.pack,null,label+': no single pack is named by the chunk itself');
+  assert.equal(/shaderPack/.test(outcome.iris),false,label+': no pack name is invented: '+JSON.stringify(outcome.iris.split('\n')));
+  assert.match(outcome.iris,/^enableShaders:false$/m,label+': the loader is not switched on');
+  assert.deepEqual({...outcome.tuned},{renderDistance:16,shadowDistance:12,shaders:false},label+': the tuned report says shaders are off');
+  assert.equal(outcome.grass,'absent',label+': the effect’s own mod is not activated');
+  assert.equal(outcome.graphicsMessage,SHADERS_WITHHELD,label+': the honest sentence is offered');
+  assert.equal(outcome.message,'Client updated. '+SHADERS_WITHHELD,label+': and it is the message the player reads');
+  assert.equal(outcome.message.includes(setup.graphicsChunk.name+' installed.'),false,label+': nothing claims the effect was installed');
+  assert.equal(setup.tree.record().quality.shaders,false,label+': the marker agrees');
+  assert.equal(setup.tree.record().quality.shaderPack,null,label+': and records no pack');
+  assert.equal(setup.tree.record().chunks.graphics.version,setup.graphicsChunk.version,label+': the chunk itself was still installed');
+  return outcome;
+ }
+ finally{await setup.server.close();await setup.tree.cleanup();}
+}
+
+test('a graphics chunk with no shader pack installs without shaders and says so',async()=>{
+ const outcome=await assertWithheld({files:payloadFiles([]),label:'no pack'});
+ assert.equal(outcome.iris.includes('ComplementaryUnbound'),false);
+});
+
+test('a graphics chunk naming two shader packs invents neither and withholds shaders',async()=>{
+ const outcome=await assertWithheld({files:payloadFiles(['shaderpacks/ComplementaryUnbound_r6.0.0.zip','shaderpacks/BSL_v8.4.zip']),label:'two packs'});
+ assert.equal(outcome.iris.includes('ComplementaryUnbound_r6.0.0.zip'),false);
+ assert.equal(outcome.iris.includes('BSL_v8.4.zip'),false,'neither pack is chosen for the player');
+});
+
+test('a pack that is not on disk is reported as withheld, never as shaders installed',async()=>{
+ const pack='shaderpacks/ComplementaryUnbound_r6.0.0.zip';
+ const setup=await graphicsCase(payloadFiles([pack]),{chunk:{version:'graphics-r6'}});
+ try{
+  const first=await applyGraphics({root:setup.tree.root,published:setup.published,origin:setup.server.origin,includeGraphics:true,hardware:{vramMB:8188,tier:'capable'}});
+  assert.deepEqual({...first.quality},{renderDistance:16,shadowDistance:12,shaders:true},'the complete payload really enables shaders');
+  // The client folder loses the pack afterwards (a player, a disk, another tool), and the
+  // next run finds nothing to download, so only configureVisuals' own answer can decide.
+  await fs.rm(path.join(setup.tree.root,pack));
+  const before=setup.server.requests.length;
+  const result=await applyGraphics({root:setup.tree.root,published:setup.published,origin:setup.server.origin,includeGraphics:true,hardware:{vramMB:8188,tier:'capable'}});
+  assert.equal(setup.server.requests.length,before,'an unchanged chunk is not re-fetched');
+  assert.deepEqual({...result.quality},{renderDistance:16,shadowDistance:12,shaders:false},'the report follows the client, not the request');
+  assert.equal(result.graphicsMessage,SHADERS_WITHHELD);
+  assert.match(result.message,/Client is up to date\./);
+  assert.doesNotMatch(result.message,/installed/,'no message says the enhanced graphics were installed');
+  assert.match(await fs.readFile(irisFile(setup.tree.root),'utf8'),/^enableShaders:false$/m,'the loader is switched back off');
+  assert.equal(await fs.readFile(path.join(setup.tree.root,'mods','easter-grassier-grass.jar')).then(()=>'present',()=>'absent'),'absent','and the effect’s mod is removed');
+  assert.equal(setup.tree.record().quality.shaders,false,'the marker agrees');
+ }finally{await setup.server.close();await setup.tree.cleanup();}
 });
 
 // A stub that dribbles bytes out and honours Range requests.
@@ -913,12 +1063,13 @@ test('an install seeds the Shippy Ships hotkey only once the client has written 
 });
 
 test('the display defaults are written alongside the graphics step, not instead of it',async()=>{
- const base=Buffer.from('base-mod-jar'),graphics=Buffer.from('shader-bundle');
- const server=await fileServer({'/files/base.jar':base,'/files/graphics.zip':graphics});
+ const base=Buffer.from('base-mod-jar');
+ const files=payloadFiles(['shaderpacks/ComplementaryUnbound_r5.9.3.zip']);
+ const server=await fileServer({'/files/base.jar':base,...payloadRoutes(files)});
  const tree=await installedTree();
  try{
   const baseChunk={id:'base',name:'Easter Co. client for Minecraft 26.2',optional:false,immutable:true,version:'sha256:'+sha256(base),files:[entry(server.origin+'/files/base.jar','mods/easter-navy.jar',base)]};
-  const graphicsChunk={id:'graphics',name:'Enhanced graphics',optional:true,immutable:false,version:'sha256:'+sha256(graphics),files:[entry(server.origin+'/files/graphics.zip','shaderpacks/graphics.zip',graphics)]};
+  const graphicsChunk=payloadChunk(server,files,{name:'Enhanced graphics',version:'graphics-v1'});
   const published=chunkFixture({base:baseChunk,graphics:graphicsChunk});
   const result=await installClient({root:tree.root,published,origin:server.origin,includeGraphics:true,hardware:{vramMB:8188,tier:'capable'}});
   const options=shown(await fs.readFile(optionsFile(tree.root),'utf8'));

@@ -1050,6 +1050,33 @@ is a component bundle with its own version, its own file list and its own hashes
   downloaded when the player turns the toggle on.
 - Further chunks may be added later, each independently versioned.
 
+**The shader pack's name comes from the installed chunk, and only from there.** The
+`graphics` chunk carries the pack, the loader that reads it (Iris, which needs Sodium) and
+the cached foliage module, and the pack's own file is published at
+`shaderpacks/<filename>`, where the filename is the one the publisher ships
+(`scripts/export_world.py` builds that path from the Modrinth file record). The launcher
+takes the name from exactly one path in the installed chunk matching
+`^shaderpacks/[^/]+\.zip$` and writes that basename into `config/iris.properties`; it never
+names a pack from a constant, a remembered value, or an earlier install. When the chunk
+declares no such file, or several, no name is invented: shaders are withheld.
+
+**What the launcher reports is what the client can load.** The tuned result and its message
+are taken from the step that configures the client's visual content after it has run, not
+from what the run intended. `tuned.shaders` is true only when the effect was really switched
+on — the pack, its loader and the cached foliage module all present and verified — and when
+that step withholds shaders the settings are rewritten as withheld and the player is told so:
+"Enhanced graphics are installed without shaders, so the shader pack was left off." The
+hardware ladder's own pack name (`SHADER_PACK_NAME` in `desktop/hardware.cjs`) is only the
+default for the answer to "could this GPU carry shaders"; it is never written into a client
+by name and is not evidence of which pack is installed.
+
+Iris's own log is the observable consequence of the name being right: measured against the
+live payload on 2026-10-22, the client with the toggle on records
+`Using shaderpack: ComplementaryUnbound_r5.9.3.zip`, and with the toggle off records
+`Shaders are disabled because enableShaders is set to false in iris.properties`. That is the
+loader reading the file the launcher writes, and it is as far as this evidence goes: no
+shader program compiling in the world was observed.
+
 Update rules:
 
 - A chunk whose recorded version and hash still match what the manifest publishes is
@@ -1140,11 +1167,14 @@ Rules the exporter and validator hold to:
   byte-identical `client.json`.
 - Chunks are absent until they have real content. The `graphics` chunk is published as
   of 2026-10-16: it carries the one shader pack the server's look is built on,
-  Complementary Unbound r5.9.3, taken from that publisher's own artifact — its project
-  id, its CDN URL and its own published sha512 — and the version is pinned in the
-  exporter rather than resolved to "latest". An optional chunk that is switched off is
-  simply not fetched, and its absence invalidates nothing else, which is still what a
-  player sees before they turn the toggle on.
+  Complementary Unbound (pinned at r5.9.3), taken from that publisher's own artifact — its
+  project id, its CDN URL and its own published sha512 — and the version is pinned in the
+  exporter rather than resolved to "latest". The pinned version decides the published
+  filename, and the manifest's `path` is `shaderpacks/` plus the publisher's own file name:
+  that entry is the only statement of which pack the payload delivers, and the launcher
+  reads the name from it rather than from any constant of its own. An optional chunk that
+  is switched off is simply not fetched, and its absence invalidates nothing else, which is
+  still what a player sees before they turn the toggle on.
 - **The chunk carries the loader, not just the pack.** Since 2026-10-17 the `graphics`
   chunk also carries Iris Shaders and Sodium (fabric, `mods/`), pinned the same way and
   verified against the same publisher. The reason is a defect Owen hit in 1.0.8: the
@@ -1402,6 +1432,16 @@ writes the client's own quality settings. Flipping it off disables Iris shaders 
 Grassier Grass without downloading anything or invalidating the base chunk; cached
 shader files remain available for the next enable. Render distance and personal
 settings survive switching the effect off.
+
+**The toggle reports the effect, not the request.** Turning it on names the pack the
+installed chunk delivers and switches shaders on only when the client can really load
+them; the tuned `shaders` value and the sentence the player reads are the outcome of the
+client's own visual configuration, taken after it has run. A chunk that declares no single
+`shaderpacks/<file>.zip` names no pack: shaders stay off, the foliage module stays dormant,
+the tuned report says `shaders:false`, and the launcher says "Enhanced graphics are
+installed without shaders, so the shader pack was left off." rather than naming a pack it
+does not have or calling the effect installed with shaders. The render distances are still
+written, because they are the machine's own answer and are not the shader step.
 
 **The machine decides the default, once, honestly.** "On unless the GPU is clearly
 weak": integrated graphics and a software renderer (llvmpipe, SwiftShader) are
