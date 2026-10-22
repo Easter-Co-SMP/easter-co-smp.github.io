@@ -113,7 +113,7 @@ print("  ok   %s carries %d assets, none a draft or prerelease" % (r["tagName"],
   done
   # And the published AppImage paints its first screen.
   chmod +x "$work/dl/Easter-Company-Linux-x86_64.AppImage"
-  EASTER_RELEASE_BINARY="$work/dl/Easter-Company-Linux-x86_64.AppImage" \
+  APPIMAGE_EXTRACT_AND_RUN=1 \
     xvfb-run -a node scripts/check-packaged-first-screen.mjs --app "$work/dl/Easter-Company-Linux-x86_64.AppImage" >/tmp/release-first-screen.log 2>&1 \
     || { tail -20 /tmp/release-first-screen.log; die "the published AppImage failed the first-screen check"; }
   grep -E "PASS" /tmp/release-first-screen.log | tail -1 | sed 's/^/  /'
