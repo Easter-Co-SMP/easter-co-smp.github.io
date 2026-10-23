@@ -452,6 +452,16 @@ async function forgetCompany(){
  // here rather than left to land on the next account's hero (mintMinecraftSession, "an answer
  // that is already out of date").
  mintedSession=null;mintedFor=null;minecraft={state:'unknown',serverHeld:false,checkedAt:null};minecraftProbe=null;cancelMints();
+ // The account is gone as of the two lines above, so this broadcast is owed now, before the two
+ // calls below. `accounts.logout` is a write to the account service - bounded only by its own
+ // eight-second timeout (accounts.cjs) and measured at 544 ms against the launcher fixture - and
+ // `vault.remove` is a second await on top of it. Held behind them, this broadcast left the
+ // header naming the account that had just been signed out for as long as the service took: the
+ // renderer keeps its own copy of the account and only ever updates it from a broadcast, so for
+ // that whole window `if(!current?.account){signIn();return;}` could not see the sign-out and the
+ // click reopened the profile menu for the account that was already gone. Nothing below can
+ // change whether the account exists, so there is nothing for the view to wait for.
+ notify({});
  if(token)await accounts.logout(token);
  await vault.remove(companyFile());
 }

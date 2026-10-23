@@ -2058,6 +2058,19 @@ because signing in while signed in is refused — plus an optional skin PNG data
 public profile. Tokens remain in the main process. Account changes are refused while
 Minecraft or authentication is running (*Launcher UI review*).
 
+**Signing out repaints from the moment the account goes, never from the account service's
+answer.** `forgetCompany` drops the account, broadcasts, and only then asks the service to
+end the session (`POST /v2/accounts/logout`, best effort, eight-second bound) and removes the
+vault file. The renderer holds its own copy of the account and updates it only from a
+broadcast, so a broadcast placed behind those awaits leaves the header offering an account
+the main process has already dropped: measured 2026-10-23 at 25 ms samples on the page clock
+from the Logout click, `status().account` was `null` at 64 ms while `.desktop-account-nav`
+still read the signed-out account's name until 676 ms (~611 ms), and a click landing in that
+window reopened the profile menu for the gone account instead of opening the sign-in
+chooser. The window is as long as the account service takes to answer, which is why
+`tests/desktop/wait-post-approval.electron.mjs` holds the fixture's own logout call open for
+six seconds to prove the header is already its own inside it.
+
 Manifest paths identify published files; JARs install under mods/ regardless of
 their public download path. Old chunk records with different installation paths
 require repair through the verified pipeline. Completion re-reads the installed

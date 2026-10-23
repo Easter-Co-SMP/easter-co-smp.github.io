@@ -24,13 +24,16 @@ const fixtureOrigin=process.env.EASTER_FIXTURE_ORIGIN||'http://127.0.0.1:18798';
 const images=process.env.EASTER_WAIT_IMAGES||'/tmp/easter-wait-post-approval';
 await fs.mkdir(images,{recursive:true});
 const HOLD_MS=Number(process.env.EASTER_HOLD_MS||13000);
+// How long the logout call is held open at step 5. The launcher's own bound on that call is
+// eight seconds (desktop/accounts.cjs), so this stays inside it and the sign-out still finishes.
+const LOGOUT_HOLD_MS=Number(process.env.EASTER_LOGOUT_HOLD_MS||6000);
 
 const steps=[];
 const note=(name,detail)=>{steps.push(name);console.log(`  ok  ${name}${detail?' — '+detail:''}`);};
 
 // A proxy in front of the fixture that can hold one route open, or refuse it, so the wait
 // after approval is long enough to see and the failure after approval can be exercised.
-const held={requests:[],released:[],holdMs:HOLD_MS,mode:'hold'};
+const held={requests:[],released:[],holdMs:HOLD_MS,mode:'hold',logout:{holdMs:0,requests:[],released:[]}};
 const forward=(request,body)=>new Promise((resolve,reject)=>{
  const target=new URL(fixtureOrigin);
  const call=http.request({hostname:target.hostname,port:target.port,path:request.url,method:request.method,headers:{...request.headers,host:target.host}},response=>{
@@ -58,6 +61,15 @@ const proxy=http.createServer((request,response)=>{
     entry.released=Date.now();held.released.push(entry);
     response.writeHead(500,{'Content-Type':'application/json'});return response.end('{"error":"fixture_failure"}');
    }
+  }
+  // Signing out is a request the account service answers in its own time. The view must not
+  // wait for that answer, so this route is held open at step 5 to make the window the defect
+  // lived in as wide as the service is slow rather than as narrow as it is fast.
+  if(request.method==='POST'&&request.url==='/v2/accounts/logout'){
+   const entry={at:Date.now()};
+   held.logout.requests.push(entry);
+   if(held.logout.holdMs>0)await new Promise(resolve=>setTimeout(resolve,held.logout.holdMs));
+   entry.released=Date.now();held.logout.released.push(entry);
   }
   try{
    const answer=await forward(request,body);
@@ -164,17 +176,52 @@ try{
  await page.locator('#desktop-company-username .dialog-close').click();
  await page.locator('#desktop-company-username').waitFor({state:'hidden'});
  await page.locator('.desktop-account-nav').click();
+ // Signing out is a round trip to the account service, and the view is not allowed to wait for
+ // it. Main drops the account at once; this proxy holds the logout call open for
+ // LOGOUT_HOLD_MS so the window the defect lived in is as wide as the service is slow rather
+ // than as narrow as it is fast - before the fix the header still read "FixtureCaptain" for the
+ // whole hold, and a click on it reopened the profile menu for the account that was already
+ // gone instead of opening the sign-in chooser (25 ms samples on the page clock from the Logout
+ // click: account===null at 64 ms, header read "Sign in" at 676 ms, ~611 ms of the gone
+ // account on offer). Held open, the window cannot be "unlikely": it would be six seconds wide.
+ held.logout.holdMs=LOGOUT_HOLD_MS;
  await page.getByRole('button',{name:'Logout',exact:true}).click();
- await page.waitForFunction(async()=>(await window.easterDesktop.status()).account===null);
+ await page.waitForFunction(async()=>(await window.easterDesktop.status()).account===null,null,{timeout:15000});
+ const signedOut=await page.evaluate(async()=>{
+  const nav=document.querySelector('.desktop-account-nav'),menu=document.querySelector('.desktop-profile-menu');
+  return {header:(nav?.innerText||'').trim(),label:nav?.getAttribute('aria-label')||'',haspopup:nav?.getAttribute('aria-haspopup')||'',
+   menuOpen:Boolean(menu?.matches(':popover-open')),chooserOpen:Boolean(document.querySelector('#desktop-company-signin')?.open),
+   account:(await window.easterDesktop.status()).account};
+ });
+ assert.equal(held.logout.released.length,0,'the header is read while the logout call is still open');
+ assert.equal(signedOut.account,null,'main has dropped the account');
+ assert.equal(signedOut.header,'Sign in','so the header offers to sign in, not the account that just left');
+ assert.equal(signedOut.label,'Sign in','and its accessible name says the same');
+ assert.equal(signedOut.haspopup,'dialog','and the header opens the sign-in chooser rather than an account menu');
+ assert.equal(signedOut.menuOpen,false,'no profile menu is open for the account that is gone');
+ assert.equal(signedOut.chooserOpen,false,'and nothing has opened on its own');
+ // The click that used to land on the stale menu, made while the logout call is still open.
+ await page.locator('.desktop-account-nav').click();
+ const clicked=await page.evaluate(()=>{
+  const menu=document.querySelector('.desktop-profile-menu'),button=document.querySelector('#desktop-company-signin .company-microsoft');
+  const box=button?.getBoundingClientRect();
+  return {menuOpen:Boolean(menu?.matches(':popover-open')),heading:(menu?.querySelector('.desktop-account-name')?.textContent||'').trim(),
+   chooserOpen:Boolean(document.querySelector('#desktop-company-signin')?.open),button:box?{w:Math.round(box.width),h:Math.round(box.height)}:null};
+ });
+ assert.equal(held.logout.released.length,0,'the click lands inside the held logout too, not after it');
+ assert.equal(clicked.menuOpen,false,'the click does not open a menu for the account that is already gone');
+ assert.equal(clicked.heading,'','and no menu is left headed by it');
+ assert.equal(clicked.chooserOpen,true,'it opens the sign-in chooser');
+ assert(clicked.button&&clicked.button.h>0,'with the sign-in action at a real height, so the click is not dead: '+JSON.stringify(clicked.button));
+ await page.screenshot({path:path.join(images,'5-signed-out-header.png')});
+ note('signed out: header is its own and the click opens the chooser', 'logout held open '+LOGOUT_HOLD_MS+'ms, nothing repainted by the answer');
+ // The chooser is closed again before the held logout settles, so the last broadcast of the
+ // sign-out lands on a quiet view and the restart below runs on a settled launcher.
+ await page.locator('#desktop-company-signin .dialog-close').click();
+ await page.locator('#desktop-company-signin').waitFor({state:'hidden'});
+ while(held.logout.released.length===0)await new Promise(resolve=>setTimeout(resolve,50));
+ held.logout.holdMs=0;
  held.mode='refuse';
- // Signing out is a round trip and status() is not the header: the main process drops the
- // account before the view has painted the signed-out header. Measured here, 25 ms samples on
- // the page clock from the Logout click: account===null at 64 ms while .desktop-account-nav
- // still read "FixtureCaptain" and its click handler was still the account menu's own, so the
- // click opened the profile menu instead of the chooser; the header only read "Sign in" at
- // 676 ms, when the stale menu was closed again. Asking for the sign-in chooser in between
- // waits forever on a closed <dialog>. So this waits for the header itself to read "Sign in" -
- // which is also the assertion that it went back to signing in - and clicks from there.
  const signInNav=page.locator('.desktop-account-nav').filter({hasText:'Sign in'});
  await signInNav.waitFor();
  await signInNav.click();
