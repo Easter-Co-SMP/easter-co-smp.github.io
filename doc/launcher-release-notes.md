@@ -1,3 +1,60 @@
+# Easter Company launcher 1.0.45
+
+## Exit Game
+
+With Minecraft running, the button where Play usually sits now says **Exit Game**. It asks the
+client to close, and if it is still there a moment later it ends it outright. That is what it is
+for: a game you cannot get rid of any other way.
+
+- It works on a game this launcher started and on one it found already running when it came
+  back, which is the case that used to have no button at all.
+- It needs no account and no server: it is your computer closing your game.
+- A game that has already closed resolves to the ordinary screen rather than leaving a button
+  that does nothing.
+
+## The launcher updates while you are playing
+
+A running game is no longer a reason for the launcher to stay on an old version. It downloads
+and applies its update in the background and comes back on its own, quietly, out of the tray.
+
+- The game keeps running throughout. The new launcher returns into the in-game screen because
+  the game it left is still there.
+- Nothing is asked of you and nothing is interrupted; the button is Exit Game when it returns.
+- The Minecraft client is never updated while a game is open, and nothing launches in the middle
+  of a client update.
+
+## A cold launch shows what it last knew
+
+The status row, the account and the client state used to be blank until the account service
+answered, which on a cold start is a wait of twenty seconds or more. Now the launcher shows what
+it last knew, marked as the last thing it knew, and confirms it as soon as the real answer
+arrives.
+
+- The cached answer is never used to start a game: launching always asks. It is only what the
+  screen says while it is asking.
+- It expires after a day, and signing out clears it.
+
+## The store is a real shop now
+
+The Community store sells the five real products: 10, 100 and 1,000 Sterling, a $5 donation and a
+penny, priced in US dollars.
+
+- Paying happens on Stripe's own page, in your browser. The launcher never sees a card.
+- Bought Sterling goes into your bank in the game, not your wallet, so a large purchase is not
+  cut down by the wallet's cap.
+- The store exists only inside the launcher. The website has no store link anywhere, and asking
+  a browser for the store's address sends it home.
+- Until the payment service is connected it says so, plainly, and offers nothing to buy.
+
+## Smaller things
+
+- The line under the wordmark reads `Custom Minecraft Client & Server`, and PLAY NOW names the
+  account it will play as instead of repeating the edition.
+- The cold-start sentence says `The server is booting up, this might take a minute.`
+- The server is called `Easter Co. Survival Multiplayer Server (Easter Co. SMP)`.
+- The launcher no longer claims to support macOS, because it does not.
+
+
 # Easter Company launcher 1.0.44
 
 ## The status line waits instead of guessing
