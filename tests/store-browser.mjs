@@ -62,16 +62,34 @@ function installBridge(cfg) {
   const store = {
     catalogue: 0,
     orders: 0,
+    snapshots: 0,
+    // How many of the two reads the page has actually been ANSWERED by. A paint drawn from the
+    // startup snapshot is on screen while this is still zero, which is the whole difference the
+    // snapshot makes.
+    answered: 0,
     checkouts: [],
     // The rows the stub's service holds. A scenario can add one from the test side: the page only
     // ever shows what this list answers with.
     orders_: (cfg.orders || []).slice(),
     release: null,
     releaseCatalogue: null,
+    releaseOrders: null,
+    releaseSnapshot: null,
   };
   window.__store = store;
   window.easterDesktop = {
     mode: "desktop",
+    // The launcher's startup snapshot (desktop/main.cjs, `prefetchStore`): `{writtenAt, products,
+    // orders}` or null. `holdSnapshot` keeps the answer itself open, so a scenario can prove what
+    // the page does while the launcher is still handing it over.
+    storeSnapshot: async () => {
+      store.snapshots += 1;
+      if (!cfg.snapshot) return null;
+      if (!cfg.holdSnapshot) return cfg.snapshot;
+      return new Promise((resolve) => {
+        store.releaseSnapshot = () => resolve(cfg.snapshot);
+      });
+    },
     status: async () => ({
       phase: "idle",
       settings: {},
@@ -85,17 +103,32 @@ function installBridge(cfg) {
     storeCatalogue: async () => {
       store.catalogue += 1;
       if (cfg.catalogueError) throw new Error(cfg.catalogueError);
-      if (!cfg.holdCatalogue) return { products: cfg.products };
+      if (!cfg.holdCatalogue) {
+        store.answered += 1;
+        return { products: cfg.products };
+      }
       // A held read is how the busy ring is measured at all: it is drawn only while the page is
       // still asking, and this store prints no words while it waits.
       return new Promise((resolve) => {
-        store.releaseCatalogue = () => resolve({ products: cfg.products });
+        store.releaseCatalogue = () => {
+          store.answered += 1;
+          resolve({ products: cfg.products });
+        };
       });
     },
     storeOrders: async () => {
       store.orders += 1;
       if (cfg.ordersError) throw new Error(cfg.ordersError);
-      return { orders: store.orders_ };
+      if (!cfg.holdOrders) {
+        store.answered += 1;
+        return { orders: store.orders_ };
+      }
+      return new Promise((resolve) => {
+        store.releaseOrders = () => {
+          store.answered += 1;
+          resolve({ orders: store.orders_ });
+        };
+      });
     },
     storeCheckout: async (key) => {
       store.checkouts.push(key);
@@ -854,6 +887,239 @@ try {
     assert.ok(walked.includes("store-skip|Skip to store"), "and the skip link is walked too");
     console.log(
       `Skip link and keyboard passed: ${walked.length} Tab stops, ${controls.length} visible controls, none missed`,
+    );
+  }
+  /*
+   * THE SNAPSHOT: THE STORE, ALREADY IN HAND (ticket 9f6d7b16; doc/launcher-store.md, "Opening the
+   * store instantly").
+   *
+   * The launcher asks the account service for the catalogue and the player's orders once, at
+   * startup, and hands them to this page before it asks anything (desktop/main.cjs `prefetchStore`,
+   * the bridge's `storeSnapshot()`). The page therefore paints the shop at once and confirms it
+   * with the same two reads it always made. What is proved here is the page's own half:
+   *
+   *   - a warm snapshot paints with both reads still held open on promises (never a stopwatch):
+   *     four cards, the snapshot's own prices, no busy ring, and no service answer used at all;
+   *   - while it is being confirmed the content region keeps `aria-busy="true"` — this page's
+   *     existing pending signal, because it has no sentence of its own to print — and the cards
+   *     stay on screen instead of being replaced by the ring;
+   *   - a confirmation that agrees with what is drawn redraws nothing (the same nodes, so the
+   *     player's reading and focus are undisturbed) and only stops claiming it is being confirmed;
+   *   - a confirmation that differs is painted at once, because prices and products are the
+   *     server's and never this page's;
+   *   - a bridge with no snapshot, or one that answers null, waits exactly as this page did before
+   *     the snapshot existed: the ring, then the answer;
+   *   - cached orders paint the orders view at once, and a snapshot with no orders leaves the
+   *     orders view waiting rather than claiming "No orders yet." from a file.
+   */
+  {
+    // The catalogue the service "last sent" at startup, priced differently from the live answers
+    // below so every assertion can tell the snapshot's rows from the service's.
+    const LAST_SENT = PRODUCTS.map((p, i) =>
+      i === 0 ? { ...p, amountMinor: 199 } : { ...p },
+    );
+    const snapshotAt = new Date().toISOString();
+    const held = (snapshot) => ({
+      products: PRODUCTS,
+      orders: [],
+      holdCatalogue: true,
+      holdOrders: true,
+      snapshot,
+    });
+    const prices = (page) => page.locator(".store-price").allInnerTexts();
+    // Every read the page may have in flight is released at once: the catalogue view never asks
+    // for the orders and the orders view never asks a product's price, so whichever read a
+    // scenario started is the one there is to release.
+    const release = (page) =>
+      page.evaluate(() => {
+        window.__store.releaseCatalogue?.();
+        window.__store.releaseOrders?.();
+        window.__store.releaseSnapshot?.();
+      });
+    // The same answer the snapshot holds: a confirmation, not a correction.
+    {
+      // The live answer agrees with the snapshot, so nothing may be redrawn.
+      const { page, errors } = await storePage({
+        config: {
+          ...held({ writtenAt: snapshotAt, products: LAST_SENT, orders: [] }),
+          products: LAST_SENT,
+        },
+      });
+      const store = page.locator(".store-app");
+      await store.locator(".store-product").first().waitFor();
+      assert.deepEqual(
+        await prices(page),
+        ["$1.99", "$6.95", "$29.99", "$5.00"],
+        "the first paint is the catalogue the service last sent, before it has answered again",
+      );
+      assert.equal(
+        await page.evaluate(() => window.__store.answered),
+        0,
+        "and it is on screen with neither read answered: the launcher's snapshot is what painted it",
+      );
+      assert.equal(
+        await store.locator(".store-busy").count(),
+        0,
+        "no busy ring over rows the player is already reading",
+      );
+      assert.equal(
+        await store.locator(".store-content").getAttribute("aria-busy"),
+        "true",
+        "the content region says it is still being confirmed, in the page's own pending signal",
+      );
+      assert.equal(await store.locator(".store-product").count(), 4, "four cards, and only four");
+      await page.evaluate(() => {
+        window.__painted = document.querySelector(".store-product");
+      });
+      // Now the service answers, and it agrees.
+      await release(page);
+      await page.waitForFunction(
+        () => document.querySelector(".store-content").getAttribute("aria-busy") === "false",
+      );
+      assert.equal(
+        await page.evaluate(
+          () => document.querySelector(".store-product") === window.__painted,
+        ),
+        true,
+        "a confirmation that agrees redraws nothing: the cards on screen are the same nodes",
+      );
+      assert.deepEqual(
+        await prices(page),
+        ["$1.99", "$6.95", "$29.99", "$5.00"],
+        "and the prices are still the ones the server sent",
+      );
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    // A different answer: a new price is painted at once, and the pending flag stops.
+    {
+      const { page, errors } = await storePage({
+        config: held({ writtenAt: snapshotAt, products: LAST_SENT, orders: [] }),
+      });
+      const store = page.locator(".store-app");
+      await store.locator(".store-product").first().waitFor();
+      assert.deepEqual(await prices(page), ["$1.99", "$6.95", "$29.99", "$5.00"]);
+      assert.equal(await page.evaluate(() => window.__store.answered), 0);
+      await page.evaluate(() => {
+        window.__painted = document.querySelector(".store-product");
+      });
+      // The service now disagrees: the first pack costs $1.49, not $1.99.
+      await release(page);
+      await page.waitForFunction(
+        () => document.querySelector(".store-price")?.textContent === "$1.49",
+      );
+      assert.equal(
+        await page.evaluate(
+          () => document.querySelector(".store-product") === window.__painted,
+        ),
+        false,
+        "a different answer is painted, not kept: the rows are new nodes",
+      );
+      assert.deepEqual(
+        await prices(page),
+        ["$1.49", "$6.95", "$29.99", "$5.00"],
+        "and every price on screen is now the service's own",
+      );
+      assert.equal(
+        await store.locator(".store-content").getAttribute("aria-busy"),
+        "false",
+        "nothing is being confirmed any more",
+      );
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    // No snapshot at all: exactly today's wait, word for word.
+    {
+      const { page, errors } = await storePage({
+        config: { products: PRODUCTS, orders: [], holdCatalogue: true },
+      });
+      const store = page.locator(".store-app");
+      await store.locator(".store-busy").waitFor();
+      assert.equal(
+        await store.locator(".store-product").count(),
+        0,
+        "with no snapshot the page waits for the service, as it did before this existed",
+      );
+      assert.equal(
+        await store.locator(".store-content").getAttribute("aria-busy"),
+        "true",
+        "and says it is waiting in the same way",
+      );
+      await page.evaluate(() => window.__store.releaseCatalogue());
+      await store.locator(".store-product").first().waitFor();
+      assert.deepEqual(await prices(page), ["$1.49", "$6.95", "$29.99", "$5.00"]);
+      assert.equal(
+        await store.locator(".store-busy").count(),
+        0,
+        "and the ring goes when the answer arrives",
+      );
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    // The orders view from the snapshot: cached rows paint at once, and no cached orders at all
+    // leaves the view waiting rather than claiming "No orders yet.".
+    {
+      const { page, errors } = await storePage({
+        hash: "#orders",
+        config: {
+          products: PRODUCTS,
+          orders: [ORDER],
+          holdCatalogue: true,
+          holdOrders: true,
+          snapshot: { writtenAt: snapshotAt, products: LAST_SENT, orders: [ORDER] },
+        },
+      });
+      const store = page.locator(".store-app");
+      await store.locator(".store-order-record").waitFor();
+      assert.equal(
+        await page.evaluate(() => window.__store.answered),
+        0,
+        "the orders view paints from the snapshot before either read answers",
+      );
+      assert.match(
+        (await store.locator(".store-order-record").innerText()).replace(/\s+/g, " "),
+        /\$6\.95/,
+        "with the row the service last sent",
+      );
+      assert.equal(
+        await store.locator(".store-content").getAttribute("aria-busy"),
+        "true",
+        "while it is being confirmed",
+      );
+      await release(page);
+      await page.waitForFunction(
+        () => document.querySelector(".store-content").getAttribute("aria-busy") === "false",
+      );
+      assert.equal(await store.locator(".store-order-record").count(), 1);
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    {
+      // A snapshot with a catalogue and no orders: the signed-out player's snapshot, and the
+      // answer for anyone whose orders the launcher has never fetched.
+      const { page, errors } = await storePage({
+        hash: "#orders",
+        config: {
+          products: PRODUCTS,
+          orders: [],
+          holdOrders: true,
+          snapshot: { writtenAt: snapshotAt, products: LAST_SENT, orders: null },
+        },
+      });
+      const store = page.locator(".store-app");
+      await store.locator(".store-busy").waitFor();
+      assert.equal(
+        await store.locator(".store-empty").count(),
+        0,
+        "no cached orders is not the same answer as no orders: the view waits for the service",
+      );
+      await page.evaluate(() => window.__store.releaseOrders());
+      await store.getByText(COPY.noOrders).waitFor();
+      assert.deepEqual(errors, []);
+      await page.close();
+    }
+    console.log(
+      'Snapshot passed: a warm catalogue and orders paint with both reads unanswered (no ring, aria-busy="true"), an agreeing confirmation redraws nothing, a different one is painted at once, and a cold page still waits exactly as it did',
     );
   }
   // THE MOTION SETTING. A reader who asked for reduced motion gets a still ring; without that

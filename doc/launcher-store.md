@@ -125,6 +125,7 @@ token and no catalogue.
 
 | Command | Route | Answer |
 | --- | --- | --- |
+| `storeSnapshot()` | none — answered from the launcher's own memory | `{writtenAt, products, orders}` from the startup fetch described below, or `null`; `orders` is `null` unless the snapshot was written for this account |
 | `storeCatalogue()` | `GET /v2/accounts/store/catalogue` | `{products:[{key,name,amountMinor,currency,kind,creditPence}]}`, in the server's order |
 | `storeCheckout(productKey)` | `POST /v2/accounts/checkout` with `{product}` | `{outcome, url, sessionId, product}`; **main** opens `url` in a modal window of its own, waits for the payment to finish there, and answers with `outcome: 'paid' \| 'cancelled' \| 'closed'` |
 | `storeOrders()` | `GET /v2/accounts/store/orders` | `{orders:[{sessionId,product,amountMinor,currency,paid,creditPence,delivered,createdAt}]}` |
@@ -142,8 +143,10 @@ with the store's one sentence and no window opens. The same rule is applied twic
 `desktop/store.cjs` where the answer is shaped, and again in `desktop/main.cjs` where the window is
 made, because a service answer is the far side of a network either way.
 
-None of the three is in `REACHABLE_BEFORE_STARTUP`: they need a signed-in session and are not
-needed to start the launcher.
+None of the three reads is in `REACHABLE_BEFORE_STARTUP`: the two live ones need a signed-in
+session and none of them is needed to start the launcher. `storeSnapshot()` asks nothing of
+anybody — it answers what this process already holds — and it is not in that list either: it is
+only useful to a page that is open, and the store is reached by navigation after the gate.
 
 ### Every failure is a refusal, never a silent empty list
 
@@ -235,6 +238,105 @@ underneath the player) and styled by `.store-modal` in `site/store/store.css`.
 fragment means, and it names no product, no amount and no delivery. The order's row — `Paid`, `In
 the game`, the amount — is printed only from the account service's own answer.
 
+## Opening the store instantly: the snapshot (2026-10-23)
+
+Owen, 2026-10-23: *"The store pages should perhaps even pre-render the store page, and cache client
+side on launcher start-up so opening the store is instant."*
+
+It was not instant. The page mounted, asked this process for the catalogue and (entering `#orders`)
+for the player's orders, and painted when the answers arrived — and against a cold account service
+that round trip is the **18–22 s Aurora resume** behind two reads (`STORE_RETRY_BUDGET_MS`, "How
+long the store waits"). The launcher now asks for both answers **once, early**, and keeps them.
+
+**When.** After the startup gate has settled, and off the critical path of anything the player is
+waiting for: `prefetchStore()` in `desktop/main.cjs` is started with `void` from the gate's own
+settle, from each sign-in that settles, and from the six-hourly account renewal. It never touches
+`startupReady`, `phase`, `progress` or the broadcast state, and nothing awaits it. A store page that
+is opened within seconds of startup may therefore find the launcher's own two reads still in flight;
+that is the cost of it being free everywhere else.
+
+**Where.** `store-snapshot.json` in the launcher's data directory, beside `session-cache.json`, so it
+is the session cache's sibling in shape and in discipline: a schema `version`, a `writtenAt`, a
+`accountId`, and the two frozen wire answers. It is written by the main process, never by the page:
+the renderer holds no token and the file holds none either — `SNAPSHOT_FIELDS` in
+`desktop/store.cjs` is the whole whitelist, and `tests/desktop/store-snapshot.test.cjs` proves that
+no token, refresh token, address, email or Stripe id can reach it.
+
+```
+{ "version": 1,
+  "writtenAt": "2026-10-23T12:00:00.000Z",   // the moment the service sent these answers
+  "accountId": "7",                          // whose orders these are; null = catalogue only
+  "catalogue": { "products": [ … the frozen product shape, in the server's order … ] },
+  "orders":    { "orders":   [ … the frozen order shape, as the service listed them … ] } }
+```
+
+Both blocks are built by the **same two functions** that shape a live answer (`catalogue()` and
+`orders()`), on the way in and on the way out, so a file can never hold a product or an order this
+half would refuse from the service.
+
+**What the page does with it.** `mountStore` asks `storeSnapshot()` first and paints it at once, then
+**confirms** it with the two reads it always made (`hydrate`, `loadCatalogue`, `loadOrders`,
+`settleCatalogue`):
+
+- While a snapshot's rows are on screen and their confirming read is in flight, the content region
+  keeps `aria-busy="true"` — the page's existing way of saying "still being asked" — and **no busy
+  ring is drawn over rows the player can read**. No sentence is invented for the occasion: the
+  store's visible vocabulary is Owen's and this adds nothing to it.
+- An answer that **agrees** with what is already drawn repaints nothing at all: the rows keep their
+  identity, so the player's place, focus and reading are undisturbed.
+- An answer that **differs** is painted the moment it arrives. Prices, products and their order are
+  the service's, not this page's.
+- A confirming read that **fails** paints the one sentence the page always painted ("The store is
+  unavailable right now."). A shop whose answer has just failed is not one this page can stand
+  behind, whatever it kept.
+- A bridge with no `storeSnapshot`, a `null` answer, or a snapshot with no products is **today's
+  cold store**: the ring, then the service's answer.
+
+**It prices nothing.** The Buy press still goes to the service, which resolves the product key
+against its own Stripe configuration and its own price, so a stale snapshot can put an out-of-date
+number on a card and can never change what is charged. An order row is still only ever what the
+orders read answers with: `paid` and `delivered` are the server's booleans (`=== true`), and a
+snapshot with no orders publishes `orders: null` rather than an empty list — the orders view then
+waits for the service instead of printing "No orders yet." from a file.
+
+**The age bound: `SNAPSHOT_MAX_AGE_MS` = 24 hours** (`desktop/store.cjs`, named and argued there).
+The catalogue is upstream of money: every card prints a price a player will compare against a
+charge, so a snapshot older than one Company-session lifetime is **not used at all** — it is
+deleted and the store waits exactly as it did before this existed. One session lifetime is the
+right unit because the launcher's own session lives 24 h and `renewCompany` re-proves it every six
+hours, re-reading the shop at the same moment; past it, a snapshot would describe a shop nobody has
+asked about in a day. The bound is asked twice — when the file is read at startup and again when the
+answer is published, because a launcher left open for a day still holds a copy in memory that the
+file would no longer be read as.
+
+**On sign-out and on account switch the orders go and the catalogue stays.** The catalogue is what
+the server sells, not what any player bought, so it is kept for whoever signs in next; the orders
+are the account's own and are rewritten out of the file — so a second account can never read the
+first account's purchases. Three places do it: `forgetStoreOrders()` from the two sign-out paths,
+the account-change belt in `notify()` (the same place the session cache drops another account's
+answer), and `readStoreSnapshot()`, which rewrites a file it finds written for somebody else. A
+signed-out player's snapshot is a catalogue only, never orders.
+
+**A service that cannot be reached at startup is not an error the player sees**: it is an empty
+snapshot, no sentence, and no change to the hero. The store paints its one sentence when it is
+opened, exactly as it did before.
+
+**What it costs now (measured 2026-10-23, in the launcher's own window, this machine).** Pressing
+Store to the first product card on screen, with the account service's store reads delayed by 2 s to
+stand in for a cold Aurora resume:
+
+| | first card on screen |
+| --- | --- |
+| warm — a snapshot on disk | **48 ms** (median of 5; 44.6–58.2 ms), with the service's own answers still 2 s away |
+| cold — no snapshot, today's store | **2329 ms** (median of 3), i.e. the service's delay plus the page's own mount |
+
+The warm figure is what the snapshot removes: it is a local IPC round trip, so it does not grow with
+the resume behind it. Against the **18–22 s** measured for that resume, a cold open is unchanged
+(twenty seconds of it is the service's own budget, `STORE_RETRY_BUDGET_MS`) and a warm one is about
+a twentieth of a second. `tests/desktop/store-prefetch.electron.mjs` prints the same number on every
+run while it holds the service's answers open — it is evidence, not a bound, because a clock is a
+flaky gate.
+
 ## Player-facing copy
 
 The whole visible vocabulary, exactly as Owen fixed it (ticket 45bb99ad, with the two changes the
@@ -304,9 +406,29 @@ and opens Owen's dialog; the cancel fragment closes it and says nothing; closing
 nothing and leaves the store usable; a navigation to another host is refused before it loads; and
 a Checkout URL on any other host opens nothing at all.
 - `tests/store-browser.mjs` drives the same dialog against the stubbed bridge at 320–1440px:
-`paid` → the dialog with its role, labels, focus and one control → Close → the orders re-read and
-focus back on Buy; Escape and Enter; and `cancelled` → no dialog, no sentence, the store exactly as
-it was.
+`paid` → the dialog with its role, labels, focus and one control → Close → the orders view, where
+the row the service recorded is on screen (one orders read per dismissal); Escape and Enter; and
+`cancelled` → no dialog, no sentence, the store exactly as it was.
+- `npm test` also runs `tests/desktop/store-snapshot.test.cjs` — the snapshot as a file: its
+  whitelist, the two frozen shapes it holds, that no credential, address, email or Stripe id can
+  reach it, that a signed-out snapshot is a catalogue only, that an account's snapshot gives the
+  shop and never the orders to another account, that a file past `SNAPSHOT_MAX_AGE_MS` (and one with
+  an unknown `version`) is discarded with a named reason, and that publishing bounds the age again.
+  No network.
+- `xvfb-run -a node tests/desktop/store-prefetch.electron.mjs` — **the launcher's own half**,
+  through the real main process against a loopback account service that holds its store routes open
+  on promises: a signed-out launch fetches nothing and writes nothing; a sign-in fetches the
+  catalogue and the orders once and writes them beside the session cache (no token in the file); a
+  cold launch with the session restored prefetches at startup **while both reads are still
+  unanswered, with the hero already Play and `startupReady` true**; with the service quoting a
+  different price and holding its answer, pressing Store paints the cached shop with no ring and
+  `aria-busy="true"` and is corrected the instant the live answer arrives; a snapshot past the bound
+  is deleted and leaves today's waiting store; and a snapshot written for another account keeps the
+  catalogue, loses its orders, and is rewritten catalogue-only, as a sign-out does.
+- `tests/store-browser.mjs`'s snapshot block proves the page's half against the stubbed bridge: the
+  rows are on screen with neither read answered, an agreeing confirmation keeps the same DOM nodes,
+  a different answer is painted at once, and a bridge with no snapshot still waits exactly as it
+  did before the snapshot existed.
 
 **What is not proved, and cannot be from here:** no real Stripe payment has been made through this
 window, and no real Checkout Session has been opened from the launcher — the journey drives a

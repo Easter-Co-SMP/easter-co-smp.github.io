@@ -50,12 +50,17 @@ contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  // endpoint, the validation, the cache and the timeout, and the renderer receives only
  // the plain document (doc/launcher-discovery.md).
  homeContent:invoke('home-content'),
- // The Community store. Three commands and no fourth: the catalogue the server sells, one
- // purchase press, and the player's own orders. The renderer sends a product KEY and nothing
- // else - no price, no amount, no URL - main is the only half that talks to the account
- // service, and it opens the Stripe page in a modal window of its own inside the launcher,
- // answering the press with `outcome: 'paid' | 'cancelled' | 'closed'`. Each answers with a
- // refusal sentence when it cannot, which is why the page can print exactly what it is told.
+ // The Community store. Three commands against the account service - the catalogue the server
+ // sells, one purchase press, and the player's own orders - and one that asks nothing of anybody:
+ // `storeSnapshot()`, the answers the launcher fetched once at startup so opening the store paints
+ // at once (doc/launcher-store.md, "Opening the store instantly"). It answers
+ // `{writtenAt, products, orders}` or null, never fetches, and its orders are this account's own
+ // or absent. The renderer sends a product KEY and nothing else - no price, no amount, no URL -
+ // main is the only half that talks to the account service, and it opens the Stripe page in a
+ // modal window of its own inside the launcher, answering the press with
+ // `outcome: 'paid' | 'cancelled' | 'closed'`. Each answers with a refusal sentence when it
+ // cannot, which is why the page can print exactly what it is told.
+ storeSnapshot:invoke('store-snapshot'),
  storeCatalogue:invoke('store-catalogue'),storeCheckout:invoke('store-checkout'),storeOrders:invoke('store-orders'),
  chooseJava:invoke('choose-java'),openFolder:invoke('open-folder'),openMicrosoft:invoke('open-microsoft'),
  // Download-first flow. The location handlers take no renderer path: the picker
