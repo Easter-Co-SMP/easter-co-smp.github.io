@@ -67,9 +67,9 @@ try{
  await chooser.locator('.company-submit').click();
  await chooser.locator('.company-wait').waitFor({state:'visible'});
  assert.equal(await chooser.locator('.company-error').isVisible(),false,'a retry clears the failure it is retrying');
- await page.evaluate(()=>{finishSlow({ok:true});sendState({account:{id:'fixture-account',name:'Fixture',username:'fixture',passwordRequired:false},canPlay:true,companyReady:true,phase:'starting-game',game:{state:'starting',ready:false,waking:true,message:'Starting your server… the first player in a session waits about a minute.',tone:'starting'}});});
- await chooser.waitFor({state:'hidden'});await page.evaluate(()=>sendState({game:{state:'starting',ready:false,waking:true,message:'Starting your server… the first player in a session waits about a minute.',tone:'starting'}}));
- await page.clock.fastForward(11000);for(let i=0;i<10;i++)await page.evaluate(()=>sendState({game:{state:'starting',ready:false,waking:true,message:'Starting your server… the first player in a session waits about a minute.',tone:'starting'}}));
+ await page.evaluate(()=>{finishSlow({ok:true});sendState({account:{id:'fixture-account',name:'Fixture',username:'fixture',passwordRequired:false},canPlay:true,companyReady:true,phase:'starting-game',game:{state:'starting',ready:false,waking:true,message:'Starting the server… the server is booting up, this might take a minute.',tone:'starting'}});});
+ await chooser.waitFor({state:'hidden'});await page.evaluate(()=>sendState({game:{state:'starting',ready:false,waking:true,message:'Starting the server… the server is booting up, this might take a minute.',tone:'starting'}}));
+ await page.clock.fastForward(11000);for(let i=0;i<10;i++)await page.evaluate(()=>sendState({game:{state:'starting',ready:false,waking:true,message:'Starting the server… the server is booting up, this might take a minute.',tone:'starting'}}));
  // The cold start owns one line: the wait feedback carries its sentence and the reassurance,
  // so the server's own LED row stands down rather than saying the same thing twice.
  assert.match(await page.locator('.desktop-activity').innerText(),/Still working/);assert.equal(await page.locator('.desktop-game-status').isVisible(),false);

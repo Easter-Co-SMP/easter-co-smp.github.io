@@ -228,7 +228,7 @@ re-check and the client verification instead of being paid after them. Then:
    `ready`**, and it exists so that an unreachable status service can never leave the
    family unable to play at all.
 5. **Still not joinable after 180 seconds.** The press fails honestly with
-   `Your server did not become joinable within three minutes. Press Play to try it again.` No
+   `The server did not become joinable within three minutes. Press Play to try it again.` No
    launch happens, no wake is sent a second time, and Play is the retry. A status
    service that answers `invalid_session` fails the press with the account's own
    sentence instead, because there the account really is the news.
@@ -366,9 +366,13 @@ nothing for the higher ceiling.
   waking sentence, the service's `detail` and the long-wait reassurance for the length of
   the wake, and the LED row stands down for that time. The `phase: 'starting-game'` hero
   action is the surface that says the wait is under way.
-- **The hero action** says `Starting your server…` with the note `The first player in a
-  session waits about a minute` while `phase` is `starting-game`, and offers no second
-  Play. It is disabled for that time, as it is during `launching`.
+- **The hero action** says `Starting the server…` with the note `Minecraft opens when
+  the server is ready` while `phase` is `starting-game`, and offers no second Play. It is
+  disabled for that time, as it is during `launching`. Separately, the cold start's own
+  wait line reads `Starting the server… the server is booting up, this might take a
+  minute.` (`desktop/game.cjs`, `MESSAGES.waking`; Owen reworded it on 2026-10-23): the
+  label and the wait line are two different strings on two different surfaces, which is
+  how "your server" survived in the second one after the first was fixed in 1.0.43.
 - **The sticky bar** carries the same `game.message` while `game.waking`, so the news
   follows the player to the map and the wiki.
 - **A wake timeout is an ordinary operation failure**: it settles through `error`, so it

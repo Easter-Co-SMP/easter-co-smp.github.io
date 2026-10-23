@@ -45,11 +45,11 @@ const MESSAGES={
  // Said while this launcher is waking it and polling, which is the first player's
  // cold start: about 60-90 seconds, and the reason Play is not offered twice. These two
  // belong to the cold start's own wait line; the status row stands down for them.
- waking:'Starting your server… the first player in a session waits about a minute.',
- wakingStopping:'Your server is finishing its last session. It starts as soon as that is done.',
+ waking:'Starting the server… the server is booting up, this might take a minute.',
+ wakingStopping:'The server is finishing its last session. It starts as soon as that is done.',
  // The failures. They leave this module as a GameWaitError and reach the player
  // through the page notice, with Play as the retry.
- timeout:'Your server did not become joinable within three minutes. Press Play to try it again.',
+ timeout:'The server did not become joinable within three minutes. Press Play to try it again.',
  session:'Your Easter Company session expired. Sign in again.',
  target:'The game server address could not be confirmed. Try again shortly.',
  unavailable:'The game server status could not be checked. Try Play again shortly.'
