@@ -175,6 +175,36 @@
   running:'<rect x="3" y="5" width="18" height="12" rx="2"/><path d="M9 20.5h6"/>'
  };
 
+ // ---- The last known answer, while the launcher confirms it -------------------
+ // Owen, at first launch: "When I first open the launcher I see 'Checking your minecraft
+ // session...' but I think we should do client side caching for this - until the check passes,
+ // we assume based on the cache" (ticket 19e51885). Main keeps the last answer it knew beside
+ // its settings and, while this run has not been answered yet, publishes it as
+ // `sessionCached: true` with the word it held in `minecraftSession.state` and the moment it
+ // was written in `minecraftSession.cachedAt`. The hero then draws that word's action and says
+ // in one sentence what it is: what the launcher last knew, and that it is confirming it. It is
+ // a way of not showing the wait for a mint that has a three-minute budget; it is never a way
+ // of being allowed to play, because `canPlay` is main's and this flag changes nothing about
+ // it — a press still mints a real session and still goes through the same gate.
+ const CACHED_AGE_MINUTE=60000;
+ function cachedAge(cachedAt,now=Date.now()){
+  const at=Date.parse(cachedAt||'');
+  // A moment the launcher cannot read is not guessed at: the sentence says what it knows.
+  if(!Number.isFinite(at))return '';
+  const minutes=Math.max(0,Math.floor((now-Math.min(at,now))/CACHED_AGE_MINUTE));
+  if(minutes<1)return 'just now';
+  if(minutes<60)return minutes+(minutes===1?' minute ago':' minutes ago');
+  const hours=Math.floor(minutes/60);
+  return hours+(hours===1?' hour ago':' hours ago');
+ }
+ // The note under a cached action: Owen's product copy, brought to him word for word in the
+ // submission for this ticket. It is the only new sentence this feature adds, it is never a
+ // claim about what is true now, and it is gone the moment the real answer lands.
+ const cachedNote=cachedAt=>'Last checked '+(cachedAge(cachedAt)||'earlier')+' · confirming now';
+ // The action each cached word implies. `checking` has no entry on purpose: main never writes
+ // it, and a word with no entry falls through to the live rule rather than inventing a screen.
+ const CACHED_KIND={local:'play',server:'play',required:'connect-microsoft',reauth:'connect-microsoft',unlinked:'link-microsoft',busy:'retry-minecraft',unknown:'retry-minecraft'};
+
  // The hero's primary action and the sticky bar both read this one function,
  // so no second view can invent its own version of the gate.
  function primaryAction(state){
@@ -199,6 +229,19 @@
   const session=minecraftSessionOf(state);
   const sessionState=session?.state;
   const minecraftName=typeof state?.account?.minecraftName==='string'?state.account.minecraftName.trim():'';
+  // The launcher has not been answered in this run, so the hero draws the last answer it knew and
+  // says beside it that it is confirming it. The word's own branch below is what decides the label
+  // and the glyph: this hands it back the state with the cache switched off, the cached word as the
+  // session word, and — for the two words that mean "this account can play" — the Play that answer
+  // implied. Nothing is published from here, and the state's own `canPlay` is main's answer and is
+  // not touched. A word whose branch disagrees falls through to the live rule, so a cache can never
+  // invent a screen.
+  if(state?.sessionCached===true&&CACHED_KIND[sessionState]){
+   const kind=CACHED_KIND[sessionState];
+   const confirmed=primaryAction({...state,sessionCached:false,canPlay:kind==='play'?true:state.canPlay,
+    minecraftSession:{state:sessionState,serverHeld:false,checkedAt:sessionState==='required'||sessionState==='unlinked'?null:session?.checkedAt||session?.cachedAt||null}});
+   if(confirmed.kind===kind)return {...confirmed,note:cachedNote(session?.cachedAt)};
+  }
   if(sessionState==='unlinked')return {kind:'link-microsoft',label:'Link Microsoft',note:'Attach the Microsoft account that owns Minecraft'};
   if(sessionState==='checking')return {kind:'busy',label:'Checking your Minecraft session…',note:'Asking your Easter Company account'};
   // `required` and `reauth` are the same thing to the player: this account has a linked Microsoft
@@ -845,7 +888,9 @@
     icon.innerHTML=HERO_GLYPHS[action.kind]||'';
    }
    heroButton.querySelector('span').firstChild.textContent=action.label;
-   heroButton.querySelector('small').textContent=action.kind==='play'?joinParts([action.note,current.profile?.name]):action.note;
+   // A cached action's note is the whole sentence and never has the player's name appended: the
+   // account's own Java profile is not there yet, and the note is about the answer, not the name.
+   heroButton.querySelector('small').textContent=action.kind==='play'&&current.sessionCached!==true?joinParts([action.note,current.profile?.name]):action.note;
   }
   if(gameStatus.parentNode&&!heroWaitNode.parentNode)gameStatus.after(heroWaitNode);
   const waking=gameOf(current)?.waking===true;

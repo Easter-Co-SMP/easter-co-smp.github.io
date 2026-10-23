@@ -12,6 +12,10 @@ const vault=require('./vault.cjs');
 const {providerSignIn}=require('./providers.cjs');
 const {hydratePicture}=require('./profile.cjs');
 const identity=require('./identity.cjs');
+// The last known session answer, kept in its own file beside the settings so a restart can
+// say what this launcher last knew before the account service answers. Presentation only: it
+// is read where the state is published and nowhere a launch is decided (below).
+const sessionAnswer=require('./session-cache.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,migrateLaunchPreferences,launchBehaviour,includeGraphicsValue}=require('./security.cjs');
 const {APP_USER_MODEL_ID,ICON_FILE,wantsAutoStart,autoStartDecision,shortcutSupport,readGameShortcuts,applyGameShortcuts}=require('./shortcuts.cjs');
 const install=require('./install.cjs');
@@ -271,6 +275,10 @@ function installInfo(){
 }
 function notify(patch={}){
  if(company&&company.expiresAt<=Date.now())company=null;
+ // A cache that is not this account's answer is this account's to discard, not to show. Signing
+ // out, switching account and an identity conflict all arrive here, because every one of them is
+ // a broadcast, and the comparison is the one the mint makes for its own session.
+ if(cachedAnswer&&!cacheIsThisAccount())forgetSessionCache();
  // A failure is announced once, by the broadcast that settles the operation that failed,
  // and every later broadcast drops it again. Anything else leaves a stale sentence in the
  // state for any unrelated update to repaint — which is how a long-finished failure kept
@@ -283,14 +291,16 @@ function notify(patch={}){
  // signing in to a different account"), switch-account is gone from the preload and the IPC
  // surface, and the one signed-in account is already `account`, so a list here could only
  // repeat state.account to a UI that has nothing to do with a second entry.
- state={...state,...patch,profile:launchProfile(),account:publicAccount(company),minecraftSession:minecraftStateField(),sessionExpiresAt:company?.expiresAt||null};
+ state={...state,...patch,profile:launchProfile(),account:publicAccount(company),minecraftSession:publishedMinecraftSession(),sessionExpiresAt:company?.expiresAt||null};
  const install=installInfo(),actions=remainingActions();
  const paused=Boolean(control&&control.paused&&!control.cancelled);
- state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftSession:minecraftStateField(),minecraftAccess:sessionSource()==='server'?'owned':identity.access(session),microsoftAccount:identity.publicIdentity(session),minecraftHead:headState(),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),game:gameState(),settings,shortcuts:shortcutState,launcherUpdate}};
+ state={...state,...{phase:paused?'paused':(phase||(install.installed?'ready':'uninstalled')),progress,paused,install,actions,accessChecking,accountWorking,companyReady:companyReady(),microsoftConnected:microsoftConnected(),minecraftSession:publishedMinecraftSession(),sessionCached:sessionCacheShowing(),minecraftAccess:sessionSource()==='server'?'owned':identity.access(session),microsoftAccount:identity.publicIdentity(session),minecraftHead:headState(),canPlay:canPlayNow(),startupReady,bar:{visible:install.installed||installStarted},hardware:hardwareState(),graphics:graphicsState(),game:gameState(),settings,shortcuts:shortcutState,launcherUpdate}};
  if(window&&!window.isDestroyed())window.webContents.send('launcher:state',state);
  // A head this session has to ask Mojang for is asked for after the broadcast, never before
  // it: the state the player sees is never held open for a face (doc/launcher-states.md).
  ensureMinecraftHead();
+ // The last known answer is written from an answer only, after the broadcast that published it.
+ rememberSession();
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
 // sign-in action through `actions`, and the phase returns to the resting value.
@@ -452,6 +462,9 @@ async function forgetCompany(){
  // here rather than left to land on the next account's hero (mintMinecraftSession, "an answer
  // that is already out of date").
  mintedSession=null;mintedFor=null;minecraft={state:'unknown',serverHeld:false,checkedAt:null};minecraftProbe=null;cancelMints();
+ // The last known answer belonged to the account that has just gone, so it goes with it — from
+ // memory and from the disk, because nothing may be left for whoever signs in next.
+ forgetSessionCache();
  // The account is gone as of the two lines above, so this broadcast is owed now, before the two
  // calls below. `accounts.logout` is a write to the account service - bounded only by its own
  // eight-second timeout (accounts.cjs) and measured at 544 ms against the launcher fixture - and
@@ -471,6 +484,7 @@ async function forgetCompany(){
 // cancelMints: the caller may be the mint that just met the refusal.
 async function forgetRefusedCompany(){
  company=null;mintedSession=null;mintedFor=null;minecraft={state:'unknown',serverHeld:false,checkedAt:null};
+ forgetSessionCache();
  await vault.remove(companyFile());notify({});
 }
 async function accountOperation(action){
@@ -570,6 +584,93 @@ function minecraftSessionState(){
 function minecraftStateField(){
  const state=minecraftSessionState();
  return state===null?null:{state,serverHeld:Boolean(minecraft.serverHeld),checkedAt:minecraft.checkedAt||null};
+}
+// ---- The last known answer, while the launcher confirms it -------------------
+// doc/launcher-states.md, "The last known answer, shown while it is confirmed". The file's own
+// shape, whitelist and bound live in desktop/session-cache.cjs, and `tests/desktop/
+// session-cache.test.cjs` proves that no secret-shaped value can reach it.
+//
+// THE CACHE NEVER AUTHORISES ANYTHING, and this comment is the place that says so: nothing
+// below is read by canPlayNow(), sessionSource(), sessionAccessOk(), launchProfile() or
+// launchSession(). The mint still runs at startup exactly as before, Play still goes through
+// the same gate in this file, and a press still mints (or refreshes) a real session — so a
+// cached `local` that has since become `reauth` can only change what the hero says, the moment
+// the truth lands, and there is no window in which a launch happens on a cached fact. The one
+// thing published from it is the session word the hero draws, the moment it was written, and
+// the flag `sessionCached` that says the answer is not confirmed yet.
+const sessionCacheFile=()=>path.join(configRoot(),'session-cache.json');
+let cachedAnswer=null,cacheShowing=false,cacheKey=null,cacheWriting=Promise.resolve();
+// The file describes one account's answer: this launcher's, or nobody's. `belongs` is the
+// same comparison `mintMinecraftSession` makes for a minted session — the account, and the
+// Minecraft identity the service is the authority on.
+function cacheIsThisAccount(){
+ return Boolean(cachedAnswer&&company&&sessionAnswer.belongs(cachedAnswer,company.account));
+}
+// The one place the cached answer stands in for a live one: exactly where the hero would
+// otherwise print "Checking your Minecraft session…" (site/desktop.js, both branches) — the
+// launcher is asking, or nothing has been asked yet. Any real answer, including a question
+// nobody could answer, is the truth and is published as itself.
+function sessionCacheShowing(){
+ if(!cacheShowing||!cachedAnswer)return false;
+ if(!cacheIsThisAccount())return false;
+ return minecraft.state==='checking'||(minecraft.state==='unknown'&&!minecraft.checkedAt);
+}
+// The session field the views read: the live answer, or the last known one with the moment it
+// was written beside it. The flag and `cachedAt` are the whole difference, so no view infers
+// anything from a state word.
+function publishedMinecraftSession(){
+ const live=minecraftStateField();
+ if(live===null||!sessionCacheShowing())return live;
+ return sessionAnswer.published(cachedAnswer);
+}
+// Whatever the mint the launcher starts at startup answers — a session, a refusal, no route at
+// all — the cached answer has been confirmed or contradicted, so it stops standing in for one.
+// This is the answer's own moment, not a timer: it clears in the turn the promise settles,
+// which is why a `route_absent` answer (an answer that leaves the unasked word behind) cannot
+// leave a stale claim on the hero.
+function disarmSessionCache(){
+ if(!cacheShowing)return;
+ cacheShowing=false;notify({});
+}
+async function readSessionCache(){
+ const account=company?.account;
+ // No account, no answer to show. A file left behind describes an account this launcher no
+ // longer holds, so it is removed rather than kept for whoever signs in next.
+ if(!account){cachedAnswer=null;cacheShowing=false;try{await fs.rm(sessionCacheFile(),{force:true});}catch{}return null;}
+ let raw;
+ try{raw=await fs.readFile(sessionCacheFile(),'utf8');}
+ catch{return null;} // no cache at all is today's cold start, word for word
+ const {cache}=sessionAnswer.parse(raw,{liveAccount:account});
+ if(!cache){
+  // A corrupt, unknown-version, stale or another-account file is deleted and ignored: never a
+  // crash, never a blocked startup, and never a second chance for the same bad file.
+  cachedAnswer=null;cacheShowing=false;
+  try{await fs.rm(sessionCacheFile(),{force:true});}catch{}
+  return null;
+ }
+ cachedAnswer=cache;cacheShowing=true;
+ return cache;
+}
+// The file is written only from an answer, and only when the answer changes: `build` refuses a
+// `checking` word and the unasked one, so a restart can never read a guess back as an answer,
+// and a transfer's hundredth broadcast costs one string comparison.
+function rememberSession(){
+ const account=company?.account;
+ if(!account)return;
+ const field=minecraftStateField();
+ const record=sessionAnswer.build({writtenAt:new Date().toISOString(),account,minecraftSession:field,minecraftAccess:sessionSource()==='server'?'owned':identity.access(session),install:installInfo()});
+ if(!record)return;
+ const key=JSON.stringify(record.account)+JSON.stringify(record.minecraftSession)+JSON.stringify(record.minecraftAccess)+JSON.stringify(record.install);
+ if(key===cacheKey)return;
+ cacheKey=key;
+ cacheWriting=cacheWriting.catch(()=>{}).then(()=>atomicJSON(sessionCacheFile(),record)).catch(()=>{});
+}
+// Signing out, an account switch and an identity conflict all end the answer it described.
+// Fire and forget on purpose: every caller of this is already inside a broadcast or a refusal,
+// and no player waits on a file being removed.
+function forgetSessionCache(){
+ cachedAnswer=null;cacheShowing=false;cacheKey=null;
+ void fs.rm(sessionCacheFile(),{force:true}).catch(()=>{});
 }
 // The two spellings of a Minecraft profile id: 32 hex characters, which is what the game is
 // launched with, and the dashed form the account record holds. One helper each way, so the
@@ -703,6 +804,9 @@ function probeMinecraftSession(){
  if(sessionOfAccount()&&identity.access(session)!=='owned')return null;
  if(minecraftProbe)return minecraftProbe;
  const run=mintMinecraftSession({announce:true});
+ // Whatever this answers settles the cached answer too: it has been confirmed or contradicted,
+ // and either way it may not go on standing in for a live one (disarmSessionCache).
+ run.then(disarmSessionCache,disarmSessionCache);
  minecraftProbe=run.finally(()=>{minecraftProbe=null;});
  minecraftProbe.catch(()=>{});
  return minecraftProbe;
@@ -751,7 +855,12 @@ async function enrolAccount({announce=true,throwOnError=false,candidate=session,
   // in to. The sentence is the account service's own, from the one table that words these
   // refusals (accounts.cjs MESSAGES), so the player reads the same copy whichever side
   // noticed the conflict — here, or in the service's own answer further up.
-  if(expected&&signed.account.id!==expected)throw new AccountError('identity_conflict',ACCOUNT_MESSAGES.identity_conflict);
+  if(expected&&signed.account.id!==expected){
+   // The Microsoft identity on screen is not this account's, so the last known answer is not a
+   // fact about whoever is signed in: it is discarded with the refusal (ticket 19e51885).
+   forgetSessionCache();
+   throw new AccountError('identity_conflict',ACCOUNT_MESSAGES.identity_conflict);
+  }
   const next=companySession(signed),previous=company;
   session={...candidate,companyId:next.account.id,companyName:next.account.displayName||next.account.minecraftName||'Company member',companyUsername:next.account.username||null};
   company=next;
@@ -1224,7 +1333,7 @@ function registerIPC(){
   // Settings asks this whenever it opens, and the answer carries the two shortcut
   // entries as they are on this computer right now rather than as last saved.
   await refreshShortcuts();
-  return {...state,shortcuts:shortcutState,profile:launchProfile(),account:publicAccount(company),minecraftSession:minecraftStateField(),minecraftHead:headState(),sessionExpiresAt:company?.expiresAt||null,settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
+  return {...state,shortcuts:shortcutState,profile:launchProfile(),account:publicAccount(company),minecraftSession:publishedMinecraftSession(),sessionCached:sessionCacheShowing(),minecraftHead:headState(),sessionExpiresAt:company?.expiresAt||null,settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
  });
  handle('sign-in',async(options={})=>{
   if(controller||accountWorking)throw Error('Account sign-in is already running.');
@@ -1247,7 +1356,12 @@ function registerIPC(){
   try{
    const signed=await providerSignIn(accounts,provider,{token:link?company?.token:undefined,signal:abort.signal,openExternal:url=>shell.openExternal(url),onWait:update});
    const next=companySession(signed);
-   if(link&&company&&next.account.id!==company.account.id)throw new AccountError('identity_conflict',ACCOUNT_MESSAGES.identity_conflict);
+   if(link&&company&&next.account.id!==company.account.id){
+    // A linked provider that names another account is an identity conflict, and the answer the
+    // cache holds is about the account that is still signed in: it goes (ticket 19e51885).
+    forgetSessionCache();
+    throw new AccountError('identity_conflict',ACCOUNT_MESSAGES.identity_conflict);
+   }
    const previous=company;company=next;
    if(!previous||previous.account.id!==next.account.id)cancelMints();
    session=savedAccounts.find(entry=>entry.companyId===next.account.id&&entry.companySubject===next.account.microsoftSubject)||null;
@@ -1702,6 +1816,12 @@ if(instance){
   // a restart paints the face immediately, and any read that has to ask Mojang happens after
   // it (doc/launcher-states.md, "A password sign-in still knows the account is linked").
   await readCachedHead();
+  // The last known Minecraft-session answer, read from its own file beside the vaults and
+  // before the first broadcast, so a restart paints the answer it had instead of
+  // "Checking your Minecraft session…" (doc/launcher-states.md, "The last known answer,
+  // shown while it is confirmed"). It says nothing about whether a launch is allowed: this
+  // call cannot change `canPlay`, and the mint below still runs exactly as it always did.
+  await readSessionCache();
   await refreshClient();
   // Before the window exists, so the first launch a player sees is already configured
   // and no view can observe a half-seeded tree. A no-op for a tree that has already

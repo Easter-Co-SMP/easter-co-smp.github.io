@@ -128,6 +128,7 @@ meaning. These are added or extended:
 | `bar` | object | `{visible}`: progress/action dock availability. The renderer omits an idle dock on Home because Home already provides the action; utility pages retain it. The minimised preference stays renderer-local. |
 | `settings` | object | The saved settings, exactly as `status()` already returned them, so the Settings dialog refreshes from a broadcast as well as from a read. It carries no server address: the launcher's target is a constant, not a setting (*The one server the launcher targets*). |
 | `game` | object | The game server's own state, always present in desktop mode: `{state, ready, endpoint, since, players, detail, message, tone, waking, checkedAt}`. It is a different service from the account and shares no field with it; see *The game server, which may be asleep*. |
+| `sessionCached` | boolean | True only while the hero is drawing the **last known** Minecraft-session answer instead of a live one, because this run has not been answered yet. It is published so no view has to infer it, it goes false the moment an answer lands, and it never changes `canPlay` or anything a launch is decided by — see *The last known answer, shown while it is confirmed*. |
 | `error` | string \| null | Safe operation failure text, announced in the one broadcast that carries it and dropped from the next, so no later unrelated broadcast can repaint an old failure; a new account action clears it as it starts. A sign-in failure names its step (see *Sign-in steps, sentences and the redacted log*). **It has exactly one home, and the UI decides it, not the state:** while the sign-in dialog is on screen the failure belongs to that dialog's own error area and to nothing else; otherwise it belongs to the page notice, with its dismiss control — but **not while any modal dialog is open**, because a notice under a modal is a message the player can neither read nor dismiss. For that time the sentence is held with no surface at all, and the last modal to close gives it back once. The Settings dialog is never an error surface. The renderer owns the sentence once delivered — it keeps it without re-reading this field, and only a dismissal or a new action (sign-in, Play, download, save settings) takes it away. A failure already given a home is never shown again by a later broadcast, a re-open or a close. Cancellation is not an error. Older states without this field still render. |
 
 `canPlay` is the single source of truth for the Play action. No view may compute
@@ -461,6 +462,7 @@ confused with one another:
 | `minecraftSession.state` | string | One of `local`, `server`, `checking`, `reauth`, `busy`, `required`, `unlinked`. What decides the hero's action, and never a claim about a service the launcher has not asked. |
 | `minecraftSession.serverHeld` | boolean | True once the account service has answered a mint for this account in this launcher session, so the launcher knows the service holds a session, and false after a revoke says the service no longer holds one. **It stays published, and it stays because it is read for more than the control that went with it on 2026-10-23:** the same flag on a vault entry is what lets `desktop/main.cjs`'s `restorableSession` restore a handed-over session whose refresh token is deliberately gone, and it is what tells the launcher whether it has seen a session the revoke could end (`window.easterDesktop.signOutMinecraft()` still reaches that revoke path exactly as before). What changed is only the surface: **no dialog offers *Sign out of Minecraft everywhere* any more**, so nothing is shown or hidden from this field. It is kept because the capability and its contract still exist and because Owen wants the control available to come back; a build that drew a control from it would be drawing a surface he removed. |
 | `minecraftSession.checkedAt` | string \| null | ISO-8601 local time of the last mint attempt, or null when none has been made in this session. |
+| `minecraftSession.cachedAt` | string \| present only while `sessionCached` is true. The ISO-8601 moment the last known answer was written (the cache file's own `writtenAt`), which is the age the note under the action names. Absent from every settled state, so the settled `minecraftSession` is character for character the field it was before this existed. |
 
 The seven words, each of which the launcher only says when it knows it:
 
@@ -702,6 +704,155 @@ asks no second time. That journey is the one that fails on the pre-fix code: it 
 Not verified here, and not verifiable from this repository alone: the real routes on the live
 service, a real Microsoft sign-in, a real second machine, and a real launch of the real client on
 either platform.
+
+## The last known answer, shown while it is confirmed (2026-10-23)
+
+Owen, at first launch: *"When I first open the launcher I see 'Checking your minecraft
+session...' but I think we should do client side caching for this - until the check passes, we
+assume based on the cache."*
+
+He was reading a true sentence for up to three minutes. The startup mint is bounded by
+`MINT_RETRY_BUDGET_MS` = 180 s (*The budgets*, below), so on a cold account service the hero
+could say **Checking your Minecraft session…** for the whole of it — and on the second launch of
+the same machine the launcher already knew the answer it was asking for. This is a cache of that
+answer, and of nothing else.
+
+**What it is.** One small file beside the settings and the vaults,
+`<userData>/session-cache.json`, written atomically through the same `atomicJSON` the settings
+file uses (temporary file, `mode 0600`, rename) and versioned:
+
+```json
+{
+  "version": 1,
+  "writtenAt": "2026-10-23T09:12:04.001Z",
+  "account": {
+    "id": "EC-7",
+    "displayName": "Captain Fixture",
+    "username": "captainfixture",
+    "minecraftName": "FixtureCaptain",
+    "minecraftUuid": "12345678-90ab-cdef-1234-567890abcdef",
+    "providers": ["microsoft"],
+    "microsoftLinked": true
+  },
+  "minecraftSession": { "state": "server", "serverHeld": true, "checkedAt": "2026-10-23T09:12:03.500Z" },
+  "minecraftAccess": "owned",
+  "install": { "installed": true, "version": "fixture-fabric", "updatedAt": "2026-10-19T00:00:00.000Z" }
+}
+```
+
+`desktop/session-cache.cjs` owns that shape, and **the whitelist is four named lists in it** —
+`FIELDS`, `ACCOUNT_FIELDS`, `SESSION_FIELDS`, `INSTALL_FIELDS` — which `build()` reads off its
+argument and no others, validating each one. There is no general serializer on this path, so a
+token, a refresh token, an XSTS token, a session key, a server address, a SteamID64, a Microsoft
+subject, a provider's own details or a picture has no field to travel in: `build()` given a whole
+account document and a whole session — every credential the launcher can hold — produces a record
+whose keys are exactly those four lists and whose text contains none of those values. The unit
+test proves that with the real values in hand, not with a comment.
+
+**What it is not.** A cache is a picture of a hero and a header, and it authorises nothing. It is
+never read by `canPlayNow()`, `sessionSource()`, `sessionAccessOk()`, `launchProfile()` or
+`launchSession()`; the startup mint still runs exactly as it did, a Play press still mints or
+refreshes a real session, and `canPlay` is still `canPlayNow()` and nothing else. So a cached
+`local` that has since become `reauth` can only change the hero's words, at the moment the truth
+lands, and there is no window in which a launch happens on a cached fact. A Play drawn from the
+cache is a Play whose press does the real work: it asks the account service and either launches
+with a session it really minted or settles the sentence the service gave.
+
+**The words, and the note beside them.** While `sessionCached` is true the hero draws the action
+its cached word implies, using the same branch that draws the live one, and the note under it is
+this sentence — the one piece of copy this feature adds, agreed with Owen:
+
+> Last checked 2 hours ago · confirming now
+
+The age is the distance from the cache's own `writtenAt`, and it is one of `just now`,
+`N minute(s) ago` or `N hour(s) ago` — never days, because the bound below is a day. It is never
+a claim about what is true now, it carries no spinner and adds no busy copy, and it disappears
+with the flag when the answer lands: the settled note is the note it always was, character for
+character.
+
+| cached word | hero | note |
+|---|---|---|
+| `local`, `server` | **PLAY NOW** | `Last checked N ago · confirming now` |
+| `required`, `reauth` | **Reconnect Microsoft** | the same sentence |
+| `unlinked` | **Link Microsoft** | the same sentence |
+| `busy`, `unknown` | **Try again** | the same sentence |
+
+`checking` is not in that table because it is never written: a wait is not an answer. A word with
+no entry — or one whose live branch disagrees with the cached kind — falls through to the live
+rule, so a cache can never invent a screen.
+
+**The bound, and why it is a day.** `MAX_AGE_MS` = 24 hours
+(`desktop/session-cache.cjs`), and a file written longer ago than that is ignored and deleted.
+
+- Every fact in the file is about a Minecraft session, and the launcher's own access token lives
+  `mc.expires_in||86400` seconds (`desktop/auth.cjs`, the one place that decides a token's life).
+  Past one token lifetime, the session the file describes cannot still be live without the
+  launcher having been asked again.
+- The launcher re-proves the Company account it belongs to every six hours while it runs (the
+  `renewal` interval in `desktop/main.cjs`), so a same-day cache describes an account state this
+  launcher re-checked within its own renewal cadence.
+- It keeps the note's grammar bounded to minutes and hours, and it is the difference Owen asked
+  for: a player who restarted the launcher a minute ago reads **Last checked just now**, and a
+  player who has not opened it for a fortnight gets today's **Checking your Minecraft session…**
+  screen with no cached claim at all.
+
+**When it is discarded, and by what.** Four rules, each of them one comparison in the code and
+each of them tested:
+
+- **It is not this account's answer.** The cached `account.id` must be this launcher's own
+  account, and the Minecraft uuid and name must agree with it when both are present — the same
+  comparison `mintMinecraftSession` makes for a session it minted. A mismatch is discarded
+  (`another-account`) and the file is deleted.
+- **Signing out, and its relatives.** `forgetCompany` and `forgetRefusedCompany` delete it, and
+  every broadcast also discards a cache that is not the live account's answer — which covers an
+  account switch, a provider sign-in that replaces the account, and a refused Company session
+  without a fifth place to remember.
+- **An identity conflict.** A Microsoft identity that is not the signed-in account's discards it
+  on both paths that can notice (`enrolAccount`, and the provider link), because the answer on
+  disk is a fact about the account that is still signed in and the refusal is about a different
+  one.
+- **A corrupt, unreadable, unknown-version or stale file is deleted and ignored** — never a crash,
+  never a blocked startup, and never a second chance for the same bad file. A file that is not
+  there at all is the ordinary first run, and the screen is exactly today's.
+
+**What clears the note.** The cached answer stands in only where the hero would otherwise print
+**Checking your Minecraft session…** — the two branches in `site/desktop.js`, `checking` and the
+unasked `unknown` — and it stops standing in as soon as the mint the launcher started at startup
+settles, whatever it answered. That is the answer's own moment and not a timer, which is why an
+answer that leaves the unasked word behind (`route_absent`, a launcher ahead of the cloud) cannot
+leave a stale claim on the hero.
+
+### What is proven
+
+`tests/desktop/session-cache.test.cjs` proves the file itself: the four whitelists are the whole
+record and every key in it comes from one of them; a whole account document and a whole session —
+refresh token, access token, XSTS token, session key, password, server address, SteamID64,
+Microsoft subject, provider details — produce a text that contains none of those values and no key
+that is not whitelisted; the file is written from an answer only (`checking` and the unasked word
+are refused, so a guess can never be read back as an answer); every refusal reason
+(`absent`, `unreadable`, `version`, `stale`, `incomplete`, `another-account`) is produced by the
+damage it names, including the bound at one millisecond either side and a moment in the future;
+and none of `canPlayNow`, `sessionSource`, `sessionAccessOk`, `launchProfile` or `launchSession`
+mentions the cache at all.
+
+`tests/desktop/session-cache.electron.mjs` proves it through the real main process against a real
+loopback account service: a first launch signs in, and the file on disk is read back and asserted
+key by key — the four lists and nothing else, no token, refresh token, session key, server address
+or SteamID64 in the text; a second launch of the same install **holds the mint open on a promise**
+and renders the cached **PLAY NOW** with the note while `canPlay` is still false (the moment the
+hero draws is the file's own `writtenAt`, so the answer provably came from the file and not from a
+service that has not answered), then releases a contradicting `reauth_required` and renders
+**Reconnect Microsoft** the moment it lands, with the flag cleared, `cachedAt` gone and the settled
+`minecraftSession` field exactly the one it publishes today; a file whose `writtenAt` is two hours
+old reads **Last checked 2 hours ago · confirming now**; a file older than the bound, a file full
+of rubbish and a file written for another account each leave today's **Checking your Minecraft
+session…** screen, are deleted, and crash nothing; and signing out deletes it. (There is no
+account-switch control to test: signing in while signed in is refused until the player signs out,
+so a switch is a sign-out and a sign-in, and it is the sign-out that discards the file.)
+
+`tests/identity-browser.mjs` proves the view's half: each cached word's action and label, the note
+sentence at a fixed moment, the flag going false and the note disappearing into today's wording,
+and `sessionCached` undefined (an older main process) rendering exactly as before.
 
 ## A cold account service, and what the hero says while it wakes (2026-10-19)
 

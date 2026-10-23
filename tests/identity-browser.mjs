@@ -318,6 +318,7 @@ try{
  assert.equal(new Set(shapes.map(hero=>hero.icon)).size,shapes.length,'and its own glyph, so no two actions share an icon');
  note('probing, unreadable, dead-company, reconnect and unlinked are five different screens: their own words, their own actions, their own glyphs, and no pause anywhere');
 
+
  // Both kinds run the Microsoft link sign-in, because reconnecting a session and linking one
  // are the same flow: one attaches the account that is already known, the other attaches a new
  // one. Nothing here opens a Microsoft prompt on its own, and neither enables Play.
@@ -332,6 +333,52 @@ try{
  assert.equal(await page.evaluate(()=>window.__fixture.calls.filter(call=>call.name==='signIn').length),2,'the reconnect action runs the same sign-in, once');
  for(const dialog of await page.locator('dialog[open]').all())await dialog.evaluate(node=>node.close());
  note('both hero actions run the same Microsoft sign-in with the link intent');
+ // --- The last known answer, while the launcher confirms it -------------------
+ // Owen's first-launch complaint (ticket 19e51885): "Checking your Minecraft session…" for a mint
+ // that may take three minutes. Main publishes the answer it last knew with `sessionCached: true`
+ // and the moment it was written in `minecraftSession.cachedAt`, and the hero draws that word's
+ // action with one sentence under it. The sentence is the whole of this feature's copy, and it is
+ // gone the moment the real answer lands — which is what the second half of each pair below shows.
+ const CACHED_AT=new Date(Date.now()-2*60*60*1000).toISOString();
+ const cachedHero=async(patch,action)=>{
+  const hero=await heroFor({account:PASSWORD_ACCOUNT,profile:null,minecraftHead:null,microsoftConnected:false,companyReady:true,canPlay:false,actions:[],minecraftAccess:'owned',install:INSTALLED,minecraftSession:null,sessionCached:true,...patch},action);
+  assert(!hero.icon.includes(paused),'a cached action wears no pause glyph ('+action+'): '+hero.icon);
+  return hero;
+ };
+ const cachedPlay=await cachedHero({minecraftSession:{state:'server',serverHeld:true,checkedAt:CACHED_AT,cachedAt:CACHED_AT}},'play');
+ assert.deepEqual(cachedPlay,{action:'play',text:'PLAY NOW Last checked 2 hours ago · confirming now',icon:cachedPlay.icon},'a cached answer the launcher last knew draws Play and says how old the answer is and that it is being confirmed: '+cachedPlay.text);
+ // The account's own Java profile is not there yet on a cold start, and the note must never grow
+ // a name it does not have: the sentence is the whole note.
+ const cachedPlayNamed=await cachedHero({profile:{name:'OwenTheCaptain',id:'1234567890abcdef1234567890abcdef',skin:null},minecraftSession:{state:'server',serverHeld:true,checkedAt:CACHED_AT,cachedAt:CACHED_AT}},'play');
+ assert.equal(cachedPlayNamed.text,'PLAY NOW Last checked 2 hours ago · confirming now','a cached Play note is the sentence alone, with no profile name appended: '+cachedPlayNamed.text);
+ const cachedLocal=await cachedHero({minecraftSession:{state:'local',serverHeld:false,checkedAt:null,cachedAt:CACHED_AT}},'play');
+ assert.equal(cachedLocal.text,cachedPlay.text,'a cached local session draws the same Play and the same sentence');
+ const cachedReauth=await cachedHero({actions:['connect-microsoft'],minecraftSession:{state:'reauth',serverHeld:false,checkedAt:CACHED_AT,cachedAt:CACHED_AT}},'connect-microsoft');
+ assert.deepEqual({action:cachedReauth.action,text:cachedReauth.text},{action:'connect-microsoft',text:'Reconnect Microsoft Last checked 2 hours ago · confirming now'},'a cached answer that needs the reconnect draws Reconnect Microsoft and says it is last known: '+cachedReauth.text);
+ assert(!/Sign in with Microsoft/i.test(cachedReauth.text),'and is still never told to sign in with Microsoft: '+cachedReauth.text);
+ const cachedUnlinked=await cachedHero({account:{...PASSWORD_ACCOUNT,microsoftLinked:false,minecraftName:null},actions:['link-microsoft'],minecraftSession:{state:'unlinked',serverHeld:false,checkedAt:null,cachedAt:CACHED_AT}},'link-microsoft');
+ assert.equal(cachedUnlinked.text,'Link Microsoft Last checked 2 hours ago · confirming now','a cached unlinked account draws Link Microsoft and the same sentence');
+ const cachedBusy=await cachedHero({actions:['connect-microsoft'],minecraftSession:{state:'busy',serverHeld:false,checkedAt:CACHED_AT,cachedAt:CACHED_AT}},'retry-minecraft');
+ assert.equal(cachedBusy.text,'Try again Last checked 2 hours ago · confirming now','a cached busy answer draws the retry, never a Microsoft prompt');
+ assert(!/Microsoft/i.test(cachedBusy.text),'and names no provider: '+cachedBusy.text);
+ // The age is the cache's own moment, in the launcher's quiet voice, and it never counts days:
+ // the bound it can never exceed is 24 hours (doc/launcher-states.md).
+ const fresh=await cachedHero({minecraftSession:{state:'server',serverHeld:true,checkedAt:new Date().toISOString(),cachedAt:new Date().toISOString()}},'play');
+ assert.equal(fresh.text,'PLAY NOW Last checked just now · confirming now','an answer a moment old reads just now: '+fresh.text);
+ const older=await cachedHero({minecraftSession:{state:'server',serverHeld:true,checkedAt:CACHED_AT,cachedAt:new Date(Date.now()-11*60*60*1000).toISOString()}},'play');
+ assert.equal(older.text,'PLAY NOW Last checked 11 hours ago · confirming now','and a morning-old one counts hours: '+older.text);
+ // The answer lands and contradicts the cache: today's screen, word for word, with no note left.
+ const corrected=await heroFor({account:PASSWORD_ACCOUNT,profile:null,minecraftHead:null,microsoftConnected:false,companyReady:true,canPlay:false,actions:['connect-microsoft'],minecraftAccess:'owned',install:INSTALLED,sessionCached:false,minecraftSession:{state:'reauth',serverHeld:false,checkedAt:'2026-10-22T07:48:00Z'}},'connect-microsoft');
+ assert.deepEqual({action:corrected.action,text:corrected.text,icon:corrected.icon},{action:reconnect.action,text:reconnect.text,icon:reconnect.icon},'the settled state is character for character the screen it was before this feature: '+corrected.text);
+ assert(!/confirming|Last checked/.test(corrected.text),'and no part of the note survives the answer: '+corrected.text);
+ // A build that does not publish the flag renders exactly as it did, and a cache that somehow
+ // claims the wait falls through to today's wait rather than inventing a screen.
+ const unflagged=await heroFor({account:PASSWORD_ACCOUNT,profile:null,minecraftHead:null,microsoftConnected:false,companyReady:true,canPlay:false,actions:['connect-microsoft'],minecraftAccess:'owned',install:INSTALLED,sessionCached:undefined,minecraftSession:{state:'checking',serverHeld:false,checkedAt:null}},'busy');
+ assert.equal(unflagged.text,'Checking your Minecraft session… Asking your Easter Company account','an older main process, or a cache that claims the wait, renders the waiting screen exactly as it is today: '+unflagged.text);
+ const cachedChecking=await cachedHero({actions:['connect-microsoft'],minecraftSession:{state:'checking',serverHeld:false,checkedAt:null,cachedAt:CACHED_AT}},'busy');
+ assert.equal(cachedChecking.text,unflagged.text,'a cache word of checking is never a screen of its own');
+ await page.screenshot({path:`${images}/hero-cached-1440.png`,animations:'disabled',clip:await page.locator('.hero-copy').boundingBox()});
+ note('a cached answer draws its own action — Play, Reconnect Microsoft, Link Microsoft or Try again — with the last-checked sentence under it, the age taken from the moment the file was written, and the note leaves with the flag so the settled screen is character for character the one it was before');
 
  // The recorded visual pass: the header with a skin and without, at 1440 and 390.
  for(const [width,height] of [[1440,900],[390,568]]){
