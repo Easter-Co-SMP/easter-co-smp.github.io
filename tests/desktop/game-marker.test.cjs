@@ -80,3 +80,18 @@ test('a record is only made for a process that can be identified',async()=>{
   await assert.rejects(fs.access(marker.markerFile(root)),'and nothing is written for it');
  });
 });
+
+test('a platform this launcher is not published for gets no identity at all',async()=>{
+ // AGENTS.md (2026-10-23): Linux and Windows are the supported platforms, macOS deliberately is
+ // not. So the answer elsewhere is null — fail closed — which means no marker, no adoption, and
+ // therefore exactly the launcher behaviour that existed before this file: an unsupported
+ // platform never gets a probe nobody here can test, and never a guess about what is playing.
+ const asked=[];
+ const exec=(command,...rest)=>{asked.push([command,...rest]);return Promise.reject(Error('must not run'));};
+ for(const platform of ['darwin','freebsd','aix']){
+  assert.equal(await marker.startMark(process.pid,{platform,exec}),null,platform+' is asked nothing');
+  const written=await marker.remember(await fs.mkdtemp(path.join(os.tmpdir(),'game-marker-'+platform+'-')),process.pid,{platform,exec});
+  assert.equal(written,null,'and no marker is written on '+platform);
+ }
+ assert.deepEqual(asked,[],'no probe is spawned for a platform we do not ship');
+});

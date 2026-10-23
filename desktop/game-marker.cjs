@@ -41,14 +41,17 @@ function linuxStart(stat){
 }
 // The start marker of a live process, or null when there is no such process (or the platform
 // cannot be asked). Injected reads and an injected exec keep this testable without a spawn.
+//
+// Linux and Windows only, because those are the platforms this launcher is published for
+// (AGENTS.md, 2026-10-23: "Supported platforms are Linux and Windows. macOS is deliberately not
+// supported"). Anywhere else the answer is null, which is the safe one: no marker means no
+// adoption, so an unsupported platform behaves exactly as the launcher did before this file
+// existed rather than carrying a probe nobody here can test.
 async function startMark(pid,{platform=process.platform,readFile=fs.promises.readFile,exec=execFile,timeoutMs=PROBE_TIMEOUT_MS}={}){
  const id=Number(pid);
  if(!Number.isSafeInteger(id)||id<=0)return null;
  if(platform==='linux'){
   try{return linuxStart(await readFile('/proc/'+id+'/stat','utf8'));}catch{return null;}
- }
- if(platform==='darwin'){
-  try{const out=await run(exec,'ps',['-o','lstart=','-p',String(id)],timeoutMs);const value=String(out||'').trim();return value||null;}catch{return null;}
  }
  if(platform==='win32'){
   // PowerShell rather than wmic: wmic is deprecated and absent from some Windows 11 images,

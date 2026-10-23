@@ -27,6 +27,15 @@ global.easterPollAsked=[];
 global.easterPollLines=[];
 global.easterPollOptions=null;
 global.easterPollHeld=[];
+// The tag that means "you are current", and the answer a *held* question gives when it is let go.
+// A hold is the same question still outstanding, not a different answer: it is released into
+// whatever the mode says at that moment, so a journey that holds a check while it presses Play
+// and then releases it with the mode back on `current` gets "current" — an answer that stages a
+// release because the harness always said 9.9.9 would make the hold a hidden stage, and the
+// assertions that follow a hold would then be racing the apply step (measured 2026-10-23: it
+// passed twice and failed on the third run before this was fixed).
+const CURRENT_TAG='https://github.com/Easter-Co-SMP/easter-co-smp.github.io/releases/tag/launcher-v'+require('../../package.json').version;
+const answer=()=>global.easterPollMode==='newer'?TAG:CURRENT_TAG;
 const poll=async()=>{
  global.easterPollProbes+=1;
  global.easterPollConcurrent+=1;
@@ -36,11 +45,11 @@ const poll=async()=>{
    case 'offline':throw Object.assign(Error('getaddrinfo ENOTFOUND github.com'),{code:'ENOTFOUND'});
    case 'hold':return await new Promise((resolve,reject)=>{
     global.easterPollHeld.push(resolve);
-    global.easterPollRelease=()=>resolve({status:302,location:TAG});
-    setTimeout(()=>resolve({status:302,location:TAG}),20000).unref();
+    global.easterPollRelease=()=>resolve({status:302,location:answer()});
+    setTimeout(()=>resolve({status:302,location:answer()}),20000).unref();
    });
    case 'newer':return {status:302,location:TAG};
-   default:return {status:302,location:'https://github.com/Easter-Co-SMP/easter-co-smp.github.io/releases/tag/launcher-v'+require('../../package.json').version};
+   default:return {status:302,location:CURRENT_TAG};
   }
  }finally{global.easterPollConcurrent-=1;}
 };

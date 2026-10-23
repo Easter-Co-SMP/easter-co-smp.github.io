@@ -112,10 +112,12 @@ effect: they are the reason a relaunch no longer takes the game down or orphans 
 **The game's identity is written down before anything can restart.** `desktop/game-marker.cjs`
 records `{pid, start, startedAt}` in `<data>/running-game.json` the moment the client is
 spawned, where `start` is the process's own start time as the operating system reports it —
-field 22 of `/proc/<pid>/stat` on Linux, `ps -o lstart=` on macOS, the process creation time
-through PowerShell on Windows. A pid alone is not an identity: pids are reused, and "pid 4711
-exists" is true of an unrelated browser an hour later. The marker matches only when the process
-at that pid started at exactly the recorded moment.
+field 22 of `/proc/<pid>/stat` on Linux, the process creation time through PowerShell on Windows.
+A pid alone is not an identity: pids are reused, and "pid 4711 exists" is true of an unrelated
+browser an hour later. The marker matches only when the process at that pid started at exactly
+the recorded moment. Linux and Windows only, because those are the platforms we publish for
+(`AGENTS.md`): anywhere else there is no marker and therefore no adoption, so an unsupported
+platform behaves exactly as the launcher did before this existed.
 
 **A restarted launcher reads it back.** `adoptRunningGame()` runs in `whenReady` before the
 first broadcast, so the first frame a returning player sees says Minecraft is running instead
@@ -124,7 +126,7 @@ child handle on this side of the relaunch, so it watches liveness instead, on a 
 
 | Bound | Value | Why |
 |---|---|---|
-| `ADOPTED_WATCH_MS` | 2 s on Linux, 5 s elsewhere | one `/proc` read is microseconds, and the marker is the only thing that can end a game state; on macOS and Windows the same question costs a spawned probe, so it is asked less often |
+| `ADOPTED_WATCH_MS` | 2 s on Linux, 5 s on Windows | one `/proc` read is microseconds, and the marker is the only thing that can end a game state; on Windows the same question costs a spawned probe, so it is asked less often |
 | `game-marker.PROBE_TIMEOUT_MS` | 4 s | a process question slower than that is answered "unknown", which `adopt` treats as "not the game": coming back to a launcher that guesses wrong is worse than coming back to the ordinary state |
 
 The watch timer is unref'd, and it stops the moment the process is gone. When it goes, the marker
