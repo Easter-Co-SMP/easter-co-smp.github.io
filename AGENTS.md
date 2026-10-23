@@ -122,6 +122,14 @@ render. tests/test_legal_pages.py guards that and the footers; 404.html needs ro
 hrefs because Pages serves it for any missing path. doc/legal-pages.md records why the documents say
 what they say and the retention promises Easter LTD has to keep.
 
+The legal pages are living documents, not a launch artefact: when a design change removes, renames
+or adds something a legal page describes — a control, a stored value, a route — correct that page in
+the same commit and bump its "Last updated" date (Owen, 2026-10-23: "adjust the legal stuff to suit
+our every changing design as we go"). Player-facing prose states what is true today, one fact per
+sentence, with no release dates and no engineering history in it; that belongs in doc/. The final
+read-through that locks the documents by the end of November 2026 is a dated item in
+doc/legal-pages.md, not a promise to remember.
+
 The website's one hand-written data document is site/home.json: the latest dispatch and a
 curated store highlight for the launcher's home cards (`doc/launcher-discovery.md` holds the
 schema, the bounds and the commerce boundary). Nothing in it may invent a post, a price, a

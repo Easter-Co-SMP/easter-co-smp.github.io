@@ -85,6 +85,27 @@ These are promises in a published policy. Easter LTD has to be able to keep them
 3. Run the gate: `scripts/validate.py site`, the unittest suite, `npm test`,
    `node tests/legal-browser.mjs`, and `xvfb-run -a node tests/desktop/legal.electron.mjs`.
 
+## Where this stands: living until locked in (2026-10-23)
+
+Owen's instruction, verbatim: *"Please adjust the legal stuff to suit our every changing design
+as we go. We don't need to take it too seriously right now, just as long as we're wrapped up and
+locked-in by next month."*
+
+So, until that lock-in:
+
+- **The documents track the shipped design, not a launch snapshot.** A change that removes,
+  renames or adds something a page describes — a control, a stored value, a route — corrects
+  that page in the same commit and bumps its `Last updated` date. No ticket of its own, no
+  design review, no ceremony, and no announcement: the announcement above is for changes that
+  materially affect what is collected or how it is used, not for keeping the pages true.
+- **Player-facing prose states what is true today**, one fact per sentence. No release dates, no
+  "as of …" archaeology, no recounting which button used to exist — that belongs in `doc/`.
+- **Locked-in means a deliberate final pass by 2026-11-30**, and this paragraph is the item that
+  tracks it: read both documents against the shipped launcher and site and correct every claim;
+  every control named must exist, or be described as something you ask us for; the
+  `Effective`/`Last updated` dates current; the Google OAuth consent-screen fields still matching
+  what the site publishes; then Owen reads them once and they stop moving.
+
 ## Limits
 
 This is written to be accurate, specific and defensible, and it is deliberately grounded
