@@ -31,7 +31,7 @@ const PRODUCTS = [
 // ever reworded, this stops rather than blessing the new wording.
 const COPY = {
   buy: "Buy",
-  opening: "Opening Stripe\u2026",
+  opening: "Pending\u2026",
   finish:
     "Finish the payment in the Stripe window. Your Sterling arrives the next time you join.",
   successful: "Payment Successful",

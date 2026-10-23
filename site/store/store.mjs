@@ -51,7 +51,7 @@ import { productArt } from "./art.mjs";
 const COPY = {
   buy: "Buy",
   // While the Stripe window is being opened.
-  opening: "Opening Stripe\u2026",
+  opening: "Pending\u2026",
   // After a payment window the player closed by hand. The word changed with the flow (Owen,
   // 2026-10-23): the payment finishes in the launcher's own window, not in a browser.
   finish:
@@ -292,8 +292,10 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     return article;
   }
   /*
-   * The one buying control. A press asks main for a Stripe page and nothing else: while that
-   * is happening this says so, and afterwards openedNote() says where the payment finishes. It
+   * The one buying control. A press asks main for a Stripe page and nothing else: while that is
+   * happening the row says Pending... and nothing more (Owen, 2026-10-23: the old "Opening
+   * Stripe..." described plumbing, and what a player wants to know is that their press is in
+   * flight), and afterwards openedNote() says where the payment finishes. It
    * never says a payment was received, because main did not see one — the next orders read is
    * what reports what really happened.
    */

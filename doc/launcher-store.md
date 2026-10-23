@@ -341,7 +341,7 @@ flaky gate.
 
 The whole visible vocabulary, exactly as Owen fixed it (ticket 45bb99ad, with the two changes the
 payment window forced on 2026-10-23): the buy button
-**Buy**; while the Stripe window opens **Opening Stripe…**; after a window the player closed by
+**Buy**; while the press is in flight **Pending…**; after a window the player closed by
 hand **Finish the payment in the Stripe window. Your Sterling arrives the next time you join.**
 (it said "in your browser" until the payment moved inside the launcher); a payment the launcher
 saw finish **Payment Successful** and **Your order is recorded.**, with one control **Close**;
@@ -383,7 +383,7 @@ is answered by the player pressing **Buy** again.
   an empty shop. No network.
 - `EASTER_PUBLIC_ORIGIN=http://127.0.0.1:18100 PLAYWRIGHT_MODULE=… node tests/store-browser.mjs`
   — the real page against a stubbed bridge at 1440, 1100, 800, 390 and 320: four products and
-  their USD prices, the Buy press recording the key, "Opening Stripe…" then the sentence after it,
+  their USD prices, the Buy press recording the key, "Pending…" then the sentence after it,
   the orders view empty/pending/paid/delivered, the unavailable and signed-out states, a bridge
   with no store commands, a stale `#cart` link landing on `#catalogue`, and the launcher-only rule.
   It also measures Sol's pass rather than trusting it: one column of rows, a circular 94px medallion
