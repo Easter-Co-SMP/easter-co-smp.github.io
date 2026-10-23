@@ -62,8 +62,11 @@ through three commands on `window.easterDesktop` (`storeCatalogue`, `storeChecko
 the server's, and site/ holds no catalogue of its own. Buying is one product at a time from its
 own card: no cart, no quantity, no basket total. Its views are hash routes (#catalogue,
 #item/<key>, #orders); a stale link to a removed route lands on #catalogue. The
-`storeCatalogue`/`storeOrders` routes are not deployed yet, so the store refuses honestly
-("The store is unavailable right now.") rather than showing an empty shop. Player-facing copy is
+`storeCatalogue`/`storeOrders` routes are deployed (cloud main 5d33e4c, accounts stack
+UPDATE_COMPLETE 2026-10-23); the fulfilment half - the Stripe webhook that records an order and
+the host-token claim the game server makes - is deployed too, but its signing secret does not
+exist yet, so a paid event is held at 503 until Owen registers the endpoint. Purchases credit the
+player's BANK, never the wallet. Player-facing copy is
 Owen's, frozen, and the page prints no other sentence; doc/launcher-store.md is the record.
 
 Role headings are Navy Conscript, Pirate Raider, and Bounty Hunter.
