@@ -17,11 +17,23 @@
  * not on screen.
  *
  * MONEY, PRODUCTS AND ORDERS COME FROM THE ACCOUNT SERVICE, through the launcher's own bridge
- * (window.easterDesktop.storeCatalogue / storeCheckout / storeOrders). This module prices
- * nothing, totals nothing and fetches nothing: it has no server address, no credentials and no
- * catalogue of its own, and the dollar amounts it prints are the integers the server sent. A
- * build whose bridge does not carry those three commands gets the unavailable line and no
- * buying control at all, rather than a button that does nothing.
+ * (window.easterDesktop.storeSnapshot / storeCatalogue / storeCheckout / storeOrders). This module
+ * prices nothing, totals nothing and fetches nothing: it has no server address, no credentials and
+ * no catalogue of its own, and the dollar amounts it prints are the integers the server sent. A
+ * build whose bridge does not carry those commands gets the unavailable line and no buying control
+ * at all, rather than a button that does nothing.
+ *
+ * AN EMPTY PAGE IS NOT THE FIRST THING ON SCREEN ANY MORE. The launcher asks the account service
+ * for the catalogue and the player's orders once, at startup, and keeps the answers beside its
+ * session cache (desktop/main.cjs, `prefetchStore`); `storeSnapshot()` hands them over with no
+ * network call, so opening the store paints the shop at once instead of paying a cold account
+ * service's resume behind two reads. The snapshot is then CONFIRMED by the same two reads this
+ * page always made, and that confirmation is what decides whether anything is redrawn
+ * (`settleCatalogue`, `loadOrders`). While it is in flight the content region keeps
+ * `aria-busy="true"` — this page's existing way of saying "still being asked" — so no sentence is
+ * invented and a cached number is never presented as a live one. The prices on a card are always
+ * the ones the service sent, and the Buy press always goes to the service, which prices the
+ * purchase itself.
  *
  * The sentences below are Owen's, fixed in writing, and this page prints no others: every
  * failure is one of the two refusals main chose, never a wording of this page's own.
@@ -115,6 +127,9 @@ const refusal = (error) =>
     ? COPY.signedOut
     : COPY.unavailable;
 const STORE_COMMANDS = ["storeCatalogue", "storeCheckout", "storeOrders"];
+// Two shapes of rows are the same rows: the frozen wire shape, so a confirmation that agrees with
+// the snapshot can be recognised without a second reading of it.
+const sameRows = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 /*
  * Mounts the store into `root` and returns the handle the page (and tests) drive it with.
  * `bridge` defaults to the isolated preload's object; a test passes its own stand-in.
@@ -152,6 +167,19 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     message = null,
     catalogueLoading = false,
     ordersLoading = false,
+    // The rows on screen that came from the launcher's startup snapshot and have not been confirmed
+    // yet. They are what makes the page paint without waiting, and they are the flag this page
+    // treats as "still being asked" — the content region keeps `aria-busy` while either is true,
+    // and the busy ring is never drawn over rows the player is already reading.
+    snapshotProducts = false,
+    snapshotOrders = false,
+    // True only while the mount is asking the launcher for its snapshot (a local IPC round trip):
+    // the page draws nothing for that instant rather than a busy ring it may be about to replace
+    // with the shop, and paints the ring the moment it knows no snapshot is coming.
+    hydrating = false,
+    // Whether the route change being applied arrives with the orders already read — see
+    // dismissPaymentSuccessful and applyRoute.
+    ordersReadForEntry = false,
     pressing = null,
     opened = null,
     // The launcher's "Payment Successful" dialog: the element while it is open. Nothing else is
@@ -183,13 +211,22 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
   function paint() {
     paintFeedback();
     paintNav();
+    // A view whose rows came from the snapshot is still being confirmed: the content stays exactly
+    // as it is, `aria-busy` says it is not final yet, and no ring is drawn over readable rows. With
+    // nothing to show the page says nothing and draws the ring, as it always did.
+    const fromSnapshot = view === "orders" ? snapshotOrders : snapshotProducts;
     const busy = view === "orders" ? ordersLoading : catalogueLoading;
-    content.setAttribute("aria-busy", String(busy || Boolean(pressing)));
+    content.setAttribute(
+      "aria-busy",
+      String(busy || Boolean(pressing) || fromSnapshot),
+    );
     content.replaceChildren();
-    if (busy) {
+    if (busy && !fromSnapshot) {
       // No words while a read is in flight: this page has no sentence of its own to print,
-      // and the spinner says "still working" without claiming anything.
-      content.append(el("span", "store-busy"));
+      // and the spinner says "still working" without claiming anything. While the snapshot is
+      // being read there is nothing to draw yet and nothing yet to claim, so the region is left
+      // empty for that instant rather than flashing a ring.
+      if (!hydrating) content.append(el("span", "store-busy"));
       return;
     }
     if (view === "orders") ordersView();
@@ -216,6 +253,10 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
    * agreeing without adding a history entry the player did not ask for.
    */
   function applyRoute({ focus = true } = {}) {
+    // One route change can carry a read the caller has already made (see dismissPaymentSuccessful):
+    // it is consumed here, so the next entry into the orders view reads for itself again.
+    const entryRead = ordersReadForEntry;
+    ordersReadForEntry = false;
     const asked = route();
     let next = asked.view;
     if (next === "detail") {
@@ -230,7 +271,11 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
       window.scrollTo(0, 0);
       content.focus({ preventScroll: true });
     }
-    if (view === "orders") void loadOrders();
+    // Entering the orders view starts its read, unless the entry that is being applied has already
+    // made it: the payment dialog's dismissal reads the orders itself (so the row the player just
+    // paid for is on screen rather than a stale list) and then changes the hash, and without this
+    // the same entry asked the service twice for one dismissal.
+    if (view === "orders" && !entryRead) void loadOrders();
   }
   /*
    * One row of Sol's list: the coin medallion, the name (which is the link to the product's own
@@ -333,7 +378,15 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     document.removeEventListener("keydown", paymentKey, true);
     modal.remove();
     modal = null;
-    if (location.hash !== "#orders") location.hash = "#orders";
+    // The read is this dismissal's own, made before the view is painted, so the row the service
+    // has just recorded is what the player lands on. The route change it triggers must not make a
+    // second one: `ordersReadForEntry` tells applyRoute that this entry has already read, and it
+    // is cleared by that very route change. The hash that is already the orders route changes
+    // nothing and fires nothing, so there is no entry to tell and no flag to leave behind.
+    if (location.hash !== "#orders") {
+      ordersReadForEntry = true;
+      location.hash = "#orders";
+    }
     void loadOrders({ repaint: true });
   }
   function catalogueView() {
@@ -424,12 +477,84 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     paint();
     if (!message && outcome === "paid") openPaymentSuccessful();
   }
+  /*
+   * THE STORE, ALREADY IN HAND. The launcher fetched the catalogue and the orders once, at startup,
+   * and `storeSnapshot()` hands them over with no network call at all — so this paints the shop
+   * before anything has been asked of the account service, which is the whole point of the
+   * snapshot (a cold service pays an 18-22 s resume behind two reads). Everything it paints is
+   * marked `snapshotProducts` / `snapshotOrders`, and the two reads below are what confirm it.
+   *
+   * It is read ONCE per mount, and only when there is nothing on screen. A bridge from a build
+   * without the command, a null answer, an unreadable one or one with no products is today's cold
+   * store: the page waits for the live answer exactly as it did before this existed.
+   */
+  async function readSnapshot() {
+    if (typeof store.storeSnapshot !== "function") return null;
+    let answer = null;
+    try {
+      answer = await store.storeSnapshot();
+    } catch {
+      return null;
+    }
+    const list = answer && answer.products;
+    if (!Array.isArray(list) || !list.length) return null;
+    return {
+      products: list,
+      orders: Array.isArray(answer.orders) ? answer.orders : null,
+    };
+  }
+  /*
+   * The first paint, then the confirmation.
+   *
+   * The live read is started FIRST and the snapshot is asked for at the same moment, so the page
+   * never waits on the snapshot to begin talking to the service - and the two reads cannot take
+   * turns clearing this page's one refusal sentence, which is what they did at mount before the
+   * snapshot existed. Whichever answers first is what the player sees; a snapshot that arrives
+   * after the live answer has already settled is simply not used, because a live answer is newer
+   * than a file by definition.
+   */
+  async function hydrate() {
+    hydrating = true;
+    const live = loadCatalogue();
+    const snapshot = await readSnapshot();
+    applySnapshot(snapshot);
+    hydrating = false;
+    // Nothing came from a snapshot: draw what this page always drew - the busy ring, or the answer
+    // itself if the live read has already landed.
+    if (!snapshotProducts && !snapshotOrders) paint();
+    void live;
+  }
+  /*
+   * The snapshot, painted only where it is still the freshest thing there is: a half whose live
+   * read is still in flight and whose rows are not on screen yet. The snapshot can name the product
+   * in the address where an empty page could not, so the #item/<key> route is applied again with
+   * the catalogue in hand (a key it does not have still lands on #catalogue, by applyRoute's own
+   * rule).
+   */
+  function applySnapshot(snapshot) {
+    if (!snapshot || !catalogueLoading || products.length) return;
+    const list = snapshot.products;
+    if (!Array.isArray(list) || !list.length) return;
+    products = list;
+    snapshotProducts = true;
+    // The orders view was entered by the read its route started at mount; its rows are taken from
+    // the snapshot only while that read is still asking.
+    if (ordersLoading && Array.isArray(snapshot.orders) && snapshot.orders.length) {
+      orders = snapshot.orders;
+      snapshotOrders = true;
+    }
+    if (view === "detail") applyRoute({ focus: false });
+    else paint();
+  }
   async function loadCatalogue() {
     if (!store) return;
     const token = ++catalogueRead;
     catalogueLoading = true;
     message = null;
-    paint();
+    // The busy ring is what paint() draws when there is nothing to show; rows from the snapshot
+    // stay on screen while this read confirms them.
+    if (!snapshotProducts) paint();
+    let answered = null;
     try {
       const answer = await store.storeCatalogue();
       if (token !== catalogueRead) return;
@@ -438,18 +563,36 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
       // door, so an answer with nothing for sale is reported as the store being unavailable -
       // the same sentence as any other failure, and no catalogue of this page's own.
       if (!Array.isArray(list) || !list.length) throw Error("no products");
-      products = list;
+      answered = list;
     } catch (error) {
       if (token === catalogueRead) message = refusal(error);
     } finally {
       if (token === catalogueRead) {
         catalogueLoading = false;
-        paint();
-        // The catalogue is what says whether the item in the address exists.
-        if (view === "detail" && products.length && !product(selected))
-          applyRoute({ focus: false });
+        settleCatalogue(answered);
       }
     }
+  }
+  /*
+   * The catalogue read has settled, and it may have been a CONFIRMATION of the snapshot. A refusal
+   * is painted even over rows that came from the cache: a shop whose answer has just failed is not
+   * one this page can stand behind, whatever it kept, and the sentence it prints is the same one it
+   * printed before there was a snapshot. An answer that agrees with the rows already on screen
+   * redraws nothing — the player's place, focus and reading stay exactly as they were — and only
+   * `aria-busy` stops claiming the shop is being confirmed. A different answer is painted at once:
+   * prices, products and their order are the service's, not this page's.
+   */
+  function settleCatalogue(answered) {
+    const before = products;
+    const fromSnapshot = snapshotProducts;
+    snapshotProducts = false;
+    if (answered) products = answered;
+    const same = fromSnapshot && answered && !message && sameRows(before, answered);
+    if (same) content.setAttribute("aria-busy", String(Boolean(pressing)));
+    else paint();
+    // The catalogue is what says whether the item in the address exists.
+    if (view === "detail" && products.length && !product(selected))
+      applyRoute({ focus: false });
   }
   /*
    * `repaint: false` is the payment dialog's own read (dismissPaymentSuccessful). It keeps the
@@ -461,26 +604,40 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
   async function loadOrders({ repaint = true } = {}) {
     if (!store) return;
     const token = ++ordersRead;
+    const before = orders;
     if (repaint) {
       ordersLoading = true;
       message = null;
-      paint();
+      if (!snapshotOrders) paint();
     }
+    let answered = null;
     try {
       const answer = await store.storeOrders();
       if (token !== ordersRead) return;
       if (!answer || !Array.isArray(answer.orders)) throw Error("unreadable orders");
-      orders = answer.orders;
+      answered = answer.orders;
     } catch (error) {
       if (token !== ordersRead) return;
-      if (repaint) {
-        orders = [];
-        message = refusal(error);
-      }
+      if (repaint) message = refusal(error);
     } finally {
-      if (token === ordersRead && repaint) {
-        ordersLoading = false;
-        paint();
+      if (token === ordersRead) {
+        const fromSnapshot = snapshotOrders;
+        snapshotOrders = false;
+        if (answered) orders = answered;
+        else if (repaint && message) orders = [];
+        if (repaint) {
+          ordersLoading = false;
+          // The same rule as the catalogue's: an answer that agrees with the rows already on
+          // screen redraws nothing and only stops claiming it is being confirmed.
+          if (
+            fromSnapshot &&
+            answered &&
+            !message &&
+            sameRows(before, answered)
+          )
+            content.setAttribute("aria-busy", String(Boolean(pressing)));
+          else paint();
+        }
       }
     }
   }
@@ -494,7 +651,9 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     return { root, reload: async () => {} };
   }
   applyRoute({ focus: false });
-  void loadCatalogue();
+  // The snapshot first (if this launcher kept one), then the confirmation of it. `reload` is the
+  // live read and nothing else: a page asked to reload must go to the service, not to a file.
+  void hydrate();
   return { root, reload: () => loadCatalogue() };
 }
 

@@ -4,6 +4,11 @@
 // orders. Nothing here fetches: it shapes what the account service sent into exactly the
 // fields the page renders, and it decides which of two fixed sentences a refusal says.
 //
+// It also owns the SHAPE of the snapshot the launcher keeps so opening the store is instant
+// (below, "The snapshot the page paints before it asks anything"). The snapshot adds no route,
+// no command to the service and no field to either frozen answer: it is those same two answers,
+// validated by the same two functions, written to a file beside the session cache.
+//
 // Why the shaping lives here and not in the renderer: site/ is a plain web page, and a page
 // that received the service's own body could print a number, a word or an address this
 // launcher never agreed to show. Every value below is rebuilt field by field; an answer that
@@ -114,6 +119,112 @@ function orders(payload){
  if(shaped.some(entry=>!entry))throw unavailable();
  return {orders:shaped};
 }
+// ---- The snapshot the page paints before it asks anything --------------------
+//
+// Owen, 2026-10-23: *"The store pages should perhaps even pre-render the store page, and cache
+// client side on launcher start-up so opening the store is instant."* The launcher asks the
+// account service for the catalogue and the player's own orders once, at startup, and keeps the
+// answer in a file beside the session cache (`desktop/main.cjs`, `readStoreSnapshot` and
+// `prefetchStore`). Opening the store then paints that answer immediately and revalidates behind
+// the player's eyes.
+//
+// WHAT A SNAPSHOT IS NOT. It is not a price. The two shapes it holds are the frozen wire shapes
+// above and nothing else - `catalogue()` and `orders()` are what validate them on the way in AND
+// on the way out of the file, so a file cannot hold a product this half would refuse from the
+// service - and the Buy press still goes to the service, which resolves the price from its own
+// configuration. A stale snapshot can therefore make a card out of date; it can never change what
+// is charged. Nor is it a session: it holds no token of any kind, only what the player may look
+// at, and the page receives it through the launcher's own bridge rather than from a file.
+const SNAPSHOT_VERSION=1;
+// How old a snapshot may be before it is not used at all. The catalogue is upstream of money:
+// every card prints the price the account service last sent, and a price is the one number on
+// this page a player will compare against a charge. The launcher's own Company session lives 24
+// hours (`accounts.cjs`; `renewCompany` re-proves it every six hours, doc/launcher-states.md), so
+// past one session lifetime the snapshot describes a shop that has been re-read - at startup and
+// on every renewal - at least four times since, and a launcher that has not managed one of those
+// in a day is not one whose cache should stand in for an answer. The bound is also what keeps the
+// page honest with nothing new to say: an older file is discarded and the store waits for the
+// service exactly as it did before this snapshot existed.
+const SNAPSHOT_MAX_AGE_MS=24*60*60*1000;
+// The fields of the file, in the order they are written. This list is the whole whitelist: a
+// token, a refresh token, a Stripe id, a price id or an account's email has no field here to
+// travel in, and `tests/desktop/store-snapshot.test.cjs` proves it by handing the builder a whole
+// service answer and asserting none of those values is anywhere in the text it produces.
+const SNAPSHOT_FIELDS=Object.freeze(['version','writtenAt','accountId','catalogue','orders']);
+// The reasons a file is not read. Every one but `absent` means the file must go: it can never be
+// used again, and leaving it would make every later start repeat the same discard.
+const SNAPSHOT_DISCARDED=Object.freeze(['absent','unreadable','version','stale','incomplete']);
+const ACCOUNT_ID_MAX=64;
+function moment(value){return typeof value==='string'&&Number.isFinite(Date.parse(value))?value:null;}
+function ownerId(value){
+ if(value===null||value===undefined)return null;
+ if(typeof value==='number'&&Number.isFinite(value))return String(value);
+ if(typeof value!=='string')return null;
+ const id=value.trim();
+ return id&&id.length<=ACCOUNT_ID_MAX?id:null;
+}
+// The record, or null when this half has nothing it could honestly paint from. Every key is
+// written from `SNAPSHOT_FIELDS`, so nothing else can be in the object, and both blocks are
+// re-shaped by the same two functions the wire answers go through.
+//
+// The orders are the account's own and are written only for the account they belong to: a
+// snapshot with no `accountId` is a signed-out snapshot and is a catalogue only, never orders.
+function snapshot({writtenAt,accountId=null,products,orders:rows=null}={}){
+ const at=moment(writtenAt);
+ if(!at)return null;
+ const owner=ownerId(accountId);
+ let shop=null,list=null;
+ try{
+  shop=catalogue({products}).products;
+  if(rows!==null){
+   if(!owner)return null;
+   list=orders({orders:rows}).orders;
+  }
+ }catch{return null;}
+ return {version:SNAPSHOT_VERSION,writtenAt:at,accountId:owner,catalogue:{products:shop},orders:list?{orders:list}:null};
+}
+// Is this snapshot still young enough to paint? The same bound the read applies, asked again at
+// the moment it is published, because a launcher left open for a day holds its copy in memory
+// long after the file it came from would have been refused.
+function fresh(value,{now=Date.now()}={}){
+ if(!value)return false;
+ const at=moment(value.writtenAt);
+ return Boolean(at)&&Math.max(0,now-Date.parse(at))<=SNAPSHOT_MAX_AGE_MS;
+}
+// Read a file's text. `accountId` is the account this launcher holds right now (null when nobody
+// is signed in). The catalogue is not any account's private data, so it survives an account
+// change; the orders are, so they are published only to the account they were written for.
+// `accountId` is answered as well, so the caller can tell that a file written for someone else is
+// on disk and rewrite it rather than keep it.
+function parseSnapshot(raw,{now=Date.now(),accountId=null}={}){
+ if(typeof raw!=='string'||!raw.trim())return {snapshot:null,reason:'absent',accountId:null};
+ let stored;
+ try{stored=JSON.parse(raw);}catch{return {snapshot:null,reason:'unreadable',accountId:null};}
+ if(!stored||typeof stored!=='object'||Array.isArray(stored))return {snapshot:null,reason:'unreadable',accountId:null};
+ if(stored.version!==SNAPSHOT_VERSION)return {snapshot:null,reason:'version',accountId:null};
+ const writtenAt=moment(stored.writtenAt);
+ // A moment in the future - a clock that moved backwards between two runs - is read as age zero
+ // for the same reason the session cache reads it that way: this machine wrote the file.
+ if(!writtenAt)return {snapshot:null,reason:'stale',accountId:null};
+ if(Math.max(0,now-Date.parse(writtenAt))>SNAPSHOT_MAX_AGE_MS)return {snapshot:null,reason:'stale',accountId:null};
+ const record=snapshot({writtenAt,accountId:stored.accountId,products:stored.catalogue?.products,orders:stored.orders?.orders??null});
+ if(!record)return {snapshot:null,reason:'incomplete',accountId:null};
+ const mine=record.accountId!==null&&accountId!==null&&String(record.accountId)===String(accountId);
+ return {
+  snapshot:{writtenAt:record.writtenAt,products:record.catalogue.products,orders:mine?record.orders?.orders??null:null},
+  reason:null,
+  accountId:record.accountId
+ };
+}
+// What the page is handed: the same objects the bridge's two reads answer with, so a warm paint
+// and a confirmed paint draw the same rows from the same fields. `writtenAt` is the file's own
+// moment and the only field this shape adds. `orders` stays null when no orders were ever cached:
+// an empty list would make the orders view print "No orders yet." from a file, which is a claim
+// about this account that only the service may make.
+function published(value,{now=Date.now()}={}){
+ if(!fresh(value,{now}))return null;
+ return {writtenAt:value.writtenAt,products:value.products,orders:Array.isArray(value.orders)&&value.orders.length?value.orders:null};
+}
 // The key the page asked for, or a refusal. This is a SHAPE check and nothing more: this half
 // does not keep a catalogue, so it cannot tell a key the server offered from one it never did.
 // What is checked here is that the renderer sent a product key at all - a lower-case identifier
@@ -123,4 +234,4 @@ function productKey(value){
  if(typeof value!=='string'||!PRODUCT_KEY.test(value))throw unavailable();
  return value;
 }
-module.exports={SENTENCES,unavailable,signedOut,refusal,catalogue,checkout,orders,productKey,PRODUCT_KEY};
+module.exports={SENTENCES,unavailable,signedOut,refusal,catalogue,checkout,orders,productKey,PRODUCT_KEY,SNAPSHOT_VERSION,SNAPSHOT_MAX_AGE_MS,SNAPSHOT_FIELDS,SNAPSHOT_DISCARDED,snapshot,parseSnapshot,published,fresh};

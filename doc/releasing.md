@@ -234,32 +234,34 @@ name from `/releases/latest/download/`. The launcher job is
    a browser, they fit at 1440 and 390 wide, and the launcher version still lands in the
    footer span after them. No fixture).
 
-   **The count, which this document had drifted on.** `tests/desktop` holds `electron.mjs`
-   plus 23 `*.electron.mjs` files: 24 journeys, of which **23 are gates** — `electron.mjs` and
-   22 of the 23 glob files — and `ui-review.electron.mjs` is not one, for the reason below.
+   **The count, which this document has drifted on twice.** `tests/desktop` holds `electron.mjs`
+   plus 29 `*.electron.mjs` files: 30 journeys, of which **29 are gates** — `electron.mjs` and
+   28 of the 29 glob files — and `ui-review.electron.mjs` is not one, for the reason below.
    Ten were named here before 2026-10-19, eight were added that day, `cold-start.electron.mjs`
-   arrived on 2026-10-19 with the retry policy and
-   `home-content-gate.electron.mjs` on 2026-10-22 with the startup gate. Until 2026-10-23 this
-   paragraph said "the twenty `*.electron.mjs` files" and named none of
-   `handover.electron.mjs`, `legal.electron.mjs` or `ui-review.electron.mjs` at all, which is
-   how a document that read as complete was three journeys short; the script closes that hole
-   by discovering the directory at run time and failing if a journey it finds mentions a
-   fixture port without an entry in its own table.
+   arrived on 2026-10-19 with the retry policy,
+   `home-content-gate.electron.mjs` on 2026-10-22 with the startup gate and
+   `store-prefetch.electron.mjs` on 2026-10-23 with the store snapshot. The paragraph read
+   "the twenty `*.electron.mjs` files" until 2026-10-23 and then "23 of 24", so it was three
+   journeys short and then five: the directory is the authority, not this sentence, and the
+   script discovers it at run time and fails if a journey it finds names a fixture port without
+   an entry in its own table.
 
-   **Four of the 23 need the real account handler and therefore a fixture**: `company` and
+   **Four of the 29 need the real account handler and therefore a fixture**: `company` and
    `handover` on 18796, `providers` on 18797 with `EASTER_PROVIDER_FIXTURE=1`, and
-   `wait-post-approval` on 18798. The other 19 need none: each starts its own stub, harness or
+   `wait-post-approval` on 18798. The other 25 need none: each starts its own stub, harness or
    payload, and none of them reads 18796–18798 (the detail is under "The other Electron
    journeys need no fixture"). The nine that had been left out of this list before 2026-10-19
    were left out silently, and one of them (`integration.electron.mjs`) was red for weeks
    because of it.
 
-   **Measured on 2026-10-23 by the gate itself, on this machine:** the 23 gates take
-   **7 m 24 s** (444 s), fixtures' own start-up included, and every journey except
+   **Measured on 2026-10-23 by the gate itself, on this machine:** the 23 gates that existed
+   then took **7 m 24 s** (444 s), fixtures' own start-up included, and every journey except
    `cold-start.electron.mjs` finishes in 3.5 to 36 s (`bootstrap.electron.mjs` fastest at
    3.5 s, `minecraft-head.electron.mjs` slowest at 35.4 s). `cold-start.electron.mjs` alone
    is 214 s of that total, which is why the script gives it a 480 s bound and every other
-   journey 300 s. The older figure in this paragraph — "191–193 seconds for eighteen" —
+   journey 300 s. That total is **not** the 29-gate total: `store-prefetch.electron.mjs` was
+   added afterwards and measures **6.0 s** on its own (`--only`), and the other journeys added
+   since 2026-10-23 were not folded into the figure either, so treat 7 m 24 s as a floor. The older figure in this paragraph — "191–193 seconds for eighteen" —
    was measured on 2026-10-19 against eighteen journeys and is not comparable: five more
    journeys exist since, and `cold-start.electron.mjs` alone now costs more than that whole
    sweep did. Seven and a half minutes to prove a release is releasable is not a reason to

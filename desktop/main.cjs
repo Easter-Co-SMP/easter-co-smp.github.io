@@ -301,6 +301,11 @@ function notify(patch={}){
  // out, switching account and an identity conflict all arrive here, because every one of them is
  // a broadcast, and the comparison is the one the mint makes for its own session.
  if(cachedAnswer&&!cacheIsThisAccount())forgetSessionCache();
+ // The store snapshot's orders are the account's own in exactly the same way, and this is the
+ // one place every account change arrives at: a sign-out, an account switch and an identity
+ // conflict are all broadcasts, so a snapshot written for somebody else can never be published
+ // to this account even if some later path forgets to say so for itself.
+ if(storeSnapshotOwner&&String(storeSnapshotOwner)!==String(company?.account?.id??''))forgetStoreOrders();
  // A failure is announced once, by the broadcast that settles the operation that failed,
  // and every later broadcast drops it again. Anything else leaves a stale sentence in the
  // state for any unrelated update to repaint — which is how a long-finished failure kept
@@ -504,6 +509,9 @@ async function forgetCompany(){
  // The last known answer belonged to the account that has just gone, so it goes with it — from
  // memory and from the disk, because nothing may be left for whoever signs in next.
  forgetSessionCache();
+ // The store snapshot's orders go the same way and the catalogue stays: what the server sells is
+ // not the account's, and what the account bought is nobody else's (doc/launcher-store.md).
+ forgetStoreOrders();
  // The account is gone as of the two lines above, so this broadcast is owed now, before the two
  // calls below. `accounts.logout` is a write to the account service - bounded only by its own
  // eight-second timeout (accounts.cjs) and measured at 544 ms against the launcher fixture - and
@@ -523,7 +531,7 @@ async function forgetCompany(){
 // cancelMints: the caller may be the mint that just met the refusal.
 async function forgetRefusedCompany(){
  company=null;mintedSession=null;mintedFor=null;minecraft={state:'unknown',serverHeld:false,checkedAt:null};
- forgetSessionCache();
+ forgetSessionCache();forgetStoreOrders();
  await vault.remove(companyFile());notify({});
 }
 async function accountOperation(action){
@@ -537,7 +545,10 @@ async function accountOperation(action){
 }
 async function renewCompany(){
  const target=company;if(!target)return;
- try{const signed=await accounts.refreshSession(target.token);if(company!==target||accountWorking||controller)return;company=companySession(signed);await saveCompany();notify({});}
+ try{const signed=await accounts.refreshSession(target.token);if(company!==target||accountWorking||controller)return;company=companySession(signed);await saveCompany();notify({});
+ // The account has just been re-proved, so the shop is re-read at the same moment: a launcher
+ // left open for days keeps a snapshot minutes old instead of one that ages out of its bound.
+ prefetchStoreWhenReady();}
  catch(error){if(company!==target)return;if(error.code==='invalid_session'){company=null;await vault.remove(companyFile());notify({message:ACCOUNT_MESSAGES.invalid_session});}}
 }
 function companyReady(){return Boolean(company&&company.expiresAt>Date.now()&&company.account.passwordRequired===false);}
@@ -711,6 +722,150 @@ function forgetSessionCache(){
  cachedAnswer=null;cacheShowing=false;cacheKey=null;
  void fs.rm(sessionCacheFile(),{force:true}).catch(()=>{});
 }
+// ---- The store snapshot, fetched once at startup ----------------------------
+//
+// doc/launcher-store.md, "Opening the store instantly". Owen, 2026-10-23: *"The store pages should
+// perhaps even pre-render the store page, and cache client side on launcher start-up so opening
+// the store is instant."* Opening the store used to cost a round trip — the page mounts, asks this
+// process for the catalogue and for the player's orders, and paints when the answers arrive — and
+// against a cold account service that round trip is the 18-22 s Aurora resume behind two reads
+// (the launcher's own store window is 20 s per read, `STORE_RETRY_BUDGET_MS`). This is what makes
+// it free: the same two answers are asked for ONCE, early, after the startup gate and off the
+// critical path of anything the player is waiting for, and kept in a file beside the session cache
+// so the page can paint them before it asks anything at all.
+//
+// WHAT THIS IS NOT. It prices nothing: the shape and the validation are desktop/store.cjs's
+// `snapshot()`, which is the two frozen wire answers run through the same two functions that
+// shape a live answer, and the Buy press still goes to the service, which resolves the price from
+// its own configuration — so a stale snapshot can put an out-of-date number on a card and can
+// never change what is charged. It authorises nothing: nothing below is read by `canPlayNow()`,
+// `sessionSource()`, `sessionAccessOk()` or any launch path, exactly as with the session cache
+// above. And it holds no credential: `SNAPSHOT_FIELDS` is the whole whitelist, the renderer never
+// holds a token, and this file holds none either.
+//
+// THE AGE BOUND is `STORE.SNAPSHOT_MAX_AGE_MS` (24 h), named and argued in desktop/store.cjs: the
+// catalogue is upstream of money, so a snapshot past one Company-session lifetime is not used at
+// all and the store waits exactly as it did before this existed. The bound is asked twice — when
+// the file is read and again when the answer is published — because a launcher left open for a day
+// still holds a copy in memory that the file it came from would no longer be read as.
+const storeSnapshotFile=()=>path.join(configRoot(),'store-snapshot.json');
+// `storeSnapshot` is `{writtenAt, products, orders}`: the two answers, and the moment the service
+// sent them. `storeSnapshotOwner` is the account the orders in it belong to, or null for the
+// catalogue-only snapshot a signed-out launcher keeps.
+let storeSnapshot=null,storeSnapshotOwner=null,storePrefetch=null,storeSnapshotWriting=Promise.resolve();
+function snapshotIsThisAccount(){
+ return Boolean(storeSnapshotOwner&&company&&String(storeSnapshotOwner)===String(company.account.id));
+}
+// The answer the page reads. Read-only and bounded: it says what this process already knows and
+// never fetches, and an answer past the age bound is dropped here rather than published.
+function publishedStoreSnapshot(){
+ if(!storeSnapshot)return null;
+ // Past the bound the answer is not used AT ALL - not the products and not the orders - and it is
+ // dropped rather than rewritten: rewriting keeps its shape and would give an answer nobody has
+ // confirmed in a day a fresh moment.
+ if(!STORE.fresh(storeSnapshot)){forgetStoreSnapshot();return null;}
+ // The orders are the account's own and are published only to the account they were written for;
+ // the catalogue is not account data, so it is published to anybody — including a signed-out
+ // player, whose snapshot is a catalogue and never orders.
+ const owner=snapshotIsThisAccount();
+ return STORE.published({writtenAt:storeSnapshot.writtenAt,products:storeSnapshot.products,orders:owner?storeSnapshot.orders:null});
+}
+// Write the answer that has just arrived and keep it in memory, from that moment on. The record is
+// built by store.cjs, so a catalogue this half could not draw is refused here exactly as it is on
+// the wire: a restart can never read back something the page would have been refused. `writtenAt`
+// is the moment the SERVICE answered, kept as it is when a record is rewritten for a narrower
+// audience - a rewrite is not a fresh answer, and the age bound is measured from the answer.
+function rememberStoreSnapshot({writtenAt,accountId,products,orders:rows=null}){
+ const record=STORE.snapshot({writtenAt:writtenAt||new Date().toISOString(),accountId,products,orders:rows});
+ if(!record)return null;
+ storeSnapshot={writtenAt:record.writtenAt,products:record.catalogue.products,orders:record.orders?record.orders.orders:null};
+ storeSnapshotOwner=record.accountId;
+ storeSnapshotWriting=storeSnapshotWriting.catch(()=>{}).then(()=>atomicJSON(storeSnapshotFile(),record)).catch(()=>{});
+ return storeSnapshot;
+}
+// Signing out, an account switch and an identity conflict all end the orders the snapshot
+// describes — and only those. The catalogue is what the server sells, not what any player bought,
+// so it stays and the orders go, on disk as well as in memory: whoever signs in next must not find
+// the previous account's purchases lying about. Fire and forget, like the session cache's own
+// removal: every caller is already inside a broadcast, and no player waits on a file.
+function forgetStoreOrders(){
+ if(!storeSnapshot)return;
+ if(!storeSnapshotOwner&&!storeSnapshot.orders)return; // already a catalogue-only snapshot
+ const products=storeSnapshot.products,writtenAt=storeSnapshot.writtenAt;
+ storeSnapshotOwner=null;
+ if(!Array.isArray(products)||!products.length){forgetStoreSnapshot();return;}
+ rememberStoreSnapshot({writtenAt,accountId:null,products,orders:null});
+}
+// The snapshot is gone: nothing is published and the file is deleted, so a launcher that has been
+// open past the bound (or that has just been signed out of everything) cannot hand out an answer
+// it no longer stands behind.
+function forgetStoreSnapshot(){
+ storeSnapshot=null;storeSnapshotOwner=null;
+ void fs.rm(storeSnapshotFile(),{force:true}).catch(()=>{});
+}
+// Read the file at startup, before the window exists, so the first press of Store already has an
+// answer in hand. Nothing here can fail a start: an absent, unreadable, unknown-version, stale or
+// malformed file is deleted and ignored — which is exactly today's cold store, word for word —
+// and a file written for another account keeps the catalogue it can share and loses its orders.
+async function readStoreSnapshot(){
+ storeSnapshot=null;storeSnapshotOwner=null;
+ let raw;
+ try{raw=await fs.readFile(storeSnapshotFile(),'utf8');}
+ catch{return null;}
+ const {snapshot,accountId}=STORE.parseSnapshot(raw,{accountId:company?.account?.id??null});
+ if(!snapshot){
+  // Every reason but a missing file means this file can never be used again, so it goes now
+  // rather than making every later start repeat the same discard.
+  try{await fs.rm(storeSnapshotFile(),{force:true});}catch{}
+  return null;
+ }
+ storeSnapshot=snapshot;storeSnapshotOwner=accountId;
+ if(accountId!==null&&!snapshotIsThisAccount())forgetStoreOrders();
+ return storeSnapshot;
+}
+// One fetch of the two answers, for the account signed in at that moment. Started with `void` from
+// the paths that settle the startup gate, from a sign-in, and from the six-hourly renewal, so the
+// snapshot a player opens is minutes old.
+//
+// IT NEVER DELAYS ANYTHING. It is started after the gate has settled and nothing awaits it: it
+// does not touch `startupReady`, `phase`, `progress` or the broadcast state, and a failure is not
+// an error the player sees — a service that cannot be reached at startup is an empty snapshot, not
+// a sentence, and the store paints its one sentence when it is opened
+// (doc/launcher-store.md, "Every failure is a refusal"). The two reads are independent on purpose:
+// a slow or refused orders read cannot throw away a catalogue that has already arrived.
+//
+// An answer that lands after a sign-out or an account switch belongs to the account that has gone,
+// so it is thrown away rather than written over the new account's snapshot — the same rule, for
+// the same reason, as the mints `cancelMints()` ends.
+function prefetchStore(){
+ if(storePrefetch)return storePrefetch;
+ const target=company;
+ if(!target)return Promise.resolve(null);
+ const accountId=target.account.id;
+ storePrefetch=(async()=>{
+  const [shop,list]=await Promise.allSettled([accounts.storeCatalogue(target.token),accounts.storeOrders(target.token)]);
+  if(company!==target||String(company?.account?.id)!==String(accountId))return null;
+  let products=null,rows=null;
+  if(shop.status==='fulfilled'){
+   try{products=STORE.catalogue(shop.value).products;}catch{products=null;}
+  }
+  if(list.status==='fulfilled'){
+   try{rows=STORE.orders(list.value).orders;}catch{rows=null;}
+  }
+  // Nothing to paint: whatever is on disk stays, because an empty fetch is not an answer that
+  // something changed.
+  if(!products)return null;
+  // A refused orders read keeps the orders this account already had: the alternative is a shop
+  // that forgets a purchase because one read was unlucky.
+  if(rows===null&&snapshotIsThisAccount()&&storeSnapshot?.orders)rows=storeSnapshot.orders;
+  return rememberStoreSnapshot({accountId,products,orders:rows});
+ })().catch(()=>null).finally(()=>{storePrefetch=null;});
+ return storePrefetch;
+}
+// The snapshot is asked for once the launcher is usable, never while a player is waiting on the
+// gate. Every caller below is such a moment (the gate settling, a sign-in that has just settled,
+// the six-hourly renewal), so this is the one guard that keeps the two apart.
+function prefetchStoreWhenReady(){if(startupReady)void prefetchStore();}
 // The two spellings of a Minecraft profile id: 32 hex characters, which is what the game is
 // launched with, and the dashed form the account record holds. One helper each way, so the
 // account the service describes and the session it mints can never disagree about the player.
@@ -1058,6 +1213,10 @@ async function interactiveMicrosoft(options={}){
   const signed=await auth.signIn(device=>{activity.update('microsoft-waiting');notify({device,message:instruction});},controller.signal,activity.update);
   const enrolled=await enrolAccount({candidate:signed,lockCompany:Boolean(company)||options.link===true,throwOnError:true,onStage:activity.update});
   notify({device:null,message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
+  // The store's snapshot for this account, asked for after the sign-in has settled and off its
+  // path (doc/launcher-store.md, "Opening the store instantly"): a player who has just signed in
+  // has no snapshot of their own yet, and this is what makes their first press of Store instant.
+  setImmediate(()=>{prefetchStoreWhenReady();});
   // The sign-in answer is the one place `emailStatus` leaves the main process, so the
   // sign-in dialog can say that Microsoft's address could not be read. No address, ever.
   return typeof enrolled?.emailStatus==='string'?{emailStatus:enrolled.emailStatus}:undefined;
@@ -1606,12 +1765,22 @@ function registerIPC(){
  // refusal, and the renderer shows its own unavailable state; nothing here is stored, and
  // no URL, token or identifier from it is ever asked for by the renderer.
  handle('home-content',()=>discovery.content());
- // The Community store, inside the launcher (doc/launcher-store.md). Three commands, all
- // against the signed-in Company session: the catalogue the server sells, one purchase press,
- // and the player's own orders. None of them is reachable before the startup gate, because
- // none of them is needed to start the launcher, and the page is reached by navigation after
- // it. `company` is the session this process holds; the renderer never sees a token, and it
- // cannot name a price - only a product key the server itself offered.
+ // The Community store, inside the launcher (doc/launcher-store.md). Three commands against the
+ // signed-in Company session - the catalogue the server sells, one purchase press, and the
+ // player's own orders - and a fourth that asks nothing of anybody: the snapshot startup has
+ // already fetched. None of them is reachable before the startup gate, because none of them is
+ // needed to start the launcher, and the page is reached by navigation after it. `company` is the
+ // session this process holds; the renderer never sees a token, and it cannot name a price - only
+ // a product key the server itself offered.
+ //
+ // THE SNAPSHOT IS THE FIRST THING THE PAGE ASKS FOR, and it is answered from memory: no request
+ // leaves this process, so opening the store paints at once instead of paying the account
+ // service's resume behind two reads. It is older by definition, so the page revalidates with the
+ // two reads below and repaints only if the service disagrees; a snapshot past
+ // `STORE.SNAPSHOT_MAX_AGE_MS` is not published at all, and one written for another account
+ // carries no orders. A signed-out player is answered a catalogue-only snapshot, never orders,
+ // and pressing Buy still goes to the service, which resolves the price itself.
+ handle('store-snapshot',()=>publishedStoreSnapshot());
  handle('store-catalogue',async()=>{
   if(!company)throw STORE.signedOut();
   try{return STORE.catalogue(await accounts.storeCatalogue(company.token));}
@@ -1665,6 +1834,10 @@ function registerIPC(){
    // this sign-in has settled, so a slow account service can never hold the sign-in open or
    // leave its busy state behind: the account is already written and published by then.
    setImmediate(()=>{void probeMinecraftSession();});
+   // The same moment, for the same reason, for the store: a player who has just signed in has no
+   // snapshot for this account yet, so it is asked for here rather than left to the first press
+   // of Store. Off the sign-in's own path: the account is written and published before this runs.
+   setImmediate(()=>{prefetchStoreWhenReady();});
    return publicAccount(company);
   }finally{if(controller===abort)controller=null;}
  }));
@@ -1713,6 +1886,9 @@ function registerIPC(){
   // holds nothing for this account. Asked for AFTER this sign-in has settled, for the same
   // reason as above: the sign-in's own busy state belongs to the sign-in, not to the mint.
   setImmediate(()=>{void probeMinecraftSession();});
+  // And the store's snapshot for this account, asked for here rather than left to the first
+  // press of Store (doc/launcher-store.md, "Opening the store instantly").
+  setImmediate(()=>{prefetchStoreWhenReady();});
   return publicAccount(company);
  }));
  // "Sign out of Minecraft everywhere": the one stored session every machine mints from, ended by
@@ -2155,6 +2331,10 @@ function startupUpdates(){
    // not start (see `settleResting`): a gate that settles must not talk a running game down to
    // Play.
    startupReady=true;settleResting();
+   // The store's snapshot, asked for ONCE here and nowhere a player is waiting: the gate has just
+   // settled, this never blocks it, and a failure is an empty snapshot rather than a sentence
+   // (doc/launcher-store.md, "Opening the store instantly").
+   prefetchStoreWhenReady();
   }catch(error){
    startupReady=false;launcherUpdate={phase:'blocked',percent:null,message:'Updates must finish before playing. '+safeError(error)};notify({});
   }finally{startupPromise=null;}
@@ -2443,6 +2623,9 @@ if(instance){
   // shown while it is confirmed"). It says nothing about whether a launch is allowed: this
   // call cannot change `canPlay`, and the mint below still runs exactly as it always did.
   await readSessionCache();
+  // And the store snapshot beside it, read here so the first press of Store already has an answer
+  // to paint: two file reads and no network call, before any window or broadcast exists.
+  await readStoreSnapshot();
   await refreshClient();
   // Before the window exists, so the first launch a player sees is already configured
   // and no view can observe a half-seeded tree. A no-op for a tree that has already
@@ -2480,7 +2663,7 @@ if(instance){
   // launcher came back to is still running that state is the in-game one.
   settleResting();
   if(app.isPackaged)void startupUpdates();
-  else void updateOnLaunch()?.catch(()=>{});
+  else{void updateOnLaunch()?.catch(()=>{});prefetchStoreWhenReady();}
   // The same question, asked again while the launcher stays open (updater.cjs
   // `createLauncherPoll`): fifteen minutes, quiet, and it only ever stages.
   startLauncherPoll();
