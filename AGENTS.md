@@ -110,7 +110,9 @@ Releases follow doc/releasing.md: the tag comes from package.json, the workflow 
 hand, the packaged app is checked against site/ before publishing, and /releases/latest ignores
 prereleases, so a launcher release must not be marked prerelease while it is the only one.
 - **Cut and verify a release only with `scripts/release.sh`.** `--check` runs the
-preconditions and the fast suites; `--cut <version> --notes <file>` runs the packaged build
+preconditions, the fast suites and `scripts/check-electron-journeys.mjs` (every Electron
+journey doc/releasing.md requires, one at a time under xvfb-run, ~7.5 minutes); `--cut
+<version> --notes <file>` runs the packaged build
 and `scripts/check-packaged-first-screen.mjs` before bumping, then commits, pushes, dispatches
 the workflow, watches it and verifies the published assets; `--verify <tag>` checks
 SHA256SUMS, both update ASARs and the AppImage's ASAR against `site/` byte for byte, and the

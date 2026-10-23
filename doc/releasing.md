@@ -90,7 +90,9 @@ name from `/releases/latest/download/`. The launcher job is
    found it, and exits non-zero on its own count of failures — a journey that runs away past
    its bound, or that produces no verdict at all, is one of those failures. A missing
    prerequisite (the cloud repository, its venv, the `identity-fixture-pg` container) is one
-   sentence naming it and a non-zero exit, never a skip.
+   sentence naming it and a non-zero exit, never a skip; so is a sweep asked to start while
+   one of those fixture ports is already held by another suite or by a hand-started fixture,
+   because a red journey under that contention is not a product fault.
 
    That mattered: this list used to be 21 hand-run commands, nothing ran them, and on
    2026-10-23 `providers.electron.mjs` and `wait-post-approval.electron.mjs` were both red on
