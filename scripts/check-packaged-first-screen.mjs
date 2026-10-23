@@ -11,8 +11,20 @@
 //   1. an empty HOME - the first launch a new player gets: the header, the hero asking
 //      for the download, and the home cards loaded, with no "unavailable" sentence;
 //   2. a seeded app-owned client tree - the Play Now stage: the server row is on screen
-//      and reads one of the three sentences, and the enhanced graphics row is offered
+//      and reads exactly one of the four sentences desktop/game.cjs owns, with the tone
+//      and the LED that sentence is drawn with, and the enhanced graphics row is offered
 //      while nobody is signed in.
+//
+// The four sentences are the product's own, and this file carries no fifth rule: the list
+// lives in desktop/game.cjs (the `MESSAGES` table and `gameStatusLine`), doc/launcher-states.md
+// tabulates it, and doc/releasing.md step 1a names it so that a copy change moves this file
+// in the same commit. It was *three* sentences until 1.0.44, when `Status pending…` arrived
+// with its rotating ring, and this gate silently kept the older rule (2026-10-23) because
+// nothing named the list here. So the row is now checked as words *and* as painting:
+// `data-tone` must be a tone `gameStatusLine` can publish for that very sentence,
+// `Status pending…` must be the unfilled ring with one transparent quadrant and
+// `game-led-spin` actually running, and every other sentence the filled, still dot. A
+// sentence paired with the wrong LED fails, which the words alone never caught.
 //
 // It prints one line per check and exits non-zero on any failure. It reads the page, not
 // a screenshot, so it works on a machine with no image tooling.
@@ -30,6 +42,59 @@ const appIndex=args.indexOf('--app');
 const app=appIndex>=0?args[appIndex+1]:path.join(repo,'release','linux-unpacked','easter-company');
 let failures=0;
 const ok=(condition,message)=>{console.log((condition?'  ok   ':'  FAIL ')+message);if(!condition)failures++;};
+const seen=message=>console.log('  seen '+message);
+
+// The four sentences desktop/game.cjs can print, and - for each - the tones
+// `gameStatusLine` may publish beside it. Nothing here is a shape the product cannot
+// produce, so this is stricter than a wildcard rather than looser: `Server Online` is the
+// sentence for a service that sent no count (tone `online` only), the counted sentence
+// belongs to every known state, and the other two each have exactly one tone.
+const SENTENCES={
+ 'Server Online, N active players':['online','asleep','starting','stopping'],
+ 'Server Online':['online'],
+ 'Status pending…':['pending'],
+ 'Server Offline':['offline']
+};
+// The one sentence, matched exactly. The count is a real canonical integer and one player
+// is singular, exactly as `playerCount` writes it: no leading zero, no `1 active players`,
+// no extra word, and no bracket or reason smuggled in beside it.
+function sentenceOf(line){
+ const text=String(line||'').trim();
+ if(text==='Server Online'||text==='Server Offline'||text==='Status pending…')return text;
+ const counted=/^Server Online, (\d+) active players?$/.exec(text);
+ if(counted){
+  const players=Number(counted[1]);
+  if(String(players)===counted[1]&&text==='Server Online, '+players+' active player'+(players===1?'':'s'))return 'Server Online, N active players';
+ }
+ return null;
+}
+// What the row and its LED are actually painted with, read from the live page and returned
+// raw: the log says what it saw, not only that a rule held.
+async function ledFacts(page){
+ return page.evaluate(()=>{
+  const row=document.querySelector('.desktop-game-status');
+  const led=row?.querySelector('.desktop-game-led');
+  if(!row||!led)return null;
+  const css=getComputedStyle(led);
+  return {
+   tone:row.dataset.tone??null,
+   state:row.dataset.state??null,
+   background:css.backgroundColor,
+   animation:css.animationName,
+   borderWidths:[css.borderTopWidth,css.borderRightWidth,css.borderBottomWidth,css.borderLeftWidth],
+   borderColors:[css.borderTopColor,css.borderRightColor,css.borderBottomColor,css.borderLeftColor],
+   reducedMotion:window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  };
+ });
+}
+// A CSS colour that paints nothing: `transparent`, or a rgba() whose alpha is zero.
+const transparent=value=>{const css=String(value).replace(/\s+/g,'').toLowerCase();return css==='transparent'||/^rgba\([^)]*,0(?:\.0+)?\)$/.test(css);};
+// The unfilled ring: no filled background, a real border on all four sides with exactly one
+// quadrant left transparent, so the turning box reads as a gap.
+const ringDrawn=facts=>facts!==null&&transparent(facts.background)&&facts.borderWidths.every(width=>parseFloat(width)>0)&&facts.borderColors.filter(transparent).length===1;
+// The filled dot: a painted background and no transparent quadrant anywhere.
+const dotDrawn=facts=>facts!==null&&!transparent(facts.background)&&facts.borderColors.every(colour=>!transparent(colour));
+const ledSummary=facts=>facts===null?'no LED is painted':'background '+facts.background+', border '+facts.borderWidths.join('/')+' '+JSON.stringify(facts.borderColors)+', animation '+JSON.stringify(facts.animation);
 
 async function launch(tag,prepare,inspect){
  const home=await fs.mkdtemp(path.join(os.tmpdir(),'easter-first-screen-'));
@@ -57,6 +122,7 @@ async function launch(tag,prepare,inspect){
 }
 
 const unavailable=body=>body.split('\n').filter(line=>/unavailable/i.test(line));
+console.log('the server row may read: '+Object.keys(SENTENCES).map(sentence=>JSON.stringify(sentence)).join(' or ')+' (desktop/game.cjs)');
 
 console.log('first screen, empty HOME (a new player)');
 await launch('empty',async()=>{},async(page,status,body)=>{
@@ -83,8 +149,34 @@ await launch('seeded',async home=>{
  ok(unavailable(body).length===0,'no "unavailable" sentence anywhere: '+JSON.stringify(unavailable(body)));
  const row=await page.locator('.desktop-game-status .desktop-game-line').innerText().catch(()=>null);
  ok(row!==null,'the server row is painted at the Play Now stage');
- ok(/^Server (Online, \d+ active players?|Online|Offline)$/.test((row||'').trim()),'the row is one of the three sentences: '+JSON.stringify(row));
- ok(!/\(|asleep|zzz|starting|stopping|unknown|presses play/i.test(row||''),'with no bracket, reason or service detail');
+ const sentence=sentenceOf(row);
+ ok(sentence!==null,'the row is one of the four sentences desktop/game.cjs owns: '+JSON.stringify(row));
+ ok(row!==null&&!/\(|asleep|zzz|starting|stopping|unknown|presses play/i.test(row),'with no bracket, reason or service detail: '+JSON.stringify(row));
+ // The painting, read from the page: the tone the row carries and the LED's computed
+ // style. `data-tone` is what the stylesheet turns into an LED, so it is checked against
+ // the sentence before the shape of the LED is judged at all.
+ const led=await ledFacts(page);
+ const tones=sentence?(SENTENCES[sentence]||[]):[];
+ seen('the row says '+JSON.stringify(row)+' - '+JSON.stringify(sentence)+' - with data-tone '+JSON.stringify(led?.tone)+' and data-state '+JSON.stringify(led?.state));
+ seen('the LED: '+ledSummary(led)+(led?.reducedMotion?' (prefers-reduced-motion: reduce)':''));
+ ok(led!==null,'the row carries its LED');
+ ok(led!==null&&tones.includes(led.tone),'data-tone '+JSON.stringify(led?.tone)+' is one of '+JSON.stringify(tones)+' beside '+JSON.stringify(sentence));
+ const wantRing=sentence?sentence==='Status pending…':led?.tone==='pending';
+ if(wantRing){
+  // Pending is the one sentence that is not a claim about the server: nothing has been
+  // asked yet, so the LED waits instead of reporting, and waiting is drawn, not written.
+  ok(ringDrawn(led),'the pending sentence is drawn as the unfilled ring with a transparent quadrant: '+ledSummary(led));
+  // Reduced motion stops the rotation in the stylesheet but keeps the ring; with motion
+  // allowed the same ring has to be turning, so a still ring and a spinning dot both fail.
+  const turning=led!==null&&(led.reducedMotion?led.animation==='none':led.animation==='game-led-spin');
+  ok(turning,'the ring turns with game-led-spin: '+JSON.stringify(led?.animation)+(led?.reducedMotion?' (reduced motion is on, so it must be stopped)':''));
+ }else{
+  ok(dotDrawn(led),'the '+JSON.stringify(sentence)+' sentence is drawn as the filled dot: '+ledSummary(led));
+  // A dot may carry the stylesheet's own pulse for a state that is still coming up, and
+  // nothing else: the ring's rotation on a known sentence is the failure this forbids.
+  const still=led!==null&&led.animation!=='game-led-spin'&&(led.animation==='none'||(led.tone==='starting'&&led.animation==='game-led-pulse'));
+  ok(still,"the dot is still, never the ring's rotation: "+JSON.stringify(led?.animation)+' with tone '+JSON.stringify(led?.tone));
+ }
  ok(await page.locator('.hero-graphics').isVisible().catch(()=>false),'the enhanced graphics row is offered with a client installed and nobody signed in');
 });
 

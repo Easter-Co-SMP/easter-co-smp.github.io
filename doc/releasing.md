@@ -44,6 +44,24 @@ name from `/releases/latest/download/`. The launcher job is
    the point — it is the first launch a new player gets. Repeat for any change that adds a
    start-up IPC read: `handle()` refuses an untrusted frame, so a read can be refused once
    and has to be warmed in main or retried by the renderer.
+
+   The server row on the Play Now stage says **one of exactly four sentences**, matched
+   word for word, and nothing else: `Server Online, N active players` (singular for one
+   player, `0` also for a host that is only asleep), `Server Online` when the service sent
+   no count, `Status pending…` while nothing has been asked yet, and `Server Offline` only
+   for a read that happened and failed — with no bracket, reason or service detail beside
+   any of them. That list lives in `desktop/game.cjs` (`MESSAGES` and `gameStatusLine`),
+   and `doc/launcher-states.md` (*The LED and the status line*) tabulates which state
+   prints which one. It is four sentences as of 1.0.44; the row carried three until
+   `Status pending…` arrived on 2026-10-23. **A copy change must move `desktop/game.cjs`,
+   this paragraph and `scripts/check-packaged-first-screen.mjs` in the same commit**:
+   that gate asserts the sentences *and* the painting — `data-tone` must be one of the
+   tones `gameStatusLine` publishes for that very sentence, `Status pending…` must be the
+   unfilled ring with one transparent border quadrant and `game-led-spin` running, and
+   every other sentence the filled, still dot. It went stale exactly this way: this step
+   described the row's meaning without naming its words or its LED, so the gate kept the
+   three-sentence rule while the product moved on, and a correct 1.0.44 package failed the
+   check that protects the release (found 2026-10-23, before the cut).
 2. The full check suite passes on that exact tree: `python -m unittest discover -s tests
    -p 'test_*.py'` (use `/root/e-server/.venv/bin/python`), `python scripts/validate.py
    site`, `npm test`, `node tests/drawings.mjs`, `node tests/browser.mjs` against a local
