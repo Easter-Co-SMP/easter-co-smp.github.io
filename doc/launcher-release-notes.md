@@ -1,3 +1,31 @@
+# Easter Company launcher 1.0.42
+
+## The store is a page now
+
+The store is no longer an overlay on the home screen. It is a page of its own, laid out
+like the map and the wiki, and it is reached the same way they are: from the header.
+
+- The store lives at `/store/` and appears in the site header on Home, Map, Wiki and the
+  store itself. The old Store button that opened a dialog over the hero is gone.
+- Its views are addresses, so Back and Forward work and a link can be shared:
+  `#catalogue`, `#item/<id>`, `#cart`, `#checkout`, `#receipt/<id>`, `#orders`.
+- Sampled the same way as the map and the wiki: same header, same footer, same type, and
+  it stays legible from a narrow window to a wide one.
+- It is still a mock, and says so on the page before you touch anything: sample products
+  and sample USD prices, no real payment, nothing delivered to the game, orders gone when
+  you leave the page.
+
+## It is called the Community store
+
+"The Company store" is now "The Community store", in the page heading, the window title,
+the description and the home page's store card.
+
+## While the server comes up it says the server
+
+The cold-start line reads "Starting the server…" and "Minecraft opens when the server is
+ready", instead of "your server".
+
+
 # Easter Company launcher 1.0.41
 
 # Easter Company launcher 1.0.41
