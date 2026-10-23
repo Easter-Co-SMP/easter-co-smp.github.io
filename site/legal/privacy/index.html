@@ -14,7 +14,7 @@
 <main class="legal-page" id="legal-content" tabindex="-1">
   <p class="eyebrow">Legal · Easter Co. SMP</p>
   <h1>Privacy Policy</h1>
-  <p class="legal-meta">Effective <time datetime="2026-10-19">19 October 2026</time> · Last updated <time datetime="2026-10-19">19 October 2026</time></p>
+  <p class="legal-meta">Effective <time datetime="2026-10-19">19 October 2026</time> · Last updated <time datetime="2026-10-23">23 October 2026</time></p>
   <p class="legal-intro">This policy explains what Easter LTD does with personal data when you visit <strong>easter-co-smp.github.io</strong>, install or use the <strong>Easter Company launcher</strong>, hold an <strong>Easter Company account</strong>, or play on the <strong>Easter Isles Minecraft server</strong> (<span class="legal-nowrap">smp.easter.company:25565</span>).</p>
 
   <nav class="legal-toc" aria-label="Contents">
@@ -86,8 +86,8 @@
       </ul>
 
       <h3>3.4 Your Microsoft session</h3>
-      <p>Signing in with Microsoft gives the launcher a Minecraft session. So that you do not have to approve the same Microsoft account again on every machine, or after every restart, the account service keeps <strong>one</strong> Microsoft refresh token for your account, encrypted with AES-256-GCM using a key held outside the database and bound to your account identifier. A later Microsoft sign-in replaces it with the newer token. It is erased when Microsoft itself refuses it, or when you ask us to delete your account or to erase the session on its own. The launcher kept a button for that last one — Sign out of Minecraft everywhere — and as of 2026-10-23 it shows no control for it, so ask us and we will erase it. We never see or store your Microsoft password.</p>
-      <p>Your launcher's own copy of the session lives in your operating system's encrypted store. If you would rather have no stored session at all, ask us to erase it: as of 2026-10-23 the launcher shows no control for that, and once it is gone Play will ask you to sign in with Microsoft again on each machine you use.</p>
+      <p>Signing in with Microsoft gives the launcher a Minecraft session. So that you do not have to approve the same Microsoft account again on every machine, or after every restart, the account service keeps <strong>one</strong> Microsoft refresh token for your account, encrypted with AES-256-GCM using a key held outside the database and bound to your account identifier. A later Microsoft sign-in replaces it with the newer token. It is erased when Microsoft itself refuses it, or when you ask us to erase it or to delete your account. To ask for that, use the route in Your rights below. We never see or store your Microsoft password.</p>
+      <p>Your launcher's own copy of the session lives in your operating system's encrypted store. With no stored session, Play asks you to sign in with Microsoft again on each machine you use.</p>
 
       <h3>3.5 If you play on the server</h3>
       <p>Operating a Minecraft server means recording what the game and its moderation require:</p>
@@ -195,7 +195,7 @@
           <tr><td>Signed-in sessions</td><td>Until they expire, are revoked, or you sign out — renewed sessions last at most 30 days</td></tr>
           <tr><td>Sign-in flow state and nonces</td><td>10 minutes, then expired</td></tr>
           <tr><td>Sign-in rate-limit counters</td><td>A short rolling window, normally well under a day</td></tr>
-          <tr><td>Sealed Microsoft session</td><td>Until you revoke it, sign out everywhere, or ask us to delete your account</td></tr>
+          <tr><td>Sealed Microsoft session</td><td>Until Microsoft refuses it, or until you ask us to erase it or to delete your account</td></tr>
           <tr><td>Server logs — chat, commands and connection records</td><td>Normally no more than 90 days, kept longer only for an active investigation</td></tr>
           <tr><td>Moderation and ban records</td><td>While the restriction is in force and up to 12 months after it ends, so a ban cannot simply be evaded</td></tr>
           <tr><td>World data and world backups</td><td>For as long as the server runs, as a rolling set of backups</td></tr>
