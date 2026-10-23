@@ -210,6 +210,33 @@ function contenders() {
   return found;
 }
 
+// Not every contender is contention: this box carries orphaned Chromium from runs that ended
+// hours ago (measured 2026-10-23: 29 such processes, ppid 1, 10.4 hours old, still burning
+// CPU), and a warning about those on every future sweep would be the cry-wolf this file
+// exists to avoid. So a contender counts as contention only if it started within the last
+// quarter of an hour - a suite somebody is running now - while the older ones are reported
+// separately as what they are.
+const RECENT_MS = 15 * 60_000;
+function recentContenders() {
+  const uptimeSeconds = Number(fsSync.readFileSync('/proc/uptime', 'utf8').split(' ')[0]);
+  const recent = {};
+  const stale = {};
+  for (const {pid, comm} of processes()) {
+    if (!CONTENDERS.includes(comm)) continue;
+    let ageSeconds = null;
+    try {
+      const stat = fsSync.readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      ageSeconds = uptimeSeconds - Number(fields[19]) / 100; // starttime is in USER_HZ
+    } catch {
+      continue;
+    }
+    const bucket = ageSeconds * 1000 < RECENT_MS ? recent : stale;
+    bucket[comm] = (bucket[comm] || 0) + 1;
+  }
+  return {recent, stale};
+}
+
 function describeContenders(found) {
   return Object.entries(found).map(([name, count]) => `${count} ${name}`).join(', ');
 }
@@ -454,6 +481,7 @@ await fs.mkdir(logDir, {recursive: true});
 const results = new Map();
 const strayLeftovers = [];
 const foreignAtStart = contenders();
+const contendersAtStart = recentContenders();
 let interrupted = null;
 let currentGroup = null; // {child, label} so a signal can stop whatever is running
 let fixtureGroup = null;
@@ -694,10 +722,16 @@ async function runJourney(name) {
 const sweepStarted = now();
 const scope = only === null ? `${gates.length} gates` : `1 journey (--only ${only}, which is a diagnosis, not a gate run)`;
 console.log(`electron journeys: ${scope}, one at a time, each under xvfb-run -a${only === null ? '' : ` - root ${root}`}`);
-if (only === null && Object.keys(foreignAtStart).length) {
+if (Object.keys(contendersAtStart.recent).length) {
   console.log(
-    `electron journeys: WARNING ${describeContenders(foreignAtStart)} already running; a journey that fails under ` +
-      'contention is not a product fault (doc/releasing.md, "Run it alone")',
+    `electron journeys: WARNING ${describeContenders(contendersAtStart.recent)} started in the last 15 minutes and is still ` +
+      'running; a journey that fails under that contention is not a product fault (doc/releasing.md, "Run it alone")',
+  );
+}
+if (Object.keys(contendersAtStart.stale).length) {
+  console.log(
+    `electron journeys: info ${describeContenders(contendersAtStart.stale)} is older than 15 minutes (left by an earlier run, ` +
+      'not by this sweep); it is not counted as contention',
   );
 }
 for (const name of only === null ? notGates : []) console.log(`  skip  ${name}  - not a gate: ${NOT_GATES[name].split(':')[0]}`);
@@ -783,13 +817,13 @@ if (interrupted) {
   process.exit(130);
 }
 for (const where of cleanliness) console.error(`electron journeys: cleanup - ${where}`);
-if (failed !== 0 && Object.keys(foreignAtStart).length) {
-  // Said beside every failing sweep that began with other people's Electron/Chromium on the
-  // box, because contention wears a product failure's clothes (doc/releasing.md, "Run it
-  // alone"). It does not soften the verdict: the failure still fails the gate.
+if (failed !== 0 && Object.keys(contendersAtStart.recent).length) {
+  // Said beside every failing sweep that began with another suite on the box, because
+  // contention wears a product failure's clothes (doc/releasing.md, "Run it alone"). It does
+  // not soften the verdict: the failure still fails the gate.
   console.error(
-    `electron journeys: note - ${describeContenders(foreignAtStart)} were already running when this sweep started; ` +
-      'a journey that fails under that contention is not a product fault, so re-run it alone before diagnosing',
+    `electron journeys: note - ${describeContenders(contendersAtStart.recent)} started in the last 15 minutes and was still ` +
+      'running when this sweep started; a journey that fails under that contention is not a product fault, so re-run it alone',
   );
 }
 if (failed === 0 && cleanliness.length === 0) {
