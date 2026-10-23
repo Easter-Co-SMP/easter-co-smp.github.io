@@ -6,6 +6,7 @@
 // code: the poller's interval is shortened by the harness, and the schedule itself plus the
 // deferral rule are proven in tests/desktop/update-poll.test.cjs and updater.test.cjs.
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -59,7 +60,8 @@ try{
  await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
  await waitFor(async()=>(await page.evaluate(async()=>(await window.easterDesktop.status()).startupReady)),'the startup gate to open');
  const fields=await app.evaluate(()=>global.easterPollOptions);
- assert.equal(fields.current,'1.0.44','the poll is told which version this launcher is');
+ const {version}=JSON.parse(await readFile(new URL('../../package.json',import.meta.url),'utf8'));
+ assert.equal(fields.current,version,'the poll is told which version this launcher is');
  assert.equal(fields.enabled,true,'the autoUpdateLauncher preference reaches the poller');
  assert.match(fields.root,/launcher-updates$/,'it stages into the same stash the startup gate uses');
  assert.equal(fields.probe,'function','main supplies the redirect question');
@@ -128,7 +130,7 @@ try{
  assert.equal(await app.evaluate(()=>global.easterPollDownloads),2,'one manifest read and one payload download: nothing is fetched to answer the question alone');
  const log=await fs.readFile(path.join(home,'Easter Company','launcher-update.log'),'utf8');
  assert.match(log,/step=update-poll outcome=ok version=9\.9\.9 note=staged/,'the stage is one line in the update log');
- assert.match(log,/step=update-apply outcome=ok version=9\.9\.9 from=1\.0\.44 note=applied/,'and the apply that took it is another');
+ assert.match(log,new RegExp('step=update-apply outcome=ok version=9\\.9\\.9 from='+version.replace(/\./g,'\\.')+' note=applied'),'and the apply that took it is another');
  const activation=JSON.parse(await fs.readFile(path.join(stash,'current.json'),'utf8'));
  assert.equal(activation.version,'9.9.9','the staged release was activated: bootstrap will load it on the next start');
  assert.equal(activation.sha256,publishedHash,'and the activation record carries the hash the payload was verified against');

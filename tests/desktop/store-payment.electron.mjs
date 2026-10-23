@@ -220,15 +220,16 @@ try {
     assert.equal(await page.locator('.store-order-record').count(), 0);
     await page.keyboard.press('Escape');
     await page.locator('.store-modal').waitFor({ state: 'detached' });
+    // Close lands on the player's orders rather than back on the Buy control: the row the
+    // service recorded is the point of the press, so it is on screen when the dialog goes.
     assert.equal(
-      await page.evaluate(() => document.activeElement?.dataset?.buy),
-      'sterling-10',
-      'Escape closes it and focus returns to the Buy control of the product just bought',
+      await page.evaluate(() => location.hash),
+      '#orders',
+      'Escape closes it and lands on the orders, where the row just recorded is on screen',
     );
     const reads = await app.evaluate(() => global.storeOrderReads);
     assert.ok(reads >= 1, 'closing the dialog re-reads the orders');
     page.on('console', () => {});
-    await page.getByRole('link', { name: 'Orders', exact: true }).click();
     await page.locator('.store-orders-heading').waitFor();
     assert.equal(
       await page.locator('.store-order-record').count(),
@@ -276,11 +277,10 @@ try {
       'Close re-reads the orders once',
     );
     assert.equal(
-      await page.evaluate(() => document.activeElement?.dataset?.buy),
-      'sterling-10',
-      'and gives focus back to that product\'s Buy control',
+      await page.evaluate(() => location.hash),
+      '#orders',
+      'and lands on the orders, where the row the service recorded is on screen',
     );
-    await page.getByRole('link', { name: 'Orders', exact: true }).click();
     await page.locator('.store-order-record').waitFor();
     const record = (await page.locator('.store-order-record').innerText()).replace(
       /\s+/g,
@@ -305,14 +305,18 @@ try {
     await page.keyboard.press('Enter');
     await page.locator('.store-modal').waitFor({ state: 'detached' });
     assert.equal(
-      await page.evaluate(() => document.activeElement?.dataset?.buy),
-      'sterling-10',
-      'Enter closes it and focus returns to Buy',
+      await page.evaluate(() => location.hash),
+      '#orders',
+      'Enter closes it and lands on the orders like Close does',
     );
-    console.log('Enter PASS: the dialog closes and focus returns to Buy.');
+    console.log('Enter PASS: the dialog closes and lands on the orders.');
   }
   // (c) the cancel fragment: no dialog, no sentence, the store exactly as it was.
   {
+    // The dialog's Close has left us on the orders, and this section is about the shop in front of
+    // the player, so go back to it the way a player would.
+    await page.getByRole('link', { name: 'Browse', exact: true }).click();
+    await page.locator('.store-product').first().waitFor();
     const before = await storeText(page);
     assert.equal(before.includes('Payment Successful'), false);
     const stripe = await press();
