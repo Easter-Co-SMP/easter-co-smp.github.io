@@ -675,12 +675,3 @@
     animation: none;
   }
 }
-
-/* The one sentence about where bought currency lands, above the grid: it belongs to the shop, not
-   to each card, because every card's own line already carries its amount. */
-.store-bank-note {
-  margin: 0 0 12px;
-  color: var(--store-muted, #a8b9b4);
-  font-size: 13px;
-  line-height: 1.6;
-}

@@ -105,15 +105,8 @@ const money = (amountMinor, currency) =>
 // Purchases go to the bank; every currency pack shares Owen's deposit instructions.
 const worth = (p) =>
   p.creditPence > 0
-    ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(
-        p.creditPence / 100,
-      ) + " Sterling in your bank"
+    ? "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game."
     : COPY.donation;
-// Where bought currency lands, said once for the whole shop rather than on every card: the card's
-// own line carries the amount, and this carries the rule (Owen, 2026-10-23: purchases credit the
-// player's bank, never the wallet).
-const BANK_NOTE =
-  "In-game currency is deposited into your in-game bank account when you buy it, and can only be taken out in the game.";
 const dateOf = (iso) =>
   new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
     new Date(iso),
@@ -391,7 +384,6 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
   }
   function catalogueView() {
     if (message || !products.length) return;
-    content.append(el("p", "store-bank-note", BANK_NOTE));
     const grid = el("div", "store-grid");
     for (const p of products) grid.append(card(p));
     content.append(grid);

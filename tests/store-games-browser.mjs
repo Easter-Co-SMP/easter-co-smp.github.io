@@ -77,7 +77,7 @@ try {
       );
       assert.deepEqual(
         await store.locator(".store-worth").allInnerTexts(),
-        ["25 Sterling in your bank", "A one-off donation.", "0.07 Sterling in your bank"],
+        ["All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.", "A one-off donation.", "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game."],
         "currency packs share bank deposit instructions, and a product that credits nothing is a donation",
       );
       // No product, price, category or placeholder of the old mock survives anywhere on the page.

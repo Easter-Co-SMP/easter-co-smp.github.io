@@ -455,3 +455,7 @@ proves the fragments work.
 Superseding the earlier worth-line wording above, every currency pack now reads: "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game." Titles and server prices are unchanged. Donations retain "A one-off donation." The donation emblem is a detailed local vector heart above gifted gold coins, replacing the flag, in both catalogue and item views.
 
 Currency artwork scales with the server-provided creditPence: a few coins below 100 Sterling, a filled pouch from 100 Sterling, and an overflowing chest from 1,000 Sterling. Catalogue and item views share the selection.
+
+## Currency item descriptions — correction
+
+Each currency item must show this exact description in catalogue and detail views: "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game." There is no bank explanation above the catalogue. Keep the amount in the product title. This supersedes the earlier instruction to put the bank explanation once above the cards.
