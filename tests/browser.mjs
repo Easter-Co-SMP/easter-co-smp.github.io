@@ -913,23 +913,38 @@ try{
    assert.equal(await profileMenu.locator('.desktop-company').count(),0,'the menu carries no Microsoft / Xbox status line');
    assert.equal(await profileMenu.locator('.desktop-profile-heading.desktop-email').count(),0,'and no login-email line');
    assert.equal(await profileMenu.getByRole('button',{name:'Sign out of Easter Company',exact:true}).count(),0,'one primary Logout action');
-   // Owen, 2026-10-20: "when I click the profile button in the nav bar an element is toggled
-   // within the Easter Co. SMP hero '{spinner} Contacting the account service' ... shouldn't be
-   // in the hero, should be apart of the drop down". A surface-scoped account read reports
-   // inside the menu while it is open, and the hero stays silent about work it did not start.
-   // A hero-owned wait still paints the hero and never the menu. Opening the menu no longer
-   // starts a read of its own — it prints no address, so it has nothing to read for (Owen,
-   // 2026-10-22) — but any account read still running while it is open reports here.
+   // Owen, 2026-10-23, with the dropdown open: "when we open the profile dropdown there's a
+   // 'Contacting account service...' line which flashes up and disappears, i think it's left over
+   // from something else, just remove that element." That line was this menu's own copy of a
+   // `scope: 'surface'` activity, drawn after a 500 ms delay; it is gone, and nothing takes its
+   // place — no line, no live region, no empty slot reserving space. The menu is exactly the two
+   // account lines and the three entries, and a surface-scoped account read now paints nothing in
+   // it at all. This supersedes Owen's 2026-10-20 request that the dropdown report the read it
+   // started (doc/launcher-states.md, *Quiet activity feedback*); the reads themselves are
+   // untouched and report inside the dialog that started them, and the hero's half of the split
+   // is unchanged, which is why a hero-scoped stage still paints the hero and never this menu.
+   // `emit` paints synchronously, so every read below happens after the broadcast was drawn.
+   const menuShape=async()=>({
+    waitLines:await profileMenu.locator('.desktop-profile-wait').count(),
+    liveRegions:await profileMenu.locator('[role=status],[aria-live],[aria-busy]').count(),
+    children:await profileMenu.evaluate(node=>[...node.children].map(child=>child.dataset.profileAction||child.className)),
+    text:(await profileMenu.innerText()).replace(/\s+/g,' ').trim()
+   });
    await pushState({activity:{stage:'account-working',message:'Contacting the account service…',startedAt:Date.now(),scope:'surface'}});
-   const menuWait=profileMenu.locator('.desktop-profile-wait');
-   await menuWait.waitFor({state:'visible'});
-   assert.match(await menuWait.innerText(),/Contacting the account service/,'the wait is inside the menu that started it');
+   const quietMenu=await menuShape();
+   assert.equal(quietMenu.waitLines,0,'a surface-scoped account read paints no waiting line in the menu at all');
+   assert(!/Contacting the account service/.test(quietMenu.text),'and no such sentence: '+quietMenu.text);
+   assert.equal(quietMenu.liveRegions,0,'with no live region and no empty slot left behind for one');
+   assert.deepEqual(quietMenu.children,['desktop-profile-heading desktop-account','myProfile','linkedAccounts','logout'],'the menu is the two-line heading and the three entries and nothing else: '+JSON.stringify(quietMenu.children));
    assert.equal(await launcherPage.locator('.desktop-activity').isVisible(),false,'and the hero says nothing about work it did not start');
+   // The hero's half of the split, kept exactly as it was: a hero-scoped activity still paints the
+   // hero, and the menu stays as quiet about it as it was about the surface-scoped one.
    await pushState({activity:{stage:'company-signing-in',message:'Connecting your Easter Company account…',startedAt:Date.now(),scope:'hero'}});
    await launcherPage.locator('.desktop-activity').waitFor({state:'visible'});
-   assert.equal(await menuWait.isVisible(),false,'a hero-owned wait never paints the menu');
+   assert.equal(await profileMenu.locator('.desktop-profile-wait').count(),0,'a hero-owned wait never paints the menu either');
+   assert(!/Connecting your Easter Company account/.test(await profileMenu.innerText()),'no stage of either scope reaches the menu');
    await pushState({activity:null});
-   await menuWait.waitFor({state:'hidden'});
+   await launcherPage.locator('.desktop-activity').waitFor({state:'hidden'});
    // The verified emails are inside My Profile now: the section lists what the account service
    // reports, and the choice reaches main as the chosen address and nothing else. No address is
    // ever part of the state that is pushed, and the menu itself says nothing about one — that

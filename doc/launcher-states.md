@@ -2904,22 +2904,67 @@ object during an account operation:
 
 `scope` exists because the hero is not the only place work starts. An operation the player
 begins from the hero - installing, signing in, playing, waking the server - owns the hero's
-wait line. An operation they begin from a menu or a dialog - My Profile's verified-emails section reads
+wait line. An operation they begin from a dialog - My Profile's verified-emails section reads
 their verified emails, Linked Accounts reads the provider list, the
 username step asks whether a name is free, the verified-emails dialog saves a choice -
-reports in that surface, and may never paint the hero's line. Owen, 2026-10-20: *"when I
-click the profile button in the nav bar an element is toggled within the Easter Co. SMP hero
-\"{spinner} Contacting the account service\" ... shouldn't be in the hero, should be apart of
-the drop down, showing the spinner until the email and account info is fetched."* The stage
+reports in that dialog, and may never paint the hero's line. The stage
 and its words are unchanged by this field; only the surface that draws them is.
 
-The subsequent profile-menu design refinement removes the animated spinner from
-that dropdown. Routine refreshes stay silent for 500 ms; a request still pending
-then shows its status as a small text-only live region in the menu. Existing email
-content stays visible during refresh. Completion or closing the menu clears the
-status and cancels its pending appearance. Other surfaces keep their existing
-feedback. `tests/profile-status-browser.mjs` covers fast/slow responses, repeated
-state paints, completion, and close/reopen cancellation with a controlled clock.
+**The profile menu reports no wait at all (2026-10-23).** Owen, with the dropdown open:
+*"when we open the profile dropdown there's a 'Contacting account service...' line which
+flashes up and disappears, i think it's left over from something else, just remove that
+element."* The line was the menu's own copy of a `scope: 'surface'` activity: a text-only
+`role=status` row appended to the menu, filled 500 ms into a pending read and cleared when the
+menu closed or the read finished. It is removed outright — `.desktop-profile-wait` and
+`site/profile-status.mjs` are gone with it, and nothing replaces it: no line, no reserved slot,
+no delay. A surface-scoped activity now paints **nothing** in the menu, because the menu itself
+reads nothing and prints nothing about an address, and the reads it used to stand for report
+inside the dialog that started them (Linked Accounts' own "Checking your linked accounts…"
+busy line, the verified-emails section's "Reading your verified emails…"). What did not change
+is the other half of the split: a hero-scoped activity still paints the hero, and the hero
+still never reports work it did not start. `tests/browser.mjs` asserts the removal — a
+pushed `scope: 'surface'` account-working activity leaves the menu with no waiting line, no
+live region and no empty slot, the menu's children are the two-line heading and the three
+entries and nothing else, and the hero stays silent about it — and then asserts a
+`scope: 'hero'` activity still paints the hero and never the menu.
+
+This supersedes the 2026-10-20 request that put the row there — *"should be apart of the drop
+down, showing the spinner until the email and account info is fetched"* — and with it the
+same-day refinement that took the spinner out of that row and kept the text: the row is gone,
+not restyled. `scope` still tells the two readings apart, so a surface that must report its own
+wait has a rule to follow: it reports inside itself, as Linked Accounts and the verified-emails
+section now do.
+
+**Linked Accounts reports its own wait inside the dialog (2026-10-23).** Owen, with that dialog
+open against a cold account API: *"when the api is cold, we need a loading spinner for the
+account section here."* `openLinkedAccounts` (`site/company-profile.mjs`) used to await
+`desktop.accountProviders()` before it built anything, so the cold path — that provider read,
+which waits on a resumed database like every other account read — drew a dialog with an empty
+provider section and no word about it. Measured before the change with the answer held on a
+promise: the dialog was on screen 295 ms after the press, and for the whole 12 s it was held
+there were 0 provider rows, 0 Connect controls and 0 live regions carrying text. The dialog now
+opens at once and, while the answer is outstanding, draws the launcher's one indeterminate wait
+from `site/wait-feedback.mjs` — the `update-spin` ring, decorative and `aria-hidden` — beside a
+single sentence, **Checking your linked accounts…**, with no `aria-busy` added: the busy state is
+announced once, by that `role=status` region, and the ring still stops under
+`prefers-reduced-motion` while the sentence carries the state. No row is drawn before the answer
+is in, so no `Connect` is offered on a guess and the section is never an empty box or a blank
+gap; the rows are painted the moment the answer arrives, in the same labels, detail lines,
+`Connect` controls and availability rule as before, with no second spinner, and the close control
+works throughout. A read that fails, times out or answers with nothing is an ordinary failure:
+one sentence, **Your linked accounts could not be read.**, in the dialog's own `role=alert` slot
+(the shape the verified-emails section already uses for "Your verified emails could not be
+read."), with no spinner left behind and no row set that would imply nothing is linked. A row's
+own record — its label, linked state and detail lines — is `state.account`'s, which the launcher
+already holds, so the section waits only on the availability answer and never on the slower of
+two reads. `tests/identity-browser.mjs` holds that answer open on a promise rather than a clock
+and asserts the busy sentence with no rows, the settle into the same rows, and the failure
+sentence.
+
+The stage table below is unchanged by either change: `account-working` is still published while
+an account read runs, and still paints the hero for a hero-scoped read (the Minecraft session
+probe). What is gone is its two former places of rest — the menu, which paints no wait at all,
+and Linked Accounts, which now words its own.
 
 | Stage | Message |
 |---|---|

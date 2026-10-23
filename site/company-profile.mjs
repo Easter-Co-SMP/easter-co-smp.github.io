@@ -1,4 +1,5 @@
 import {PASSWORD_POLICY} from './company-auth.mjs';
+import {createWaitFeedback} from './wait-feedback.mjs';
 // The signed-in account has two surfaces, named by Owen on 2026-10-22: My Profile holds what the
 // player is called, their picture, their verified emails and their password; Linked Accounts
 // holds the providers this account plays through and the Minecraft session they share. The menu
@@ -146,16 +147,43 @@ export async function openMyProfile({desktop,getState,isAccountLocked,openEmails
 // an address or a password is on this surface: those belong to My Profile.
 export async function openLinkedAccounts({desktop,getState,signInMicrosoft,isAccountLocked,cancelSignIn}){
  if(document.querySelector('#company-linked-accounts'))return null;
+ // The one busy state, in the rows' own place. This surface used to await the providers answer
+ // before it drew anything at all, so a cold account API left the dialog open with an empty
+ // section and no word about it (measured 2026-10-23: 12 s held, zero rows, zero busy marks,
+ // no live region), and the rows that did arrive last offered Connect for providers the
+ // launcher had not heard about yet. The wait line stands where the rows will be, so the
+ // section is never an empty box and never a blank gap; `createWaitFeedback` is the launcher's
+ // own quiet wait - the indeterminate ring in site/desktop.css, a decorative aria-hidden mark
+ // beside one sentence in a role=status region - and this dialog adds no look of its own.
  const surface=accountSurface({
   id:'company-linked-accounts',title:'Linked Accounts',isAccountLocked,cancelSignIn,
   markup:'<p>Links stay with this Easter Company account and cannot be removed from the launcher yet. Microsoft / Xbox and Minecraft ownership are required to play Minecraft.</p>'
+   +'<p class="company-wait" hidden></p>'
    +'<div class="company-provider-links"></div>'
    +'<div class="company-minecraft-session" hidden><h3>Minecraft session</h3><p>Your Microsoft session is stored on your Easter Company account, so any computer you sign in on is ready to play without asking Microsoft again.</p><button type="button" data-revoke-minecraft data-account-change>Sign out of Minecraft everywhere</button></div>'
    +'<p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p>'
  });
  const {modal}=surface;
- let available=null;
- try{available=(await desktop.accountProviders()).providers;}catch{}
+ // The one busy state this surface owns, created on the line the markup reserves for it and in the
+ // place the rows will arrive. It is the launcher's existing wait - a decorative aria-hidden ring
+ // and one sentence in a role=status region, the ring still under reduced motion - so nothing here
+ // is a new look and nothing here is announced twice.
+ const wait=createWaitFeedback(modal.querySelector('.company-wait'));
+ // Three answers, and only the third draws rows:
+ //  - `answered` is the providers answer, which is the *availability* question only: which of
+ //    Microsoft, Google, Steam and Discord this launcher can offer a Connect for. It is the one
+ //    thing this section waits for.
+ //  - `failed` is an answer nobody could read: a rejection, a timeout, or a bridge that answered
+ //    with nothing. That is reported as one sentence and never as an empty list, which would
+ //    read as "nothing is linked".
+ //  - everything else in a row - its label, its linked state, its detail lines - is the account
+ //    document's own record, which the launcher already holds and this view reads from
+ //    getState(). Nothing about a row waits for a read the launcher has already made, and no
+ //    Connect is drawn before the availability answer is in.
+ let available=null,answered=false,failed=false,closed=false;
+ // A wait that finishes after the player closed the dialog has no surface left to report to, and
+ // the ring must not keep animating on a removed element.
+ modal.addEventListener('close',()=>{closed=true;wait.clear();});
  // The lock is not computed here and there is no list of phases in this file: site/desktop.js
  // owns it, hands it in as `isAccountLocked`, and re-applies it when a broadcast changes it. That
  // this dialog opens only from a locked menu entry, and is modal, is not what keeps these
@@ -169,6 +197,12 @@ export async function openLinkedAccounts({desktop,getState,signInMicrosoft,isAcc
   const sessionSection=modal.querySelector('.company-minecraft-session');
   if(sessionSection)sessionSection.hidden=getState()?.minecraftSession?.serverHeld!==true;
   const list=modal.querySelector('.company-provider-links');list.replaceChildren();
+  // No row is drawn until the availability answer is in: a row drawn earlier could only offer a
+  // Connect on a guess, and a list drawn from a failed answer would say nothing is linked when
+  // the truth is that nobody could read it. The wait line the markup puts just above this list is
+  // what stands in the section meanwhile; the stored-session section further down is the account's
+  // own record and is drawn whatever the provider answer does.
+  if(!answered||failed){surface.applyLock();return;}
   // A missing or malformed record is no details at all, which renders exactly as the dialog
   // did before this field existed. It is never an error and never a broken row.
   const details=account.providerDetails&&typeof account.providerDetails==='object'&&!Array.isArray(account.providerDetails)?account.providerDetails:null;
@@ -226,6 +260,39 @@ export async function openLinkedAccounts({desktop,getState,signInMicrosoft,isAcc
   }catch(error){surface.message(error?.message||'The launcher could not sign Minecraft out.',true);}
   finally{surface.state.busy=false;for(const button of modal.querySelectorAll('button'))button.disabled=false;paint();}
  };
+ // The one read this surface makes, asked when the dialog opens, and the only thing the section
+ // waits for. `openLinkedAccounts` itself does not await it: it returns the dialog's view at
+ // once, so a broadcast that changes the account lock still reaches a dialog that is still
+ // waiting, and the rows appear on their own when the answer lands, with no reload.
+ const settle=async()=>{
+  const ask=typeof desktop.accountProviders==='function'?desktop.accountProviders.bind(desktop):null;
+  // A build whose bridge has no availability answer has nothing to wait for and nothing to be
+  // wrong about: it draws the rows this dialog drew before this wait existed, Connect controls
+  // included, exactly as that build always did.
+  if(!ask){answered=true;paint();return;}
+  wait.set({message:'Checking your linked accounts…',startedAt:Date.now()});
+  try{
+   const answer=await ask();
+   // An answer that is not an object read nothing, which is a failure and not a launcher with no
+   // providers: it must never settle into a list that implies nothing is linked.
+   if(!answer||typeof answer!=='object')failed=true;
+   else{available=answer.providers;answered=true;}
+  }catch{
+   // A rejection is a failed read: the account service refused, the request timed out, or the
+   // launcher could not reach it. Every account read is bounded in the main process
+   // (RETRY_ATTEMPT_CEILING_MS and READ_RETRY_BUDGET_MS, desktop/accounts.cjs), so this settles
+   // one way or the other; a read that never settled would be main's defect rather than a
+   // sentence this view could honestly invent.
+   failed=true;
+  }
+  wait.clear();
+  // The player may have closed the dialog while it was waiting. There is then no surface left to
+  // paint a row or a sentence into, and nothing here has invalidated the account.
+  if(closed||!modal.isConnected)return;
+  if(failed)surface.message('Your linked accounts could not be read.',true);
+  else paint();
+ };
+ void settle();
  // The launcher asks for this whenever a broadcast could have changed the account lock, so a
  // dialog that is already open follows it. Only the lock is re-applied: the rows are rebuilt by
  // paint() on the dialog's own actions, so a broadcast never replaces a control under the

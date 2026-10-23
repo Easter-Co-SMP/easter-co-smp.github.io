@@ -334,9 +334,6 @@
  .desktop-company-dialog .company-error:not([hidden]){animation:line-enter 160ms ease-out both}
 }
 
-/* A slow profile refresh gets a quiet status sentence, with no animated marker. */
-.desktop-profile-wait{margin:6px 0 10px;font:11px/1.6 system-ui;color:var(--app-muted)}
-
 /* Launcher home: one aligned row; supporting cards pair below the client on compact screens. */
 .desktop-mode body.home{height:auto;min-height:100dvh;overflow-y:auto}
 .desktop-mode body.home>.home-content{padding:calc(32px + var(--launcher-notice-space,0px)) 40px 72px}

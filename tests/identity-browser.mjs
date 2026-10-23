@@ -37,6 +37,20 @@ try{
    install:{installed:true,location:'/fixture/client',defaultLocation:'/fixture/client',version:'26.2'},actions:['play'],
    graphics:{enabled:false,recommended:true,tunable:true},game:{state:'running',ready:true},progress:null,bar:{visible:false}};
   window.__fixture={skin,picture,calls:[]};
+  // The providers answer, and the one thing the Linked Accounts section waits for. Every case that
+  // is not about the wait answers at once; the wait cases hold this promise open and release or
+  // fail it by hand, so a busy state is proven by the answer not existing rather than by watching
+  // a clock. `hold` gives each call its own pending promise, so a case can close the dialog
+  // mid-wait and open it again.
+  const providers={mode:'answer',answer:{providers:['microsoft','google']},pending:null};
+  window.__fixture.holdProviders=()=>{providers.mode='hold';};
+  window.__fixture.releaseProviders=answer=>{providers.mode='answer';providers.answer=answer||{providers:['microsoft','google']};const pending=providers.pending;providers.pending=null;if(pending)pending.resolve(providers.answer);};
+  window.__fixture.failProviders=()=>{providers.mode='fail';const pending=providers.pending;providers.pending=null;if(pending)pending.reject(new Error('The account service could not be reached.'));};
+  const providersAnswer=()=>{
+   if(providers.mode==='answer')return Promise.resolve(providers.answer);
+   if(providers.mode==='fail')return Promise.reject(new Error('The account service could not be reached.'));
+   return new Promise((resolve,reject)=>{providers.pending={resolve,reject};});
+  };
   let notify=()=>{};
   const push=patch=>{for(const [key,value] of Object.entries(patch))state[key]=value===null||typeof value!=='object'?value:structuredClone(value);notify({...state});};
   window.sendState=push;
@@ -46,7 +60,7 @@ try{
    signIn:async options=>{record('signIn',options);return {};},
    cancelSignIn:async()=>{record('cancelSignIn');},
    openMicrosoft:async()=>{record('openMicrosoft');},
-   accountProviders:async()=>({providers:['microsoft','google']}),
+   accountProviders:providersAnswer,
    signInProvider:async(provider,link)=>{record('signInProvider',{provider,link});return {};},
    updateProfile:async name=>{record('updateProfile',name);},
    setProfilePicture:async remove=>{record('setProfilePicture',remove);return {cancelled:true};},
@@ -486,10 +500,120 @@ try{
  const signInCall=await page.evaluate(()=>window.__fixture.calls.filter(call=>call.name==='signIn').at(-1));
  assert.deepEqual(signInCall,{name:'signIn',payload:{link:true}},'Connect Microsoft runs the link sign-in');
  note('Connect Microsoft links; the control is offered only when there is something to link');
+ await page.locator('#company-linked-accounts .dialog-close').click();
+ await page.locator('#company-linked-accounts').waitFor({state:'detached'});
+
+ // --- The account service being cold ------------------------------------------
+ // Owen, 2026-10-23, with this dialog open against a cold account API: "when the api is cold, we
+ // need a loading spinner for the account section here." The dialog used to await the providers
+ // answer before it built anything, so on the cold path it opened with an empty section and no
+ // word about it for the whole wait (measured on the tree before this change: the dialog on
+ // screen 295 ms after the press, then 12 s held with 0 provider rows, 0 busy marks and 0 live
+ // regions carrying text), and the rows it did eventually draw offered Connect for providers the
+ // launcher had not heard about yet.
+ //
+ // Nothing here watches a clock: the answer is held open on a promise, so the busy state is
+ // proven by the answer not existing, and the rows are proven absent while it does not.
+ const BUSY_LINE='Checking your linked accounts…';
+ const busyState=()=>page.evaluate(()=>{
+  const dialog=document.querySelector('#company-linked-accounts');
+  if(!dialog)return null;
+  const host=dialog.querySelector('.company-wait'),mark=dialog.querySelector('.company-wait .wait-feedback-mark');
+  return {
+   rows:dialog.querySelectorAll('.company-provider-link').length,
+   connects:dialog.querySelectorAll('.company-provider-link button').length,
+   waitVisible:Boolean(host&&!host.hidden),
+   waitText:host?host.textContent.trim():'',
+   markHidden:mark?mark.getAttribute('aria-hidden'):null,
+   markAnimation:mark?getComputedStyle(mark).animationName:'',
+   // Every live region in the dialog that is on screen and actually says something. One busy
+   // state means exactly one of these, and no aria-busy arguing with it.
+   announcing:[...dialog.querySelectorAll('[role=status],[aria-live]')]
+    .filter(node=>!node.hidden&&node.textContent.trim()).map(node=>({role:node.getAttribute('role'),text:node.textContent.trim()})),
+   ariaBusy:dialog.getAttribute('aria-busy'),
+   failures:[...dialog.querySelectorAll('.company-error')].filter(node=>!node.hidden).map(node=>node.textContent.trim()),
+   closeDisabled:dialog.querySelector('.dialog-close').disabled
+  };
+ });
+ const COLD_ACCOUNT={...LINKED_ACCOUNT,providerDetails:{microsoft:{gamertag:'Hannah Wren'},google:{email:'hannah@example.test'},steam:{persona:null}}};
+ const COLD_ROWS=[
+  {label:'Microsoft / Xbox · linked',lines:['Xbox Gamer Tag: Hannah Wren','Minecraft Username: HannahMC'],blocks:1},
+  {label:'Google · linked',lines:['Gmail: hannah@example.test'],blocks:1},
+  {label:'Steam · linked',lines:[],blocks:0},
+  {label:'Discord',lines:[],blocks:0}
+ ];
+ await page.evaluate(account=>sendState({account,profile:null}),COLD_ACCOUNT);
+ await page.evaluate(()=>window.__fixture.holdProviders());
+ const openLinkedAccounts=async()=>{
+  await page.locator('.desktop-account-nav').click();
+  await page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
+  await page.locator('#company-linked-accounts').waitFor({state:'visible'});
+ };
+ await openLinkedAccounts();
+ const busy=await busyState();
+ assert.equal(busy.waitVisible,true,'the dialog shows the busy state while the providers answer is outstanding');
+ assert(busy.waitText.startsWith(BUSY_LINE),'and it says what it is doing, in one plain sentence: '+JSON.stringify(busy.waitText));
+ assert.equal(busy.markHidden,'true','the ring is decorative, beside the sentence that carries the state');
+ assert.equal(busy.markAnimation,'update-spin','the ring is the launcher\'s existing indeterminate progress, not a new look: '+busy.markAnimation);
+ assert.deepEqual(busy.announcing.map(region=>region.role),['status'],'the busy state is announced once, by one role=status region: '+JSON.stringify(busy.announcing));
+ assert(busy.announcing[0].text.startsWith(BUSY_LINE),'and the region that announces it carries the sentence');
+ assert.equal(busy.ariaBusy,null,'aria-busy is not set as well: one announcement, not two fighting');
+ assert.equal(busy.rows,0,'no provider row is drawn before the answer is in');
+ assert.equal(busy.connects,0,'and no row offers Connect on a guess');
+ assert.deepEqual(busy.failures,[],'a wait is not a failure and prints no failure sentence');
+ assert.equal(busy.closeDisabled,false,'the close control keeps working while it waits');
+ await page.screenshot({path:`${images}/profile-linked-busy-1440.png`,animations:'disabled'});
+
+ // The wait is not a trap: the close control works on it, and reopening asks again.
+ await page.locator('#company-linked-accounts .dialog-close').click();
+ await page.locator('#company-linked-accounts').waitFor({state:'detached'});
+ // Reduced motion keeps the ring still (site/wait-feedback.mjs, .wait-feedback-mark) and the
+ // sentence carries the state exactly as before.
+ await page.emulateMedia({reducedMotion:'reduce'});
+ await openLinkedAccounts();
+ const still=await busyState();
+ assert.equal(still.waitVisible,true,'the busy state is still shown under reduced motion');
+ assert.equal(still.markAnimation,'none','and its ring is still there and not animating: '+still.markAnimation);
+ assert.equal(still.rows,0,'with still no row before the answer');
+ await page.emulateMedia({reducedMotion:'no-preference'});
+
+ // The answer arrives while the dialog is open: the rows are painted where the wait was, with no
+ // reload and no second spinner.
+ await page.evaluate(()=>window.__fixture.releaseProviders());
+ await page.waitForFunction(()=>document.querySelectorAll('#company-linked-accounts .company-provider-link').length>0);
+ const settled=await busyState();
+ assert.equal(settled.waitVisible,false,'the busy state leaves when the answer arrives');
+ assert.deepEqual(await detailRows(),COLD_ROWS,'and the rows are drawn exactly as they are on the warm path');
+ assert.equal(await page.locator('#company-linked-accounts .wait-feedback-mark:visible').count(),0,'no spinner is left behind');
+ assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:'Connect Discord',exact:true}).count(),1,'the unlinked provider keeps its Connect');
+ assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:'Connect Discord',exact:true}).isDisabled(),true,'and it answers to the availability the launcher actually reported: Discord is not in it');
+ assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:'Connect Google',exact:true}).count(),0,'a provider this account already plays through offers no Connect');
+ assert.deepEqual(settled.failures,[],'settling is not a failure');
+ await page.screenshot({path:`${images}/profile-linked-settled-1440.png`,animations:'disabled'});
+ note('cold path: the dialog opens at once on one busy sentence and no rows, and settles into today\'s rows when the answer lands');
+ await page.locator('#company-linked-accounts .dialog-close').click();
+ await page.locator('#company-linked-accounts').waitFor({state:'detached'});
+
+ // A read that failed is one sentence and no spinner: never a permanent wait, and never an empty
+ // list, which would say nothing is linked when the truth is that nobody could read it.
+ await page.evaluate(()=>window.__fixture.failProviders());
+ await openLinkedAccounts();
+ await page.waitForFunction(()=>{const node=document.querySelector('#company-linked-accounts .company-error');return node&&!node.hidden;});
+ const failed=await busyState();
+ assert.deepEqual(failed.failures,['Your linked accounts could not be read.'],'a failed answer is one sentence naming the read: '+JSON.stringify(failed.failures));
+ assert.equal(failed.waitVisible,false,'and the busy state is gone rather than spinning for ever');
+ assert.equal(await page.locator('#company-linked-accounts .wait-feedback-mark:visible').count(),0,'no spinner is left behind');
+ assert.equal(failed.rows,0,'and no empty row set implying nothing is linked');
+ assert.equal(failed.closeDisabled,false,'the close control still works on the failure');
+ assert.equal(await page.locator('#company-linked-accounts .company-error').getAttribute('role'),'alert','the sentence is announced as a failure');
+ await page.screenshot({path:`${images}/profile-linked-failed-1440.png`,animations:'disabled'});
+ await page.locator('#company-linked-accounts .dialog-close').click();
+ await page.locator('#company-linked-accounts').waitFor({state:'detached'});
+ note('cold path: a failed providers answer is one sentence in the dialog\'s existing failure slot, with no spinner and no row set');
 
  assert.deepEqual(errors,[],'the launcher raises no page error');
  assert.deepEqual(requests.filter(url=>!/^data:/.test(url)&&!url.startsWith(origin)),[],'the renderer reads nothing over the network of its own: every request it made was for the page itself');
- console.log(`IDENTITY PASS: ${notes.length} checks — display name first in the header and the account view, the Minecraft head from state.profile.skin or state.minecraftHead with the initial tile last, five Minecraft-session shapes with their own words, action and glyph (probing, unreadable answer, dead Easter Company session, reconnect, unlinked) and no pause icon and no "Sign in with Microsoft" over a signed-in linked account, no provider control that can only fail, and each linked provider's own details drawn as text with no line where there is no value. Screenshots: ${images}`);
+ console.log(`IDENTITY PASS: ${notes.length} checks — display name first in the header and the account view, the Minecraft head from state.profile.skin or state.minecraftHead with the initial tile last, five Minecraft-session shapes with their own words, action and glyph (probing, unreadable answer, dead Easter Company session, reconnect, unlinked) and no pause icon and no "Sign in with Microsoft" over a signed-in linked account, no provider control that can only fail, each linked provider's own details drawn as text with no line where there is no value, and a cold account API answered by one honest busy state that settles into those same rows or one failure sentence. Screenshots: ${images}`);
 }finally{
  await browser.close();
 }

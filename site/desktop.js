@@ -47,12 +47,13 @@
  let companyAuth=null,myProfileView=null,linkedAccountsView=null;
  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
- let heroWait=null,authWait=null,profileWait=null,localActivity=null,serverWaitStartedAt=null;
+ let heroWait=null,authWait=null,localActivity=null,serverWaitStartedAt=null;
  // Where a wait belongs. `hero` is the default and what every operation the player starts from
- // the hero publishes; `surface` is an operation they started in a menu or a dialog, which
- // reports there and never paints the hero's line (doc/launcher-states.md, `activity`).
+ // the hero publishes; `surface` is an operation they started in a dialog, which reports inside
+ // that dialog and never paints the hero's line (doc/launcher-states.md, `activity`). The
+ // profile menu paints no wait of any kind, so a surface-scoped activity reaches no menu: its
+ // reads report in their own dialog (Owen, 2026-10-23).
  const heroScoped=value=>!value||(value.scope||'hero')==='hero';
- const surfaceScoped=value=>Boolean(value)&&value.scope==='surface';
  const waitingUI=import('./wait-feedback.mjs').then(({createWaitFeedback})=>{heroWait=createWaitFeedback(heroWaitNode);authWait=createWaitFeedback(auth('.desktop-auth-wait'));if(current)render(current);});
  let current=null,settings,totalMemoryMB=0,heroButton=null,settingsButton=null,graphicsSection=null,graphicsSwitch=null,graphicsLabel=null,graphicsNote=null,graphicsError=null,signInPending=false;
 
@@ -853,9 +854,6 @@
   const gameWait=waking?{stage:'server-starting',message:current.game.message||'Waiting for the server to be ready…',detail:current.game.detail,startedAt:serverWaitStartedAt}:null;
   const heroActivity=!signInPending&&!signin.open&&!document.querySelector('.desktop-company-dialog[open]')&&current.startupReady!==false&&!transferring(current)?gameWait||(heroScoped(activity)?activity:null):null;
   heroWait?.set(heroActivity);
-  // The profile menu is the other surface: the verified-email read it starts reports inside it,
-  // under the line that read will fill in.
-  paintProfileWait();
   // The row stands down while the cold start's own wait line is carrying the same sentence,
   // so one live region says it rather than two. That is the only case it gives way to.
   renderGame(current,Boolean(gameWait)&&heroActivity===gameWait);
@@ -1063,11 +1061,15 @@
  const accountNameNode=document.createElement('strong');accountNameNode.className='desktop-account-name';
  const accountSignInNode=document.createElement('span');accountSignInNode.className='desktop-account-signin';
  accountHeading.append(accountNameNode,accountSignInNode);profileMenu.append(accountHeading);
- // Surface reads stay silent when fast. A read still pending after 500ms gets text inside this
- // menu, without the shared spinner or its reserved reassurance row; the menu no longer starts
- // one of its own (it reads nothing, and prints nothing, about an email).
- const profileWaitNode=document.createElement('p');profileWaitNode.className='desktop-profile-wait';profileWaitNode.hidden=true;profileMenu.append(profileWaitNode);
- void import('./profile-status.mjs').then(({createProfileStatus})=>{profileWait=createProfileStatus(profileWaitNode);paintProfileWait();});
+ // The menu carries no waiting line of any kind (Owen, 2026-10-23: "when we open the profile
+ // dropdown there's a 'Contacting account service...' line which flashes up and disappears, i
+ // think it's left over from something else, just remove that element"). The row was this
+ // menu's own copy of a `scope: 'surface'` activity, drawn after a 500 ms delay; it is gone and
+ // nothing takes its place - no line, no empty slot, nothing reserving space. A surface-scoped
+ // activity now paints nothing here at all, because the reads it stood for report inside the
+ // dialog that started them (site/company-profile.mjs openLinkedAccounts, site/company-auth.mjs
+ // openEmails), and this menu reads nothing of its own. The hero's half of the split is
+ // untouched: a `scope: 'hero'` activity still paints the hero and never this menu.
  // Both dialogs are account surfaces, so each is handed the account lock itself rather than a
  // copy of it (*The account lock* above, and site/company-profile.mjs). Each hands back a
  // syncLock, so a broadcast that changes the lock reaches controls that are already on screen.
@@ -1081,19 +1083,12 @@
   const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.profileAction=key;button.onclick=action;profileMenu.append(button);
  }
  document.body.append(profileMenu);
- // Only a surface-scoped operation paints here, and only while the menu is actually open: a wait
- // that finished after the player closed the menu has no surface left to report to.
- function paintProfileWait(){
-  if(!profileWait)return;
-  const activity=current?.activity;
-  profileWait.set(surfaceScoped(activity)&&profileMenu.matches(':popover-open')?activity:null);
- }
  const positionProfile=()=>{const rect=profileButton.getBoundingClientRect();profileMenu.style.top=rect.bottom+8+'px';profileMenu.style.right=Math.max(12,innerWidth-rect.right)+'px';};
  profileButton.onclick=()=>{
   if(!current?.account){signIn();return;}
   profileMenu.togglePopover();positionProfile();
  };
- profileMenu.addEventListener('toggle',event=>{profileButton.setAttribute('aria-expanded',String(event.newState==='open'));paintProfileWait();});
+ profileMenu.addEventListener('toggle',event=>{profileButton.setAttribute('aria-expanded',String(event.newState==='open'));});
  window.addEventListener('resize',positionProfile);
  let faceId=null,facePicture=null,faceSkin=null;
  // The name the player is called, not the handle they type. state.account.name is the
