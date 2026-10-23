@@ -1,3 +1,27 @@
+/*
+ * The Community store, rendered into the page at /store/.
+ *
+ * site/store/index.html owns the page shell — the site header and its nav, the h1, the mock
+ * notice that is readable without any interaction, and the footer. This module owns everything
+ * inside #store-root, and it is a page like /map/ and /wiki/ rather than a dialog, so its views
+ * are hash routes: Back, Forward and a shared link all reach the same view.
+ *
+ *   #catalogue       the selected game's catalogue. An empty or unrecognised hash lands here.
+ *   #item/<id>       one product's detail, <id> being a catalogue.mjs product id.
+ *   #cart            the cart and its demo totals.
+ *   #checkout        review the quote and place the test order. Needs a live quote in this
+ *                    session; without one the route falls back to #cart.
+ *   #receipt/<id>    one demo receipt. Needs that order in this session; without it the route
+ *                    falls back to #orders.
+ *   #orders          the mock purchase history.
+ *
+ * Category, search and sort are filter state on #catalogue, not routes: changing them never
+ * adds a history entry. The fragment is this store's whole routing surface, so the page carries
+ * no in-page anchor link.
+ *
+ * Everything here is local and synchronous: the catalogue comes from the in-process mock API,
+ * nothing is fetched, and the store never touches payment, account or entitlement state.
+ */
 import { CATEGORIES, GAMES, money } from "./catalogue.mjs";
 import { createMockStoreAPI } from "./mock-api.mjs";
 import { productArt } from "./art.mjs";
@@ -18,49 +42,43 @@ const artwork = (kind, cls = "store-art") => {
   n.innerHTML = productArt(kind);
   return n;
 };
-let singleton;
-export function openStore(options = {}) {
-  if (!singleton) singleton = createStore(options);
-  singleton.open();
-  return singleton;
-}
-export function createStore({ api = createMockStoreAPI() } = {}) {
+const anchor = (label, href, cls = "store-nav") => {
+  const n = el("a", cls, label);
+  n.href = href;
+  return n;
+};
+/*
+ * Mounts the store into `root` and returns the handle this page (and tests) drive it with.
+ * A non-mock adapter is refused rather than rendered: this is a labelled mock surface.
+ */
+export function mountStore(root, { api = createMockStoreAPI() } = {}) {
   if (api.mode !== "mock")
-    throw Error("This preview only accepts a mock commerce adapter.");
-  const dialog = el("dialog", "company-store");
-  dialog.setAttribute("aria-labelledby", "company-store-title");
-  const css = document.createElement("link");
-  css.rel = "stylesheet";
-  css.href = new URL("./store.css", import.meta.url).href;
-  document.head.append(css);
-  const mast = el("header", "store-mast"),
-    brand = el("div", "store-brand");
-  brand.append(el("span", "store-overline", "EASTER COMPANY"));
-  const title = el("h1", "store-title", "The Company store");
-  title.id = "company-store-title";
-  brand.append(title);
-  const nav = el("nav", "store-top-nav");
-  nav.setAttribute("aria-label", "Store navigation");
-  const browse = button("Browse", () => go("catalogue"), "store-nav"),
-    history = button("Orders", () => go("orders"), "store-nav"),
-    cartButton = button(
-      "Cart · 0",
-      () => go("cart"),
-      "store-nav store-cart-link",
-    ),
-    close = button("Close", () => dialog.close(), "store-close");
-  close.setAttribute("aria-label", "Close store");
-  nav.append(browse, history, cartButton, close);
-  mast.append(brand, nav);
-  const demo = el("div", "store-demo");
-  demo.append(
-    el("strong", "", "Mock store"),
-    el(
-      "span",
-      "",
-      "Sample products and USD prices. No charges or in-game delivery.",
-    ),
-  );
+    throw Error("The store page only accepts a mock commerce adapter.");
+  root.replaceChildren();
+  const navbar = el("div", "store-navbar"),
+    nav = el("nav", "store-top-nav");
+  nav.setAttribute("aria-label", "Store views");
+  const browse = anchor("Browse", "#catalogue"),
+    ordersLink = anchor("Orders", "#orders"),
+    cartLink = anchor("Cart · 0", "#cart", "store-nav store-cart-link");
+  nav.append(browse, ordersLink, cartLink);
+  /*
+   * A link naming the view already on screen has no hashchange to wait for, so it redraws in
+   * place; a link pressed while a read is in flight is refused the way the old buttons were
+   * disabled, rather than starting a second view under the first.
+   */
+  for (const n of [browse, ordersLink, cartLink])
+    n.addEventListener("click", (event) => {
+      if (n.getAttribute("aria-disabled") === "true") {
+        event.preventDefault();
+        return;
+      }
+      if (location.hash === n.getAttribute("href")) {
+        event.preventDefault();
+        applyRoute();
+      }
+    });
+  navbar.append(nav);
   const layout = el("div", "store-layout"),
     sidebar = el("aside", "store-sidebar"),
     body = el("div", "store-body"),
@@ -83,8 +101,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     el("summary", "store-game-picker-label", "Chose Your Game"),
     gamesNav,
   );
-  dialog.append(mast, demo, layout, announce);
-  document.body.append(dialog);
+  root.append(navbar, layout, announce);
   let gameId = "easter-smp";
   const gameName = (id) =>
     GAMES.find((g) => g.id === id)?.name || "Unknown game";
@@ -103,7 +120,10 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     busy = false,
     loading = false,
     key = null,
-    generation = 0;
+    // One counter per in-flight read, so entering a route never discards the answer another
+    // read is already carrying in.
+    catalogueRead = 0,
+    ordersRead = 0;
   const count = () => cart.reduce((sum, l) => sum + l.quantity, 0);
   const product = (id) => products.find((p) => p.id === id);
   const blocked = (p) =>
@@ -159,16 +179,20 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
       );
       gamesNav.append(choice);
     }
-    cartButton.textContent = "Cart · " + count();
+    cartLink.textContent = "Cart · " + count();
+    // The store's own nav is a set of hash links, so each one is a real destination: the
+    // current view is aria-current, and a request in flight marks them aria-disabled and
+    // swallows the click instead of letting a second view start.
     for (const [n, v] of [
       [browse, "catalogue"],
-      [history, "orders"],
-      [cartButton, "cart"],
+      [ordersLink, "orders"],
+      [cartLink, "cart"],
     ]) {
-      n.setAttribute("aria-current", view === v ? "page" : "false");
-      n.disabled = busy || loading;
+      if (view === v) n.setAttribute("aria-current", "page");
+      else n.removeAttribute("aria-current");
+      if (busy || loading) n.setAttribute("aria-disabled", "true");
+      else n.removeAttribute("aria-disabled");
     }
-    close.disabled = busy;
     sidebar.hidden = false;
     sidebar.replaceChildren(
       el("p", "store-overline", "BROWSE THE STORE"),
@@ -250,7 +274,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     content.replaceChildren();
     if (loading) {
       heading(
-        "THE COMPANY STORE",
+        "THE COMMUNITY STORE",
         view === "orders" ? "Loading your orders…" : "Opening the store…",
         view === "orders"
           ? "Fetching your mock purchase history."
@@ -270,20 +294,76 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
       for (const control of content.querySelectorAll("button,input,select"))
         control.disabled = true;
   }
-  function go(next) {
-    if (busy || loading) return;
-    if (next === "cart" && cart.length) gameId = product(cart[0].id).gameId;
-    if (next === "receipt" && order) gameId = order.gameId;
-    generation++;
+  // The hash a view is addressed by (see the route table at the top of this module).
+  function hashFor(next) {
+    if (next === "detail") return "#item/" + encodeURIComponent(selected);
+    if (next === "receipt") return "#receipt/" + encodeURIComponent(order.id);
+    if (next === "cart" || next === "orders" || next === "checkout")
+      return "#" + next;
+    return "#catalogue";
+  }
+  // Reads the hash a view actually showed up as, before any fallback is applied.
+  function route() {
+    const [name, ...rest] = location.hash
+      .replace(/^#\/?/, "")
+      .split("/");
+    const id = rest.join("/");
+    if (name === "item" && id)
+      return { view: "detail", id: decodeURIComponent(id) };
+    if (name === "receipt" && id)
+      return { view: "receipt", id: decodeURIComponent(id) };
+    if (name === "cart" || name === "orders" || name === "checkout")
+      return { view: name };
+    return { view: "catalogue" };
+  }
+  /*
+   * Draws whatever the hash asks for. A route that cannot be honoured now — a receipt for an
+   * order this session does not hold, a checkout with no live quote, an item id that is not in
+   * the catalogue — is redirected to the view that can be honoured with replaceState, so the
+   * store never leaves an address in the bar that is not the view on screen.
+   */
+  function applyRoute({ focus = true, keepError = false } = {}) {
+    const asked = route();
     loading = false;
-    error = null;
-    retry = null;
+    if (!keepError) {
+      error = null;
+      retry = null;
+    }
+    let next = asked.view;
+    if (next === "detail") selected = asked.id;
+    if (next === "receipt") {
+      const found =
+        orderList.find((o) => o.id === asked.id) ||
+        (order && order.id === asked.id ? order : null);
+      if (found) order = found;
+      else next = "orders";
+    }
+    if (next === "checkout" && !quote) next = "cart";
+    if (next === "checkout" && quote) gameId = quote.gameId;
+    if (next === "receipt" && order) gameId = order.gameId;
+    if (next === "cart" && cart.length) gameId = product(cart[0].id).gameId;
     view = next;
+    if (hashFor(view) !== location.hash)
+      history.replaceState(null, "", hashFor(view));
     render();
-    content.scrollTop = 0;
-    body.scrollTop = 0;
-    content.focus({ preventScroll: true });
-    if (next === "orders") void loadOrders();
+    if (focus) {
+      window.scrollTo(0, 0);
+      content.focus({ preventScroll: true });
+    }
+    if (view === "orders") void loadOrders();
+  }
+  // Every view change is a navigation, so one hashchange handler draws them all.
+  function go(next, { replace = false } = {}) {
+    if (busy || loading) return;
+    const target = hashFor(next);
+    if (target === location.hash) {
+      applyRoute();
+      return;
+    }
+    if (replace) {
+      history.replaceState(null, "", target);
+      applyRoute();
+    } else location.hash = target;
   }
   function add(p) {
     if (busy || loading || blocked(p)) return;
@@ -301,7 +381,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     announce.textContent = p.name + " added to your cart.";
     render();
     const added = content.querySelector(`[data-add="${p.id}"]`);
-    (added && !added.disabled ? added : cartButton).focus();
+    (added && !added.disabled ? added : cartLink).focus();
   }
   function catalogue() {
     const game = GAMES.find((g) => g.id === gameId);
@@ -658,6 +738,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     error = null;
     render();
     announce.textContent = "Checking availability and confirming your total.";
+    let ready = false;
     try {
       quote = await api.quote({
         gameId: product(cart[0].id).gameId,
@@ -665,19 +746,19 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
       });
       gameId = quote.gameId;
       key = crypto.randomUUID();
-      view = "checkout";
+      ready = true;
     } catch (e) {
       fail(e);
-    } finally {
-      busy = false;
-      render();
-      body.scrollTop = 0;
-      content.focus({ preventScroll: true });
     }
+    busy = false;
+    // The quote is the checkout's own route state: without one the view is the cart, so a
+    // quote that failed leaves the address and the screen agreeing with each other.
+    if (ready) go("checkout");
+    else applyRoute({ keepError: true });
   }
   function checkout() {
     if (!quote) {
-      view = "cart";
+      // applyRoute sends a quoteless checkout to the cart; this keeps a stray render honest.
       basket();
       return;
     }
@@ -696,7 +777,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
         "p",
         "",
         gameName(quote.gameId) +
-          " only. A dedicated fictional account for this preview. Purchases will not be linked to your signed-in account.",
+          " only. A dedicated fictional account for this mock store. Purchases will not be linked to your signed-in account.",
       ),
     );
     const payment = el("section", "store-checkout-panel");
@@ -782,6 +863,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     busy = true;
     error = null;
     render();
+    let placed = false;
     try {
       order = await api.purchase({ quoteId: quote.id, idempotencyKey: key });
       cart = [];
@@ -792,7 +874,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
         products = snapshot.items;
         owned = snapshot.owned;
       }
-      view = "receipt";
+      placed = true;
     } catch (e) {
       if (
         [
@@ -805,15 +887,14 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
       ) {
         quote = null;
         key = null;
-        view = "cart";
       }
       fail(e);
-    } finally {
-      busy = false;
-      render();
-      body.scrollTop = 0;
-      content.focus({ preventScroll: true });
     }
+    busy = false;
+    // A placed order has its own address; anything else keeps the failure on screen and the
+    // route honest — a checkout with no quote left falls back to the cart it belongs to.
+    if (placed) go("receipt");
+    else applyRoute({ keepError: true });
   }
   function receipt() {
     heading(
@@ -826,7 +907,7 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
       el("p", "store-game-context", gameName(order.gameId)),
       el("span", "store-receipt-mark", "✓"),
       el("p", "store-overline", order.id),
-      el("h3", "", "Thanks for visiting the Company store."),
+      el("h3", "", "Thanks for visiting the Community store."),
       el(
         "p",
         "store-muted",
@@ -915,57 +996,59 @@ export function createStore({ api = createMockStoreAPI() } = {}) {
     content.append(list);
   }
   async function loadOrders() {
-    const token = ++generation;
+    const token = ++ordersRead;
     loading = true;
     render();
     try {
       const result = await api.orders();
-      if (token !== generation) return;
+      if (token !== ordersRead) return;
       orderList = result;
     } catch (e) {
-      if (token === generation) fail(e, loadOrders);
+      if (token === ordersRead) fail(e, loadOrders);
     } finally {
-      if (token === generation) {
+      if (token === ordersRead) {
         loading = false;
         render();
       }
     }
   }
   async function load() {
-    const token = ++generation;
+    const token = ++catalogueRead;
     loading = true;
     error = null;
     render();
     try {
       const result = await api.catalogue();
-      if (token !== generation) return;
+      if (token !== catalogueRead) return;
       products = result.items;
       owned = result.owned;
     } catch (e) {
-      if (token === generation) fail(e, load);
+      if (token === catalogueRead) fail(e, load);
     } finally {
-      if (token === generation) {
+      if (token === catalogueRead) {
         loading = false;
         render();
       }
     }
   }
-  dialog.addEventListener("cancel", (event) => {
-    if (busy) event.preventDefault();
+  // Back, Forward and a hand-typed #cart all arrive here. The first load is drawn by the
+  // mount below instead, so nothing steals focus until the reader actually navigates.
+  window.addEventListener("hashchange", () => {
+    if (busy) return;
+    applyRoute();
   });
+  applyRoute({ focus: false });
+  void load();
   return {
-    open() {
-      if (dialog.open) {
-        dialog.focus();
-        return;
-      }
-      view = "catalogue";
-      dialog.showModal();
-      void load();
+    root,
+    // Re-reads the catalogue. The mock API is the only source, so this costs nothing.
+    reload() {
+      return load();
     },
-    close() {
-      if (!busy) dialog.close();
-    },
-    element: dialog,
   };
 }
+
+// The store page is the only page with a mount point; importing this module elsewhere (as the
+// browser tests do for an injected adapter) renders nothing.
+const mount = document.getElementById("store-root");
+if (mount) mountStore(mount);

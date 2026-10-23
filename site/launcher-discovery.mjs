@@ -20,7 +20,7 @@ export function mountDiscovery(host, desktop) {
  function shell(card,label) {card.replaceChildren();card.append(node('p','discovery-label',label));}
  function message(card,title,body) {card.append(node('h2','discovery-title',title),node('p','discovery-copy',body));}
  function paint(payload,failed=false) {
-  shell(social,'Latest news');shell(store,'Company store');
+  shell(social,'Latest news');shell(store,'Community store');
   const post=latestPost(payload?.posts),item=featuredItem(payload?.featuredItem);
   if(post){
    const date=node('time','discovery-date',new Intl.DateTimeFormat(undefined,{dateStyle:'medium'}).format(new Date(post.publishedAt)));date.dateTime=post.publishedAt;social.append(date);
@@ -30,8 +30,10 @@ export function mountDiscovery(host, desktop) {
   if(item){
    store.append(node('span','discovery-category',item.category));message(store,item.title,item.description);
    const view=node('button','discovery-action','Explore item');view.type='button';view.onclick=()=>showItem(item);store.append(view);
-  }else message(store,'Explore the Company store','Items, ships, player houses, account upgrades and in-game money. Preview the mock store with no real charges.');
-  const browseStore=node('button','discovery-action','Browse mock store');browseStore.type='button';browseStore.onclick=()=>{void import('./store/store.mjs').then(({openStore})=>openStore()).catch(()=>{browseStore.textContent='Couldn’t open store. Try again';});};store.append(browseStore);
+  }else message(store,'Explore the Community store','Items, ships, player houses, account upgrades and in-game money. Preview the mock store with no real charges.');
+  // The store is a page (site/store/), reached by navigation like Map and Wiki, so this card
+  // links to it and the launcher never opens it over the app as a dialog.
+  const browseStore=node('a','discovery-action','Browse the store');browseStore.href='./store/';store.append(browseStore);
   if(failed && typeof desktop.homeContent==='function'){
    const retry=node('button','discovery-action','Try again');retry.type='button';retry.onclick=load;social.append(retry);
   }
@@ -44,7 +46,7 @@ export function mountDiscovery(host, desktop) {
  }
  async function load(){
   if(busy)return;busy=true;region.setAttribute('aria-busy','true');
-  shell(social,'Latest news');message(social,'Loading the latest post…','');shell(store,'Company store');message(store,'Loading featured item…','');
+  shell(social,'Latest news');message(social,'Loading the latest post…','');shell(store,'Community store');message(store,'Loading featured item…','');
   let timer;
   try{
    if(typeof desktop.homeContent!=='function'){paint(null);return;}

@@ -1033,11 +1033,16 @@
   heading.append(title);homeCopy.prepend(heading);
  }
  if(homeCopy)void import('./launcher-discovery.mjs').then(({mountDiscovery})=>mountDiscovery(homeCopy.parentElement,desktop));
- // The store is a separate, explicitly labelled mock surface. It never shares
- // payment, account or entitlement state with the launcher lifecycle.
- const storeEntry=document.createElement('button');storeEntry.type='button';storeEntry.className='desktop-store-entry';storeEntry.textContent='Store';
- storeEntry.onclick=()=>{void import('./store/store.mjs').then(({openStore})=>openStore()).catch(report);};
- document.querySelector('.site-header nav')?.append(storeEntry);
+ // The store is a page of its own at ./store/, reached by navigation exactly as Map and Wiki
+ // are, and it stays a separate, explicitly labelled mock surface: it never shares payment,
+ // account or entitlement state with the launcher lifecycle, and nothing here loads its module.
+ // A page that already carries the Store link (Map, Wiki and Store itself do) keeps that one,
+ // so the nav never lists Store twice.
+ const storeNav=document.querySelector('.site-header nav');
+ if(storeNav&&!storeNav.querySelector('a[href="./store/"],a[href$="/store/"]')){
+  const storeEntry=document.createElement('a');storeEntry.className='desktop-store-entry';storeEntry.href='./store/';storeEntry.textContent='Store';
+  storeNav.append(storeEntry);
+ }
  // The header is account-only: no client settings button is ever placed there.
  for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"]'))trigger.remove();
  const profileButton=document.createElement('button');profileButton.type='button';profileButton.className='desktop-account-nav';profileButton.hidden=true;profileButton.setAttribute('aria-haspopup','true');profileButton.setAttribute('aria-expanded','false');

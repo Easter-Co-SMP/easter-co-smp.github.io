@@ -23,7 +23,13 @@ try {
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     await page.goto(origin + "/store/", { waitUntil: "networkidle" });
-    const store = page.locator(".company-store");
+    assert.equal(await page.locator(".company-store").count(), 0);
+    assert.equal(await page.locator("dialog[open]").count(), 0);
+    assert.equal(
+      await page.getByRole("heading", { name: "The Community store" }).count(),
+      1,
+    );
+    const store = page.locator(".store-app");
     await store.locator(".store-product").first().waitFor();
     const picker = store.locator(".store-game-picker");
     const expand = async () => {
@@ -78,22 +84,22 @@ try {
         /nothing here is for sale/,
       );
       assert.equal(
-        await store
-          .getByRole("button", { name: "Cart · 1", exact: true })
-          .count(),
+        await store.getByRole("link", { name: "Cart · 1", exact: true }).count(),
         1,
         "switching games retains cart",
       );
       assert.ok(
-        await store.evaluate((n) => n.scrollWidth <= n.clientWidth),
-        "no outer horizontal overflow",
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth,
+        ),
+        "no horizontal page overflow",
       );
       if (output)
         await page.screenshot({
           path: `${output}/store-${game.toLowerCase().replaceAll(" ", "-")}-${width}.png`,
         });
     }
-    await store.getByRole("button", { name: "Cart · 1", exact: true }).click();
+    await store.getByRole("link", { name: "Cart · 1", exact: true }).click();
     assert.match(
       await store.locator(".store-cart-row").innerText(),
       /Easter Co. SMP/,
