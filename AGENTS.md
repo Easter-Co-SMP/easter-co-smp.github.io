@@ -46,6 +46,13 @@ The download will include the custom Easter Company launcher and Minecraft clien
 
 Do not display Source, source code bundles, standalone client/server bundle options, or the old direct-mod download section.
 
+The store is a page at site/store/, reached from the header nav on Home, Map, Wiki and itself
+like Map and Wiki are — never a dialog over the launcher. It is named "The Community store",
+stays `noindex`, is a labelled mock (sample products and USD prices, no real payment, nothing
+delivered to the game), and its mock notice is pinned so it stays visible at every scroll
+position. Its views are hash routes (#catalogue, #item/<id>, #cart, #checkout, #receipt/<id>,
+#orders); doc/launcher-store.md is the record.
+
 Role headings are Navy Conscript, Pirate Raider, and Bounty Hunter.
 Public map controls are zoom in/out, centre, and fullscreen; refresh is automatic.
 The public map key lists Regions and exactly the published marker categories: Ships, Sea
