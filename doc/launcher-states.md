@@ -1297,6 +1297,83 @@ shown beside the download action that tried it — main settles the sentence in 
 rejects the call as well, and the page notice gives up its copy of it. And a failure
 raised by an install or a graphics change is never a second surface on the page notice.
 
+## Exit Game (2026-10-23)
+
+Owen asked for this control by name and said what it does: *"like a 'Exit Game' button which can be
+used as a backup force quit the client immediately button."* It is the in-game hero action, and the
+player-facing half of the launcher coming back into a game it did not start — the marker itself and
+the re-adoption are *Launcher update*, rule 11.
+
+**The label is his, verbatim: `Exit Game`.** The note under it is the sentence the in-game action
+already carried, *Minecraft is running*, moved under his label rather than rewritten, so this ticket
+adds no copy of its own. There is **no confirmation dialog**: one screen carries one action and this
+one is the panic button.
+
+**It is a real force-quit, with three named bounds.** `exitGame()` in `desktop/main.cjs` signals the
+client once and politely, gives it a moment, and then kills it. Nothing is retried, nothing is asked
+again and nothing is waited on beyond these:
+
+| Bound | Value | Why |
+|---|---|---|
+| `GAME_EXIT_GRACE_MS` | 1.5 s | the longest a client may take to close after being asked. Owen's instruction is "immediately", so this is a bound on politeness, not a wait for the game to save; the client is not given the launcher's ordinary patience |
+| `GAME_EXIT_KILL_MS` | 1 s | the longest a hard-killed process may take to be gone before the press reports that it is still running. `SIGKILL` is definitive on Linux: this bound exists for the read, not for the kernel |
+| `GAME_EXIT_POLL_MS` | 100 ms | how often a process that was asked to go is looked for. One `/proc` read, so the ask-then-kill decision lands within a tenth of a second of the signal that caused it |
+
+On Windows `SIGTERM` is already a termination, so the grace phase there is the hard kill: the same
+instruction, on the platform that has no polite signal.
+
+**Two shapes of game, one control.** A game this launcher started has a child handle
+(`child.kill`). A game it **adopted** after its own update has only the pid in
+`<data>/running-game.json` and no handle at all, so `game.kill()` would miss it —
+`adoptedChild()` is not a real child. That branch signals the pid through the operating system and
+**re-proves the pid first** with the recorded start marker (`gameMarker.stillRunning`): a pid is not
+an identity, and the one thing this path may never do is kill a stranger that inherited the number.
+
+**What it publishes.** The sentence the launcher already uses when a game closes, *"Minecraft
+closed. Ready to play."* — one copy in main (`GAME_CLOSED`), shared with an ordinary clean exit and
+with an adopted game that goes away. The press settles it; the client's own `exit` handler does not
+settle it a second time and does not invent an exit code for it (a signalled exit has no code, and
+"code null" would be the launcher's words for something the player asked for).
+
+**Local process control and nothing else.** The exit path takes no token, mints nothing, reads no
+game status and checks no client: it cannot consult the account service, which is why it works when
+the service is unreachable. That is a property of the path rather than an accident of where it sits,
+and `tests/desktop/exit-game.electron.mjs` proves it with the service stubbed to fail and an account
+call counter that does not move across the exit.
+
+**It appears only when a game is running, and it is never a dead button.**
+
+- The hero's action for `phase: 'running'` is `Exit Game`, and it **outranks every account and
+  install state**: a running game is a fact about a process on this computer, not about the account
+  or the client tree. A launcher that came back into a game it did not start, and one whose player
+  is signed out, both have a Minecraft on screen that must be closable. For the same reason the
+  account lock (`LOCKED_PHASES`, which includes `running`) does not disable it: the lock protects the
+  account, and it may never take away the player's only way out of the game.
+- A marker that no longer matches its process is removed at startup (`game-marker.adopt`), so the
+  hero is never drawn for a game that is not there.
+- A press for a game that has already gone answers `{exited: false, reason: 'gone'}` and publishes
+  the ordinary launcher state with the same sentence: the press learns what happened instead of
+  pressing a control that does nothing.
+- A client that somehow survives even the hard kill (`reason: 'alive'`) leaves the in-game state
+  published, because it is still the truth and a second press is still a real option. No sentence is
+  invented to explain a kill that did not land; the launcher does not claim a state it cannot see.
+
+**Nothing around it changes.** The window comes back, the tray is destroyed, the phase returns to
+the resting value and the hero offers Play again — the exit path this launcher has always had. Exit
+Game is offered **in the hero only**, where Play is: the sticky bar's own action stays hidden while a
+game runs, as it was before this control existed.
+
+**It is one IPC command, and it is not reachable before the startup gate.** `exit-game` takes no
+argument and needs no account; it is a write, so it is not in `REACHABLE_BEFORE_STARTUP`, and it
+takes no operation lock — an operation the launcher happens to be running is never a reason to leave
+a game nobody can close.
+
+**Proof.** `tests/desktop/exit-game.electron.mjs`, against real processes: a launched game ended
+through the hero with the account service broken (0 account calls across the exit), an adopted game
+that ignores `SIGTERM` (alive at 700 ms, gone at the bound after the hard kill), and three shapes of
+"no game is there" — an exited pid, a reused pid, and a game that goes away while the launcher
+believes it is running.
+
 ## Bar behaviour
 
 - Visible during a download/install on every page. When idle, Home uses its own
@@ -1314,7 +1391,8 @@ raised by an install or a graphics change is never a second surface on the page 
 
 Existing channel naming and the origin-checked handler pattern stay as they are.
 New handlers: choose or set an installation location, start an install with
-`{location, includeGraphics}`, pause, resume, cancel, and check for updates. The
+`{location, includeGraphics}`, pause, resume, cancel, check for updates, and `exit-game`
+(*Exit Game*). The
 renderer never touches the filesystem, and no handler takes a path from anything
 other than the folder picker or the saved setting.
 
@@ -1604,7 +1682,7 @@ update is not.
     inherited pipes (`install.cjs` `execOptions`), its pid and the operating system's start time
     for that pid are written to `<data>/running-game.json` when it is spawned
     (`game-marker.cjs`), and a restarted launcher reads that marker before its first broadcast and
-    publishes the in-game state — `phase: 'running'`, the hero's **Minecraft is running** — instead
+    publishes the in-game state — `phase: 'running'`, the hero's **Exit Game** — instead
     of Play. A marker that no longer matches its process, including a pid that has been reused, is
     removed and the launcher starts in its ordinary state; when the adopted game ends, the
     launcher settles *"Minecraft closed. Ready to play."* and forgets it. What an apply still

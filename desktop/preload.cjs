@@ -31,6 +31,11 @@ contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  profileEmails:invoke('profile-emails'),selectLoginEmail:invokeResult('login-email'),
  accountProviders:invoke('account-providers'),signInProvider:invokeResult('provider-sign-in'),updateProfile:invokeResult('profile-update'),setProfilePicture:invokeResult('profile-picture'),
  signOut:invoke('sign-out'),play:invoke('play'),saveSettings:invoke('settings'),
+ // Owen's own control, in his own words: "Exit Game", the backup force-quit. It is local process
+ // control and nothing else — the main process signals the client this launcher started, or the one
+ // it adopted from its own marker — so it takes no argument, needs no account, and its answer says
+ // only whether the client is gone.
+ exitGame:invoke('exit-game'),
  openMinecraftStore:invoke('open-minecraft-store'),openMinecraftProfile:invoke('open-minecraft-profile'),recheckAccess:invoke('recheck-access'),
  refreshAccount:invoke('account-refresh'),signOutAccount:invoke('account-sign-out'),
  // "Sign out of Minecraft everywhere": the player's own control over the one Microsoft

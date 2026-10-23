@@ -164,7 +164,14 @@ try{
   await hero.click();
   await page.locator('[data-desktop-play][data-action=running]').waitFor();
   assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.open),false,'Play launches the game without opening a dialog');
-  assert(await page.locator('[data-desktop-play]').isDisabled());
+  // The in-game hero is Owen's Exit Game, and it is a control rather than a disabled label:
+ // ticket 4869be14 made the in-game state pressable. This journey's client is an EventEmitter
+ // stand-in with no process behind it, so what is asserted here is the action the state produces;
+ // the press itself, against real processes (a launched one and an adopted one), is
+ // tests/desktop/exit-game.electron.mjs.
+ assert.equal(await page.locator('[data-desktop-play]').getAttribute('data-action'),'running','the hero is the in-game action while a game runs');
+ assert((await page.locator('[data-desktop-play]').innerText()).includes('Exit Game'),'which is Exit Game, Owen\'s own naming: '+(await page.locator('[data-desktop-play]').innerText()).replace(/\s+/g,' '));
+ assert.equal(await page.locator('[data-desktop-play]').isDisabled(),false,'and the in-game action is pressable, not a disabled label');
   const status=await page.evaluate(()=>window.easterDesktop.status());assert.equal(status.profile.name,'TestCaptain');assert(!JSON.stringify(status).includes('fixture-private'));
   // While the game is running the launcher asks for nothing: no download, no update,
   // no settings.

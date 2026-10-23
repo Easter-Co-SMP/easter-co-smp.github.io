@@ -131,7 +131,9 @@ child handle on this side of the relaunch, so it watches liveness instead, on a 
 
 The watch timer is unref'd, and it stops the moment the process is gone. When it goes, the marker
 is removed and the launcher settles the sentence a clean exit has always had — *"Minecraft
-closed. Ready to play."* — with no exit code invented for a process it did not parent. A marker
+closed. Ready to play."* — with no exit code invented for a process it did not parent. An Exit Game
+press ends that watch itself, signals the adopted pid and settles the same sentence;
+[launcher-states.md](launcher-states.md), *Exit Game*, owns that control and its three bounds. A marker
 that no longer matches its process is removed at startup and the launcher starts in its
 ordinary state: never a dead screen.
 

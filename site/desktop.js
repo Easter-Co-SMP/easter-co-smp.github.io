@@ -66,6 +66,10 @@
  const pauseTransfer=bridge('pauseInstall','pause');
  const resumeTransfer=bridge('resumeInstall','resume');
  const playAction=bridge('play','launch');
+ // Owen's own control, in his own words: "Exit Game", the backup force-quit. Main does all of it
+ // (doc/launcher-states.md, *Exit Game*); this side only presses it. A launcher build with no
+ // such handler offers no control rather than one that does nothing.
+ const exitGameAction=bridge('exitGame');
  const setGraphicsAction=bridge('setGraphics');
 
  const phaseOf=state=>state&&typeof state.phase==='string'?state.phase:'';
@@ -211,6 +215,15 @@
   const phase=phaseOf(state),account=state?.profile?.name,install=installOf(state),actions=actionsOf(state);
   if(state?.startupReady===false)return {kind:'busy',label:'Updating…',note:'Updates are required to continue'};
   if(signInPending)return {kind:'busy',label:'Connecting your account…',note:'Complete Microsoft sign-in'};
+  // **A game is running, so the hero's one action is Exit Game.** Owen asked for exactly this
+  // control and named it himself: "like a 'Exit Game' button which can be used as a backup force
+  // quit the client immediately button" (ticket 4869be14). It outranks every account and install
+  // state below, because it is a fact about a process on this computer and not about the account or
+  // the client tree: a launcher that came back into a game it did not start, and a launcher whose
+  // player is signed out, both have a Minecraft on screen that the player must be able to close.
+  // The note is the sentence this action already carried, moved under Owen's label rather than
+  // rewritten: the launcher has no new words for the state, only his word for the button.
+  if(phase==='running')return {kind:'running',label:'Exit Game',note:'Minecraft is running'};
   if(state?.accountWorking)return {kind:'busy',label:'Connecting your account…',note:'Please wait'};
   if(state?.accessChecking)return {kind:'busy',label:'Checking Java access…',note:'Please wait'};
   if(state?.account?.passwordRequired)return {kind:'setup-password',label:'Create your password',note:'Finish your Easter Company account'};
@@ -273,7 +286,6 @@
   // it verbatim (Owen, 2026-10-23).
   if(state&&state.canPlay&&phase!=='launching'&&phase!=='running')return {kind:'play',label:'PLAY NOW',note:'Minecraft Account'};
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Please wait'};
-  if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
   // A download or install under way asks for the account while the player waits.
   if(!account&&(transferring(state)||(!actions.includes('download')&&actions.includes('signin'))))return {kind:'signin',label:LOGIN_ACTION,note:LOGIN_NOTE};
   if(account&&transferring(state))return {kind:'busy',label:phase==='paused'?'Download paused':'Installing Minecraft…',note:'Follow progress below'};
@@ -879,7 +891,10 @@
   if(needsDownload)renderInstallCard(current);else installError.hidden=true;
   if(heroButton){
    heroButton.setAttribute('aria-busy',String(Boolean(activity)||phaseOf(current)==='starting-game'));
-   heroButton.disabled=busy||action.kind==='busy'||action.kind==='running'||action.kind==='starting'||(needsDownload&&typeof startInstall!=='function');
+   // `running` is not disabled, and the account lock does not reach it: it is Exit Game, the one
+   // control on the in-game screen, and the lock exists to protect the account — not to take away
+   // the player's only way out of a game (Owen's backup force-quit must work when nothing else does).
+   heroButton.disabled=(busy&&action.kind!=='running')||action.kind==='busy'||action.kind==='starting'||(needsDownload&&typeof startInstall!=='function');
    // The action kind is published on the element so a test can assert the gate without
    // reading the label back out of the copy.
    heroButton.dataset.action=action.kind;
@@ -986,6 +1001,10 @@
  // Play Now starts the game. It opens nothing: the dialog is for sign-in and client
  // settings. Failures appear in the visible page notice without opening Settings.
  const start=()=>{clearFailure();localActivity={stage:'play-requested',message:'Checking the server…',startedAt:Date.now()};render(current||{});void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report).finally(()=>{localActivity=null;render(current||{});});};
+ // Exit Game, Owen's backup force-quit: no dialog, no second question and no wait the player has
+ // to sit through — main signals the client and the settled state arrives as a broadcast, so this
+ // side has nothing to draw in between (doc/launcher-states.md, *Exit Game*).
+ const quitGame=()=>{clearFailure();void Promise.resolve(typeof exitGameAction==='function'?exitGameAction():Promise.reject(Error('This launcher build cannot close the game.'))).catch(report);};
  const openSettings=()=>{open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
   // The two shortcut rows say whether the files are really there, so the truth is asked
   // for as the dialog opens rather than trusted from the last broadcast.
@@ -1004,6 +1023,10 @@
   if(action.kind==='buy')return void desktop.openMinecraftStore().catch(report);
   if(action.kind==='setup-profile')return void desktop.openMinecraftProfile().catch(report);
   if(action.kind==='check-access')return void desktop.recheckAccess().catch(report);
+  // Exit Game is the one action of the in-game screen, and it is offered only while
+  // primaryAction says a game is running, so it can never be pressed for a process that is not
+  // there: a stale marker resolves to the ordinary state before the hero draws.
+  if(action.kind==='running')return void quitGame();
   if(action.kind==='play')return start();
   if(action.kind==='signin')return signIn();
   if(action.kind==='download')return void beginInstall();

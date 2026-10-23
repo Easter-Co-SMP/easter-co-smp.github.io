@@ -491,9 +491,26 @@ test('the window steps aside with a tray or a way back, and returns when the gam
  assert.match(source,/const \{[^}]*\bTray\b[^}]*\}=require\('electron'\)/);
  assert.match(source,/new Tray\(/);
  assert.match(source,/\{label:'Open launcher',click:\(\)=>showLauncher\(\)\}/);
- // Quit exits the launcher and does not touch the game process: no kill anywhere.
+ // Quit exits the launcher and does not touch the game process. The launcher can end a game in
+ // exactly one place — Owen's Exit Game, through `signalGame` — so the tray's own path is asserted
+ // to carry no signal at all, rather than the whole file being free of the word `kill`: the
+ // force-quit lives here now (ticket 4869be14), and the rule it must not break is this one.
  assert.match(source,/\{label:'Quit',click:\(\)=>app\.quit\(\)\}/);
- assert.equal(/game\.kill|child\.kill|kill\(['"]SIG/.test(source),false,'quitting from the tray must not kill a running game');
+ const trayPath=source.slice(source.indexOf('async function leaveTheWay()'),source.indexOf('// The game has ended, or never started'));
+ assert(trayPath.length>200,'the tray path was found in desktop/main.cjs');
+ assert.equal(/\.kill\(|SIGTERM|SIGKILL|signalGame/.test(trayPath),false,'quitting from the tray must not kill a running game');
+ // And the one place that may: Exit Game signals, and it is the only caller of the signal helper.
+ // And the one place that may: Exit Game signals the client, in two steps (a polite ask, then a
+ // kill) for each of the two shapes of game — a launched child and an adopted pid — and it is the
+ // only caller of the signal helper in the file.
+ const exitPath=source.slice(source.indexOf('async function performGameExit('),source.indexOf('// Play and the game shortcut reach this one function'));
+ assert(exitPath.length>500,'Exit Game was found in desktop/main.cjs');
+ assert.match(exitPath,/signalGame\(null,record\.pid,'SIGTERM'\)/,'an adopted game is asked to close by pid, because there is no child handle to kill');
+ assert.match(exitPath,/signalGame\(null,record\.pid,'SIGKILL'\)/,'and killed by pid when the short bound runs out');
+ assert.match(exitPath,/signalGame\(child,null,'SIGTERM'\)/,'a launched game is asked to close through its own child handle');
+ assert.match(exitPath,/signalGame\(child,null,'SIGKILL'\)/,'and killed through it');
+ const signals=/signalGame\([^)]*\)/g;
+ assert.equal((source.match(signals)||[]).length,5,'the four signals above are the only ones in the file (plus its definition): '+JSON.stringify(source.match(signals)));
  // The order that makes each path honest: ask the desktop, create the icon when it says
  // one can be drawn, and only then hide.
  const hide=source.indexOf('window.hide()');
@@ -516,8 +533,12 @@ test('the window steps aside with a tray or a way back, and returns when the gam
  // Both game handlers put the window back, keep the messages they settled before, and forget
  // the running game's marker: a launcher that restarts after the game has ended must not adopt
  // a process that is gone (tests/desktop/game-marker.test.cjs proves what adoption does).
- const exitHandler=/child\.once\('exit',code=>\{game=null;forgetRunningGame\(\);returnToLauncher\(\);const message=code===0\?'Minecraft closed\. Ready to play\.':'Minecraft closed with code '\+code\+'\. Its log is in the client folder\.';settle\(message,\{error:code===0\?null:message\}\);\}\)/.exec(source);
+ // The handler takes the signal as well as the code, because Exit Game ends the client with one: an
+ // exit the player asked for publishes the sentence a clean close has always had instead of a code
+ // it never had, and the press itself is the one that settles it (`gameExitRequested`).
+ const exitHandler=/child\.once\('exit',\(code,signal\)=>\{const requested=gameExitRequested;gameExitRequested=false;game=null;forgetRunningGame\(\);returnToLauncher\(\);if\(requested\)return;const message=code===0\?GAME_CLOSED:'Minecraft closed with code '\+code\+'\. Its log is in the client folder\.';settle\(message,\{error:code===0\?null:message\}\);\}\)/.exec(source);
  assert(exitHandler,'the exit handler restores the window, forgets the marker and settles the same message');
+ assert.match(source,/const GAME_CLOSED='Minecraft closed\. Ready to play\.'/,'the closing sentence has one copy, which Exit Game and an ordinary exit share');
  const errorHandler=/child\.once\('error',\(\)=>\{game=null;forgetRunningGame\(\);returnToLauncher\(\);const message='Minecraft could not start\. Check Java and try again\.';settle\(message,\{error:message\}\);\}\)/.exec(source);
  assert(errorHandler,'the failure handler restores the window too');
  // The behaviours are mutually exclusive at the call site as well: one branch each.

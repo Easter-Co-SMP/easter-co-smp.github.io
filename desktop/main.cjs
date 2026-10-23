@@ -327,6 +327,11 @@ function settle(message,extra={}){phase=null;progress=null;control=null;notify({
 // author of the same words (doc/launcher-states.md, "The launcher comes back into the game it
 // left running").
 const GAME_RUNNING='Minecraft is running. Your map stays right here.';
+// The sentence a game's ending has always had, in one place for the same reason: a clean exit, an
+// adopted game that goes away, and an Exit Game press are all "the client closed", so they are all
+// one sentence and Exit Game adds no copy of its own (Owen's rule for this ticket: the label, and
+// nothing else new).
+const GAME_CLOSED='Minecraft closed. Ready to play.';
 // The launcher's resting state, in one place because there are two shapes of it now: the
 // ordinary one (Play, Download, or the client being ready) and the in-game one, which is what a
 // launcher that came back to a game it did not start must publish instead of Play.
@@ -1203,11 +1208,132 @@ function watchAdoptedGame(){
    returnToLauncher();
    // The exit code belongs to a process this launcher did not parent, so none is invented: the
    // sentence is the one a clean exit has always had.
-   settle('Minecraft closed. Ready to play.');
+   settle(GAME_CLOSED);
   }).catch(()=>{});
  },ADOPTED_WATCH_MS);
  adoptedWatch.unref?.();
  return adoptedWatch;
+}
+// ---- Exit Game, Owen's backup force-quit ------------------------------------------------
+//
+// Owen named the control and said what it must do: **"Exit Game"**, and "backup force quit the
+// client immediately". So the client is asked once, politely, and given `GAME_EXIT_GRACE_MS` to
+// go; whatever is left of it after that bound is killed outright. The player has already asked,
+// so nothing here confirms, nothing waits on a dialog and nothing asks a second time.
+//
+// **It never touches the account service.** This is local process control and nothing else: no
+// token, no mint, no status read, no client check. A player whose account service is unreachable
+// can still close the client they cannot otherwise get rid of, and that is a property of this
+// path by design rather than by accident of where it sits — tests/desktop/exit-game.electron.mjs
+// presses it with every account request failing.
+//
+// **Two shapes of game, one control.** A game this launcher started has a child handle. A game
+// this launcher ADOPTED after its own update has only the pid in `running-game.json` and no
+// handle to `kill()` at all — the case a naive `game.kill()` misses — so that branch signals the
+// pid through the operating system, and re-proves the pid with the recorded start marker before
+// it signals anything: a pid is not an identity, and this path must never kill a stranger.
+//
+// **A stale marker is answered honestly, never with a dead button.** If the process the marker
+// names is already gone, this publishes the ordinary launcher state with the sentence a closed
+// game has always had: the press learns what happened instead of pressing a control that does
+// nothing. If the client somehow outlives even a hard kill, the in-game state is left standing,
+// because it is still the truth and a second press is still a real option; no sentence is
+// invented to explain a kill that did not land.
+const GAME_EXIT_GRACE_MS=1500;    // how long a politely asked client is given to close
+const GAME_EXIT_KILL_MS=1000;     // how long a hard-killed client is given to be gone
+const GAME_EXIT_POLL_MS=100;      // how often a process that was asked to go is looked for
+let gameExitRequested=false,gameExitRun=null;
+// One signal, two ways of sending it: a child handle for a game this launcher started, the pid
+// for one it adopted. Windows has no graceful signal — there `SIGTERM` is already a termination —
+// so the grace phase on Windows is the hard kill, which is the same instruction Owen gave.
+function signalGame(child,pid,signal){
+ if(child){try{return child.kill(signal);}catch{return false;}}
+ try{process.kill(pid,signal);return true;}catch{return false;}
+}
+async function gameGone(record){
+ try{return !(await gameMarker.stillRunning(record));}catch{return false;}
+}
+async function waitForGameGone(record,timeoutMs){
+ const deadline=Date.now()+timeoutMs;
+ for(;;){
+  if(await gameGone(record))return true;
+  const left=deadline-Date.now();
+  if(left<=0)return false;
+  await new Promise(resolve=>setTimeout(resolve,Math.min(GAME_EXIT_POLL_MS,left)));
+ }
+}
+// The child's own 'exit' is what Node reports; `game` is cleared by the exit handler. Both are
+// asked, so an exit nobody's handler has run for yet is still an exit. A child that reports
+// neither (nothing here is a real process) is never taken as gone: an absent answer is not an exit.
+function childGone(child){return child.exitCode!=null||child.signalCode!=null||game!==child;}
+async function waitForChildGone(child,timeoutMs){
+ const deadline=Date.now()+timeoutMs;
+ for(;;){
+  if(childGone(child))return true;
+  const left=deadline-Date.now();
+  if(left<=0)return false;
+  await new Promise(resolve=>setTimeout(resolve,Math.min(GAME_EXIT_POLL_MS,left)));
+ }
+}
+// The one Exit Game path. It answers `{exited:true}` when the client is gone, and `{exited:false}`
+// with a reason when there was nothing to end (`none`, `gone`) or when the client outlived even the
+// hard kill (`alive`). One press at a time: a second press while the first is running joins it.
+async function exitGame(){
+ if(gameExitRun)return gameExitRun;
+ const run=performGameExit();
+ gameExitRun=run;
+ try{return await run;}finally{gameExitRun=null;}
+}
+async function performGameExit(){
+ // ---- A game this launcher adopted: only the marker's pid, and no handle to kill -------------
+ if(adoptedGame){
+  const record=adoptedGame;
+  // The launcher's own watch would settle this game too, and two settlers of one ending are one
+  // too many: this press owns the sentence from here.
+  stopWatchingAdoptedGame();
+  if(!(await gameMarker.stillRunning(record))){
+   forgetRunningGame();game=null;returnToLauncher();settle(GAME_CLOSED);
+   return {exited:false,reason:'gone'};
+  }
+  signalGame(null,record.pid,'SIGTERM');
+  let gone=await waitForGameGone(record,GAME_EXIT_GRACE_MS);
+  if(!gone){
+   signalGame(null,record.pid,'SIGKILL');
+   gone=await waitForGameGone(record,GAME_EXIT_KILL_MS);
+  }
+  if(!gone){
+   // It is still playing, so the in-game state is still the truth: the marker and the state stay
+   // exactly as they were, and the watch resumes so the ordinary ending is still noticed.
+   watchAdoptedGame();
+   return {exited:false,reason:'alive'};
+  }
+  forgetRunningGame();game=null;returnToLauncher();settle(GAME_CLOSED);
+  return {exited:true};
+ }
+ // ---- A game this launcher started: there is a child handle, so its own exit is the proof ----
+ if(game){
+  const child=game;
+  // The exit handler publishes `GAME_CLOSED` for this ending rather than inventing an exit code
+  // for a process the player asked to end, so the flag tells it who is settling.
+  gameExitRequested=true;
+  try{
+   signalGame(child,null,'SIGTERM');
+   if(!(await waitForChildGone(child,GAME_EXIT_GRACE_MS))){
+    signalGame(child,null,'SIGKILL');
+    if(!(await waitForChildGone(child,GAME_EXIT_KILL_MS)))return {exited:false,reason:'alive'};
+   }
+  }finally{
+   // A client still playing is owed its ordinary ending after this press gives up, so the flag is
+   // only ever cleared here for a child that is not gone: a gone one has run (or is about to run)
+   // its own exit handler, and clearing the flag for it would take its last settle away.
+   if(!childGone(child))gameExitRequested=false;
+  }
+  // The exit handler has already returned the UI and destroyed the tray; these are idempotent and
+  // keep the settle below true even if it has not run yet when the process really is gone.
+  forgetRunningGame();game=null;returnToLauncher();settle(GAME_CLOSED);
+  return {exited:true};
+ }
+ return {exited:false,reason:'none'};
 }
 // Play and the game shortcut reach this one function. The wake a Play press may start
 // belongs to that press, so it is cancelled if the press does not end in a launch:
@@ -1321,7 +1447,10 @@ async function launchThrough(){
  // The handlers go on first, so a client that dies while its identity is still being written is
  // seen: an 'exit' nobody was listening for would leave `game` set and Play refused forever.
  child.once('error',()=>{game=null;forgetRunningGame();returnToLauncher();const message='Minecraft could not start. Check Java and try again.';settle(message,{error:message});});
- child.once('exit',code=>{game=null;forgetRunningGame();returnToLauncher();const message=code===0?'Minecraft closed. Ready to play.':'Minecraft closed with code '+code+'. Its log is in the client folder.';settle(message,{error:code===0?null:message});});
+ // An Exit Game press has already published this ending, and a signalled exit has no code at all:
+ // saying "code null" would be the launcher's own words for something the player asked for. So the
+ // press settles it, and no exit code is invented for either.
+ child.once('exit',(code,signal)=>{const requested=gameExitRequested;gameExitRequested=false;game=null;forgetRunningGame();returnToLauncher();if(requested)return;const message=code===0?GAME_CLOSED:'Minecraft closed with code '+code+'. Its log is in the client folder.';settle(message,{error:code===0?null:message});});
  // The game is written down before anything can restart the launcher: its pid and the start
  // time the operating system reports for that pid (desktop/game-marker.cjs). The client is
  // spawned detached with no inherited pipes, so this record is the only thing that carries the
@@ -1692,6 +1821,10 @@ function foldUsername(value){
  // retry landing in the middle of another operation.
  handle('retry-updates',()=>startupUpdates());
  handle('play',()=>startGame());
+ // Exit Game. A write, so it is not reachable before the startup gate (REACHABLE_BEFORE_STARTUP is
+ // reads and cancellations only), and it takes no lock: it is the panic button, and an operation
+ // this launcher happens to be running is not a reason to leave a game nobody can close.
+ handle('exit-game',()=>exitGame());
  handle('settings',async input=>{
   if(working||controller)throw Error('Wait for the current operation before changing settings.');
   // A running game already owns its launch configuration. Saved preferences apply
