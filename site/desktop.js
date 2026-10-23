@@ -1084,7 +1084,10 @@
   heading.append(crest);
   const title=document.createElement('div'),eyebrow=homeCopy.querySelector('.eyebrow');
   if(eyebrow)title.append(eyebrow);
-  const edition=document.createElement('p');edition.className='desktop-edition';edition.textContent='Minecraft Java Edition';title.append(edition);
+  // The line under the wordmark: Owen's own wording, 2026-10-23. It says what this is, and it
+  // leaves "Minecraft Java Edition" to the one place that has to state it precisely - the Buy
+  // Now action's note and the access refusal - instead of repeating it under PLAY NOW.
+  const edition=document.createElement('p');edition.className='desktop-edition';edition.textContent='Custom Minecraft Client & Server';title.append(edition);
   heading.append(title);homeCopy.prepend(heading);
  }
  if(homeCopy)void import('./launcher-discovery.mjs').then(({mountDiscovery})=>mountDiscovery(homeCopy.parentElement,desktop));
