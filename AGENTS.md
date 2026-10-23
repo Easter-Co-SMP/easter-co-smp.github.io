@@ -106,6 +106,16 @@ contract between the main process and the shared UI; change it before changing e
   Offline` — that line belongs only to a read that happened and failed. No bracket, no
   duration, no service detail, and no view words a state or picks a tone for itself.
 Real platform installers are published as GitHub Release assets. No source download option.
+
+**Supported platforms are Linux and Windows. macOS is deliberately not supported and there is no
+mac target in `package.json` (Owen, 2026-10-23: "Nah, fuck apple for all those exact reasons").**
+The reasons, so nobody re-opens it by accident: a downloaded macOS app needs a Developer ID
+signature and notarisation or Gatekeeper refuses it, `codesign`/`notarytool` are macOS-only tools,
+and the only way to do it without owning a Mac is a GitHub macOS runner plus a $99/year Apple
+Developer account — while we have no macOS test target at all, so a first Mac release would ship UI
+behaviour nothing on this machine can verify. Building one is possible; shipping one honestly is
+not worth that price. Do not add a `mac` build target, a `.dmg`, a Mac section to the release
+checklist or a macOS row to the store/downloads pages without Owen saying so again.
 Releases follow doc/releasing.md: the tag comes from package.json, the workflow is dispatched by
 hand, the packaged app is checked against site/ before publishing, and /releases/latest ignores
 prereleases, so a launcher release must not be marked prerelease while it is the only one.
