@@ -63,7 +63,51 @@ claiming `mode:'desktop'` — back to the site root. Nothing advertises the stor
 
 **A browser is not a shop floor** is unchanged from the previous commit and is re-proved by both
 browser suites: the no-script page paints no store, and a scripted page with no bridge is
-redirected home.
+redirected home. Both of the rules that keep it off the website are now asserted **where they
+live**, because a design pass over a stale base dropped both of them once (commit 5e5a2fc): the
+Store link's `class="store-entry"` is asserted in `site/store/index.html`'s own markup, and the
+mount gate (`bridge.mode === "desktop"`, else `location.replace("../")`) is asserted in
+`site/store/store.mjs`'s source as well as observed in the browser.
+
+## The look: Sol's pass, applied to the wired page
+
+Owen commissioned a separate front-end pass (Sol, `origin/work` 26660a2, "Replace mock storefront
+with five-product shop"). It was written before the store had any behaviour, so it could not be
+merged as it stood: it hard-coded the five products and their USD prices in
+`site/store/catalogue.mjs`, kept a client-side "selection for review" flow with a `#cart` route and
+an Orders section with no service behind them, and — because it branched before 5e5a2fc — it
+dropped the mount gate and the `store-entry` class. The design was applied to the wired page
+instead. Nothing below changes what the store can do.
+
+**Kept from Sol:** the dark ground (`#0d2029` under a teal radial), his palette (`--store-ink`
+`#edf1e9`, `--store-muted` `#a8b9b4`, `--store-gold` `#e4c486`, panel `#11252d`), the gold
+uppercase overline, his tight-tracked heading scale (weight 550, `-.035em`; the h1 takes his size
+curve but keeps a **34px floor** so the page title never falls under the site's page-heading
+scale), the 960px measure, the **single-column list of rows** instead of the old three-across card
+grid (medallion, then the name and what it is worth, then the price and the one control), the
+circular **coin medallion** with its gold ring, inset ring, dashed inner ring and teal gradient, the
+gold **44px buying control**, the top nav as muted words on a rule with the current one gold and
+underlined, the **skip link**, the reduced-motion block, and his footer scale. The medallions
+themselves are still the page's own local vectors (`site/store/art.mjs`), re-cut for a circular
+95px box: a stack of coins for a pack and a banner for anything the server calls a donation.
+
+**Dropped, because the wired page has no such element:**
+
+| Sol's element | Why it is not here |
+| --- | --- |
+| Selection, `Review` step, `#cart`, `#checkout`, `.store-review` panel | Buying is one product at a time from its own row; there is no cart, so there is nothing to review. `#cart` and `#checkout` are gone as routes and land on `#catalogue` |
+| Receipt view (`#receipt/<id>`) | Receipts are the payment service's; the orders read is what reports what happened |
+| An Orders section with no service behind it | This page's orders are the server's own records, with `Paid` and `In the game` printed only when the server says so |
+| The product description and the paragraph under the title (`store-lead`) | The server sends no description, and that paragraph was new player-facing copy. The card's second line is the worth line from `creditPence` - `N Sterling in your bank`, or `A one-off donation.` - taking the slot his description occupied |
+| His per-product artwork variants (`data-product="…"`) | This page has no catalogue to key anything on. The medallion variant is keyed on the `kind` the server sends, and his two donation variants are folded into one |
+| `All prices in USD` in the footer | The currency comes from the server; a static USD claim in the shell could be false. The footer keeps `Numquam Succumbe` |
+| `#store-announcement` live region and `.store-sr-only`'s announcements | The page announces nothing the route change does not already say, and every word of it would be copy this page does not own |
+
+One interaction detail moved with the layout and nothing else did: the product **name** is the link
+to `#item/<key>`, and the medallion is decoration (`aria-hidden`), as it was in Sol's row. Before,
+the medallion and the name were one link target. The three bridge commands, one product per card,
+`Buy` handing the player's own browser the Stripe page, the orders read and every frozen sentence
+are untouched.
 
 ## The bridge
 
@@ -162,9 +206,17 @@ is answered by the player pressing **Buy** again.
   their USD prices, the Buy press recording the key, "Opening Stripe…" then the sentence after it,
   the orders view empty/pending/paid/delivered, the unavailable and signed-out states, a bridge
   with no store commands, a stale `#cart` link landing on `#catalogue`, and the launcher-only rule.
+  It also measures Sol's pass rather than trusting it: one column of rows, a circular 94px medallion
+  (64px under 600px), the gold 44px control, no part of a row outside its row, no horizontal
+  overflow, the skip link as the first Tab stop landing inside the store, **every visible control
+  reached by Tab** (21 of 21), the busy ring still turning without the reduced-motion setting and
+  still under it, and the two standing rules asserted in the markup and the module source.
 - `… node tests/store-games-browser.mjs` — the catalogue is the server's: unusual products render
   in the server's order with the server's prices, a long name stays inside its card, an empty
-  catalogue is a refusal, and `site/store/store.mjs` contains none of the five products or prices.
+  catalogue is a refusal, `site/store/store.mjs` contains none of the five products or prices, and
+  neither does `site/store/store.css` — a sheet that named a product key would be a catalogue with
+  a different file extension, which is exactly what Sol's sheet did. Every medallion is the `kind`
+  the server sent, in the server's order, and none carries a `data-product` key.
 
 **What is not proved, and cannot be from here yet:** no real Stripe payment has been made through
 this page, no real Stripe session has been opened from the launcher, and the two new routes do not

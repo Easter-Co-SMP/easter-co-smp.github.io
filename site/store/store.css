@@ -1,73 +1,117 @@
 /* The Community store is a page, so this sheet styles the page shell that site/store/index.html
-   already marks up (header, h1, footer) and the store inside #store-root. It inherits the site
-   theme from ../styles.css and ../desktop.css and adds no theme of its own.
+   already marks up (header, h1, footer) and the store inside #store-root. It inherits the site's
+   type stack from ../styles.css and adds a palette and a scale of its own.
 
-   It is the real storefront now: five products the server sells, one at a time from their own
-   cards, and the player's own orders. The cart, checkout, receipt, category, game-picker,
-   search and sort blocks are gone with those views — not hidden, deleted — so nothing here can
-   dress a control the page no longer has. */
-/* The tokens live on the page as well as on the store, so the shell's own copy reads the same
-   palette when the store is mounted on its own in a test. */
+   This is Sol's visual pass (origin/work 26660a2) on the wired storefront. What came across is the
+   design, not the page that carried it: the dark full-page ground, the gold overline, the
+   tight-tracked heading scale, the single-column list of product rows, the circular coin
+   medallion that stands in for a product photograph, the gold-filled buying control, the skip
+   link, and the reduced-motion block. What did not come across is the flow Sol's page had
+   invented — a selection, a Review step, a #cart route and an Orders section with no service
+   behind them. This store has real Buy, real Stripe and real orders, so there is no review panel,
+   no selection state and no receipt page here to style.
+
+   Two things are deliberately different from Sol's sheet, and both are stated where they happen:
+   the page title keeps a floor of 34px (Sol's 28px floor let the store's h1 fall under the site's
+   page-heading scale on a narrow window), and no rule here names a product: Sol keyed the
+   medallion on two product keys, and this page has no catalogue of its own, so the medallion is
+   keyed on the `kind` the server sends.
+
+   It is the real storefront: five products the server sells, one at a time from their own rows,
+   and the player's own orders. The cart, checkout, receipt, category, game-picker, search and
+   sort blocks are gone with those views — not hidden, deleted — so nothing here can dress a
+   control the page no longer has. */
 .store,
 .store-app {
-  --store-ink: #eee8da;
-  --store-muted: #a8b9b8;
-  --store-gold: #e0c48b;
+  --store-ink: #edf1e9;
+  --store-muted: #a8b9b4;
+  --store-gold: #e4c486;
   --store-line: #d7e5df1c;
-  --store-panel: #132b34;
+  --store-panel: #11252d;
 }
 .store {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
+  color: var(--store-ink);
   background:
     radial-gradient(ellipse at 85% 0, #23413e50, transparent 50%), #0d2029;
 }
+.store * {
+  box-sizing: border-box;
+}
+/* Sol's header: the bar is as tall as its contents need and wraps when the nav does, rather than
+   the fixed 64px strip that clipped a wrapped nav on a narrow window. */
 .store .site-header {
   width: 100%;
-  height: 64px;
-  padding: 0 32px;
+  height: auto;
+  min-height: 64px;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 32px;
   background: #10232b;
   border-color: #ffffff14;
 }
-/* Below 600px the site's own shrink applies here too: site/styles.css and site/wiki/wiki.css
-   both take the header to 60px with 16px gutters at that width, so the store's nav starts at
-   x=16 like Map's and Wiki's instead of sitting 4px taller in a 32px gutter. */
+.store .site-header nav {
+  flex-wrap: wrap;
+}
 @media (max-width: 600px) {
   .store .site-header {
-    height: 60px;
-    padding: 0 16px;
+    min-height: 60px;
+    padding: 12px 16px;
   }
 }
+/* Sol's measure: a 960px column, not the 1280px the three-across card grid needed. The rows
+   below read as a list, so the page is as wide as a list should be. */
 .store-main {
   flex: 1;
-  width: min(1280px, calc(100% - 64px));
+  width: min(960px, calc(100% - 48px));
   margin: 0 auto;
-  padding: 34px 0 48px;
+  padding: 44px 0 56px;
 }
 .store-mast {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 6px 24px;
-  padding: 0 0 22px;
+  display: block;
+  padding: 0 0 24px;
 }
 .store-brand {
   min-width: 0;
 }
+.store-overline {
+  color: var(--store-gold);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  margin: 0 0 8px;
+}
+/* The page title takes Sol's tight-tracked heading scale, except that its floor stays at 34px,
+   the site's own page-heading floor (site/wiki/wiki.css): Sol's 28px floor let /store/ lead with
+   a heading smaller than the section headings under it on a narrow window. Weight 550 and the
+   -.035em tracking are his. Line height and the removed text-shadow keep ../styles.css's
+   `h1{...text-shadow}` from softening the title into the page. */
+.store-title {
+  font-family: inherit;
+  font-size: clamp(34px, 4.4vw, 47px);
+  font-weight: 550;
+  line-height: 1.13;
+  letter-spacing: -0.035em;
+  margin: 0;
+  color: var(--store-ink);
+  text-shadow: none;
+}
 .store-footer {
-  border-top: 1px solid #ffffff12;
-  width: min(1280px, calc(100% - 64px));
-  margin: auto;
+  border-top: 1px solid var(--store-line);
+  width: min(960px, calc(100% - 48px));
+  margin: 0 auto;
   display: flex;
-  justify-content: space-between;
-  gap: 6px 14px;
   flex-wrap: wrap;
-  padding: 20px 0;
-  font-size: 9px;
-  color: #7f9a91;
-  letter-spacing: 0.025em;
+  gap: 16px;
+  align-items: center;
+  padding: 24px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--store-muted);
 }
 .store-footer .legal-links {
   display: inline-flex;
@@ -80,12 +124,12 @@
   text-align: center;
   padding: 20px;
 }
-/* The store sets sizes in longhand and never a font shorthand: declaring a family here would
-   replace the site stack that ../styles.css puts on :root, so store text would render in a
+/* The store sets sizes in longhand and never a `font-family` of its own: declaring a family here
+   would replace the site stack that ../styles.css puts on :root, so store text would render in a
    different face from the rest of the site. Every text rule below therefore sets only size,
-   line-height and weight, and inherits the family. */
+   line-height, weight and tracking, and inherits the family. */
 .store-app {
-  box-sizing: border-box;
+  min-width: 0;
   color: var(--store-ink);
   font-size: 14px;
   line-height: 1.6;
@@ -93,99 +137,112 @@
 .store-app * {
   box-sizing: border-box;
 }
-.store-app :is(button, a):focus-visible {
-  outline: 2px solid var(--store-gold);
-  outline-offset: 4px;
-}
-.store-app button {
-  font: inherit;
-  cursor: pointer;
-}
-.store-app button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
 .store-app h1,
 .store-app h2,
 .store-app h3,
 .store-app p {
   margin: 0;
 }
-.store-overline {
+.store :is(a, button):focus-visible,
+.store-app :focus-visible {
+  outline: 2px solid var(--store-gold);
+  outline-offset: 5px;
+}
+.store-app button {
+  font: inherit;
+  cursor: pointer;
+}
+.store-app button:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+/* Sol's skip link: off screen until focused, then a gold tab in the top-left corner. The script
+   that moves focus into the store is in store.mjs, next to the mount. */
+.store-sr-only,
+.store-skip:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.store-skip:focus {
+  position: fixed;
+  left: 12px;
+  top: 12px;
+  z-index: 100;
+  padding: 12px 18px;
+  border-radius: 8px;
+  color: #0d2029;
+  background: var(--store-gold);
   font-weight: 600;
-  font-size: 10px;
-  line-height: 1.5;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--store-gold);
+  text-decoration: none;
 }
-/* The page title takes the site's own page-heading scale — the same clamp 400 Georgia that
-   site/wiki/wiki.css puts on .wiki-page-header h1 — so /store/ leads with the heading size
-   /wiki/ leads with (51px at 1440, 34px at 390) instead of a caption smaller than the section
-   headings under it. */
-.store-title {
-  font-weight: 400;
-  font-size: clamp(34px, 3.8vw, 51px);
-  line-height: 1.12;
-  letter-spacing: -0.035em;
-  margin: 4px 0 0;
-  color: var(--store-ink);
-  text-shadow: none;
+.store h1,
+.store h2,
+.store h3,
+.store a,
+.store p {
+  overflow-wrap: anywhere;
 }
+/* The store's own two views, as Sol drew the top nav: muted words on a rule, the current one gold
+   and underlined, no filled pill. */
 .store-navbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 12px;
-  margin: 0 0 22px;
+  margin: 0 0 28px;
   padding: 0 0 12px;
   border-bottom: 1px solid var(--store-line);
 }
 .store-top-nav {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 8px 24px;
 }
 .store-nav {
   display: inline-flex;
   align-items: center;
   min-height: 40px;
-  padding: 9px 14px;
-  border-radius: 8px;
+  padding: 8px 0;
   color: var(--store-muted);
-  border: 1px solid transparent;
-  background: transparent;
-  font-size: 12px !important;
+  background: none;
+  border: 0;
+  font-size: 14px;
+  line-height: 1.5;
   text-decoration: none;
   white-space: nowrap;
+}
+.store-nav[aria-current="page"] {
+  color: var(--store-gold);
+  text-decoration: underline;
+  text-underline-offset: 8px;
+}
+.store-nav:hover {
+  color: var(--store-ink);
 }
 .store-nav[aria-disabled="true"] {
   opacity: 0.5;
   cursor: default;
 }
-.store-nav[aria-current="page"] {
-  background: #d4bc7f10;
-  border-color: #d4bc7f32;
-  color: var(--store-gold);
-}
-.store-nav:hover {
-  background: #ffffff09;
-  color: var(--store-ink);
-}
 .store-body {
   min-width: 0;
 }
-.store-content {
-  outline: none;
-}
+/* The content region takes focus on every route change (store.mjs) so a keyboard reader lands
+   where the new view starts; Sol drew that landing as a gold ring on the app container, and
+   `.store-app :focus-visible` above gives this region the same ring. */
 /* A read in flight draws a spinner and no words: this store has no sentence of its own to print
-   while it is still asking, and a spinner claims nothing. */
+   while it is still asking, and a spinner claims nothing. Sol had no busy state to draw; the ring
+   is main's, recoloured to the gold. */
 .store-busy {
   display: block;
   width: 22px;
   height: 22px;
   margin: 28px auto;
-  border: 2px solid #d4bc7f33;
+  border: 2px solid #e4c48633;
   border-top-color: var(--store-gold);
   border-radius: 50%;
   animation: store-spin 0.9s linear infinite;
@@ -195,7 +252,8 @@
     transform: rotate(360deg);
   }
 }
-/* A refusal is one sentence from the main process, never a page's own wording. */
+/* A refusal is one sentence from the main process, never a page's own wording. Sol's page had no
+   refusal surface to style; this one keeps main's shape in Sol's palette and scale. */
 .store-feedback {
   display: flex;
   align-items: center;
@@ -203,182 +261,232 @@
   margin-bottom: 22px;
   padding: 14px 18px;
   border: 1px solid #ce987b55;
-  border-radius: 8px;
+  border-radius: 9px;
   background: #43332c;
   color: #f2cfb7;
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.7;
 }
 .store-feedback[hidden] {
   display: none;
 }
+/* Sol's one control: a gold tab with dark ink on it, 44px tall, and a muted disabled state that
+   still reads as a control rather than fading into the panel. */
 .store-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 42px;
-  padding: 11px 18px;
-  border: 1px solid #b6c4b92b;
-  border-radius: 9px;
-  background: #16313b;
-  color: var(--store-ink);
-  font-weight: 600 !important;
-  font-size: 12px !important;
-  line-height: 1.4 !important;
+  width: auto;
+  min-height: 44px;
+  padding: 12px 20px;
+  border: 1px solid var(--store-gold);
+  border-radius: 8px;
+  background: var(--store-gold);
+  color: #0d2029;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
   text-decoration: none;
+  white-space: normal;
 }
 .store-button:hover {
-  background: #21414a;
+  background: #efd5a5;
+  border-color: #efd5a5;
+  color: #0d2029;
 }
-.store-button.store-primary {
-  border-color: #e9cfa2;
-  background: #dec38e;
-  color: #142730;
+.store-button:disabled {
+  background: #25383d;
+  border-color: #536265;
+  color: #c0cbc6;
 }
-.store-button.store-primary:hover {
-  background: #eed8aa;
-}
+/* THE CATALOGUE. Sol's list of rows: a coin medallion, the product's name and what it is worth in
+   the player's bank, then the price and the one control on the right. One column, 12px apart - not
+   the three-across card grid this page had before, which needed 1280px to hold five cards. */
 .store-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
+  gap: 12px;
 }
 .store-product {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
+  display: grid;
+  grid-template-columns: 94px minmax(0, 1fr) auto;
+  grid-template-areas:
+    "art name action"
+    "art worth action"
+    "note note note";
+  column-gap: 24px;
+  row-gap: 4px;
+  align-items: center;
+  padding: 24px;
+  background: var(--store-panel);
   border: 1px solid var(--store-line);
   border-radius: 9px;
-  overflow: hidden;
-  background: #122a33;
-  transition: border-color 120ms ease;
 }
-.store-product:hover {
-  border-color: #e0c48b60;
+.store-product > .store-art {
+  grid-area: art;
 }
+/* The name is the link to the product's own view. In Sol's row the medallion was decoration and
+   the name was plain text with a "View ..." link beside it; the wired card has no room for a
+   second link, so the name carries it and the medallion stays decoration (aria-hidden). */
 .store-product-open {
-  display: block;
-  width: 100%;
-  padding: 0;
+  grid-area: name;
+  align-self: end;
+  min-width: 0;
+  padding: 2px 0;
   color: inherit;
-  text-decoration: none;
+  /* The name is a link, so it carries a link's own affordance rather than a colour change alone:
+     a hairline gold rule under it, which goes full gold with the name on hover. */
+  text-decoration: underline;
+  text-decoration-color: #e4c4864d;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 6px;
 }
-.store-art {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1.45;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(145deg, #1e3c46, #17303a);
-  overflow: hidden;
+.store-product-open:hover {
+  color: var(--store-gold);
+  text-decoration-color: var(--store-gold);
 }
-.store-art svg {
-  width: 82%;
-  height: 100%;
-  max-height: 190px;
+.store-product-open:hover .store-product-name {
+  color: var(--store-gold);
 }
 .store-app .store-product-name {
   display: block;
-  padding: 14px 16px 0;
   color: var(--store-ink);
-  font:
-    500 17px/1.4 Georgia,
-    serif;
+  font-size: 20px;
+  font-weight: 550;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
-/* Price and worth on the left, the one control on the right: a card names what it sells, what
-   it costs and what it is worth in the game, and offers exactly one thing to do about it. */
-.store-product-footer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px 12px;
-  align-items: end;
-  padding: 16px;
-  margin-top: auto;
-}
-.store-price {
-  grid-column: 1;
-  font-weight: 600;
-  font-size: 15px;
-  line-height: 1.4;
-  color: var(--store-ink);
-}
 .store-worth {
-  grid-column: 1;
+  grid-area: worth;
+  align-self: start;
   color: var(--store-muted);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.6;
+  max-width: 56ch;
 }
-.store-product-buy {
-  grid-column: 2;
-  grid-row: 1 / 3;
+.store-product-footer {
+  grid-area: action;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  justify-content: flex-end;
+  justify-content: center;
+  gap: 12px;
+}
+.store-price {
+  color: var(--store-ink);
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.store-product-buy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 6px;
 }
-.store-status {
-  font-size: 11px;
-  line-height: 1.7;
-  color: var(--store-muted);
-}
-/* The "finish the payment in your browser" line is about the whole card, so it runs the width
+/* The "finish the payment in your browser" line is about the whole row, so it runs the width
    under it rather than being squeezed into the control's column. */
 .store-product > .store-status {
-  padding: 0 16px 16px;
+  grid-area: note;
 }
-.store-detail-copy > .store-status {
-  margin-top: 12px;
+.store-status {
+  color: var(--store-muted);
+  border-left: 2px solid var(--store-gold);
+  padding: 4px 0 4px 14px;
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  text-align: left;
 }
+/* THE COIN MEDALLION. Sol's stand-in for a product photograph: a gold ring, an inset ring, a
+   dashed inner ring and a teal radial gradient, with the local vector emblem centred in it.
+   Sol keyed two variants on product keys; this page has no catalogue, so the only variant left
+   is on the `kind` the server sends, and both of his donation variants are folded into one: his
+   copper ground on his softened square. */
+.store-art {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 94px;
+  height: 94px;
+  overflow: hidden;
+  border-radius: 50%;
+  border: 1px solid #e4c48670;
+  outline: 1px solid #e4c48625;
+  outline-offset: -7px;
+  background: radial-gradient(circle at 28% 20%, #526059, #223935 55%, #142c31);
+  box-shadow: inset 0 0 18px #06171c70;
+}
+.store-art::after {
+  content: "";
+  position: absolute;
+  inset: 11px;
+  border: 1px dashed #e4c48630;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.store-art svg {
+  width: 78%;
+  height: 78%;
+}
+.store-art[data-kind="donation"] {
+  border-radius: 9px;
+  border-color: #bf8c6f80;
+  background: radial-gradient(circle at 28% 20%, #695348, #3d3831 55%, #1b2c2e);
+}
+/* THE PRODUCT'S OWN VIEW. Sol's panel: a 150px medallion column beside the copy, on the same
+   card ground as a row. */
 .store-back {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
-  margin-bottom: 24px;
+  min-height: 40px;
+  margin-bottom: 20px;
   color: var(--store-gold);
-  font-weight: 500 !important;
-  font-size: 12px !important;
-  line-height: 1.5 !important;
+  font-size: 14px;
+  line-height: 1.5;
   text-decoration: none;
+  text-underline-offset: 4px;
+}
+.store-back:hover {
+  text-decoration: underline;
+  color: #efd5a5;
 }
 .store-detail {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 36px;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 32px;
   align-items: start;
+  padding: 32px;
+  margin-top: 4px;
+  background: var(--store-panel);
+  border: 1px solid var(--store-line);
+  border-radius: 9px;
 }
 .store-detail-art {
-  display: grid;
-  place-items: center;
-  position: sticky;
-  top: 24px;
-  aspect-ratio: 1;
-  background: linear-gradient(145deg, #23434b, #152f39);
-  border: 1px solid var(--store-line);
-  border-radius: 10px;
+  width: 140px;
+  height: 140px;
 }
-.store-detail-art svg {
-  width: 92%;
-  height: auto;
+.store-detail-copy {
+  min-width: 0;
 }
-/* The item name is a section heading under a 51px page title, so it takes the section size
-   (32px) rather than the 36px hero size it had, which outranked the h1 between 601px and the
-   1100px step and inverted the page's heading order. h1 51/34 >= h2 36/32 holds at every
-   width now. */
 .store-app .store-detail h2 {
-  font:
-    32px/1.2 Georgia,
-    serif;
-  margin: 0 0 16px;
+  font-size: clamp(23px, 4vw, 30px);
+  font-weight: 550;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  margin: 0 0 12px;
   overflow-wrap: anywhere;
 }
 .store-app .store-detail-price {
-  font-size: 26px;
-  line-height: 1.3;
-  color: var(--store-ink);
-  font-weight: 500;
-  margin-bottom: 6px;
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+  line-height: 1.4;
+  margin: 0 0 8px;
 }
 .store-detail-copy > .store-worth {
   margin-bottom: 20px;
@@ -386,22 +494,20 @@
 .store-detail-copy > .store-product-buy {
   align-items: flex-start;
 }
-.store-app .store-muted {
-  color: var(--store-muted);
-  font-size: 11px;
-  line-height: 1.8;
+/* THE PLAYER'S ORDERS. Sol's page had an Orders section with no service behind it; these rows are
+   the server's own records, so they take his scale rather than a mock's. */
+.store-app .store-orders-heading {
+  font-size: clamp(23px, 4vw, 30px);
+  font-weight: 550;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  margin: 0 0 20px;
 }
 .store-empty {
   color: var(--store-muted);
-  font-size: 13px;
-  line-height: 1.8;
+  font-size: 14px;
+  line-height: 1.7;
   padding: 12px 0;
-}
-.store-app .store-orders-heading {
-  font:
-    32px/1.25 Georgia,
-    serif;
-  margin: 4px 0 24px;
 }
 .store-order-record {
   display: flex;
@@ -412,17 +518,20 @@
   border-bottom: 1px solid var(--store-line);
 }
 .store-app .store-order-record h3 {
-  font-weight: 600;
-  font-size: 13px;
+  color: var(--store-ink);
+  font-size: 20px;
+  font-weight: 550;
+  line-height: 1.35;
   margin: 0 0 6px;
 }
 .store-order-record > div {
   min-width: 0;
   flex: 1;
 }
-.store-order-record > strong {
-  white-space: nowrap;
-  font-size: 13px;
+.store-app .store-muted {
+  color: var(--store-muted);
+  font-size: 14px;
+  line-height: 1.6;
 }
 /* The two words are the server's claims and nothing else: an order that is not paid carries no
    word at all, and one that has not been delivered says nothing about delivery. */
@@ -435,82 +544,69 @@
 .store-order-state {
   display: inline-flex;
   align-items: center;
-  padding: 3px 9px;
-  border: 1px solid #e0c48b45;
-  border-radius: 8px;
+  padding: 4px 10px;
+  border: 1px solid #e4c48645;
+  border-radius: 999px;
   color: var(--store-gold);
-  font-size: 10px;
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.5;
 }
-@media (max-width: 1100px) {
-  .store-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+.store-order-amount {
+  white-space: nowrap;
+  color: var(--store-ink);
+  font-size: 19px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+}
+/* Sol's narrow-window step: the medallion shrinks to 64px, the row becomes medallion plus a
+   stacked name, worth and action, and the page gutters come in to 16px. */
+@media (max-width: 600px) {
+  .store-main {
+    width: calc(100% - 32px);
+    padding: 28px 0 40px;
+  }
+  .store-mast {
+    padding-bottom: 20px;
+  }
+  .store-product {
+    grid-template-columns: 64px minmax(0, 1fr);
+    grid-template-areas:
+      "art name"
+      "art worth"
+      ". action"
+      "note note";
+    column-gap: 16px;
+    padding: 18px;
+  }
+  .store-product .store-art {
+    width: 64px;
+    height: 64px;
+  }
+  .store-product .store-art::after {
+    inset: 8px;
   }
   .store-product-footer {
+    flex-direction: row;
     flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px 14px;
+    padding-top: 4px;
   }
-}
-@media (max-width: 800px) {
-  .store-navbar {
-    margin-bottom: 16px;
-  }
-  .store-top-nav {
-    gap: 2px;
-  }
-  .store-nav {
-    padding: 9px 10px;
+  .store-product-buy {
+    align-items: flex-start;
   }
   .store-detail {
+    grid-template-columns: minmax(0, 1fr);
     gap: 24px;
+    padding: 22px;
   }
   .store-detail-art {
-    position: relative;
-    top: 0;
+    width: 94px;
+    height: 94px;
   }
-  .store-app .store-detail h2 {
-    font-size: 29px;
-  }
-  .store-app .store-orders-heading {
-    font-size: 28px;
-  }
-}
-@media (max-width: 540px) {
-  .store-brand > .store-overline {
-    font-size: 8px;
-  }
-  .store-nav {
-    padding: 7px 8px;
-    min-height: 34px;
-    font-size: 11px !important;
-  }
-  .store-grid {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
-  }
-  .store-art {
-    aspect-ratio: 1.2;
-  }
-  .store-app .store-product-name {
-    font-size: 16px;
-    padding: 12px 12px 0;
-  }
-  .store-product-footer {
-    padding: 14px 12px 12px;
-    gap: 10px;
-  }
-  .store-product > .store-status {
-    padding: 0 12px 12px;
-  }
-  .store-detail {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .store-detail-art {
-    aspect-ratio: 1.7;
-  }
-  .store-detail-art svg {
-    height: 210px;
-    width: auto;
-    max-width: 100%;
+  .store-footer {
+    width: calc(100% - 32px);
   }
   .store-order-record {
     flex-wrap: wrap;
@@ -520,10 +616,9 @@
     flex-basis: 100%;
   }
 }
+/* Sol's reduced-motion block, plus main's spinner: no rotation while a read is in flight, and no
+   transition anywhere on the page. */
 @media (prefers-reduced-motion: reduce) {
-  .store-product {
-    transition: none;
-  }
   .store-busy {
     animation: none;
   }

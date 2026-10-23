@@ -111,7 +111,27 @@ try {
             box = name.getBoundingClientRect();
           return box.left >= card.left && box.right <= card.right;
         });
-      assert.equal(longNameInside, true, "a long product name stays inside its card");
+      assert.equal(
+        longNameInside,
+        true,
+        "a long product name stays inside its card",
+      );
+      // SOL'S MEDALLION, KEYED BY THE SERVER AND NOTHING ELSE. Sol's sheet chose its artwork variant
+      // from a product key (`data-product="..."`); this page has no catalogue to key anything on,
+      // so every medallion is the `kind` the server sent, in the server's order, and no medallion
+      // carries a product key at all.
+      assert.equal(
+        await store.locator(".store-art[data-product]").count(),
+        0,
+        "no medallion is keyed on a product key",
+      );
+      assert.deepEqual(
+        await store
+          .locator(".store-product .store-art")
+          .evaluateAll((arts) => arts.map((art) => art.dataset.kind)),
+        SERVER_PRODUCTS.map((p) => p.kind),
+        "every medallion is the kind the server sent, in the server's order",
+      );
       assert.deepEqual(errors, []);
     } finally {
       await page.close();
@@ -178,6 +198,28 @@ try {
     }
   }
   console.log("The page carries no catalogue, no product and no price of its own");
+  // Nor does the sheet: a stylesheet that named a product key would be a catalogue with a
+  // different file extension, and Sol's sheet did name two of them.
+  {
+    const css = await readFile(new URL("../site/store/store.css", import.meta.url), "utf8");
+    for (const key of [
+      "sterling-10",
+      "sterling-100",
+      "sterling-1000",
+      "donation-5",
+      "penny",
+      "Keep the lights on",
+      "Penny for the poor",
+    ])
+      assert.equal(css.includes(key), false, `site/store/store.css names ${key}`);
+    // The medallion's one variant is still there, keyed on the kind the server sends.
+    assert.match(
+      css,
+      /\.store-art\[data-kind="donation"\]/,
+      "the donation medallion is keyed on the server's kind",
+    );
+  }
+  console.log("The sheet carries no product key either");
 } finally {
   await browser.close();
 }

@@ -62,8 +62,12 @@ const anchor = (href, cls) => {
 };
 const artwork = (kind, cls = "store-art") => {
   const n = el("div", cls);
-  // The illustrations are local static vectors, chosen by the kind the server sent. A kind
-  // with no illustration of its own still gets one: art is decoration, never a claim.
+  // The emblems are local static vectors, chosen by the kind the server sent. A kind with no
+  // emblem of its own still gets one: art is decoration, never a claim. data-kind is what the
+  // sheet tints a donation's medallion by, so Sol's medallion variants survive without this page
+  // keying anything on a product key it is not allowed to know.
+  n.dataset.kind = kind;
+  n.setAttribute("aria-hidden", "true");
   n.innerHTML = productArt(kind === "donation" ? "flag" : "coins");
   return n;
 };
@@ -208,17 +212,23 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     }
     if (view === "orders") void loadOrders();
   }
+  /*
+   * One row of Sol's list: the coin medallion, the name (which is the link to the product's own
+   * view), what the product is worth in the player's bank, and the price with the one control
+   * beside it.
+   * The medallion stands outside the link, as it did in Sol's row: the click target is the name,
+   * and the drawing is decoration that takes no focus and says nothing to a screen reader.
+   */
   function card(p) {
     const article = el("article", "store-product");
     const open = anchor("#item/" + encodeURIComponent(p.key), "store-product-open");
-    open.append(artwork(p.kind), el("h2", "store-product-name", p.name));
+    open.append(el("h2", "store-product-name", p.name));
     const footer = el("div", "store-product-footer");
     footer.append(
       el("strong", "store-price", money(p.amountMinor, p.currency)),
-      el("p", "store-worth", worth(p)),
       buyControl(p),
     );
-    article.append(open, footer);
+    article.append(artwork(p.kind), open, el("p", "store-worth", worth(p)), footer);
     const note = openedNote(p);
     if (note) article.append(note);
     return article;
@@ -274,7 +284,7 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     );
     const note = openedNote(p);
     if (note) copy.append(note);
-    section.append(artwork(p.kind, "store-detail-art"), copy);
+    section.append(artwork(p.kind, "store-art store-detail-art"), copy);
     content.append(section);
   }
   function ordersView() {
@@ -398,6 +408,19 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
 const mount = document.getElementById("store-root");
 const bridge = globalThis.easterDesktop;
 if (mount) {
-  if (bridge && bridge.mode === "desktop") mountStore(mount);
-  else location.replace("../");
+  if (bridge && bridge.mode === "desktop") {
+    mountStore(mount);
+    // The page's skip link is Sol's. It has to land inside the store rather than in the address
+    // bar: #store-root is not one of this page's routes, so letting the fragment through would
+    // send the reader to the catalogue and scroll the page to the top on the way. The link
+    // focuses the region a route change focuses, and leaves the route alone. (Without a bridge the
+    // page is redirected home before any of this matters.)
+    const skip = document.querySelector(".store-skip"),
+      region = mount.querySelector(".store-content");
+    if (skip && region)
+      skip.addEventListener("click", (event) => {
+        event.preventDefault();
+        region.focus();
+      });
+  } else location.replace("../");
 }

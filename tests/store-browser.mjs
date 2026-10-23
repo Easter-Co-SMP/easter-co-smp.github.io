@@ -12,6 +12,7 @@
  * page asked for. `tests/store.test.mjs` proves the main-process half that shapes those answers.
  */
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 const { chromium } = await import(
   process.env.PLAYWRIGHT_MODULE || "playwright"
 );
@@ -54,7 +55,7 @@ const ORDER = {
 // the products, the orders and the one failure a scenario is about.
 function installBridge(cfg) {
   const home = { schema: 1, posts: [], featuredItem: null };
-  const store = { catalogue: 0, orders: 0, checkouts: [], release: null };
+  const store = { catalogue: 0, orders: 0, checkouts: [], release: null, releaseCatalogue: null };
   window.__store = store;
   window.easterDesktop = {
     mode: "desktop",
@@ -71,7 +72,12 @@ function installBridge(cfg) {
     storeCatalogue: async () => {
       store.catalogue += 1;
       if (cfg.catalogueError) throw new Error(cfg.catalogueError);
-      return { products: cfg.products };
+      if (!cfg.holdCatalogue) return { products: cfg.products };
+      // A held read is how the busy ring is measured at all: it is drawn only while the page is
+      // still asking, and this store prints no words while it waits.
+      return new Promise((resolve) => {
+        store.releaseCatalogue = () => resolve({ products: cfg.products });
+      });
     },
     storeOrders: async () => {
       store.orders += 1;
@@ -241,6 +247,73 @@ try {
       largest("H1") >= largest("H2"),
       `heading sizes are ordered h1 ${largest("H1")} >= h2 ${largest("H2")}`,
     );
+    // SOL'S DESIGN, MEASURED. One row per product in one column — not the three-across card grid
+    // that needed 1280px to hold five cards — with a circular coin medallion beside the name and
+    // Sol's gold, 44px-tall control on the right. Every part of a row stays inside its row.
+    const row = await store.locator(".store-product").first().evaluate((card) => {
+      const box = card.getBoundingClientRect(),
+        art = card.querySelector(".store-art"),
+        artBox = art.getBoundingClientRect(),
+        buy = card.querySelector(".store-button"),
+        outside = [...card.querySelectorAll("*")]
+          .filter((node) => {
+            const b = node.getBoundingClientRect();
+            return (
+              b.width > 0 &&
+              (b.left < box.left - 0.5 ||
+                b.right > box.right + 0.5 ||
+                b.top < box.top - 0.5 ||
+                b.bottom > box.bottom + 0.5)
+            );
+          })
+          .map((node) => node.className || node.tagName);
+      return {
+        cardWidth: Math.round(box.width),
+        gridColumns: getComputedStyle(card).gridTemplateColumns.split(" ").length,
+        art: {
+          width: Math.round(artBox.width),
+          radius: getComputedStyle(art).borderTopLeftRadius,
+          hidden: art.getAttribute("aria-hidden"),
+        },
+        buy: {
+          height: Math.round(buy.getBoundingClientRect().height),
+          background: getComputedStyle(buy).backgroundColor,
+        },
+        outside,
+      };
+    });
+    const listWidth = Math.round((await store.locator(".store-grid").boundingBox()).width);
+    assert.equal(
+      row.gridColumns,
+      width <= 600 ? 2 : 3,
+      `a row is medallion and copy above 600px, medallion and a stacked copy below it (${width}px: ${row.gridColumns} columns)`,
+    );
+    assert.equal(
+      row.cardWidth,
+      listWidth,
+      "the catalogue is one column: every row is as wide as the list",
+    );
+    assert.equal(
+      row.art.width,
+      width <= 600 ? 64 : 94,
+      `the coin medallion takes Sol's size (${width}px: ${row.art.width}px)`,
+    );
+    assert.equal(row.art.radius, "50%", "the medallion is a coin: a circle");
+    assert.equal(
+      row.art.hidden,
+      "true",
+      "the medallion is decoration and says nothing to a screen reader",
+    );
+    assert.ok(
+      row.buy.height >= 44,
+      `the Buying control is at least 44px tall (${width}px: ${row.buy.height}px)`,
+    );
+    assert.equal(
+      row.buy.background,
+      "rgb(228, 196, 134)",
+      "the Buying control is Sol's gold tab, not a dark panel button",
+    );
+    assert.deepEqual(row.outside, [], `every part of a row stays inside its row (${width}px)`);
     assert.deepEqual(errors, [], `no page error at ${width}`);
     assert.deepEqual(external, [], "nothing is fetched off-origin");
     if (output)
@@ -532,6 +605,185 @@ try {
     assert.equal(await page.locator("dialog[open]").count(), 0);
     assert.deepEqual(errors, []);
     console.log("Launcher nav entry navigates to the store page");
+  }
+  // SOL'S SKIP LINK AND THE KEYBOARD. The link is the page's first Tab stop, it is off screen
+  // until it is focused, and pressing it puts the reader inside the store without turning itself
+  // into a route. Then every visible control on the page is reached by Tab, in document order.
+  {
+    const { page, errors } = await storePage({ width: 1440, height: 1000 });
+    await page.locator(".store-product").first().waitFor();
+    const asleep = await page.locator(".store-skip").boundingBox();
+    assert.ok(
+      asleep.width <= 1 && asleep.height <= 1,
+      "the skip link is off screen until it is focused",
+    );
+    await page.keyboard.press("Tab");
+    assert.equal(
+      await page.evaluate(() => document.activeElement.className),
+      "store-skip",
+      "the first Tab stop on the page is the skip link",
+    );
+    const awake = await page.locator(".store-skip").boundingBox();
+    assert.ok(
+      awake.height >= 44 && awake.y >= 0 && awake.y < 60,
+      `the focused skip link is on screen (${Math.round(awake.y)}px from the top, ${Math.round(awake.height)}px tall)`,
+    );
+    await page.keyboard.press("Enter");
+    const landed = await page.evaluate(() => ({
+      cls: document.activeElement.className,
+      inStore: Boolean(document.activeElement.closest(".store-app")),
+      hash: location.hash,
+      top: Math.round(document.activeElement.getBoundingClientRect().top),
+    }));
+    assert.equal(landed.inStore, true, "the skip link reaches the store");
+    assert.equal(landed.hash, "#catalogue", "and it does not become a route of its own");
+    assert.ok(
+      landed.top >= 0 && landed.top < 1000,
+      `the store's content region is on screen after the jump (top ${landed.top}px)`,
+    );
+    assert.deepEqual(errors, []);
+    const second = await storePage({ width: 1440, height: 1000 });
+    await second.page.locator(".store-product").first().waitFor();
+    const controls = await second.page.evaluate(() =>
+      [...document.querySelectorAll("a[href], button, [tabindex]")]
+        .filter(
+          (n) =>
+            n.checkVisibility && n.checkVisibility() && n.tabIndex >= 0 && !n.disabled,
+        )
+        .map((n) => (n.className || n.tagName) + "|" + (n.textContent || "").trim().slice(0, 24)),
+    );
+    // From a fresh load, one Tab per visible control in the document: every one of them is visited,
+    // in order, before focus leaves the page.
+    const walked = [];
+    for (let step = 0; step < controls.length; step += 1) {
+      await second.page.keyboard.press("Tab");
+      walked.push(
+        await second.page.evaluate(() => {
+          const n = document.activeElement;
+          return (n.className || n.tagName) + "|" + (n.textContent || "").trim().slice(0, 24);
+        }),
+      );
+    }
+    assert.deepEqual(
+      walked,
+      controls,
+      "every visible control on the store page is reached by Tab, in document order",
+    );
+    assert.ok(
+      walked.includes("store-nav|Browse") && walked.includes("store-nav|Orders"),
+      "the store's own two views are keyboard reachable",
+    );
+    assert.equal(
+      walked.filter((c) => c.startsWith("store-product-open")).length,
+      5,
+      "every product name, the link to its own view, is reachable",
+    );
+    assert.equal(
+      walked.filter((c) => c.startsWith("store-button")).length,
+      5,
+      "every Buy control is reachable",
+    );
+    assert.ok(walked.includes("store-skip|Skip to store"), "and the skip link is walked too");
+    console.log(
+      `Skip link and keyboard passed: ${walked.length} Tab stops, ${controls.length} visible controls, none missed`,
+    );
+  }
+  // THE MOTION SETTING. A reader who asked for reduced motion gets a still ring; without that
+  // setting the ring Sol never had still turns, so the busy state is not silently dead for
+  // everyone.
+  {
+    const busyRing = async (reducedMotion) => {
+      const page = await browser.newPage({
+        viewport: { width: 1440, height: 1000 },
+        reducedMotion,
+      });
+      const errors = [];
+      page.on("pageerror", (e) => errors.push(e.message));
+      await page.addInitScript(installBridge, {
+        products: PRODUCTS,
+        orders: [],
+        holdCatalogue: true,
+      });
+      await page.goto(origin + "/store/", { waitUntil: "domcontentloaded" });
+      await page.locator(".store-busy").waitFor();
+      const ring = await page.evaluate(() => {
+        const style = getComputedStyle(document.querySelector(".store-busy"));
+        return { name: style.animationName, duration: style.animationDuration };
+      });
+      await page.evaluate(() => window.__store.releaseCatalogue());
+      await page.locator(".store-product").first().waitFor();
+      const settled = await page.evaluate(() => ({
+        transition: getComputedStyle(document.querySelector(".store-product"))
+          .transitionDuration,
+        overflow:
+          document.documentElement.scrollWidth - window.innerWidth,
+      }));
+      await page.close();
+      return { ring, settled, errors };
+    };
+    const quiet = await busyRing("reduce");
+    assert.deepEqual(quiet.errors, []);
+    assert.equal(
+      quiet.ring.name,
+      "none",
+      "a reader who asked for reduced motion gets a still ring, not a spinning one",
+    );
+    assert.equal(quiet.settled.overflow, 0, "and the settled page still does not scroll sideways");
+    const lively = await busyRing("no-preference");
+    assert.deepEqual(lively.errors, []);
+    assert.equal(lively.ring.name, "store-spin", "without that setting the ring still turns");
+    assert.equal(lively.ring.duration, "0.9s");
+    console.log("Reduced motion passed: the busy ring turns, and stops when the reader asks it to");
+  }
+  // THE TWO STANDING RULES A DESIGN PASS HAS ALREADY DROPPED ONCE (commit 5e5a2fc): the class that
+  // keeps the Store link out of the public site, and the mount gate that keeps the store off it.
+  // Both are asserted where they live, so a later visual pass over a stale base fails here.
+  {
+    const markup = await readFile(new URL("../site/store/index.html", import.meta.url), "utf8");
+    assert.match(
+      markup,
+      /<a class="store-entry" href="\.\.\/store\/"/,
+      'site/store/index.html keeps class="store-entry" on its Store link',
+    );
+    assert.match(
+      markup,
+      /<a class="store-skip" href="#store-root">Skip to store<\/a>/,
+      "the skip link is in the static markup, so it exists before any script runs",
+    );
+    const source = await readFile(new URL("../site/store/store.mjs", import.meta.url), "utf8");
+    assert.match(
+      source,
+      /bridge\.mode === "desktop"/,
+      "the mount gate still asks the bridge for mode:'desktop'",
+    );
+    assert.match(
+      source,
+      /location\.replace\("\.\.\/"\)/,
+      "and still sends every other visitor home",
+    );
+    const noScript = await browser.newPage({
+      viewport: { width: 1440, height: 1000 },
+      javaScriptEnabled: false,
+    });
+    try {
+      await noScript.goto(origin + "/store/", { waitUntil: "load" });
+      assert.equal(
+        await noScript.locator('.site-header nav a.store-entry[href="../store/"]').count(),
+        1,
+        "the store page's own nav carries the class that hides it outside the launcher",
+      );
+      assert.equal(await noScript.locator(".store-main").isVisible(), false);
+      const skip = await noScript.locator(".store-skip").boundingBox();
+      assert.ok(
+        skip.width <= 1 && skip.height <= 1,
+        "and the skip link stays off screen on a page with no scripting",
+      );
+    } finally {
+      await noScript.close();
+    }
+    console.log(
+      'Standing rules passed: class="store-entry" on the Store link, and the mount gate in store.mjs',
+    );
   }
 } finally {
   for (const { page } of opened) if (!page.isClosed()) await page.close();
