@@ -397,7 +397,7 @@ try{
  // yet", which promised a removal that is not coming; this asserts the sentence itself, and that
  // nothing in it reads as a promise.
  const linkedText=await page.locator('#company-linked-accounts').innerText();
- assert.match(linkedText,/Links stay with this Easter Company account and cannot be removed\. Your linked account is how we know you are you, and a link that could be removed would let a person keep making new Easter Company accounts\./,'the dialog says plainly that a link cannot be removed and why it cannot: '+linkedText.replace(/\s+/g,' '));
+ assert.match(linkedText,/Links stay with this Easter Company account and cannot be removed\. Your linked account is how we know you are you\./,'the dialog says plainly that a link cannot be removed and that the link is the verification: '+linkedText.replace(/\s+/g,' '));
  assert(!/\byet\b|for now|temporarily|coming soon|in future|later release/i.test(linkedText),'and nothing in it promises a removal later: '+linkedText.replace(/\s+/g,' '));
  assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:/unlink|un-link|disconnect|remove|delete/i}).count(),0,'no control offers to unlink, disconnect or remove a provider');
  assert.equal(await page.locator('#company-linked-accounts a[href]').count(),0,'and no link in the dialog points at one either');

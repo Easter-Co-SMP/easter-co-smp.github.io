@@ -168,7 +168,7 @@ export async function openLinkedAccounts({desktop,getState,signInMicrosoft,isAcc
   // now, cause otherwise they could keep un-linking accounts in-order to make new easter company
   // accounts." So the sentence states the fact and the reason, and the word "yet" is gone: a
   // removal is not late, it is not coming, and nothing here may read as a promise of one.
-  markup:'<p>Links stay with this Easter Company account and cannot be removed. Your linked account is how we know you are you, and a link that could be removed would let a person keep making new Easter Company accounts. Microsoft / Xbox and Minecraft ownership are required to play Minecraft.</p>'
+  markup:'<p>Links stay with this Easter Company account and cannot be removed. Your linked account is how we know you are you. Microsoft / Xbox and Minecraft ownership are required to play Minecraft.</p>'
    +'<p class="company-wait" hidden></p>'
    +'<div class="company-provider-links"></div>'
    +'<p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p>'

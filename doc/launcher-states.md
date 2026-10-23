@@ -2088,9 +2088,10 @@ keep un-linking accounts in-order to make new easter company accounts."* The thi
 the verification that a person is one person, so removal would let somebody unlink repeatedly to
 mint Easter Company accounts, and there is no unlink route in the account service to call anyway.
 The sentence at the top of Linked Accounts reads exactly: *Links stay with this Easter Company
-account and cannot be removed. Your linked account is how we know you are you, and a link that
-could be removed would let a person keep making new Easter Company accounts. Microsoft / Xbox and
-Minecraft ownership are required to play Minecraft.* The word **yet** came out of it with this
+account and cannot be removed. Your linked account is how we know you are you. Microsoft / Xbox and
+Minecraft ownership are required to play Minecraft.* Owen cut the longer draft's second half on
+2026-10-23 — "the bolded text sounds 5th grade" — so the page states the fact and the verification
+and leaves the anti-farming reasoning here, where it belongs. The word **yet** came out of it with this
 rule: the old line said links "cannot be removed from the launcher yet", which promised a removal
 that is not coming, and no wording may imply one — no "yet", "for now", "temporarily" or "coming
 soon" here. The rule is structural as well as prose: a linked provider is a described row with no

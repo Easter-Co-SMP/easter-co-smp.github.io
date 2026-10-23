@@ -157,7 +157,7 @@ try{
  // accounts. The sentence states that and the reason, and carries no "yet": a removal is not late,
  // it is not coming. This literal is the whole dialog, so the promise-free wording is pinned here
  // as well as in tests/identity-browser.mjs, which asserts the sentence on its own.
- const LINKED_ACCOUNTS_TEXT='× Linked Accounts Links stay with this Easter Company account and cannot be removed. Your linked account is how we know you are you, and a link that could be removed would let a person keep making new Easter Company accounts. Microsoft / Xbox and Minecraft ownership are required to play Minecraft. Microsoft / Xbox · linked Google Connect Steam Connect Discord Connect';
+ const LINKED_ACCOUNTS_TEXT='× Linked Accounts Links stay with this Easter Company account and cannot be removed. Your linked account is how we know you are you. Microsoft / Xbox and Minecraft ownership are required to play Minecraft. Microsoft / Xbox · linked Google Connect Steam Connect Discord Connect';
  const noRevokeControl=async()=>{
   const shape=await page.evaluate(()=>{
    const dialog=document.querySelector('#company-linked-accounts');
