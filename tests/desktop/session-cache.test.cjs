@@ -99,6 +99,9 @@ test('a corrupt, mismatched or stale file is refused with its own reason so it c
  assert.deepEqual(parse(good,{liveAccount:{...WHOLE_ACCOUNT,minecraftUuid:'00000000-0000-0000-0000-000000000000'}}),{cache:null,reason:'another-account'},'another Minecraft identity discards it');
  assert.deepEqual(parse(good,{liveAccount:{...WHOLE_ACCOUNT,minecraftName:'SomebodyElse'}}),{cache:null,reason:'another-account'},'another Minecraft name discards it');
  assert.deepEqual(parse(good,{liveAccount:null}),{cache:null,reason:'another-account'},'no account at all discards it');
+ // Every reason above is one the launcher deletes the file for; `absent` is the only one it does
+ // not, because there is nothing to delete. The list in the module is what main.cjs reads.
+ assert.deepEqual(['unreadable','version','stale','incomplete','another-account'],[...cache.DISCARDED],'the discard list is exactly the five reasons, and absent is not one of them');
  // A file whose own fields were damaged is discarded rather than half-read.
  assert.deepEqual(parse(JSON.stringify({...record(),minecraftSession:{state:'playing',checkedAt:iso(NOW)}})),{cache:null,reason:'incomplete'},'a word the contract does not have is not a word');
  assert.deepEqual(parse(JSON.stringify({...record(),account:{id:'EC-7'},minecraftSession:{state:'checking'}})),{cache:null,reason:'incomplete'},'a file claiming a wait is not an answer');
