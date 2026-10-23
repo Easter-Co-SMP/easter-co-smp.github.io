@@ -36,7 +36,14 @@
 //   * It cleans up: fixtures stopped by process group and their ports confirmed free, the
 //     PostgreSQL container left in the state it was found in, and any process the sweep
 //     itself left behind is named and fails the run.
+//   * It refuses to run beside someone else: a fixture port already listening, or another
+//     session's tests/launcher_api_fixture.py anywhere on the box, means this sweep's
+//     journeys would share state with work it did not start. Measured 2026-10-23: a sibling
+//     session's hand-started fixture on 18796 plus its Chromium suites turned a green sweep
+//     into two spurious failures (handover, server-session) in one run and a refused
+//     company.electron.mjs in the next.
 import {execFileSync, spawn} from 'node:child_process';
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
@@ -196,7 +203,7 @@ function processes() {
     .filter((entry) => entry.pid && entry.pid !== process.pid);
 }
 
-const CONTENDERS = ['Xvfb', 'electron', 'xvfb-run'];
+const CONTENDERS = ['Xvfb', 'electron', 'xvfb-run', 'chrome', 'chromium', 'headless_shell'];
 function contenders() {
   const found = {};
   for (const {comm} of processes()) if (CONTENDERS.includes(comm)) found[comm] = (found[comm] || 0) + 1;
@@ -205,6 +212,38 @@ function contenders() {
 
 function describeContenders(found) {
   return Object.entries(found).map(([name, count]) => `${count} ${name}`).join(', ');
+}
+
+// Another session's account fixture is the one thing that shares state with this sweep: the
+// cluster behind it is shared, the ports are fixed, and its journeys are the contention
+// doc/releasing.md warns about. It is read from /proc, not from a command-line pattern, so
+// nothing of another session's is ever signalled.
+function foreignFixtures() {
+  const found = [];
+  let entries = [];
+  try {
+    entries = fsSync.readdirSync('/proc').filter((name) => /^\d+$/.test(name));
+  } catch {
+    return found;
+  }
+  for (const pid of entries) {
+    if (Number(pid) === process.pid) continue;
+    let cmdline = '';
+    try {
+      cmdline = fsSync.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+    } catch {
+      continue;
+    }
+    if (!cmdline.includes('launcher_api_fixture.py')) continue;
+    let cwd = '';
+    try {
+      cwd = fsSync.readlinkSync(`/proc/${pid}/cwd`);
+    } catch {
+      /* a process that exited between the readdir and the read */
+    }
+    found.push({pid: Number(pid), cwd});
+  }
+  return found;
 }
 
 function pidsOf(name) {
@@ -333,6 +372,36 @@ await requireExecutable(fixturePython, `${fixturePython} is missing, so tests/la
 
 if (missing.length) {
   console.error(`electron journeys: cannot run - ${missing.join('; ')}`);
+  process.exit(2);
+}
+
+// A fixture port that is already listening belongs to something else - another sweep, a
+// browser suite, or a hand-started fixture. This sweep's journeys would then talk to that
+// fixture's database instead of a fresh one of their own, and a journey that fails under
+// that contention is not a product fault (doc/releasing.md, "Run it alone"), so it refuses
+// to start rather than print a verdict it cannot stand behind. Only the ports the selected
+// journeys actually need are checked, so `--only` a no-fixture journey still works.
+const neededPorts = [...new Set(selected.map((name) => FIXTURES[name] && FIXTURES[name].port).filter(Boolean))];
+const occupied = [];
+for (const port of neededPorts) if (await portOpen(port)) occupied.push(port);
+if (occupied.length) {
+  console.error(
+    `electron journeys: cannot run - 127.0.0.1:${occupied.join(', 127.0.0.1:')} is already listening, ` +
+      'so the fixture this sweep starts for its journeys cannot own that port; stop whatever holds it ' +
+      '(another sweep, a browser suite or a hand-started tests/launcher_api_fixture.py) and run this alone',
+  );
+  process.exit(2);
+}
+
+// The same refusal one level out: a fixture another session started shares the ports and
+// the cluster this sweep's fixtures use, and its own journeys are Chromium contention. A
+// green sweep has to be a sweep run alone.
+const foreign = foreignFixtures();
+if (foreign.length) {
+  console.error(
+    `electron journeys: cannot run - ${foreign.map((entry) => `pid ${entry.pid} (${entry.cwd || 'unknown cwd'})`).join(', ')} ` +
+      'is already running tests/launcher_api_fixture.py and this sweep did not start it; stop it and run this alone',
+  );
   process.exit(2);
 }
 
