@@ -36,16 +36,17 @@
 //   * It cleans up: fixtures stopped by process group and their ports confirmed free, the
 //     PostgreSQL container left in the state it was found in, and any process the sweep
 //     itself left behind is named and fails the run.
-//   * The account fixture's database is the one piece of state a stop leaves behind.
-//     `tests/launcher_api_fixture.py` names it `company_launcher_<its own pid>` and drops it
-//     from an `atexit` handler, which runs only on a normal interpreter exit - and the fixture
-//     installs no signal handler, so Python's default SIGTERM disposition ends it without
-//     running that handler. Measured 2026-10-23 on this box: a fixture stopped with SIGTERM
-//     and one killed with SIGKILL both left the database behind, one per fixture, and 73 had
-//     accumulated. So a fixture is stopped gently first (SIGTERM, bounded wait, SIGKILL only
-//     if it will not die, and the output says which) and the database of the fixture this
-//     sweep started is then dropped by the sweep once that pid is provably gone. Nothing else
-//     is ever dropped: only a datname matching `company_launcher_<pid>` exactly, only a pid
+//   * The account fixture's database used to be the one piece of state a stop left behind.
+//     `tests/launcher_api_fixture.py` names it `company_launcher_<its own pid>`; it used to drop
+//     it only from `atexit`, which a signal bypasses. It now drops from `atexit` *and* from a
+//     SIGTERM/SIGINT handler through one idempotent path (easter-co-cloud 1338cbd; measured
+//     2026-10-23 after that fix: SIGTERM, bare SIGINT and Ctrl-C each left the
+//     `company_launcher%` count unchanged), so a gentle stop no longer leaks. A SIGKILLed,
+//     crashed or PostgreSQL-less fixture still does, so this sweep keeps the belt: stop gently
+//     first (SIGTERM, bounded wait, SIGKILL only if it will not die, and the output says which)
+//     and then drop the database of the fixture this sweep started once that pid is provably
+//     gone. A row reading `database dropped by the fixture itself` is the expected case. Nothing
+//     else is ever dropped: only a datname matching `company_launcher_<pid>` exactly, only a pid
 //     this gate's ledger recorded before its fixture answered, only while that pid is not
 //     alive - a live pid is another run's fixture, and is reported as left alone. How many
 //     were reclaimed and how many were deliberately left is printed, so the box's state is
@@ -220,9 +221,10 @@ async function stopGroup(child, graceMs = GROUP_GRACE_MS) {
 }
 
 // One fixture, stopped and then accounted for: the gentle stop above, the port confirmed free,
-// and the database named after its pid dropped once that process is gone - because the
-// fixture's own `atexit` drop cannot run when a signal ends it (measured 2026-10-23: SIGTERM
-// leaves the database behind just as SIGKILL does).
+// and the database named after its pid dropped only if it is still there once that process is
+// gone - the fixture drops its own on SIGTERM and SIGINT (easter-co-cloud 1338cbd), so this is
+// the belt for a SIGKILLed or crashed one, and a row reading `database dropped by the fixture
+// itself` is the expected case.
 async function stopFixture(handle) {
   const pid = handle && handle.child ? handle.child.pid : null;
   const {escalated} = await stopGroup(handle && handle.child);

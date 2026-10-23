@@ -496,21 +496,27 @@ The three facts that make it work, and the details that bite:
   migration to it and drops it on exit. That is deliberate — a shared database makes the
   second run fail on the previous run's account — so run one fixture at a time, and expect a
   second one on the same port to fail to bind rather than to share.
-- **A stopped fixture does not drop that database.** The drop is an `atexit` handler, and the
-  fixture installs no signal handler, so Python's default SIGTERM disposition ends the process
-  without running it: measured on 2026-10-23, a fixture stopped with SIGTERM and one killed
-  with SIGKILL both left `company_launcher_<pid>` behind, one database per stop, and 73 had
-  accumulated on this box (76 after the three a reproduction run added; every one with a dead
-  pid). `scripts/check-electron-journeys.mjs`
-  therefore stops each fixture with SIGTERM and a bounded wait first and SIGKILL only if it
-  will not die, then drops the database of the fixture it started once that pid is provably
-  gone, and prints `databases - reclaimed N … left M …` so the box's state is read rather than
-  guessed at. It drops nothing else: never a name that is not exactly
-  `company_launcher_<digits>`, never a pid it did not record in
-  `/tmp/easter-journey-fixture-pids.json` before that fixture answered (which is how a sweep
-  that was itself killed leaves its leak for the next sweep to reclaim), and never a pid that
-  is still alive — that is another run's fixture, and it is reported as left alone. A
-  hand-started fixture leaves its database too; keep it in mind when reading that line.
+- **A stopped fixture drops that database itself, and SIGKILL is what still leaks.** The drop
+  runs from `atexit` *and* from a SIGTERM/SIGINT handler through one idempotent path in
+  `tests/launcher_api_fixture.py` (easter-co-cloud, commit 1338cbd), bounded by a server-side
+  statement timeout and a socket timeout, one line of output and no traceback on a repeat
+  signal, so a fixture stopped by a sweep's SIGTERM, by a bare SIGINT or by a hand Ctrl-C
+  leaves nothing behind: measured on 2026-10-23 after that fix, the `company_launcher%` count
+  was unchanged for all three, and the sweep's row reads `database dropped by the fixture
+  itself`. Before it, SIGTERM left `company_launcher_<pid>` behind (73 had accumulated on this
+  box, 76 after a reproduction run added three, every one with a dead pid) and a bare SIGINT did
+  not stop a shell-backgrounded fixture at all within 10 s, because such a child inherits SIGINT
+  as SIG_IGN. A SIGKILL, a crash, or a fixture whose PostgreSQL has already gone still leaves
+  the row, so `scripts/check-electron-journeys.mjs` keeps the belt: it stops each fixture with
+  SIGTERM and a bounded wait first and SIGKILL only if it will not die, then drops the database
+  of the fixture it started once that pid is provably gone, and prints
+  `databases - reclaimed N … left M …` so the box's state is read rather than guessed at. It
+  drops nothing else: never a name that is not exactly `company_launcher_<digits>`, never a pid
+  it did not record in `/tmp/easter-journey-fixture-pids.json` before that fixture answered
+  (which is how a sweep that was itself killed leaves its leak for the next sweep to reclaim),
+  and never a pid that is still alive — that is another run's fixture, and it is reported as
+  left alone. A hand-started fixture stopped with SIGTERM, SIGINT or Ctrl-C now takes its
+  database with it; only a killed or crashed one leaves a row for that reclaim line.
 - To clear databases from before that existed, or one a hand-started fixture left, drop only
   the ones whose trailing pid is dead — this is the same rule the sweep applies, and it never
   touches a database whose pid is alive:
