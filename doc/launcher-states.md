@@ -369,10 +369,11 @@ nothing for the higher ceiling.
 - **The hero action** says `Starting the server…` with the note `Minecraft opens when
   the server is ready` while `phase` is `starting-game`, and offers no second Play. It is
   disabled for that time, as it is during `launching`. Separately, the cold start's own
-  wait line reads `Starting the server… the server is booting up, this might take a
-  minute.` (`desktop/game.cjs`, `MESSAGES.waking`; Owen reworded it on 2026-10-23): the
-  label and the wait line are two different strings on two different surfaces, which is
-  how "your server" survived in the second one after the first was fixed in 1.0.43.
+  wait line reads `The server is booting up, this might take a minute.` (`desktop/game.cjs`,
+  `MESSAGES.waking`; Owen settled the wording on 2026-10-23, dropping the repeated
+  "Starting the server…"): the label and the wait line are two different strings on two
+  different surfaces, which is how "your server" survived in the second one after the
+  first was fixed in 1.0.43.
 - **The sticky bar** carries the same `game.message` while `game.waking`, so the news
   follows the player to the map and the wiki.
 - **A wake timeout is an ordinary operation failure**: it settles through `error`, so it

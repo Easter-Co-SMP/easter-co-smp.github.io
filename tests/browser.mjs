@@ -1479,7 +1479,7 @@ try{
    assert.equal(await gameLine.getAttribute('data-tone'),'stopping');
    // The press that starts it: the same Play turns into the cold start, and there is no
    // second Play to press while the first one is waiting for the server.
-   await pushState({phase:'starting-game',game:{...asleep,state:'starting',waking:true,message:'Starting the server… the server is booting up, this might take a minute.',tone:'starting'}});
+   await pushState({phase:'starting-game',game:{...asleep,state:'starting',waking:true,message:'The server is booting up, this might take a minute.',tone:'starting'}});
    const coldStart=await hero();
    assert.equal(coldStart.action,'starting','the hero says the server is starting');
    assert(/Starting the server/.test(coldStart.text),'the hero action is the launcher\'s own cold-start label from site/desktop.js ("Starting the server…" since 1.0.43), not the wait line\'s sentence: '+coldStart.text);
@@ -1489,12 +1489,12 @@ try{
    // Since the quiet-feedback pass both are carried by the one wait line the cold start owns
    // (site/wait-feedback.mjs); the separate status row stands down while it is up, so the
    // sentence pair is read from the line that is actually on screen.
-   await pushState({game:{...asleep,state:'starting',waking:true,detail:'Waking the world.',message:'Starting the server… the server is booting up, this might take a minute.',tone:'starting'}});
+   await pushState({game:{...asleep,state:'starting',waking:true,detail:'Waking the world.',message:'The server is booting up, this might take a minute.',tone:'starting'}});
    const coldStartLine=launcherPage.locator('.desktop-activity');
    await coldStartLine.filter({hasText:'Waking the world.'}).waitFor();
    const coldStartText=await coldStartLine.innerText();
-   assert(coldStartText.includes('Starting the server'),'the launcher sentence is still the first thing read: '+coldStartText);
-   assert(coldStartText.indexOf('Starting the server')<coldStartText.indexOf('Waking the world.'),'and the service\'s detail reads below it: '+coldStartText);
+   assert(coldStartText.includes('The server is booting up, this might take a minute.'),'the launcher sentence is still the first thing read: '+coldStartText);
+   assert(coldStartText.indexOf('The server is booting up')<coldStartText.indexOf('Waking the world.'),'and the service\'s detail reads below it: '+coldStartText);
    assert.equal(await gameLine.isVisible(),false,'the cold start has one line, not two');
    // A wake that timed out is an ordinary failure on the one page notice, and Play is the retry.
    await pushState({phase:'ready',canPlay:true,game:{...asleep,waking:false},error:'The server did not become joinable within three minutes. Press Play to try it again.'});

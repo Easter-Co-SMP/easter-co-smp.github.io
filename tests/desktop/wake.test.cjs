@@ -160,8 +160,14 @@ test('the status line is four sentences, and says Pending until it has asked',()
  assert.equal(line({},{checked:false}).tone,'pending');
  assert.equal(MESSAGES.pending,'Status pending…','the line lives in the copy table, not in the view');
  assert(MESSAGES.pending.endsWith('\u2026'),'with a real U+2026 ellipsis, not three dots');
- assert(MESSAGES.waking.endsWith('minute.'),'the waking sentence is unchanged');
- assert(MESSAGES.waking.includes('\u2026'),'and the pending line matches the ellipsis the waking sentence uses');
+ // Owen settled the cold start's wording on 2026-10-23: "The server is booting up, this
+ // might take a minute." It is pinned by value rather than by shape, because this sentence was
+ // the one that kept "your server" after the hero label beside it had been fixed - the two are
+ // different strings on different surfaces, and a shape assertion let the second one drift.
+ assert.equal(MESSAGES.waking,'The server is booting up, this might take a minute.','the cold start says the server, not your server, and says it once');
+ assert(!/your server|Your server/i.test(MESSAGES.waking+MESSAGES.wakingStopping+MESSAGES.timeout),'and no server sentence in this table says "your server": '+[MESSAGES.waking,MESSAGES.wakingStopping,MESSAGES.timeout].join(' | '));
+ assert.equal(MESSAGES.wakingStopping,'The server is finishing its last session. It starts as soon as that is done.');
+ assert.equal(MESSAGES.timeout,'The server did not become joinable within three minutes. Press Play to try it again.');
  // The four sentences and nothing else: no bracket, no duration, no service detail, and
  // none of the old words (asleep, Zzz, starting, stopping, status unknown) survives.
  const states=[{state:'running',ready:true,players:2},{state:'running',ready:true,players:null},{state:'stopped',players:0},{state:'stopped',detail:'Update in progress...'},{state:'starting'},{state:'stopping',players:2},{state:'unknown'}];

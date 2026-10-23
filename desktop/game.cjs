@@ -45,7 +45,7 @@ const MESSAGES={
  // Said while this launcher is waking it and polling, which is the first player's
  // cold start: about 60-90 seconds, and the reason Play is not offered twice. These two
  // belong to the cold start's own wait line; the status row stands down for them.
- waking:'Starting the server… the server is booting up, this might take a minute.',
+ waking:'The server is booting up, this might take a minute.',
  wakingStopping:'The server is finishing its last session. It starts as soon as that is done.',
  // The failures. They leave this module as a GameWaitError and reach the player
  // through the page notice, with Play as the retry.
