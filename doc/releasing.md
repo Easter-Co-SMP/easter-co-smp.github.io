@@ -73,7 +73,30 @@ name from `/releases/latest/download/`. The launcher job is
 2. The full check suite passes on that exact tree: `python -m unittest discover -s tests
    -p 'test_*.py'` (use `/root/e-server/.venv/bin/python`), `python scripts/validate.py
    site`, `npm test`, `node tests/drawings.mjs`, `node tests/browser.mjs` against a local
-   preview, `xvfb-run -a node tests/desktop/electron.mjs`,
+   preview — and every Electron journey in `tests/desktop`, which is **not** a list of
+   commands to type by hand:
+
+       node scripts/check-electron-journeys.mjs
+
+   `scripts/release.sh --check` runs that script, and `--cut` runs `--check` first, so what
+   follows is machine-enforced rather than remembered. It runs one journey at a time, each
+   under `xvfb-run -a`, discovers the journeys from the directory instead of a list that can
+   fall behind, prints a PASS/FAIL row per journey with its duration and — on a failure — the
+   failing `file:line` and the last error line, starts and stops the account fixture before
+   and after each of the four journeys that needs one (18796 for `company.electron.mjs` and
+   `handover.electron.mjs`, 18797 with `EASTER_PROVIDER_FIXTURE=1` for
+   `providers.electron.mjs`, 18798 for `wait-post-approval.electron.mjs`), leaves no fixture
+   running, no port listening, no Xvfb behind and the disposable PostgreSQL container as it
+   found it, and exits non-zero on its own count of failures — a journey that runs away past
+   its bound, or that produces no verdict at all, is one of those failures. A missing
+   prerequisite (the cloud repository, its venv, the `identity-fixture-pg` container) is one
+   sentence naming it and a non-zero exit, never a skip.
+
+   That mattered: this list used to be 21 hand-run commands, nothing ran them, and on
+   2026-10-23 `providers.electron.mjs` and `wait-post-approval.electron.mjs` were both red on
+   main and nobody knew (fixed in 15a2e02 and 4513f77). What each journey asserts, in the
+   script's own order:
+
    `xvfb-run -a node tests/desktop/company.electron.mjs` (the Company identity journey
    against the real account handler and PostgreSQL: signup with the username chosen before
    the password, signing in again with the same Microsoft identity after signing out and
@@ -186,18 +209,48 @@ name from `/releases/latest/download/`. The launcher job is
    sentence with one request each and recover on the hero's own Try again, and signing out
    during an open mint ends it and discards the answer that lands afterwards).
 
-   That is every Electron journey in `tests/desktop` except one: `electron.mjs` and the
-   twenty `*.electron.mjs` files, of which ten were named here before 2026-10-19, eight were
-   added that day and `cold-start.electron.mjs` on 2026-10-19 with the retry policy, plus
-   `home-content-gate.electron.mjs` on 2026-10-22 with the startup gate. None of
-   the nine needs a fixture: each starts its own stub, harness
-   or payload, and none of them reads 18796–18798 (the detail is under "The other Electron
-   journeys need no fixture"). The nine that had been left out were left out silently, and
-   one of them (`integration.electron.mjs`) was red for weeks because of it. Measured on
-   2026-10-19, run one at a time on this machine: each of the eighteen finishes in 4 to 36
-   seconds (the fastest, `bootstrap.electron.mjs`, in 3.6) and the eighteen together take
-   about three minutes (191–193 seconds across two sweeps), with the three fixture instances'
-   own start-up on top. That is not a reason to check a release by hand instead.
+   `xvfb-run -a node tests/desktop/handover.electron.mjs` (a linked Microsoft account is
+   never asked to reconnect twice: the real account service behind a recording proxy, with
+   `microsoft-fixture.cjs` answering the way Microsoft does — a refresh token is single use
+   and a replacement comes back only when the grant asked for `offline_access` — so the
+   hand-over is asserted on the request bodies that reach the service. It is one of the four
+   that needs a fixture, on 18796 like `company.electron.mjs`), and
+   `xvfb-run -a node tests/desktop/legal.electron.mjs` (the legal documents reachable from
+   inside the launcher: the home footer's Privacy and Terms links are real clicks, they stay
+   on the one `easter://` origin `desktop/main.cjs` lets through rather than being handed to
+   a browser, they fit at 1440 and 390 wide, and the launcher version still lands in the
+   footer span after them. No fixture).
+
+   **The count, which this document had drifted on.** `tests/desktop` holds `electron.mjs`
+   plus 23 `*.electron.mjs` files: 24 journeys, of which **23 are gates** — `electron.mjs` and
+   22 of the 23 glob files — and `ui-review.electron.mjs` is not one, for the reason below.
+   Ten were named here before 2026-10-19, eight were added that day, `cold-start.electron.mjs`
+   arrived on 2026-10-19 with the retry policy and
+   `home-content-gate.electron.mjs` on 2026-10-22 with the startup gate. Until 2026-10-23 this
+   paragraph said "the twenty `*.electron.mjs` files" and named none of
+   `handover.electron.mjs`, `legal.electron.mjs` or `ui-review.electron.mjs` at all, which is
+   how a document that read as complete was three journeys short; the script closes that hole
+   by discovering the directory at run time and failing if a journey it finds mentions a
+   fixture port without an entry in its own table.
+
+   **Four of the 23 need the real account handler and therefore a fixture**: `company` and
+   `handover` on 18796, `providers` on 18797 with `EASTER_PROVIDER_FIXTURE=1`, and
+   `wait-post-approval` on 18798. The other 19 need none: each starts its own stub, harness or
+   payload, and none of them reads 18796–18798 (the detail is under "The other Electron
+   journeys need no fixture"). The nine that had been left out of this list before 2026-10-19
+   were left out silently, and one of them (`integration.electron.mjs`) was red for weeks
+   because of it.
+
+   **Measured on 2026-10-23 by the gate itself, on this machine:** the 23 gates take
+   **7 m 24 s** (444 s), fixtures' own start-up included, and every journey except
+   `cold-start.electron.mjs` finishes in 3.5 to 36 s (`bootstrap.electron.mjs` fastest at
+   3.5 s, `minecraft-head.electron.mjs` slowest at 35.4 s). `cold-start.electron.mjs` alone
+   is 214 s of that total, which is why the script gives it a 480 s bound and every other
+   journey 300 s. The older figure in this paragraph — "191–193 seconds for eighteen" —
+   was measured on 2026-10-19 against eighteen journeys and is not comparable: five more
+   journeys exist since, and `cold-start.electron.mjs` alone now costs more than that whole
+   sweep did. Seven and a half minutes to prove a release is releasable is not a reason to
+   check it by hand; the two journeys that sat red on main on 2026-10-23 are.
 
    **`ui-review.electron.mjs` is deliberately not on this list.** It is a design-review
    pass, not a gate: it drives the launcher at several widths and writes screenshots to
@@ -495,7 +548,11 @@ Four ways this bites, all measured on 2026-10-19 and 2026-10-20:
   `providers.electron.mjs` did this on 2026-10-20; a bare `waitForFunction` over
   `window.easterDesktop.status()` anywhere in a journey asserts nothing.
 
-The other Electron journeys need no fixture. `accounts.electron.mjs` starts its own
+The other 19 of the 23 gated Electron journeys need no fixture — the four that do are
+`company.electron.mjs` and `handover.electron.mjs` (18796), `providers.electron.mjs` (18797,
+`EASTER_PROVIDER_FIXTURE=1`) and `wait-post-approval.electron.mjs` (18798), and
+`scripts/check-electron-journeys.mjs` starts the right one for each of them before it runs.
+`accounts.electron.mjs` starts its own
 loopback stub and reads the account shape from it, and `company-username.electron.mjs`
 does the same and drives the whole username flow against it; `electron.mjs`,
 `flow.electron.mjs`, `launcher-identity-conflict.electron.mjs`, `ownership.electron.mjs`,
@@ -507,9 +564,8 @@ endpoints it reads through `head-harness.cjs`, `server-session.electron.mjs` ser
 account routes through `server-session-harness.cjs`, `loopback.electron.mjs` starts a
 loopback client origin and runs the real `desktop/main.cjs` with no harness at all,
 `bootstrap.electron.mjs` builds its own ASAR payload with `@electron/asar`, and
-`wiki.electron.mjs` needs nothing but an X display. The exception is
-`wait-post-approval.electron.mjs`, which is the one journey needing a real fixture instance
-of its own (18798) with no harness around it. The browser, waits and drawings
+`wiki.electron.mjs` needs nothing but an X display, and `legal.electron.mjs` needs the same
+and nothing more. The browser, waits and drawings
 suites need only the static preview of `site/` (run them from the repository root, and note
 that `tests/waits-browser.mjs` reads `EASTER_PUBLIC_ORIGIN`, which is how it is pointed at
 18100 rather than its own default port):

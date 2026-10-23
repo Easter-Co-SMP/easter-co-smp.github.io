@@ -3,7 +3,7 @@
 # by hand: doc/releasing.md is the checklist this script performs, and every step it owns
 # exists because a hand-run release skipped it once.
 #
-#   ./scripts/release.sh --check                     # preconditions and fast suites only
+#   ./scripts/release.sh --check                     # preconditions, fast suites and the Electron journeys
 #   ./scripts/release.sh --cut 1.0.39 --notes FILE   # bump, notes, suites, package, publish, verify
 #   ./scripts/release.sh --verify launcher-v1.0.38   # verify an already published release
 #
@@ -11,6 +11,10 @@
 #   1. --check: clean tree, on main, level with origin/main, package.json and
 #      package-lock.json agreeing on the current version.
 #   2. npm test, the python suites, and the site validator.
+#   2a. scripts/check-electron-journeys.mjs: every journey doc/releasing.md precondition 2
+#      lists, one at a time under xvfb-run, with the account fixture of its own for the four
+#      that drive the real handler. Measured ~9 minutes here; it is in --check rather than in
+#      --cut alone because --cut calls --check and a step expressed twice drifts.
 #   3. npm run pack, then scripts/check-packaged-first-screen.mjs against that package:
 #      the packaged artifact's first screen and its Play Now stage, with isolated HOMEs.
 #   4. Bump the current version to the new one in package.json and in both package-lock
@@ -63,6 +67,17 @@ run_check() {
   grep -E "^Ran|^OK" /tmp/release-python.log | sed 's/^/  /'
   "$python" scripts/validate.py site >/tmp/release-validate.log 2>&1 || { tail -20 /tmp/release-validate.log; die "scripts/validate.py site failed"; }
   echo "  ok   scripts/validate.py site"
+  # Every Electron journey in tests/desktop, serially, by the script that owns the list. The
+  # verdict is that script's own counted one: exit 0 means its failure count was zero, so
+  # nothing here reads PASS out of a truncated pipe. `npm test`'s glob is
+  # tests/desktop/*.test.cjs and cannot match a *.electron.mjs, which is how two of these
+  # journeys sat red on main unnoticed on 2026-10-23.
+  echo "release: electron journeys, one at a time (~9 min)"
+  node scripts/check-electron-journeys.mjs >/tmp/release-journeys.log 2>&1 \
+    || { grep -E '^  FAIL |^electron journeys ' /tmp/release-journeys.log | head -30; die "an Electron journey failed (full log: /tmp/release-journeys.log)"; }
+  grep -qE '^electron journeys PASS' /tmp/release-journeys.log \
+    || die "the journey sweep exited 0 without reporting PASS (/tmp/release-journeys.log)"
+  grep -E '^electron journeys PASS' /tmp/release-journeys.log | sed 's/^/  /'
 }
 
 verify_release() {
