@@ -454,12 +454,13 @@ try {
       "Close re-reads the orders once",
     );
     assert.equal(await store.locator(".store-modal").count(), 0, "and dismisses the dialog");
+    // Close lands on the orders rather than back on the Buy control: the ticket's two clauses
+    // could not both hold, and the row the server recorded is the point of the whole press.
     assert.equal(
-      await page.evaluate(() => document.activeElement?.dataset?.buy),
-      "sterling-10",
-      "focus returns to the Buy control of the product just bought",
+      new URL(page.url()).hash,
+      "#orders",
+      "Close lands on the orders, where the row just recorded is on screen",
     );
-    await store.getByRole("link", { name: "Orders", exact: true }).click();
     await store.locator(".store-order-record").waitFor();
     const row = (await store.locator(".store-order-record").innerText()).replace(/\s+/g, " ");
     assert.match(row, /10 Sterling/);
@@ -499,9 +500,9 @@ try {
       await close(page);
       await store.locator(".store-modal").waitFor({ state: "detached" });
       assert.equal(
-        await page.evaluate(() => document.activeElement?.dataset?.buy),
-        "sterling-10",
-        name + " closes the dialog and gives focus back to Buy",
+        new URL(page.url()).hash,
+        "#orders",
+        name + " closes the dialog and lands on the orders like Close does",
       );
       assert.equal(await store.locator(".store-modal").count(), 0);
       await page.close();

@@ -151,10 +151,10 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     ordersLoading = false,
     pressing = null,
     opened = null,
-    // The launcher's "Payment Successful" dialog: the element while it is open, and the key of
-    // the product it is about, which is where focus goes back to when it closes.
+    // The launcher's "Payment Successful" dialog: the element while it is open. Nothing else is
+    // remembered about it, because closing it goes to the player's orders rather than back to
+    // the button they pressed.
     modal = null,
-    paidFor = null,
     // One counter per in-flight read, so entering a route never discards the answer another
     // read is already carrying in.
     catalogueRead = 0,
@@ -292,9 +292,8 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
    * dialog (role, aria-modal, labelled by its own heading), focus moves into it as it opens, and
    * both Escape and Enter close it, wherever the focus happens to be.
    */
-  function openPaymentSuccessful(key) {
+  function openPaymentSuccessful() {
     if (modal) return;
-    paidFor = key;
     modal = el("div", "store-modal");
     modal.setAttribute("role", "dialog");
     modal.setAttribute("aria-modal", "true");
@@ -316,23 +315,23 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     dismissPaymentSuccessful();
   }
   /*
-   * Closing it does two things the ticket names and nothing else: it re-reads the orders, so the
-   * row the server recorded is the one the Orders view holds (never a row this page invented from
-   * the fragment Stripe navigated to), and it gives focus back to the Buy control of the product
-   * that was just bought. That read is silent - it does not repaint the view the player is on,
-   * which would take the focus it has just been given.
+   * Closing it lands the player on their orders, because that is the thing they just changed: the
+   * row the server recorded is on screen, with the amount it charged and whatever state the
+   * server reports. The alternative - giving focus back to the Buy control - would satisfy a
+   * focus rule and hide the receipt, and this page's whole discipline is that the order is the
+   * server's fact rather than a claim the page makes. The ticket's two clauses could not both
+   * hold; this is the one worth keeping.
+   *
+   * The route change repaints and the read is what fills it, so the order is fetched first and
+   * the view is painted when it arrives rather than showing a stale list for a moment.
    */
   function dismissPaymentSuccessful() {
     if (!modal) return;
-    const key = paidFor;
     document.removeEventListener("keydown", paymentKey, true);
     modal.remove();
     modal = null;
-    paidFor = null;
-    void loadOrders({ repaint: false });
-    const back = key ? content.querySelector('[data-buy="' + CSS.escape(key) + '"]') : null;
-    if (back) back.focus();
-    else content.focus({ preventScroll: true });
+    if (location.hash !== "#orders") location.hash = "#orders";
+    void loadOrders({ repaint: true });
   }
   function catalogueView() {
     if (message || !products.length) return;
@@ -419,7 +418,7 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
       else opened = null;
     }
     paint();
-    if (!message && outcome === "paid") openPaymentSuccessful(key);
+    if (!message && outcome === "paid") openPaymentSuccessful();
   }
   async function loadCatalogue() {
     if (!store) return;

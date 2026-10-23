@@ -142,6 +142,12 @@ name from `/releases/latest/download/`. The launcher job is
    client, a launcher update check withholds Settings and closes its dialog, the header names
    the one signed-in account, nothing in the profile menu offers Add account or Switch
    Account, and signing out returns the signed-out copy), and
+   `xvfb-run -a node tests/desktop/store-payment.electron.mjs` (paying happens inside the
+   launcher: the press opens a modal window on the Checkout host and `shell.openExternal` is
+   never called, the success and cancel fragments are caught before either loads so the website
+   is never fetched, a payment shows Owen's "Payment Successful" dialog and an abandoned one
+   shows nothing, a hand-closed window claims no payment, and a navigation off the Checkout
+   host is refused), and
    `xvfb-run -a node tests/desktop/readiness-gate.electron.mjs` (unreachable and unknown
    game status never invoke Java or wake, leave Play as the retry, and a ready retry
    starts exactly one game), and
