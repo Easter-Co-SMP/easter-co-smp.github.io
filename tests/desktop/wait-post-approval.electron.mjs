@@ -167,7 +167,17 @@ try{
  await page.getByRole('button',{name:'Logout',exact:true}).click();
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).account===null);
  held.mode='refuse';
- await page.locator('.desktop-account-nav').click();
+ // Signing out is a round trip and status() is not the header: the main process drops the
+ // account before the view has painted the signed-out header. Measured here, 25 ms samples on
+ // the page clock from the Logout click: account===null at 64 ms while .desktop-account-nav
+ // still read "FixtureCaptain" and its click handler was still the account menu's own, so the
+ // click opened the profile menu instead of the chooser; the header only read "Sign in" at
+ // 676 ms, when the stale menu was closed again. Asking for the sign-in chooser in between
+ // waits forever on a closed <dialog>. So this waits for the header itself to read "Sign in" -
+ // which is also the assertion that it went back to signing in - and clicks from there.
+ const signInNav=page.locator('.desktop-account-nav').filter({hasText:'Sign in'});
+ await signInNav.waitFor();
+ await signInNav.click();
  await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-code').filter({hasText:'WAIT-CODE'}).waitFor();
  await app.evaluate(()=>global.easterTestApprove());
