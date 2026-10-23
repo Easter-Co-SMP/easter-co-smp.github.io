@@ -1,3 +1,32 @@
+# Easter Company launcher 1.0.48
+
+## The store opens at once
+
+Pressing Store used to cost a round trip: the page asked the account service for the catalogue and
+your orders, and on a cold service that wait was twenty seconds or more. The launcher now asks
+once during startup, quietly, and the shop paints from what it already has — then checks again
+behind your eyes and redraws only if something changed.
+
+- Measured with the service delayed two seconds: opening the store takes **48 ms** instead of
+  **2,329 ms**.
+- A first paint from the stored answer is marked as exactly that, and an answer older than a day
+  is ignored entirely.
+- Nothing is ever bought from the stored copy: pressing Buy always asks the service, which decides
+  the price.
+- Signing out or switching account drops your orders from it.
+
+## Buying says Pending…
+
+While a press is in flight the row says **Pending…** rather than describing what the launcher is
+doing behind it.
+
+## Every currency product says two things
+
+Each pack shows what it is worth in the game and, on its own line, where that money goes: it is
+deposited into your in-game bank account when you buy it, and can only be taken out in the game.
+It is the bank, never the wallet — so a purchase is never cut down by a cap that exists for play.
+
+
 # Easter Company launcher 1.0.47
 
 ## The shop's artwork
