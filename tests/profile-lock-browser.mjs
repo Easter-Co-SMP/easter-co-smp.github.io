@@ -158,6 +158,7 @@ try{
    return {section:dialog.querySelectorAll('.company-minecraft-session').length,
     buttons:[...dialog.querySelectorAll('button')].map(button=>button.textContent.trim()),
     revokeAttributed:dialog.querySelectorAll('[data-revoke-minecraft]').length,
+    children:[...dialog.children].map(child=>child.tagName.toLowerCase()+'.'+child.className),
     text:dialog.innerText.replace(/\s+/g,' ').trim()};
   });
   assert.equal(shape.section,0,'no Minecraft session section is drawn at all: not hidden, not an empty slot');
@@ -165,6 +166,9 @@ try{
   assert(!shape.buttons.includes('Sign out of Minecraft everywhere'),'the revoke control is not a button in the dialog: '+JSON.stringify(shape.buttons));
   assert(!shape.text.includes('Minecraft session'),'and the section\'s heading is nowhere in the dialog: '+shape.text);
   assert(!shape.text.includes('Sign out of Minecraft everywhere'),'nor its control: '+shape.text);
+  // Not even an empty element is left where the section was: the dialog's own children are the
+  // ones it had with the section hidden, in the same order.
+  assert.deepEqual(shape.children,['button.dialog-close','h2.','p.','p.company-wait wait-feedback','div.company-provider-links','p.company-error','p.company-status'],'and no element, empty or otherwise, stands where the section was: '+JSON.stringify(shape.children));
   assert.equal(shape.text,LINKED_ACCOUNTS_TEXT,'the dialog\'s settled text is otherwise unchanged: '+shape.text);
   return shape;
  };
