@@ -36,6 +36,20 @@
 //   * It cleans up: fixtures stopped by process group and their ports confirmed free, the
 //     PostgreSQL container left in the state it was found in, and any process the sweep
 //     itself left behind is named and fails the run.
+//   * The account fixture's database is the one piece of state a stop leaves behind.
+//     `tests/launcher_api_fixture.py` names it `company_launcher_<its own pid>` and drops it
+//     from an `atexit` handler, which runs only on a normal interpreter exit - and the fixture
+//     installs no signal handler, so Python's default SIGTERM disposition ends it without
+//     running that handler. Measured 2026-10-23 on this box: a fixture stopped with SIGTERM
+//     and one killed with SIGKILL both left the database behind, one per fixture, and 73 had
+//     accumulated. So a fixture is stopped gently first (SIGTERM, bounded wait, SIGKILL only
+//     if it will not die, and the output says which) and the database of the fixture this
+//     sweep started is then dropped by the sweep once that pid is provably gone. Nothing else
+//     is ever dropped: only a datname matching `company_launcher_<pid>` exactly, only a pid
+//     this gate's ledger recorded before its fixture answered, only while that pid is not
+//     alive - a live pid is another run's fixture, and is reported as left alone. How many
+//     were reclaimed and how many were deliberately left is printed, so the box's state is
+//     seen rather than guessed at.
 //   * It refuses to run beside someone else: a fixture port already listening, or another
 //     session's tests/launcher_api_fixture.py anywhere on the box, means this sweep's
 //     journeys would share state with work it did not start. Measured 2026-10-23: a sibling
@@ -109,6 +123,15 @@ const FIXTURE_START_MS = 40_000;
 const PORT_FREE_MS = 10_000;
 const GROUP_GRACE_MS = 8_000;
 
+// The fixture's database is named after the fixture's own pid, and the ledger is where this
+// gate writes that pid - before the fixture has answered, so a sweep that is itself killed
+// (rather than asked to stop) still leaves the pid for the next sweep to reclaim. It lives in
+// the temp directory rather than in a worktree because every checkout of this repository runs
+// the same gate against the same cluster, and the database outlives the checkout that made it.
+const dbPattern = /^company_launcher_(\d+)$/;
+const dbLike = 'company_launcher_%';
+const fixtureLedger = path.join(os.tmpdir(), 'easter-journey-fixture-pids.json');
+
 // ---------------------------------------------------------------- helpers
 const now = () => process.hrtime.bigint();
 const secondsSince = (start) => Number(now() - start) / 1e9;
@@ -171,19 +194,41 @@ function groupAlive(pid) {
   }
 }
 
+// Stop a whole process group: SIGTERM and a bounded wait first, so whatever it is can end its
+// own way, and SIGKILL only if it will not. Returns whether that escalation was needed, which
+// the fixture's row reports: a stop that needed SIGKILL is the exception, and a reader should
+// be able to see that it is.
 async function stopGroup(child, graceMs = GROUP_GRACE_MS) {
-  if (!child || !child.pid) return;
+  if (!child || !child.pid) return {escalated: false};
   const exited = new Promise((resolve) => {
     if (child.exitCode !== null || child.signalCode !== null) resolve();
     else child.once('exit', () => resolve());
   });
+  let escalated = false;
   killGroup(child.pid, 'SIGTERM');
   const timed = await Promise.race([exited.then(() => true), sleep(graceMs).then(() => false)]);
   if (!timed) {
+    escalated = true;
     killGroup(child.pid, 'SIGKILL');
     await Promise.race([exited, sleep(graceMs)]);
   }
-  if (groupAlive(child.pid)) killGroup(child.pid, 'SIGKILL');
+  if (groupAlive(child.pid)) {
+    escalated = true;
+    killGroup(child.pid, 'SIGKILL');
+  }
+  return {escalated};
+}
+
+// One fixture, stopped and then accounted for: the gentle stop above, the port confirmed free,
+// and the database named after its pid dropped once that process is gone - because the
+// fixture's own `atexit` drop cannot run when a signal ends it (measured 2026-10-23: SIGTERM
+// leaves the database behind just as SIGKILL does).
+async function stopFixture(handle) {
+  const pid = handle && handle.child ? handle.child.pid : null;
+  const {escalated} = await stopGroup(handle && handle.child);
+  await waitPortFree(handle.spec.port, PORT_FREE_MS);
+  const database = pid ? reclaimFixtureDatabase(pid) : {status: 'none', name: 'none'};
+  return {escalated, database};
 }
 
 // The processes that contend with a journey, read from `ps` comm rather than from a
@@ -470,6 +515,167 @@ function restorePg() {
   }
 }
 
+// ---------------------------------------------------------------- the fixture's database
+// `psql` here, never a shell string through `sh -c`: every query below is one this file built
+// from validated digits, and execFileSync hands it to psql as one argument.
+function psql(sql) {
+  return execFileSync('docker', ['exec', pgContainer, 'psql', '-U', 'postgres', '-tA', '-c', sql], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+const firstLine = (error) => {
+  const text = String((error && (error.message || error)) || '').split('\n').map((line) => line.trim()).filter(Boolean);
+  return (text[0] || 'no message').slice(0, 200);
+};
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
+
+function readFixtureLedger() {
+  try {
+    const parsed = JSON.parse(fsSync.readFileSync(fixtureLedger, 'utf8'));
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.map(Number).filter((pid) => Number.isInteger(pid) && pid > 1));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeFixtureLedger(pids) {
+  try {
+    const temporary = `${fixtureLedger}.${process.pid}`;
+    fsSync.writeFileSync(temporary, JSON.stringify([...pids].sort((a, b) => a - b)));
+    fsSync.renameSync(temporary, fixtureLedger);
+  } catch {
+    // A ledger this sweep cannot write costs nothing it cannot do anyway: the database of a
+    // fixture it stops is reclaimed there and then, and anything else is reported as left.
+  }
+}
+
+const recordFixturePid = (pid) => writeFixtureLedger(new Set([...readFixtureLedger(), pid]));
+const forgetFixturePid = (pid) => writeFixtureLedger(new Set([...readFixtureLedger()].filter((known) => known !== pid)));
+
+// The database of one fixture this sweep started, dropped only once the process that owned it
+// is gone. Safe by construction: the name is rebuilt from the pid rather than taken from the
+// catalogue, so it is digits inside a quoted identifier, and the pid is one this run recorded.
+// Returns what happened so the journey's own row can say who did the dropping.
+function reclaimFixtureDatabase(pid) {
+  const name = `company_launcher_${pid}`;
+  if (pidAlive(pid)) return {status: 'left', name, because: 'its process is still running'};
+  try {
+    const present = psql(`select datname from pg_database where datname = '${name}'`).trim();
+    if (!present) {
+      forgetFixturePid(pid);
+      return {status: 'self', name};
+    }
+    // Re-read liveness as late as possible: between the check above and this DROP is the only
+    // window in which pid reuse could matter, and it is a window no live fixture can be in.
+    if (pidAlive(pid)) return {status: 'left', name, because: 'its process came back'};
+    psql(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+    forgetFixturePid(pid);
+    return {status: 'reclaimed', name};
+  } catch (error) {
+    return {status: 'failed', name, because: firstLine(error)};
+  }
+}
+
+// The whole picture: every datname like the fixture's, classified, and the ones this gate may
+// drop. A candidate is a datname matching `company_launcher_<pid>` exactly, whose pid is in
+// this gate's ledger - this run's own fixtures or one an interrupted earlier run recorded -
+// and which is not alive. Everything else is counted and left untouched, including names that
+// merely look similar.
+function scanFixtureDatabases({drop = true} = {}) {
+  const report = {reclaimed: [], leftLive: [], leftUnknown: [], unmatched: [], failures: [], unrunnable: null};
+  let datnames;
+  try {
+    datnames = psql(`select datname from pg_database where datname like '${dbLike}'`)
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch (error) {
+    report.unrunnable = firstLine(error);
+    return report;
+  }
+  const ledger = readFixtureLedger();
+  for (const datname of datnames) {
+    const match = dbPattern.exec(datname);
+    if (!match) {
+      report.unmatched.push(datname);
+      continue;
+    }
+    const pid = Number(match[1]);
+    if (pidAlive(pid)) {
+      report.leftLive.push(datname);
+      continue;
+    }
+    if (!ledger.has(pid)) {
+      report.leftUnknown.push(datname);
+      continue;
+    }
+    if (!drop) {
+      report.reclaimed.push(datname);
+      continue;
+    }
+    const outcome = reclaimFixtureDatabase(pid);
+    if (outcome.status === 'reclaimed' || outcome.status === 'self') report.reclaimed.push(datname);
+    else report.failures.push(`${datname}: ${outcome.because || outcome.status}`);
+  }
+  // The ledger only has to remember a pid while its database can still be there. Pruning it
+  // keeps the file from growing a line every run forever; it never forgets a pid that is still
+  // alive (that one may yet create its database) nor one this pass could not drop (a later run
+  // tries again).
+  const present = new Set(
+    datnames.map((datname) => dbPattern.exec(datname)).filter(Boolean).map((match) => Number(match[1])),
+  );
+  const dropped = new Set(report.reclaimed.map((datname) => Number(dbPattern.exec(datname)[1])));
+  writeFixtureLedger(new Set([...ledger].filter((pid) => (!dropped.has(pid) && present.has(pid)) || pidAlive(pid))));
+  return report;
+}
+
+// The sweep's running account of the databases it touched, so the verdict and the summary line
+// are both derived from counts the sweep made itself.
+const databaseReport = {reclaimed: new Set(), leftLive: 0, leftUnknown: 0, unmatched: 0, failures: [], unrunnable: null, checked: false};
+function noteDatabases(report) {
+  if (report.unrunnable) {
+    databaseReport.unrunnable = report.unrunnable;
+    return;
+  }
+  databaseReport.checked = true;
+  for (const name of report.reclaimed) databaseReport.reclaimed.add(name);
+  databaseReport.leftLive = report.leftLive.length;
+  databaseReport.leftUnknown = report.leftUnknown.length;
+  databaseReport.unmatched = report.unmatched.length;
+  for (const failure of report.failures) databaseReport.failures.push(failure);
+}
+
+function describeDatabases() {
+  if (!databaseReport.checked) {
+    return databaseReport.unrunnable
+      ? 'databases - not checked: psql refused, so how many the fixture left behind is unknown (see the cleanup line above)'
+      : `databases - not checked: ${pgContainer} was stopped for this whole run and no journey it ran needed a fixture, so there was nothing to count`;
+  }
+  const left = databaseReport.leftLive + databaseReport.leftUnknown + databaseReport.unmatched;
+  const parts = [
+    `${databaseReport.leftUnknown} this gate did not create`,
+    `${databaseReport.leftLive} whose fixture pid is still alive`,
+    `${databaseReport.unmatched} not named company_launcher_<pid>`,
+  ];
+  return (
+    `databases - reclaimed ${databaseReport.reclaimed.size} company_launcher_<pid> database${databaseReport.reclaimed.size === 1 ? '' : 's'} whose fixture pid is gone; ` +
+    `left ${left} alone (${parts.join(', ')})` +
+    (databaseReport.unrunnable ? '; the last read of them failed, so these are what was last seen' : '')
+  );
+}
+
+
 // ---------------------------------------------------------------- run state
 const logDir = process.env.EASTER_JOURNEY_LOGS || path.resolve(
   (await fs.mkdtemp(path.join(os.tmpdir(), 'easter-journey-sweep-'))),
@@ -488,10 +694,13 @@ async function stopEverything() {
   await stopGroup(currentGroup && currentGroup.child);
   currentGroup = null;
   if (fixtureGroup && fixtureGroup.spec) {
-    await stopGroup(fixtureGroup.child);
-    await waitPortFree(fixtureGroup.spec.port, PORT_FREE_MS);
+    const handle = fixtureGroup;
     fixtureGroup = null;
+    await stopFixture(handle);
   }
+  // An interrupted sweep still accounts for the databases it made, so the next reader of this
+  // box sees a count rather than a guess - and the ledger keeps anything it could not reach.
+  noteDatabases(scanFixtureDatabases());
   restorePg();
 }
 
@@ -521,6 +730,10 @@ async function startFixture(spec, logFile) {
       ...(spec.env || {}),
     },
   });
+  // The pid goes into the ledger before the fixture can create its database: this is what lets
+  // a sweep that is killed outright - by SIGKILL, or by the box going down - leave the next
+  // sweep something to reclaim, rather than a database nobody can attribute.
+  if (child.pid) recordFixturePid(child.pid);
   const failure = new Promise((resolve) => {
     child.once('error', (error) => resolve(`could not start ${fixturePython}: ${error.message}`));
     child.once('exit', (code, signal) => resolve(`tests/launcher_api_fixture.py exited (${code === null ? signal : `code ${code}`}) before it answered on 127.0.0.1:${spec.port}`));
@@ -536,8 +749,7 @@ async function startFixture(spec, logFile) {
   const answer = await Promise.race([ready, failure]);
   await handle.close().catch(() => {});
   if (answer !== true) {
-    await stopGroup(child);
-    await waitPortFree(spec.port, PORT_FREE_MS);
+    await stopFixture({spec, child});
     let tail = '';
     try {
       tail = (await fs.readFile(logFile, 'utf8')).trim().split('\n').slice(-1)[0] || '';
@@ -615,6 +827,9 @@ async function runJourney(name) {
     const startedAt = now();
     try {
       await ensurePg();
+      // The container is up and answering: this is the point at which the databases an
+      // interrupted earlier run left can be seen, and reclaimed before this fixture adds one.
+      noteDatabases(scanFixtureDatabases());
       fixtureGroup = {spec, child: await startFixture(spec, fixtureLog)};
       result.fixture = `:${spec.port}${spec.env ? ' provider' : ''} restarted in ${fmtSeconds(secondsSince(startedAt))}`;
     } catch (error) {
@@ -665,10 +880,23 @@ async function runJourney(name) {
   }
 
   if (spec && fixtureGroup) {
-    await stopGroup(fixtureGroup.child);
-    const free = await waitPortFree(spec.port, PORT_FREE_MS);
-    if (!free) strayLeftovers.push(`127.0.0.1:${spec.port} still listening after ${name}`);
+    const handle = fixtureGroup;
     fixtureGroup = null;
+    const {escalated, database} = await stopFixture(handle);
+    const free = await portFree(spec.port);
+    if (!free) strayLeftovers.push(`127.0.0.1:${spec.port} still listening after ${name}`);
+    // Who did what is in the row, because "the fixture drops its own database" is a claim this
+    // sweep can no longer make on trust: it says whether the gentle stop was enough, and
+    // whether the fixture got to its own drop or the sweep had to.
+    result.fixture = `${result.fixture}, stopped with ${escalated ? 'SIGKILL (it did not stop on SIGTERM)' : 'SIGTERM'}`;
+    if (database.status === 'self') result.fixture += ', database dropped by the fixture itself';
+    else if (database.status === 'reclaimed') {
+      result.fixture += ', database reclaimed';
+      databaseReport.reclaimed.add(database.name);
+    } else if (database.status !== 'none') {
+      result.fixture += `, database LEFT BEHIND (${database.status}${database.because ? `: ${database.because}` : ''})`;
+      if (database.status === 'failed') databaseReport.failures.push(`${database.name}: ${database.because}`);
+    }
   }
 
   let output = '';
@@ -787,6 +1015,12 @@ await waitUntil(async () => {
   fixturePortsLeft = open;
   return open.length === 0;
 }, PORT_FREE_MS);
+
+// The databases, before the container goes back to the state it was found in: the sweep's own
+// fixtures have been stopped and reclaimed by now, so what this pass sees is what is left of
+// them plus whatever an interrupt left for it. A database this gate may drop is dropped here;
+// everything else is counted and printed below, never guessed at.
+if (pgWasRunning || (await pgReady())) noteDatabases(scanFixtureDatabases());
 restorePg();
 const pgNow = (() => {
   try {
@@ -808,13 +1042,27 @@ const cleanliness = [
   ...fixturePortsLeft.map((port) => `127.0.0.1:${port} still listening`),
   ...(leaked.length ? [`left ${leaked.map(([name, count]) => `${count} ${name}`).join(', ')} running`] : []),
   ...(containerMoved ? [`${pgContainer} was ${pgWasRunning ? 'running' : 'stopped'} before the sweep and is ${pgNow ? 'running' : 'stopped'} after it`] : []),
+  // A database this gate should have been able to reclaim and could not is a cleanup failure
+  // with the database's own name and psql's first line, never a crash and never a silence.
+  ...databaseReport.failures.map((failure) => `could not reclaim ${failure}`),
 ];
+// The one way this can fail closed without crashing: the container was up, so the databases
+// were supposed to be countable, and psql would not answer. One sentence, the existing shape,
+// and the verdict is non-zero rather than a skip.
+if (databaseReport.unrunnable) {
+  cleanliness.push(
+    `${pgContainer} is running but psql inside it refused (${databaseReport.unrunnable}), so how many fixture databases this run left behind is unknown`,
+  );
+}
 
 if (interrupted) {
+  console.error(`electron journeys: ${describeDatabases()}`);
   console.error(`electron journeys: interrupted by ${interrupted} after ${fmtDuration(total)}; ${selected.length - results.size} of ${selected.length} journeys have no result, so this run proves nothing`);
   process.exit(130);
 }
 for (const where of cleanliness) console.error(`electron journeys: cleanup - ${where}`);
+// The box's state, in the sweep's own output, on a green run and a red one alike.
+console.log(`electron journeys: ${describeDatabases()}`);
 if (failed !== 0 && Object.keys(contendersAtStart.recent).length) {
   // Said beside every failing sweep that began with another suite on the box, because
   // contention wears a product failure's clothes (doc/releasing.md, "Run it alone"). It does
@@ -828,8 +1076,13 @@ if (failed === 0 && cleanliness.length === 0) {
   console.log(`electron journeys PASS: ${passed} of ${selected.length} gates passed in ${fmtDuration(total)}${notGates.length ? ` (${notGates.map((name) => name).join(', ')} not a gate)` : ''}`);
   process.exit(0);
 }
+// A sweep can now fail on cleanliness alone - a database it should have been able to drop and
+// could not - so that case says what it is instead of "0 of 1 gates failed - ".
 console.log(
-  `electron journeys FAIL: ${failed} of ${selected.length} gates failed in ${fmtDuration(total)} - ${failedNames.join(', ')}` +
-    (cleanliness.length ? ` - cleanup: ${cleanliness.join('; ')}` : ''),
+  failed === 0
+    ? `electron journeys FAIL: all ${passed} of ${selected.length} gates passed in ${fmtDuration(total)} but the sweep did ` +
+        `not leave the box as it found it - cleanup: ${cleanliness.join('; ')}`
+    : `electron journeys FAIL: ${failed} of ${selected.length} gates failed in ${fmtDuration(total)} - ${failedNames.join(', ')}` +
+        (cleanliness.length ? ` - cleanup: ${cleanliness.join('; ')}` : ''),
 );
 process.exit(1);

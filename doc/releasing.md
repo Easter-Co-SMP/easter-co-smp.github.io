@@ -85,14 +85,19 @@ name from `/releases/latest/download/`. The launcher job is
    failing `file:line` and the last error line, starts and stops the account fixture before
    and after each of the four journeys that needs one (18796 for `company.electron.mjs` and
    `handover.electron.mjs`, 18797 with `EASTER_PROVIDER_FIXTURE=1` for
-   `providers.electron.mjs`, 18798 for `wait-post-approval.electron.mjs`), leaves no fixture
-   running, no port listening, no Xvfb behind and the disposable PostgreSQL container as it
-   found it, and exits non-zero on its own count of failures — a journey that runs away past
-   its bound, or that produces no verdict at all, is one of those failures. A missing
-   prerequisite (the cloud repository, its venv, the `identity-fixture-pg` container) is one
-   sentence naming it and a non-zero exit, never a skip; so is a sweep asked to start while
-   one of those fixture ports is already held by another suite or by a hand-started fixture,
-   because a red journey under that contention is not a product fault.
+   `providers.electron.mjs`, 18798 for `wait-post-approval.electron.mjs`), stops each of those
+   fixtures with SIGTERM first and a bounded wait before any SIGKILL and says in the journey's
+   row which of the two it took, drops the `company_launcher_<pid>` database a stopped fixture
+   leaves behind (see "The fixture `company.electron.mjs` needs" — a signalled fixture cannot
+   run its own drop), leaves no fixture running, no port listening, no Xvfb behind and the
+   disposable PostgreSQL container as it found it, prints one `databases - reclaimed N … left M
+   …` line naming what it reclaimed and what it deliberately left alone, and exits non-zero on
+   its own count of failures — a journey that runs away past its bound, or that produces no
+   verdict at all, is one of those failures. A missing prerequisite (the cloud repository, its
+   venv, the `identity-fixture-pg` container) is one sentence naming it and a non-zero exit,
+   never a skip, and so is a container that is running but whose `psql` refuses; so is a sweep
+   asked to start while one of those fixture ports is already held by another suite or by a
+   hand-started fixture, because a red journey under that contention is not a product fault.
 
    That mattered: this list used to be 21 hand-run commands, nothing ran them, and on
    2026-10-23 `providers.electron.mjs` and `wait-post-approval.electron.mjs` were both red on
@@ -491,6 +496,32 @@ The three facts that make it work, and the details that bite:
   migration to it and drops it on exit. That is deliberate — a shared database makes the
   second run fail on the previous run's account — so run one fixture at a time, and expect a
   second one on the same port to fail to bind rather than to share.
+- **A stopped fixture does not drop that database.** The drop is an `atexit` handler, and the
+  fixture installs no signal handler, so Python's default SIGTERM disposition ends the process
+  without running it: measured on 2026-10-23, a fixture stopped with SIGTERM and one killed
+  with SIGKILL both left `company_launcher_<pid>` behind, one database per stop, and 73 had
+  accumulated on this box (76 after the three a reproduction run added; every one with a dead
+  pid). `scripts/check-electron-journeys.mjs`
+  therefore stops each fixture with SIGTERM and a bounded wait first and SIGKILL only if it
+  will not die, then drops the database of the fixture it started once that pid is provably
+  gone, and prints `databases - reclaimed N … left M …` so the box's state is read rather than
+  guessed at. It drops nothing else: never a name that is not exactly
+  `company_launcher_<digits>`, never a pid it did not record in
+  `/tmp/easter-journey-fixture-pids.json` before that fixture answered (which is how a sweep
+  that was itself killed leaves its leak for the next sweep to reclaim), and never a pid that
+  is still alive — that is another run's fixture, and it is reported as left alone. A
+  hand-started fixture leaves its database too; keep it in mind when reading that line.
+- To clear databases from before that existed, or one a hand-started fixture left, drop only
+  the ones whose trailing pid is dead — this is the same rule the sweep applies, and it never
+  touches a database whose pid is alive:
+
+      docker exec identity-fixture-pg psql -U postgres -tAc \
+        "select datname from pg_database where datname ~ '^company_launcher_[0-9]+$'" |
+      while read -r db; do
+        pid=${db##*_}
+        kill -0 "$pid" 2>/dev/null ||
+          docker exec identity-fixture-pg psql -U postgres -c "DROP DATABASE IF EXISTS \"$db\" WITH (FORCE)"
+      done
 - The fixture keeps that database for the life of the process, which is why the journey
   claims a fresh `fixture_<token>` username per run: re-running against a long-lived
   fixture would otherwise be refused a name it already holds.
