@@ -73,12 +73,17 @@ const anchor = (href, cls) => {
   n.href = href;
   return n;
 };
-const artwork = (kind, cls = "store-art") => {
+const artwork = (product, cls = "store-art") => {
+  const { kind, creditPence } = product;
   const n = el("div", cls);
   // Local vector emblems stay crisp in the catalogue and detail view.
   n.dataset.kind = kind;
   n.setAttribute("aria-hidden", "true");
-  n.innerHTML = productArt(kind === "donation" ? "donation" : "coins");
+  const emblem = kind === "donation" ? "donation"
+    : creditPence >= 100000 ? "chest"
+    : creditPence >= 10000 ? "pouch" : "coins";
+  n.dataset.emblem = emblem;
+  n.innerHTML = productArt(emblem);
   return n;
 };
 const money = (amountMinor, currency) =>
@@ -88,8 +93,15 @@ const money = (amountMinor, currency) =>
 // Purchases go to the bank; every currency pack shares Owen's deposit instructions.
 const worth = (p) =>
   p.creditPence > 0
-    ? "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game."
+    ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(
+        p.creditPence / 100,
+      ) + " Sterling in your bank"
     : COPY.donation;
+// Where bought currency lands, said once for the whole shop rather than on every card: the card's
+// own line carries the amount, and this carries the rule (Owen, 2026-10-23: purchases credit the
+// player's bank, never the wallet).
+const BANK_NOTE =
+  "In-game currency is deposited into your in-game bank account when you buy it, and can only be taken out in the game.";
 const dateOf = (iso) =>
   new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
     new Date(iso),
@@ -236,7 +248,7 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
       el("strong", "store-price", money(p.amountMinor, p.currency)),
       buyControl(p),
     );
-    article.append(artwork(p.kind), open, el("p", "store-worth", worth(p)), footer);
+    article.append(artwork(p), open, el("p", "store-worth", worth(p)), footer);
     const note = openedNote(p);
     if (note) article.append(note);
     return article;
@@ -326,6 +338,7 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
   }
   function catalogueView() {
     if (message || !products.length) return;
+    content.append(el("p", "store-bank-note", BANK_NOTE));
     const grid = el("div", "store-grid");
     for (const p of products) grid.append(card(p));
     content.append(grid);
@@ -347,7 +360,7 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     );
     const note = openedNote(p);
     if (note) copy.append(note);
-    section.append(artwork(p.kind, "store-art store-detail-art"), copy);
+    section.append(artwork(p, "store-art store-detail-art"), copy);
     content.append(section);
   }
   function ordersView() {

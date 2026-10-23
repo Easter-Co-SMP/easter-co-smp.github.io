@@ -331,3 +331,5 @@ proves the fragments work.
 ## Currency descriptions and donation art (2026-10-23)
 
 Superseding the earlier worth-line wording above, every currency pack now reads: "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game." Titles and server prices are unchanged. Donations retain "A one-off donation." The donation emblem is a detailed local vector heart above gifted gold coins, replacing the flag, in both catalogue and item views.
+
+Currency artwork scales with the server-provided creditPence: a few coins below 100 Sterling, a filled pouch from 100 Sterling, and an overflowing chest from 1,000 Sterling. Catalogue and item views share the selection.

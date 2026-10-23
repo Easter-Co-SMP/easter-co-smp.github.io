@@ -214,12 +214,17 @@ try {
     assert.deepEqual(
       await store.locator(".store-worth").allInnerTexts(),
       [
-        "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.",
-        "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.",
-        "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.",
+        "10 Sterling in your bank",
+        "100 Sterling in your bank",
+        "1,000 Sterling in your bank",
         COPY.donation,
       ],
-      "every currency pack shares the bank deposit instructions, and a donation says it is a donation",
+      "a pack says what it is worth from creditPence, and a donation says it is a donation",
+    );
+    assert.deepEqual(
+      await store.locator(".store-product > .store-art").evaluateAll((nodes) => nodes.map((n) => n.dataset.emblem)),
+      ["coins", "pouch", "chest", "donation"],
+      "currency artwork grows from coins to pouch to chest, while donations keep their own emblem",
     );
     assert.equal(await store.getByRole("button", { name: /^Buy / }).count(), 4);
     assert.equal(
@@ -665,9 +670,16 @@ try {
       const store = page.locator(".store-app");
       await page.getByRole("heading", { name: "100 Sterling", level: 2 }).waitFor();
       assert.match(await store.locator(".store-detail-price").innerText(), /\$6\.95/);
-      assert.equal(await store.locator(".store-worth").innerText(), "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.");
+      assert.match(await store.locator(".store-worth").innerText(), /100 Sterling in your bank/);
       assert.equal(await store.getByRole("button", { name: /^Buy / }).count(), 1);
     });
+    for (const [key, emblem] of [["sterling-10", "coins"], ["sterling-100", "pouch"], ["sterling-1000", "chest"], ["donation-5", "donation"]]) {
+      await coldLoad("#item/" + key, async (page) => {
+        await page.locator(".store-detail-art").waitFor();
+        assert.equal(await page.locator(".store-detail-art").getAttribute("data-emblem"), emblem,
+          "detail keeps the catalogue emblem for " + key);
+      });
+    }
     await coldLoad("#item/not-a-product", async (page) => {
       await page.locator(".store-product").first().waitFor();
       assert.equal(new URL(page.url()).hash, "#catalogue");
