@@ -53,7 +53,14 @@ PAGES_WITH_FOOTERS = (
 )
 
 EFFECTIVE_DATE = re.compile(r'Effective\s*<time datetime="\d{4}-\d{2}-\d{2}">\s*\d{1,2} \w+ \d{4}\s*</time>')
-CONTACT = 'oceaster@gmail.com'
+# The household's published contact addresses. Each page must offer the general one as a mailto,
+# and the whole site must contain no personal address: these are company mailboxes that land in
+# the same inbox, and a legal page that tells the world to write to a personal Gmail account is
+# the exact thing this asserts against.
+CONTACT = 'contact@easter.company'
+COMPANY_ADDRESSES = ('contact@easter.company', 'legal@easter.company', 'support@easter.company')
+FORBIDDEN_ADDRESSES = ('oceaster@gmail.com',)
+CONTACT_LINK = '<a href="mailto:%s">%s</a>' % (CONTACT, CONTACT)
 VOID_TAGS = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'}
 
 
@@ -254,6 +261,12 @@ def document_findings(root, name='privacy'):
         findings.append((name, 'no contact address %r' % CONTACT))
     if not any((anchor['href'] or '').startswith('mailto:' + CONTACT) for anchor in parser.anchors):
         findings.append((name, 'the contact address is not a mailto: link'))
+    for address in FORBIDDEN_ADDRESSES:
+        if address in text:
+            findings.append((name, 'a personal address %r is still published' % address))
+    for address in COMPANY_ADDRESSES:
+        if address in text and not any((anchor['href'] or '').startswith('mailto:' + address) for anchor in parser.anchors):
+            findings.append((name, '%r is named but is not a mailto: link' % address))
     if not any(local_target(page, anchor['href']) == '/legal/' + other for anchor in parser.anchors):
         findings.append((name, 'no link to the %s document' % other))
     return findings
@@ -303,7 +316,7 @@ class ScannerTests(unittest.TestCase):
              '<span aria-hidden="true">·</span><a href="/legal/terms/">Terms</a></span><span>Motto</span>')
     DOCUMENT = ('<!doctype html><html><body><main><h1>%s</h1>'
                 '<p class="legal-meta">Effective <time datetime="2026-10-19">19 October 2026</time></p>'
-                '<p>Email <a href="mailto:oceaster@gmail.com">oceaster@gmail.com</a>.</p>'
+                '<p>Email ' + CONTACT_LINK + '.</p>'
                 '<p><a href="../%s/">The other document</a></p></main></body></html>')
 
     def build(self, root, footer=None, home_footer=None, page='index.html', documents=True, notfound=None):
@@ -410,7 +423,7 @@ class ScannerTests(unittest.TestCase):
             path = Path(temp) / 'legal/privacy/index.html'
             path.write_text(path.read_text(encoding='utf-8')
                             .replace('Effective <time', 'Published <time')
-                            .replace('oceaster@gmail.com', 'someone@example.invalid')
+                            .replace(CONTACT, 'someone@example.invalid')
                             .replace('href="../terms/"', 'href="../elsewhere/"'), encoding='utf-8')
             findings = document_findings(root, 'privacy')
             self.assertEqual([problem for page, problem in findings],

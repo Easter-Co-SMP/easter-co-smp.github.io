@@ -24,7 +24,11 @@ reachable without signing in; it is a static page with no JavaScript requirement
 
 ## Decisions Owen made (do not change these without him)
 
-- **Contact for privacy and legal notices:** `oceaster@gmail.com` — 2026-10-19.
+- **Contact addresses:** `contact@easter.company` for anything general, `legal@easter.company`
+  for privacy, data-rights and legal notices, and `support@easter.company` for appeals,
+  security reports and help. All three land in the same catch-all inbox; they exist so a
+  person writing to us can tell us what it is about. No personal address is published —
+  tests/test_legal_pages.py fails if one reappears. — 2026-10-23
 - **Governing law:** Scotland, courts of Scotland, with UK and EU consumer protections
   preserved — 2026-10-19.
 - **Minimum age:** 13, matching the Minecraft account requirement — 2026-10-19.
