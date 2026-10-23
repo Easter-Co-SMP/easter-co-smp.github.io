@@ -726,7 +726,7 @@ file uses (temporary file, `mode 0600`, rename) and versioned:
   "version": 1,
   "writtenAt": "2026-10-23T09:12:04.001Z",
   "account": {
-    "id": "EC-7",
+    "id": 7,
     "displayName": "Captain Fixture",
     "username": "captainfixture",
     "minecraftName": "FixtureCaptain",
@@ -739,6 +739,9 @@ file uses (temporary file, `mode 0600`, rename) and versioned:
   "install": { "installed": true, "version": "fixture-fabric", "updatedAt": "2026-10-19T00:00:00.000Z" }
 }
 ```
+
+`account.id` is the account's own primary key, the value `mintMinecraftSession` compares a minted
+session against, and not the `EC-` prefixed handle `publicAccount` gives the renderer.
 
 `desktop/session-cache.cjs` owns that shape, and **the whitelist is four named lists in it** —
 `FIELDS`, `ACCOUNT_FIELDS`, `SESSION_FIELDS`, `INSTALL_FIELDS` — which `build()` reads off its
