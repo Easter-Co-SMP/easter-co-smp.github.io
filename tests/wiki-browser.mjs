@@ -74,7 +74,7 @@ try {
     await page.locator('.wiki-section-links a').first().click();
     assert(!page.url().endsWith('#/'+id));
   }
-  await page.goto(origin+'/wiki/#/the-easter-isles/a-world-to-explore');
+  await page.goto(origin+'/wiki/#/the-world-and-its-regions/a-world-to-explore');
   await page.waitForFunction(()=>document.activeElement?.id==='region-notices');
   assert(page.url().endsWith('/region-notices'));
   assert.equal(await page.locator('.wiki-sidebar-note').innerText().then(text=>/demo|sample/i.test(text)), false);

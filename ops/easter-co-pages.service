@@ -1,5 +1,5 @@
 [Unit]
-Description=Chart and publish the Easter Isles public Minecraft map
+Description=Chart and publish the Easter Co. SMP public Minecraft map
 Wants=network-online.target
 After=network-online.target
 

@@ -9,6 +9,13 @@ The endgame includes weekly 20+ player Ender Dragon raids, boss world buffs and 
 boss resets. Do not display the elytra limit or first-elytra house prize on the website;
 tests/test_site_assets.py enforces that removal against site/.
 
+The server's own name is the Easter Co. Survival Multiplayer Server, written "Easter Co. SMP"
+wherever the short form fits; a first mention, a legal definition or a document title may spell
+it out in full. Nothing invents an alternative name for the server or for the world it runs: the
+world is "the world", "the server" or "Easter Co. SMP", whichever the sentence wants, and no
+second place name is coined beside it (Owen, 2026-10-23). This is the one place the rule is
+stated; player-facing copy in site/, the launcher's strings and doc/ follow it.
+
 Player data must never enter site/ or Git history. Use scripts/export_world.py and its
 strict allowlist. Never use the private snapshot endpoint as a public export. Keep
 credentials and runtime state outside this repository. Do not publish third-party JARs.

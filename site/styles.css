@@ -6,7 +6,7 @@
    rule, so it is served as a JPEG: the same picture as a PNG was 2.3 MB on the critical path
    and 306 KB as a JPEG at quality 84, and at this size behind this blur the two are
    indistinguishable (PSNR 48.8 dB measured through the blur). */
-.harbour-background{position:fixed;inset:0;z-index:-2;background:url('assets/isles-harbour.jpg') center 62%/cover no-repeat;filter:blur(3px);transform:scale(1.025)}
+.harbour-background{position:fixed;inset:0;z-index:-2;background:url('assets/harbour.jpg') center 62%/cover no-repeat;filter:blur(3px);transform:scale(1.025)}
 .harbour-background::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#071820de,#0c1e27c9 55%,#11242a9c),linear-gradient(0deg,#071820ec,transparent 40%,#081a239c)}
 .home-content{width:min(1020px,calc(100% - 100px));margin:auto;padding:100px 0 70px}.home-hero{display:grid;grid-template-columns:245px 1fr;gap:74px;align-items:center}
 .crest-frame{position:relative;transform:rotate(-3deg);padding:7px;background:linear-gradient(140deg,#f4ddae45,#ffffff0b);border:1px solid #e8d4ad52;border-radius:30px;box-shadow:0 30px 80px #0008,0 0 60px #e7a13d0c}.crest-frame img{display:block;width:100%;height:auto;border-radius:23px}.crest-frame::after{content:"";position:absolute;inset:11px;border:1px solid #fff2;border-radius:20px;pointer-events:none}

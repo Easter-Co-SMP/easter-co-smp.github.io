@@ -1,4 +1,4 @@
-# Easter Co. SMP — The Easter Isles
+# Easter Co. Survival Multiplayer Server (Easter Co. SMP)
 
 Public website: **https://easter-co-smp.github.io/**
 

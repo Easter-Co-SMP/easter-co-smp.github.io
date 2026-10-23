@@ -1,4 +1,4 @@
-name: Publish the Easter Isles
+name: Publish Easter Co. SMP
 on:
   push:
     branches: [main]

@@ -51,8 +51,8 @@ for (const group of groups) {
   topics.append(section);
 }
 function overview() {
-  main.append(heading('The Easter Isles · Field guide', 'Your guide to\nthe Easter Isles.',
-    'Find your bearings, chart a course, and make the Isles your own.'));
+  main.append(heading('Easter Co. SMP · Field guide', 'Your guide to\nEaster Co. SMP.',
+    'Find your bearings, chart a course, and make the world your own.'));
   const headingRow = el('div', 'wiki-section-heading');
   headingRow.append(el('h2', '', 'Browse the guide'), el('span', '', pages.length + ' guides'));
   main.append(headingRow);
@@ -129,7 +129,7 @@ function results(query) {
   if (!query) return;
   if (!matches.length) {
     const empty = el('div', 'wiki-empty'); empty.append(icon('compass'), el('h2', '', 'No articles found.'),
-      el('p', '', 'Try a broader term, such as “ships”, “cooking”, or “Isles”.'), link('Browse all articles →', '#/')); main.append(empty);
+      el('p', '', 'Try a broader term, such as “ships”, “cooking”, or “regions”.'), link('Browse all articles →', '#/')); main.append(empty);
   } else { const list = el('div', 'wiki-results'); matches.forEach(page => list.append(card(page, true))); main.append(list); }
 }
 function render(focus = false) {

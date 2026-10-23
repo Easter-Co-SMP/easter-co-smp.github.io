@@ -25,7 +25,7 @@ test('search finds titles and body text, matches all terms, and handles literal 
 });
 
 test('the complete guide preserves original articles and publishes real custom-game content', () => {
-  const expected = ['getting-started','health-and-death','the-easter-isles','ships-and-sailing',
+  const expected = ['getting-started','health-and-death','the-world-and-its-regions','ships-and-sailing',
     'wildlife-and-pets','law-and-bounties','money-and-banking','crews-and-property',
     'cooking-and-crafting','village-services','equipment-and-enchanting','raids-and-expeditions'];
   assert.deepEqual(new Set(pages.map(page => page.id)), new Set(expected));

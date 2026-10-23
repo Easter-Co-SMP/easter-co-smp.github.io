@@ -441,7 +441,7 @@ export function mountStore(root, { api = createMockStoreAPI() } = {}) {
           el(
             "p",
             "",
-            "A ship to command. A place to call home. Find something for your next life on the Isles.",
+            "A ship to command. A place to call home. Find something for your next life on the server.",
           ),
         );
         copy.append(

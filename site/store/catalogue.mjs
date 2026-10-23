@@ -6,7 +6,7 @@ export const GAMES = [
     genre: "Minecraft · Naval survival",
     status: "available",
     mark: "EC",
-    description: "Ships, homes and adventures on the Isles.",
+    description: "Ships, homes and adventures on Easter Co. SMP.",
   },
   {
     id: "orbital-racing",
@@ -161,7 +161,7 @@ export const CATALOGUE = [
     id: "priority-30",
     category: "upgrades",
     name: "Priority boarding",
-    tag: "More time on the Isles",
+    tag: "More time on the server",
     price: 700,
     kind: "upgrade",
     description:
@@ -180,7 +180,7 @@ export const CATALOGUE = [
     id: "crowns-1000",
     category: "currency",
     name: "1,000 Crowns",
-    tag: "For life on the Isles",
+    tag: "For life on the server",
     price: 500,
     kind: "coins",
     description:

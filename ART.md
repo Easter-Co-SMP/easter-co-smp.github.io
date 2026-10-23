@@ -20,7 +20,7 @@ rather than in the payload.
 The opening environment is promotional concept art, not a precise view or map of the
 actual saved world. The public atlas always uses real saved terrain.
 
-Generated background destination: `site/assets/isles-harbour.jpg`.
+Generated background destination: `site/assets/harbour.jpg`.
 Mode: built-in image generation, `stylized-concept`.
 
 Brief: a wide cinematic Minecraft-style archipelago at blue-hour dusk; teal ocean and
@@ -41,4 +41,4 @@ The background ships as a JPEG at quality 84 rather than the PNG it was generate
 2.3 MB of PNG sat on the critical path behind a `preload`, and the same image is
 306 KB as a JPEG. `site/styles.css` blurs it 3px at the size the page draws it, and
 through that blur the two files measure 48.8 dB apart — identical to the eye. The
-generated PNG stays in the history (`git log -- site/assets/isles-harbour.*`).
+generated PNG stays in the history (`git log -- site/assets/harbour.*`).
