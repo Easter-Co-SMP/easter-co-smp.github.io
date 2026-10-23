@@ -105,8 +105,16 @@ const money = (amountMinor, currency) =>
 // Purchases go to the bank; every currency pack shares Owen's deposit instructions.
 const worth = (p) =>
   p.creditPence > 0
-    ? "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game."
+    ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(
+        p.creditPence / 100,
+      ) + " Sterling in your bank"
     : COPY.donation;
+// Owen, 2026-10-23, asked to choose between the amount and the rule on a currency card: "Both, on
+// every card." So the card carries that pack's own amount AND this sentence. It is deliberately a
+// second line rather than a replacement for the first: the amount is the fact a buyer is looking
+// for, and the rule is what answers "where does it go and can I spend it".
+const DEPOSIT_RULE =
+  "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.";
 const dateOf = (iso) =>
   new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
     new Date(iso),
@@ -286,7 +294,10 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
       el("strong", "store-price", money(p.amountMinor, p.currency)),
       buyControl(p),
     );
-    article.append(artwork(p), open, el("p", "store-worth", worth(p)), footer);
+    article.append(artwork(p), open, el("p", "store-worth", worth(p)));
+    // A donation credits nothing, so it carries neither an amount nor the deposit rule.
+    if (p.creditPence > 0) article.append(el("p", "store-deposit", DEPOSIT_RULE));
+    article.append(footer);
     const note = openedNote(p);
     if (note) article.append(note);
     return article;
@@ -403,6 +414,8 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
       el("h2", "", p.name),
       el("p", "store-detail-price", money(p.amountMinor, p.currency)),
       el("p", "store-worth", worth(p)),
+      // The product's own view says the same two things the card does.
+      ...(p.creditPence > 0 ? [el("p", "store-deposit", DEPOSIT_RULE)] : []),
       buyControl(p),
     );
     const note = openedNote(p);

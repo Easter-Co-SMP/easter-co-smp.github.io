@@ -358,6 +358,14 @@
   letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
+/* The deposit rule, on every currency card beside that pack's own amount (Owen, 2026-10-23: "Both,
+   on every card"). Smaller and quieter than the amount, so the number still reads first. */
+.store-deposit {
+  margin: 2px 0 0;
+  color: var(--store-muted, #a8b9b4);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .store-worth {
   grid-area: worth;
   align-self: start;

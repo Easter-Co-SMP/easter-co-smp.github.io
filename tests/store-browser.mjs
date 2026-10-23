@@ -32,6 +32,8 @@ const PRODUCTS = [
 const COPY = {
   buy: "Buy",
   opening: "Pending\u2026",
+  deposit:
+    "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.",
   finish:
     "Finish the payment in the Stripe window. Your Sterling arrives the next time you join.",
   successful: "Payment Successful",
@@ -247,12 +249,17 @@ try {
     assert.deepEqual(
       await store.locator(".store-worth").allInnerTexts(),
       [
-        "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.",
-        "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.",
-        "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.",
+        "10 Sterling in your bank",
+        "100 Sterling in your bank",
+        "1,000 Sterling in your bank",
         COPY.donation,
       ],
       "a pack says what it is worth from creditPence, and a donation says it is a donation",
+    );
+    assert.deepEqual(
+      await store.locator(".store-deposit").allInnerTexts(),
+      [COPY.deposit, COPY.deposit, COPY.deposit],
+      "every currency card also carries where the money goes and whether it can be spent",
     );
     assert.deepEqual(
       await store.locator(".store-product > .store-art").evaluateAll((nodes) => nodes.map((n) => n.dataset.emblem)),
@@ -704,7 +711,8 @@ try {
       const store = page.locator(".store-app");
       await page.getByRole("heading", { name: "100 Sterling", level: 2 }).waitFor();
       assert.match(await store.locator(".store-detail-price").innerText(), /\$6\.95/);
-      assert.equal(await store.locator(".store-worth").innerText(), "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.");
+      assert.equal(await store.locator(".store-worth").innerText(), "100 Sterling in your bank");
+      assert.equal(await store.locator(".store-deposit").innerText(), COPY.deposit);
       assert.equal(await store.getByRole("button", { name: /^Buy / }).count(), 1);
     });
     for (const [key, emblem] of [["sterling-10", "coins"], ["sterling-100", "pouch"], ["sterling-1000", "chest"], ["donation-5", "donation"]]) {
@@ -712,12 +720,21 @@ try {
         await page.locator(".store-detail-art").waitFor();
         assert.equal(await page.locator(".store-detail-art").getAttribute("data-emblem"), emblem,
           "detail keeps the catalogue emblem for " + key);
-        assert.equal(await page.locator(".store-worth").innerText(), key === "donation-5"
-          ? COPY.donation
-          : "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.",
-          "detail shows the exact item description for " + key);
+        // Both lines, keyed on what the server said the product credits: a currency pack shows its
+        // own amount and the deposit rule, and a donation shows neither.
+        const credits = key !== "donation-5";
+        assert.equal(
+          await page.locator(".store-worth").innerText(),
+          credits ? { "sterling-10": "10 Sterling in your bank", "sterling-100": "100 Sterling in your bank", "sterling-1000": "1,000 Sterling in your bank" }[key] : COPY.donation,
+          "detail shows what the pack is worth for " + key,
+        );
+        assert.equal(
+          await page.locator(".store-deposit").count(),
+          credits ? 1 : 0,
+          "and the deposit rule only where something is deposited, for " + key,
+        );
         assert.equal(await page.locator(".store-bank-note").count(), 0,
-          "detail has no standalone bank explanation");
+          "and never as a standalone explanation beside the card");
       });
     }
     await coldLoad("#item/not-a-product", async (page) => {

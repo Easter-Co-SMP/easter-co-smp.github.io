@@ -341,7 +341,11 @@ flaky gate.
 
 The whole visible vocabulary, exactly as Owen fixed it (ticket 45bb99ad, with the two changes the
 payment window forced on 2026-10-23): the buy button
-**Buy**; while the press is in flight **Pending…**; after a window the player closed by
+**Buy**; while the press is in flight **Pending…**; every currency card carries both its own
+amount (`1,000 Sterling in your bank`, from the server's creditPence) *and* the rule
+(`All in-game currency is deposited into your in-game bank account upon purchase, and can
+only be withdrawn in-game.`) — Owen chose \"Both, on every card\" on 2026-10-23 after the
+line flipped twice between one form and the other, so both are asserted per card from now on; after a window the player closed by
 hand **Finish the payment in the Stripe window. Your Sterling arrives the next time you join.**
 (it said "in your browser" until the payment moved inside the launcher); a payment the launcher
 saw finish **Payment Successful** and **Your order is recorded.**, with one control **Close**;
