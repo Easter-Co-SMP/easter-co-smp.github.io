@@ -268,7 +268,10 @@
   // offers no second Play, because the launch happens by itself the moment the server
   // is joinable. This is a phase of Play, and it is never an account or install state.
   if(phase==='starting-game')return {kind:'starting',label:'Starting the server…',note:'Minecraft opens when the server is ready'};
-  if(state&&state.canPlay&&phase!=='launching'&&phase!=='running')return {kind:'play',label:'PLAY NOW',note:'Minecraft Java Edition'};
+  // The edition is said once, in the heading above (`.desktop-edition`). This note names the
+  // account the press will start, because "Minecraft Java Edition" here repeated the line above
+  // it verbatim (Owen, 2026-10-23).
+  if(state&&state.canPlay&&phase!=='launching'&&phase!=='running')return {kind:'play',label:'PLAY NOW',note:'Minecraft Account'};
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Please wait'};
   if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
   // A download or install under way asks for the account while the player waits.
@@ -890,7 +893,13 @@
    heroButton.querySelector('span').firstChild.textContent=action.label;
    // A cached action's note is the whole sentence and never has the player's name appended: the
    // account's own Java profile is not there yet, and the note is about the answer, not the name.
-   heroButton.querySelector('small').textContent=action.kind==='play'&&current.sessionCached!==true?joinParts([action.note,current.profile?.name]):action.note;
+   // Play names the account it will start: `Minecraft Account: <name>`, never a second copy of
+   // the edition the heading already carries. A cached action keeps its own sentence and never
+   // has the name appended, because the note is about the answer, not the name.
+   const playName=typeof current.profile?.name==='string'?current.profile.name.trim():'';
+   heroButton.querySelector('small').textContent=action.kind==='play'&&current.sessionCached!==true
+    ?(playName?action.note+': '+playName:action.note)
+    :action.note;
   }
   if(gameStatus.parentNode&&!heroWaitNode.parentNode)gameStatus.after(heroWaitNode);
   const waking=gameOf(current)?.waking===true;
