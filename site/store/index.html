@@ -1,28 +1,34 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0d2029">
-<meta name="description" content="The Community store: browse items, ships, player houses, account upgrades and packs of in-game money. A labelled mock storefront with sample products and USD prices — no real payment and no in-game delivery.">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0d2029">
+<meta name="description" content="Sterling and contributions for Easter Co. SMP. Prices in USD.">
 <meta name="robots" content="noindex,nofollow">
-<meta property="og:title" content="The Community store — Easter Company">
-<meta property="og:description" content="Browse the Community store and try a simulated checkout. No real charges and no in-game delivery.">
-<title>The Community store — Easter Company</title>
-<link rel="icon" href="../assets/favicon.ico" sizes="16x16 32x32 48x48 64x64 128x128 256x256"><link rel="icon" href="../assets/favicon.png" type="image/png" sizes="64x64"><link rel="apple-touch-icon" href="../assets/apple-touch-icon.png"><link rel="stylesheet" href="../styles.css">
+<title>The Community store — Easter Co. SMP</title>
+<link rel="icon" href="../assets/favicon.ico">
+<link rel="stylesheet" href="../styles.css">
 <link rel="stylesheet" href="../desktop.css">
 <link rel="stylesheet" href="store.css">
 </head>
 <body class="store">
-<header class="site-header"><a class="site-wordmark" href="../" aria-label="Easter Co. SMP home"><img class="wordmark-mark" src="../assets/ec-logo.svg" alt="" width="26" height="26" decoding="async">Easter Co.<span>SMP</span></a><nav aria-label="Main navigation"><a href="../">Home</a><button type="button" popovertarget="launcher-downloads">Download <svg class="download-chevron-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><a href="../map/">Map</a><a href="../wiki/">Wiki</a><a href="../store/" aria-current="page">Store</a></nav></header>
+<a class="store-skip" href="#store-root">Skip to store</a>
+<header class="site-header">
+<a class="site-wordmark" href="../" aria-label="Easter Co. SMP home"><img class="wordmark-mark" src="../assets/ec-logo.svg" alt="" width="26" height="26">Easter Co.<span>SMP</span></a>
+<nav aria-label="Main navigation"><a href="../">Home</a><button type="button" popovertarget="launcher-downloads">Download</button><a href="../map/">Map</a><a href="../wiki/">Wiki</a><a href="./" aria-current="page">Store</a></nav>
+</header>
 <main class="store-main">
-<div class="store-mast">
-<div class="store-brand"><p class="store-overline">EASTER COMPANY</p><h1 class="store-title" id="store-title">The Community store</h1></div>
-<p class="store-intro">Items, ships, player houses, account upgrades and packs of in-game money for Easter Co. SMP.</p>
-</div>
-<p class="store-demo" role="note"><strong>This is a mock store.</strong><span>Products and USD prices are examples. No real payment is taken and nothing is delivered to the game.</span></p>
-<div class="store-app" id="store-root"><p class="store-loading">Opening the store…</p></div>
+<div class="store-mast"><p class="store-overline">EASTER CO. SMP</p><h1>The Community store</h1><p>Sterling for the game. A contribution to the community.</p></div>
+<nav class="store-top-nav" aria-label="Store views"><a href="#catalogue">Shop</a><a href="#cart">Review</a><a href="#orders">Orders</a></nav>
+<p id="store-status" class="store-status" role="status" aria-live="polite"></p>
+<div id="store-root" class="store-app" tabindex="-1"><p>Opening the store…</p></div>
+<p id="store-announcement" class="store-sr-only" aria-live="polite" aria-atomic="true"></p>
 </main>
-<footer class="store-footer"><span>© Easter LTD</span><span class="legal-links"><a href="../legal/privacy/">Privacy</a><span aria-hidden="true">·</span><a href="../legal/terms/">Terms</a></span><span>The Community store · Mock surface</span></footer>
-<noscript><p class="store-noscript">Enable JavaScript to browse the store. No payment or game account is required.</p></noscript>
-<script type="module" src="store.mjs"></script><script src="../downloads.js" defer></script><script src="../desktop.js" defer></script>
+<footer class="store-footer"><span>© Easter LTD</span><span class="legal-links"><a href="../legal/privacy/">Privacy</a> · <a href="../legal/terms/">Terms</a></span><span>All prices in USD</span></footer>
+<noscript><p class="store-noscript">Enable JavaScript to browse the five products. Checkout is currently unavailable.</p></noscript>
+<script type="module" src="store.mjs"></script>
+<script src="../downloads.js" defer></script>
+<script src="../desktop.js" defer></script>
 </body>
 </html>
