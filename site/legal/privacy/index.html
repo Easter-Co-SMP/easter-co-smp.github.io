@@ -86,7 +86,7 @@
       </ul>
 
       <h3>3.4 Your Microsoft session</h3>
-      <p>Signing in with Microsoft gives the launcher a Minecraft session. So that you do not have to approve the same Microsoft account again on every machine, or after every restart, the account service keeps <strong>one</strong> Microsoft refresh token for your account, encrypted with AES-256-GCM using a key held outside the database and bound to your account identifier. A later Microsoft sign-in replaces it with the newer token. It is erased when Microsoft itself refuses it, or when you ask us to erase it or to delete your account. We never see or store your Microsoft password.</p>
+      <p>Signing in with Microsoft gives the launcher a Minecraft session. So that you do not have to approve the same Microsoft account again on every machine, or after every restart, the account service keeps <strong>one</strong> Microsoft refresh token for your account, encrypted with AES-256-GCM using a key held outside the database and bound to your account identifier. A later Microsoft sign-in replaces it with the newer token. It is erased when Microsoft itself refuses it, or when you ask us to erase it or to delete your account. To ask for that, use the route in Your rights below. We never see or store your Microsoft password.</p>
       <p>Your launcher's own copy of the session lives in your operating system's encrypted store. With no stored session, Play asks you to sign in with Microsoft again on each machine you use.</p>
 
       <h3>3.5 If you play on the server</h3>
@@ -195,7 +195,7 @@
           <tr><td>Signed-in sessions</td><td>Until they expire, are revoked, or you sign out — renewed sessions last at most 30 days</td></tr>
           <tr><td>Sign-in flow state and nonces</td><td>10 minutes, then expired</td></tr>
           <tr><td>Sign-in rate-limit counters</td><td>A short rolling window, normally well under a day</td></tr>
-          <tr><td>Sealed Microsoft session</td><td>Until you revoke it, sign out everywhere, or ask us to delete your account</td></tr>
+          <tr><td>Sealed Microsoft session</td><td>Until Microsoft refuses it, or until you ask us to erase it or to delete your account</td></tr>
           <tr><td>Server logs — chat, commands and connection records</td><td>Normally no more than 90 days, kept longer only for an active investigation</td></tr>
           <tr><td>Moderation and ban records</td><td>While the restriction is in force and up to 12 months after it ends, so a ban cannot simply be evaded</td></tr>
           <tr><td>World data and world backups</td><td>For as long as the server runs, as a rolling set of backups</td></tr>
