@@ -1,3 +1,31 @@
+# Easter Company launcher 1.0.46
+
+## Paying happens inside the launcher
+
+Pressing Buy in the store no longer hands you off to your web browser. The payment page opens in
+its own window inside the launcher, and when the payment finishes you come straight back — no tab
+opens anywhere and the website is never loaded.
+
+- The window is Stripe's own page, so your card details go to Stripe and never to us or to the
+  launcher.
+- A payment that succeeds shows **Payment Successful** in the launcher, and closing it takes you
+  to your orders where the purchase is listed.
+- Closing the window without paying says nothing at all: the store is exactly as you left it.
+
+## The store sells four products
+
+The one-cent product is gone. Stripe cannot charge a card for less than 50 cents, so it could
+never be bought: the price was refused at the last moment and the store could only say it was
+unavailable. Ten Sterling, a hundred, a thousand, and the five-dollar donation remain, at the
+same prices.
+
+## The privacy page says what paying involves
+
+It now states the one thing that is not "no third-party embeds": the payment page you reach only
+if you press Buy is served by Stripe, under Stripe's own privacy notice, and nothing loads from
+them until you do.
+
+
 # Easter Company launcher 1.0.45
 
 ## Exit Game
