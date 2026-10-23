@@ -117,10 +117,12 @@ test('the wake state and the launch target are one address, override included',(
  }
 });
 
-test('the status line is three sentences, and says Offline until it knows',()=>{
+test('the status line is four sentences, and says Pending until it has asked',()=>{
  const line=(status,options={checked:true})=>gameStatusLine(status,options);
- // Owen's wording of 2026-10-22, verbatim: `Server Online, N active players`, or
- // `Server Offline`. No brackets, no duration, no reason, no service sentence.
+ // Owen's wording, verbatim: `Server Online, N active players` and `Server Online, 0 active
+ // players` (2026-10-22), then `Status pending…` while nothing has been asked and
+ // `Server Offline` only for a read that happened and failed (2026-10-23). No brackets, no
+ // duration, no reason, no service sentence.
  assert.equal(line({state:'running',ready:true,players:2}).message,'Server Online, 2 active players');
  // The count is the service's own integer: singular for one, and silence rather than a
  // false zero when it sent none.
@@ -146,10 +148,21 @@ test('the status line is three sentences, and says Offline until it knows',()=>{
  // Offline is said only when Online cannot be: no status known yet — never read, or read
  // and failed.
  assert.equal(line({state:'stopped',detail:'Update in progress...'}).tone,'asleep');
+ // The unknown state splits in two on `checked`, which is whether a status read has
+ // happened at all: nothing asked yet is Pending and the LED turns, a read that happened
+ // and failed is Offline and the LED is the red dot. That is the whole switch.
  assert.equal(line({state:'unknown'},{checked:true}).message,'Server Offline');
- assert.equal(line({state:'unknown'},{checked:false}).message,'Server Offline');
- assert.equal(line({},{checked:false}).message,'Server Offline');
- // The three sentences and nothing else: no bracket, no duration, no service detail, and
+ assert.equal(line({state:'unknown'},{checked:true}).tone,'offline');
+ assert.equal(line({},{checked:true}).message,'Server Offline','a read that failed is still Offline, character for character');
+ assert.equal(line({state:'unknown'},{checked:false}).message,'Status pending…');
+ assert.equal(line({state:'unknown'},{checked:false}).tone,'pending');
+ assert.equal(line({},{checked:false}).message,'Status pending…','and with no state at all: nothing has been asked yet');
+ assert.equal(line({},{checked:false}).tone,'pending');
+ assert.equal(MESSAGES.pending,'Status pending…','the line lives in the copy table, not in the view');
+ assert(MESSAGES.pending.endsWith('\u2026'),'with a real U+2026 ellipsis, not three dots');
+ assert(MESSAGES.waking.endsWith('minute.'),'the waking sentence is unchanged');
+ assert(MESSAGES.waking.includes('\u2026'),'and the pending line matches the ellipsis the waking sentence uses');
+ // The four sentences and nothing else: no bracket, no duration, no service detail, and
  // none of the old words (asleep, Zzz, starting, stopping, status unknown) survives.
  const states=[{state:'running',ready:true,players:2},{state:'running',ready:true,players:null},{state:'stopped',players:0},{state:'stopped',detail:'Update in progress...'},{state:'starting'},{state:'stopping',players:2},{state:'unknown'}];
  const seen=new Set();
@@ -160,15 +173,23 @@ test('the status line is three sentences, and says Offline until it knows',()=>{
   assert(!/about a minute|finishing|update in progress|zzz|asleep|could not read|checked when/i.test(message),'no service detail or duration: '+message);
   assert(!/starting|stopping|unknown/i.test(message),'no transient state words: '+message);
  }
- assert.deepEqual([...seen].sort(),['Server Offline','Server Online','Server Online, 0 active players','Server Online, 2 active players'],'only the three sentences, plus the count the service sent');
- // The tones are meaning and the dot only repeats them, so the words never have to say
- // what the dot says.
+ // The pending line joins the same set, and passes the same rules: it is one of this row's
+ // sentences and carries nothing else.
+ const pending=line({state:'unknown'},{checked:false}).message;
+ seen.add(pending);
+ assert(!/[()]/.test(pending),'no brackets: '+pending);
+ assert(!/about a minute|finishing|update in progress|zzz|asleep|could not read|checked when/i.test(pending),'no service detail or duration: '+pending);
+ assert(!/starting|stopping|unknown|offline/i.test(pending),'pending never borrows the Offline words: '+pending);
+ assert.deepEqual([...seen].sort(),['Server Offline','Server Online','Server Online, 0 active players','Server Online, 2 active players','Status pending…'],'only the four sentences, plus the count the service sent');
+ // The tones are meaning and the LED only repeats them, so the words never have to say
+ // what the LED says.
  assert.equal(line({state:'running',ready:true,players:2}).tone,'online');
  assert.equal(line({state:'stopped',players:0}).tone,'asleep');
  assert.equal(line({state:'stopped',detail:'Update in progress...'}).tone,'asleep');
  assert.equal(line({state:'starting'}).tone,'starting');
  assert.equal(line({state:'stopping'}).tone,'stopping');
- assert.equal(line({state:'unknown'}).tone,'offline');
+ assert.equal(line({state:'unknown'}).tone,'offline','a read that failed is the red dot');
+ assert.equal(line({state:'unknown'},{checked:false}).tone,'pending','nothing asked yet is its own tone, not the offline one');
  // The cold start's own wait line keeps its sentence, and its tone is not a failure either.
  assert.equal(line({state:'stopped'},{checked:true,waking:true}).message,MESSAGES.waking);
  assert.equal(line({state:'stopping'},{checked:true,waking:true}).message,MESSAGES.wakingStopping);

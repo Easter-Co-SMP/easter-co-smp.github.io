@@ -15,16 +15,18 @@ const {GAME_STATES,serverAddress,GAME_POLL_MS,GAME_WAKE_TIMEOUT_MS,GAME_DETAIL_M
 // so this module needs no import from accounts.cjs (which imports this one).
 // The server's status line: one small LED and one sentence, and nothing else. Main owns
 // both halves of it: `message` is every word the player reads, `tone` is the meaning the
-// dot repeats. So no view words a server state for itself, no view re-derives the rule that
-// turns a state into a tone, and the dot can be lost to colour blindness, to a screen
-// reader or to a test that asserts only text without the state being lost with it
+// LED repeats — a filled dot for a known state, a rotating ring while nothing is known
+// yet. So no view words a server state for itself, no view re-derives the rule that turns a
+// state into a tone, and the LED can be lost to colour blindness, to a screen reader or to
+// a test that asserts only text without the state being lost with it
 // (doc/launcher-states.md, *The LED and the status line*).
 //
-// Owen's wording, verbatim (2026-10-22): the row says one of three things and carries no
-// technical detail at all.
+// Owen's wording, verbatim (2026-10-22, extended 2026-10-23): the row says one of four
+// things and carries no technical detail at all.
 //   Server Online, 2 active players
 //   Server Online, 0 active players   <- also the sleeping host: asleep is not offline
-//   Server Offline                    <- and this, until the status is actually known
+//   Status pending…                   <- nothing asked yet: the LED spins, it is not Offline
+//   Server Offline                    <- only for a read that happened and failed
 // No brackets, no "about a minute", no service sentence, no reason. The player is told
 // whether they can play and how many people are on, and nothing else: what the launcher
 // knows about wake times and shutdowns belongs in its own behaviour, not in this line.
@@ -32,10 +34,14 @@ const MESSAGES={
  // The state word and, when the service sent one, its own count: `Server Online, 2 active
  // players`. Silence rather than a false zero when it sent no count at all.
  online:'Server Online',
- // Said only when the launcher cannot say the server is online: the service stated it is
- // doing something to a stopped host, or no status has been read yet. A stopped host the
- // service said nothing about is the ordinary sleep and reads online with nobody on it.
+ // Said only for a status read that happened and failed: the launcher asked, got nothing it
+ // can respect, and still cannot say the server is online. A read that has not happened at
+ // all is not Offline — it is `pending` below.
  offline:'Server Offline',
+ // Said when nothing has been asked yet, which is the launcher's first moment on the Play
+ // Now stage. The player is waiting for an answer, not being told the server is down: the
+ // LED is a rotating ring for this tone, never the red dot (2026-10-23).
+ pending:'Status pending…',
  // Said while this launcher is waking it and polling, which is the first player's
  // cold start: about 60-90 seconds, and the reason Play is not offered twice. These two
  // belong to the cold start's own wait line; the status row stands down for them.
@@ -97,7 +103,7 @@ function sanitizeGameStatus(payload){
 function playerCount(count){return count===1?'1 active player':count+' active players';}
 function onlineLine(players){return Number.isInteger(players)?MESSAGES.online+', '+playerCount(Math.max(0,players)):MESSAGES.online;}
 // The row's two halves, from the one table above: the sentence a player reads and the
-// meaning the dot repeats. What decides each line, and why:
+// meaning the LED repeats. What decides each line, and why:
 //
 // - **Online is the ordinary answer, including for a host that is only asleep.** Owen's
 //   rule of 2026-10-22: a stopped host is not a fault, it starts when somebody presses
@@ -107,12 +113,17 @@ function onlineLine(players){return Number.isInteger(players)?MESSAGES.online+',
 // - the count is the service's own integer. A `stopped` host has nobody on it, so its
 //   count is 0 whatever it last sent; a `stopping` one may still have players and keeps
 //   their count.
-// - **Offline is said only when Online cannot be said**: no status is known yet — before
-//   the first read, and after a read that failed. The service's `detail` decides nothing
-//   and is never printed: it sends an explanatory sentence for the ordinary sleep ("the
-//   SMP host is asleep, it starts when someone presses Play"), and a parenthetical like
-//   that is exactly the slop Owen removed on 2026-10-22. A stopped host is online with
-//   nobody on it whether or not the service feels chatty about it.
+// - **Pending is said only before anything has been asked.** `checked` is whether a status
+//   read has happened in this session, and it is the whole difference between the two
+//   unknown lines: nothing asked yet is `Status pending…` with a rotating ring, because the
+//   player is waiting for an answer and not being told the server is down (Owen,
+//   2026-10-23: *"instead of defaulting to 'Server Offline' let's show [spinner] Status
+//   pending…"*).
+// - **Offline is said only for a read that happened and failed.** The service's `detail`
+//   decides nothing and is never printed: it sends an explanatory sentence for the ordinary
+//   sleep ("the SMP host is asleep, it starts when someone presses Play"), and a
+//   parenthetical like that is exactly the slop Owen removed on 2026-10-22. A stopped host
+//   is online with nobody on it whether or not the service feels chatty about it.
 // - `starting`, and `running` without `ready` (the instance answers but its port has not
 //   confirmed a real Minecraft status exchange), are still ordinary states with nobody
 //   joinable yet, so they read online with nobody on.
@@ -123,7 +134,9 @@ function gameStatusLine({state='unknown',ready=false,players=null,detail=null}={
  if(state==='stopped')return {message:onlineLine(0),tone:'asleep'};
  if(state==='stopping')return {message:onlineLine(Number.isInteger(players)?players:0),tone:'stopping'};
  if(state==='running'||state==='starting')return {message:onlineLine(0),tone:'starting'};
- // Nothing known: not yet read, or the read failed. The row says Offline until it knows.
+ // Nothing known, which is two different things: a read that has not happened yet is
+ // pending (a spinning ring), and a read that happened and failed is Offline.
+ if(!checked)return {message:MESSAGES.pending,tone:'pending'};
  return {message:MESSAGES.offline,tone:'offline'};
 }
 class GameWaitError extends Error{

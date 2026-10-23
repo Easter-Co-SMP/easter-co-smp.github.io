@@ -1412,11 +1412,11 @@ try{
 
    // The game server's own row (doc/launcher-states.md, *The LED and the status line*): one
    // LED and one status line, both decided by the main process. Every state is rendered here
-   // and asserted as TEXT, character for character, because the dot is aria-hidden and is
+   // and asserted as TEXT, character for character, because the LED is aria-hidden and is
    // never allowed to be the only carrier of meaning. It is a different service from the
-   // account: a server that is asleep, offline, starting or stopping is said in this row,
-   // never as an account problem, and the hero offers no second Play while the press that is
-   // already running a cold start has not launched.
+   // account: a server that is asleep, offline, pending, starting or stopping is said in this
+   // row, never as an account problem, and the hero offers no second Play while the press that
+   // is already running a cold start has not launched.
    const gameLine=launcherPage.locator('.desktop-game-status');
    const gameText=async()=>(await gameLine.locator('.desktop-game-line').innerText()).trim();
    const asleep={state:'stopped',ready:false,endpoint:'smp.easter.company:25565',since:null,players:0,detail:null,waking:false,checkedAt:'2026-10-18T00:00:00Z',message:'Server Online, 0 active players',tone:'asleep'};
@@ -1434,12 +1434,13 @@ try{
    heroAction({name:'server-asleep',...await hero(),expect:'play'});
    assert.equal(await launcherPage.locator('.desktop-access').isVisible(),false,'a stopped server is never an account or access problem');
    assert.deepEqual(await visibleErrors(),[],'and it is not raised as a failure either');
-   // Offline for a reason the service itself stated: its own words in the brackets, and the
-   // only state that turns the dot red. Nothing is invented when it states none.
-   await pushState({game:{...asleep,detail:'Update in progress...',message:'Server Offline',tone:'offline'}});
-   assert.equal(await gameText(),'Server Offline','an offline line carries no reason, no duration and no service sentence');
+   // A service detail decides nothing, and a stopped host that sent one is still the ordinary
+   // sleep: the row reads the online line with nobody on it, whatever the service says. The
+   // detail is never printed — the bracket that used to carry it is gone (2026-10-22).
+   await pushState({game:{...asleep,detail:'Update in progress...'}});
+   assert.equal(await gameText(),'Server Online, 0 active players','a stopped host reads the sleeping line even when the service sent a detail');
    assert(!/update in progress/i.test(await gameText()),'the service detail never reaches the player');
-   assert.equal(await gameLine.getAttribute('data-tone'),'offline','and it is the one state that turns the dot red');
+   assert.equal(await gameLine.getAttribute('data-tone'),'asleep','and it is the dim amber of a sleep, not a fault');
    // Online: visible, with the real count. This is the behaviour change — the row used to
    // hide itself here, which left a healthy server saying nothing at all.
    await pushState({game:{...asleep,state:'running',ready:true,players:2,detail:null,message:'Server Online, 2 active players',tone:'online'}});
@@ -1466,7 +1467,7 @@ try{
    await pushState({phase:'starting-game',game:{...asleep,state:'starting',waking:true,message:'Starting your server… the first player in a session waits about a minute.',tone:'starting'}});
    const coldStart=await hero();
    assert.equal(coldStart.action,'starting','the hero says the server is starting');
-   assert(/Starting your server/.test(coldStart.text),'with the cold start as its own action: '+coldStart.text);
+   assert(/Starting the server/.test(coldStart.text),'the hero action is the launcher\'s own cold-start label from site/desktop.js ("Starting the server…" since 1.0.43), not the wait line\'s sentence: '+coldStart.text);
    assert.equal(await launcherPage.locator('[data-desktop-play]').isDisabled(),true,'and no second Play during the cold start');
    assert.equal(await launcherPage.locator('.desktop-access').isVisible(),false,'a starting server is still not an account problem');
    // The service's own detail reads below the launcher's sentence rather than replacing it.
@@ -1487,16 +1488,78 @@ try{
    assert.equal(await launcherPage.locator('[data-desktop-play]').isDisabled(),false,'a wake timeout leaves Play available as the retry');
    await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
    assert.deepEqual(await visibleErrors(),[],'the retry leaves no failure behind');
-   // An unreachable status is displayed as unknown and claims nothing: never online, never
-   // offline, and never red. The launcher does not call a server down it could not look at.
+   // A read that happened and failed is displayed as unknown and claims nothing: never online,
+   // never pending, and it is the one state that draws the red dot. The launcher does not call
+   // a server down it could not look at, and it does not pretend the answer is still coming.
    await pushState({error:null,game:{...asleep,state:'unknown',ready:false,players:null,message:'Server Offline',tone:'offline'}});
    await gameLine.waitFor({state:'visible'});
-   assert.equal(await gameText(),'Server Offline','an unreadable status says Offline until it knows');
+   assert.equal(await gameText(),'Server Offline','a failed read says Offline and keeps saying it');
    assert(!/online/i.test(await gameText()),'and never claims the server is online');
+   assert(!/pending/i.test(await gameText()),'the failed read is not pending either: it happened and it failed');
    heroAction({name:'server-status-unknown',...await hero(),expect:'play'});
-   // A server nobody has asked about yet is the same honest answer, in its own words.
+   const gameLed=gameLine.locator('.desktop-game-led');
+   const ledStyle=()=>gameLed.evaluate(el=>{
+    const s=getComputedStyle(el),box=el.getBoundingClientRect();
+    return {
+     background:s.backgroundColor,
+     borderWidth:parseFloat(s.borderTopWidth),
+     borderStyle:s.borderTopStyle,
+     borderColor:s.borderTopColor,
+     transparentQuadrant:s.borderTopColor!==s.borderRightColor||s.borderTopColor!==s.borderBottomColor||s.borderTopColor!==s.borderLeftColor,
+     animationName:s.animationName,
+     animationDuration:s.animationDuration,
+     width:box.width,height:box.height,
+     colour:s.color
+    };
+   });
+   // The known state's LED is a filled dot and it does not turn: this is the shape the spinner
+   // must replace, asserted off the same element that then spins.
+   const offlineLed=await ledStyle();
+   assert(offlineLed.borderWidth===0,`the offline LED has no border, it is a filled dot: ${JSON.stringify(offlineLed)}`);
+   assert.equal(offlineLed.animationName,'none','and a failed read does not animate');
+   assert.notEqual(offlineLed.background,'rgba(0, 0, 0, 0)','the dot is filled with its own colour');
+   assert.equal(await gameLine.getAttribute('data-tone'),'offline','which is the tone the main process sent, written verbatim');
+   // A server nobody has asked about yet is its own state, not an offline one: 'Status pending…'
+   // with the LED drawn as a rotating ring. The words are asserted as text, character for
+   // character, exactly as the rest of this block does.
+   await pushState({game:{...asleep,state:'unknown',ready:false,message:'Status pending…',tone:'pending'}});
+   assert.equal(await gameText(),'Status pending…','a server nobody has asked about yet is pending, not offline');
+   assert(!/offline/i.test(await gameText()),'and the row does not default to Offline while it waits');
+   assert.equal(await gameLine.getAttribute('data-tone'),'pending','the pending tone the main process sent reaches the DOM verbatim');
+   const pendingLed=await ledStyle();
+   // A ring, not a dot: a real border, no filled background, one quadrant transparent so the
+   // rotation reads as a spinner, and an animation that is actually running.
+   assert(pendingLed.borderWidth>0,`the pending LED draws a ring, not a filled dot: ${JSON.stringify(pendingLed)}`);
+   assert.notEqual(pendingLed.borderStyle,'none','and that ring has a real border style');
+   assert.equal(pendingLed.background,'rgba(0, 0, 0, 0)','with the dot\'s filled background replaced, so it is a ring');
+   assert(pendingLed.transparentQuadrant,'one quadrant is transparent, which is what the spin turns');
+   assert.notEqual(pendingLed.animationName,'none','the ring is animating, so it reads as waiting');
+   assert(/game-led-spin/.test(pendingLed.animationName),`and it is the row's own spin, not some inherited animation: ${pendingLed.animationName}`);
+   assert.equal(pendingLed.animationDuration,'0.9s','at about 0.9s a turn');
+   assert.equal(pendingLed.width,8,'the box does not move: still 8px wide, dot or ring');
+   assert.equal(pendingLed.height,8,'still 8px tall');
+   assert.equal(await gameLed.getAttribute('aria-hidden'),'true','and the ring is never the only signal: the words carry the state');
+   assert.notEqual(pendingLed.colour,offlineLed.colour,'pending is muted, never the offline red');
+   // With reduced motion asked for, the ring is still a ring and it stops turning: the state
+   // is still legible without the movement.
+   await launcherPage.emulateMedia({reducedMotion:'reduce'});
+   const stillLed=await ledStyle();
+   assert(stillLed.borderWidth>0,`reduced motion keeps the still ring: ${JSON.stringify(stillLed)}`);
+   assert(stillLed.transparentQuadrant,'the still ring keeps its open quadrant');
+   assert.equal(stillLed.animationName,'none','and does not spin');
+   await launcherPage.emulateMedia({reducedMotion:null});
+   const spunAgain=await ledStyle();
+   assert(/game-led-spin/.test(spunAgain.animationName),`and the spin comes back when motion is allowed: ${spunAgain.animationName}`);
+   // The same element, tone flipped to offline: the dot comes back filled and still. One
+   // element, two sketches, and nothing else in the row changes.
    await pushState({game:{...asleep,state:'unknown',ready:false,message:'Server Offline',tone:'offline'}});
-   assert.equal(await gameText(),'Server Offline','a server nobody has asked about yet reads the same, with no detail');
+   assert.equal(await gameText(),'Server Offline','the same row, once the read has failed');
+   assert.equal(await gameLine.getAttribute('data-tone'),'offline','the offline tone reaches the DOM verbatim too');
+   const backToDot=await ledStyle();
+   assert.equal(backToDot.borderWidth,0,`flipping to offline drops the ring: ${JSON.stringify(backToDot)}`);
+   assert.equal(backToDot.animationName,'none','and stops turning');
+   assert.notEqual(backToDot.background,'rgba(0, 0, 0, 0)','the dot is filled again');
+   assert.equal(backToDot.colour,offlineLed.colour,'and it is the same red the failed read had');
    // A main process that publishes no game field at all renders exactly as it did before,
    // which is what lets an older build read a newer view and the reverse.
    await pushState({game:null});
@@ -1513,6 +1576,6 @@ try{
    assert.deepEqual(await launcherPage.evaluate(()=>window.easterRenderer.errors),[],'the fixture saw no page error on its last load');
    await launcherContext.close();
   }finally{await launcherContext.close().catch(()=>{});}
-  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage that carries no server address at all, not even from a stale list or a stored value, with an explained memory setting and no address in the save; the themed enhanced graphics toggle driving setGraphics, a refused graphics change shown once beside the toggle rather than on the page notice as well; the profile\'s verified emails listed and chosen through the owner-only actions with no address in the state; refusals shown; one failure on one visible surface with no page notice painted while any modal dialog is open (Settings and the mandatory update gate) and the same sentence handed back once when the last one closes, repeated at 1440, 800 and 390 wide with the notice reading above the hero card\'s crest and heading, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed, Microsoft\'s email answer kept as a notice an unrelated failure cannot blank, the saved-session branch falling through to a fresh sign-in except on an identity conflict, and Microsoft\'s email-unavailable answer shown as a sign-in notice; the game server\'s own row rendered in every state as one LED plus one status line and asserted as text in three sentences and nothing else: \'Server Online, 2 active players\' VISIBLE with the real count and singular for one player, \'Server Online, 0 active players\' for a sleeping host, a host coming up and an empty one, no bracket anywhere and a null count claiming no number at all, \'Server Offline\' with no reason, duration or service sentence for a stopped host the service is working on and for a status that could not be read or was never asked about, the dot aria-hidden inside a role=status live region so the words carry the whole state, the cold start as its own hero action with no second Play and its sentence and detail on the one wait line, a wake timeout as one page-notice failure with Play as the retry, and the row absent before the Play Now stage and for a state with no game field; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
+  console.log('LAUNCHER FLOW PASS: hero action, Play gate and sticky bar driven through a stubbed easterDesktop bridge across uninstalled, downloading, paused, verifying, installing, ready-without-account, ready-with-account and fully-ready states; one download action per screen with the folder choice beside it; a settings-only dialog offered only at the Play Now stage that carries no server address at all, not even from a stale list or a stored value, with an explained memory setting and no address in the save; the themed enhanced graphics toggle driving setGraphics, a refused graphics change shown once beside the toggle rather than on the page notice as well; the profile\'s verified emails listed and chosen through the owner-only actions with no address in the state; refusals shown; one failure on one visible surface with no page notice painted while any modal dialog is open (Settings and the mandatory update gate) and the same sentence handed back once when the last one closes, repeated at 1440, 800 and 390 wide with the notice reading above the hero card\'s crest and heading, Settings never an error sink, a repeated broadcast delivered once, a dismissed failure left dismissed, a live sign-in never painted as failed, Microsoft\'s email answer kept as a notice an unrelated failure cannot blank, the saved-session branch falling through to a fresh sign-in except on an identity conflict, and Microsoft\'s email-unavailable answer shown as a sign-in notice; the game server\'s own row rendered in every state as one LED plus one status line and asserted as text in four sentences and nothing else: \'Server Online, 2 active players\' VISIBLE with the real count and singular for one player, \'Server Online, 0 active players\' for a sleeping host, a host coming up and an empty one, no bracket anywhere and a null count claiming no number at all, a stopped host that sent a service detail still reading the sleeping line with the detail never printed, \'Status pending…\' while nothing has been asked yet with the LED drawn as a rotating ring proved off its computed style (a real border, no filled background, one transparent quadrant, a 0.9s running spin) that is still a ring and motionless under prefers-reduced-motion and returns filled and still the moment the tone flips to offline, \'Server Offline\' with no reason, duration or service sentence for a status read that happened and failed, the LED aria-hidden inside a role=status live region so the words carry the whole state, the cold start as its own hero action with no second Play and its sentence and detail on the one wait line, a wake timeout as one page-notice failure with Play as the retry, and the row absent before the Play Now stage and for a state with no game field; indeterminate progress honest; bar and tab follow Home and Map and survive a reload; keyboard operable');
  }
 }finally{await browser.close();}

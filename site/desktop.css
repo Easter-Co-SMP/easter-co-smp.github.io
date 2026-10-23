@@ -31,10 +31,12 @@
 .desktop-mode .home-footer{flex:none;width:100%;padding:16px 32px;font-size:11px;letter-spacing:0;color:#afbfba}
 .desktop-mode .home-footer>span:last-child{font:inherit;letter-spacing:0}
 /* The game server's row, under the hero action: a small LED and one status line. The words
-   carry the state and the dot repeats it, so the tone is decided by the main process
+   carry the state and the LED repeats it, so the tone is decided by the main process
    (`game.tone`) and only drawn here. It shows whenever the launcher is at the Play Now
-   stage with a game state, an online server included: 'Server Online (2 Active Players)' is
-   what the row exists for. */
+   stage with a game state, an online server included: 'Server Online, 2 active players' is
+   what the row exists for. The LED is a filled dot for every state the launcher knows; for
+   `pending` — nothing asked yet — it is a rotating ring, so the row never draws the red of
+   a failed read while the answer is still on its way (Owen, 2026-10-23). */
 .desktop-game-status{display:flex;align-items:center;gap:8px;margin:16px 0 0;color:var(--app-muted);font-size:11px;line-height:1.7}
 .desktop-game-led{flex:none;width:8px;height:8px;border-radius:50%;background:currentColor;box-shadow:0 0 0 3px #ffffff0d}
 .desktop-game-line{min-width:0;overflow-wrap:anywhere}
@@ -44,8 +46,16 @@
 .desktop-game-status[data-tone=starting],.desktop-game-status[data-tone=stopping]{color:#e4c486}
 .desktop-game-status[data-tone=starting] .desktop-game-led{animation:game-led-pulse 1.6s ease-in-out infinite}
 .desktop-game-status[data-tone=offline]{color:#e08b7f}
+/* Waiting for the first answer: muted, never the offline red and never the online green. The
+   same 8px box, border and radius, so nothing moves when the tone changes: only the filled
+   background becomes a 1.5px currentColor ring with one quadrant transparent, and that ring
+   turns. */
+.desktop-game-status[data-tone=pending]{color:var(--app-muted)}
+.desktop-game-status[data-tone=pending] .desktop-game-led{background:none;border:1.5px solid currentColor;border-top-color:transparent;box-shadow:none;animation:game-led-spin .9s linear infinite}
 @keyframes game-led-pulse{0%,100%{opacity:.3}50%{opacity:1}}
+@keyframes game-led-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.desktop-game-status[data-tone=starting] .desktop-game-led{animation:none;opacity:1}}
+@media(prefers-reduced-motion:reduce){.desktop-game-status[data-tone=pending] .desktop-game-led{animation:none}}
 .desktop-install-details{display:grid;gap:12px;margin-top:24px;padding-top:18px;border-top:1px solid var(--app-border)}
 .desktop-folder{display:grid;grid-template-columns:1fr auto;align-items:center;gap:6px 12px}
 .desktop-folder>span{color:var(--app-muted);font-size:11px}

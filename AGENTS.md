@@ -91,6 +91,13 @@ First run promotes downloading the client, and Play is gated on both a fully ins
 connected account; neither alone is enough. A sticky, minimisable progress bar carries pause,
 resume, speed and percentage across every page. doc/launcher-states.md holds the frozen state
 contract between the main process and the shared UI; change it before changing either side.
+- **The game server's row is four sentences of the launcher's own, never the service's.** One
+  table in `desktop/game.cjs` decides both halves: `Server Online, N active players`,
+  `Server Online, 0 active players` (also the sleeping host: asleep is not offline),
+  `Status pending…` and `Server Offline`. While the launcher is still waiting for the first
+  status answer the row reads `Status pending…` with a spinning ring, **never** `Server
+  Offline` — that line belongs only to a read that happened and failed. No bracket, no
+  duration, no service detail, and no view words a state or picks a tone for itself.
 Real platform installers are published as GitHub Release assets. No source download option.
 Releases follow doc/releasing.md: the tag comes from package.json, the workflow is dispatched by
 hand, the packaged app is checked against site/ before publishing, and /releases/latest ignores

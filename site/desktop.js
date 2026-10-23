@@ -75,9 +75,10 @@
  // The server's row, under the hero's action: a small LED and one status line. It is the
  // only place a game state is ever written, and both halves of it are main's — the words in
  // `game.message` and the meaning the dot repeats in `game.tone` — so the sentence is
- // readable, and assertable, as text: the dot is aria-hidden and never the only signal. The
+ // readable, and assertable, as text: the LED is aria-hidden and never the only signal. The
  // row shows while the server is online too, because 'Server Online, 2 active players' is
- // the ordinary sentence it exists for.
+ // the ordinary sentence it exists for. The LED is a filled dot for a known state and a
+ // rotating ring for `pending`; both are drawn from the tone, so no view words a state here.
  const gameStatus=document.createElement('p');
  gameStatus.className='desktop-game-status';gameStatus.hidden=true;
  gameStatus.setAttribute('role','status');gameStatus.setAttribute('aria-live','polite');gameStatus.setAttribute('aria-atomic','true');
@@ -683,10 +684,11 @@
 
  // ---- Hero surfaces ---------------------------------------------------------
  // One LED and one status line under the hero action. A server that is online, asleep,
- // offline, starting, stopping or unreadable is said in exactly one sentence, and both the
- // words and the tone come from the main process, so a view never words a state for itself
- // and never re-derives which dot goes with which words. The stopped game is not an account
- // problem and never borrows an account surface: this row is the whole of it.
+ // offline, pending, starting, stopping or unreadable is said in exactly one sentence, and
+ // both the words and the tone come from the main process, so a view never words a state for
+ // itself and never re-derives which LED goes with which words (a filled dot when the state
+ // is known, a rotating ring while it is not). The stopped game is not an account problem
+ // and never borrows an account surface: this row is the whole of it.
  function renderGame(state,standDown=false){
   const game=gameOf(state);
   // The Play Now stage only: before the client is installed there is nothing to join, and
@@ -697,9 +699,10 @@
   gameStatus.hidden=!show;
   if(!show){gameLineNode.textContent='';gameStatus.removeAttribute('data-state');gameStatus.removeAttribute('data-tone');return;}
   gameStatus.dataset.state=typeof game.state==='string'?game.state:'unknown';
-  // Meaning, not colour: the stylesheet turns the tone into a dot, and the sentence below
-  // stands on its own if the dot is unseen. An older main process publishes no tone, and
-  // then the dot is neutral rather than guessed at.
+  // Meaning, not colour: the stylesheet turns the tone into an LED (a dot, or a ring when
+  // the state is still pending), the tone is written verbatim, and the sentence below stands
+  // on its own if the LED is unseen. An older main process publishes no tone, and then the
+  // LED is neutral rather than guessed at.
   gameStatus.dataset.tone=typeof game.tone==='string'?game.tone:'unknown';
   const line=typeof game.message==='string'?game.message:'';
   if(gameLineNode.textContent!==line)gameLineNode.textContent=line;
