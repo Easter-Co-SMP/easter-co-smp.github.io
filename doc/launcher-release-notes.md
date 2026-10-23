@@ -1,3 +1,19 @@
+# Easter Company launcher 1.0.44
+
+## The status line waits instead of guessing
+
+The launcher asks the server how it is before you press Play. Until that answer comes back,
+the row under the Play button now says **Status pending…** beside a small turning ring,
+rather than saying the server is offline when nothing has gone wrong.
+
+- Once the answer arrives it reads the usual line: `Server Online, 2 active players`, or
+  `Server Online, 0 active players` for a server that is asleep with nobody on it.
+- `Server Offline` now means what it says: the launcher asked and could not get an answer.
+  It is the one case that shows the red dot.
+- The ring turns slowly and stops turning for anyone who has asked their system to reduce
+  motion. The words carry the state either way.
+
+
 # Easter Company launcher 1.0.43
 
 ## The store looks like the rest of the site
