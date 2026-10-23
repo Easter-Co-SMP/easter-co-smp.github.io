@@ -3,6 +3,10 @@
    inherits the site theme from ../styles.css and ../desktop.css and adds no theme of its own. */
 /* The tokens live on the page as well as on the store, so the shell's own copy (the intro line
    and the mock notice) reads the same palette when the store is mounted on its own in a test. */
+/* Control shapes come from the site's own scale, not a ladder of their own: nav links, chips,
+   inputs and small buttons are 8px like the header nav links in ../styles.css, buttons and the
+   larger surfaces are 9px like the wiki cards and the launcher button. The 5/6/7px radii this
+   sheet used are gone; nothing below 8px remains in it except the deliberate circles. */
 .store,
 .store-app {
   --store-ink: #eee8da;
@@ -25,6 +29,16 @@
   background: #10232b;
   border-color: #ffffff14;
 }
+/* Below 600px the site's own shrink applies here too: site/styles.css and site/wiki/wiki.css
+   both take the header to 60px with 16px gutters at that width, so the store's nav starts at
+   x=16 like Map's and Wiki's instead of sitting 4px taller in a 32px gutter. Measured at 390:
+   store 64px/0 32px/links x=32 before, 60px/0 16px/links x=16 after — equal to both. */
+@media (max-width: 600px) {
+  .store .site-header {
+    height: 60px;
+    padding: 0 16px;
+  }
+}
 .store-main {
   flex: 1;
   width: min(1280px, calc(100% - 64px));
@@ -45,10 +59,20 @@
 .store-intro {
   max-width: 420px;
   color: var(--store-muted);
-  font: 12px/1.7 system-ui;
+  font-size: 12px;
+  line-height: 1.7;
   margin: 0;
 }
+/* The mock notice is pinned under the header, not parked at the top of the flow: a catalogue
+   that scrolls to a grid of USD prices and "Sold out" badges must never lose the sentence that
+   says none of it is real. It is sticky in the page's own scroll (there is no scroll container
+   to trap) with a solid background, and the store's own sticky columns are offset below it (see
+   .store-sidebar), so nothing is painted underneath the words.
+   Measured: at 1440x1000 scrolled to scrollHeight the notice's top is 0, not -887.6. */
 .store-demo {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -58,9 +82,10 @@
   padding: 11px 18px;
   border: 1px solid #e0c48b38;
   border-radius: 8px;
-  background: #e0c48b0b;
+  background: #16292f;
   color: #c6c4b6;
-  font: 11px/1.6 system-ui;
+  font-size: 11px;
+  line-height: 1.6;
 }
 .store-demo strong {
   color: var(--store-gold);
@@ -86,19 +111,23 @@
 .store-loading,
 .store-noscript {
   color: var(--store-muted);
-  font: 13px/1.7 system-ui;
+  font-size: 13px;
+  line-height: 1.7;
 }
 .store-noscript {
   text-align: center;
   padding: 20px;
 }
+/* The store sets sizes in longhand and never a font shorthand: declaring a family here (or a
+   bare `system-ui`, as this sheet did) would replace the site stack that ../styles.css puts on
+   :root, so store text would render in a different face from the rest of the site. fc-match
+   system-ui on this host is Nimbus Sans, not the Inter the site's chrome uses. Every text rule
+   below therefore sets only size, line-height and weight, and inherits the family. */
 .store-app {
   box-sizing: border-box;
   color: var(--store-ink);
-  font:
-    14px/1.6 Inter,
-    system-ui,
-    sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
 }
 .store-navbar {
   display: flex;
@@ -131,16 +160,22 @@
   margin: 0;
 }
 .store-overline {
-  font: 600 10px/1.5 system-ui;
+  font-weight: 600;
+  font-size: 10px;
+  line-height: 1.5;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--store-gold);
 }
+/* The page title takes the site's own page-heading scale — the same clamp 400 Georgia that
+   site/wiki/wiki.css puts on .wiki-page-header h1 — so /store/ leads with the heading size
+   /wiki/ leads with (51px at 1440, 34px at 390) instead of a 28px caption smaller than the
+   section headings under it. */
 .store-title {
-  font:
-    28px/1.3 Georgia,
-    serif;
-  letter-spacing: -0.02em;
+  font-weight: 400;
+  font-size: clamp(34px, 3.8vw, 51px);
+  line-height: 1.12;
+  letter-spacing: -0.035em;
   margin: 4px 0 0;
   color: var(--store-ink);
   text-shadow: none;
@@ -155,7 +190,7 @@
   align-items: center;
   min-height: 40px;
   padding: 9px 14px;
-  border-radius: 7px;
+  border-radius: 8px;
   color: var(--store-muted);
   border: 1px solid transparent;
   background: transparent;
@@ -184,11 +219,16 @@
   align-items: start;
   gap: 0;
 }
+/* The sidebar and the detail artwork are sticky columns, and the mock notice above them is
+   pinned, so both start below it rather than sliding underneath: 42px is the pinned notice's
+   measured height at every width where these two stick (padding 11px top and bottom, an 11px
+   line at 1.6, and its 1px borders: 41.6px at 801, 900, 1100, 1440 and 1920 wide — it only
+   wraps below 801px, where both columns are static and the offset does nothing). */
 .store-sidebar {
   position: sticky;
-  top: 0;
+  top: 42px;
   align-self: start;
-  max-height: 100dvh;
+  max-height: calc(100dvh - 42px);
   border-right: 1px solid var(--store-line);
   padding: 4px 18px 28px;
   overflow-y: auto;
@@ -202,7 +242,7 @@
   padding: 12px 14px;
   text-align: left;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 8px;
   background: none;
   color: var(--store-muted);
   font-size: 12px !important;
@@ -221,7 +261,8 @@
   margin: 32px 10px 0;
   padding-top: 22px;
   border-top: 1px solid var(--store-line);
-  font: 11px/1.7 system-ui;
+  font-size: 11px;
+  line-height: 1.7;
   color: var(--store-muted);
 }
 .store-sidebar-note strong {
@@ -248,7 +289,8 @@
   border-radius: 8px;
   background: #43332c;
   color: #f2cfb7;
-  font: 12px/1.7 system-ui;
+  font-size: 12px;
+  line-height: 1.7;
 }
 .store-feedback[hidden] {
   display: none;
@@ -278,7 +320,8 @@
 }
 .store-feature-copy > p:not(.store-overline) {
   max-width: 360px;
-  font: 12px/1.8 system-ui;
+  font-size: 12px;
+  line-height: 1.8;
   color: #bdcbc4;
   margin-bottom: 22px;
 }
@@ -301,10 +344,12 @@
   min-height: 42px;
   padding: 11px 18px;
   border: 1px solid #b6c4b92b;
-  border-radius: 6px;
+  border-radius: 9px;
   background: #16313b;
   color: var(--store-ink);
-  font: 600 12px/1.4 system-ui !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
   text-decoration: none;
 }
 .store-button:hover {
@@ -321,10 +366,12 @@
 .store-small-button {
   padding: 8px 12px;
   border: 1px solid #e0c48b44;
-  border-radius: 5px;
+  border-radius: 8px;
   background: transparent;
   color: var(--store-gold);
-  font: 500 11px/1.4 system-ui !important;
+  font-weight: 500 !important;
+  font-size: 11px !important;
+  line-height: 1.4 !important;
   min-height: 34px;
 }
 .store-small-button:hover {
@@ -347,10 +394,10 @@
   min-height: 42px;
   padding: 10px 14px;
   border: 1px solid var(--store-line);
-  border-radius: 6px;
+  border-radius: 8px;
   background: #0a1c24;
   color: var(--store-ink);
-  font: 12px system-ui;
+  font-size: 12px;
 }
 .store-search input::placeholder {
   color: #8ca3a5;
@@ -360,7 +407,7 @@
   align-items: center;
   gap: 9px;
   color: var(--store-muted);
-  font: 11px system-ui;
+  font-size: 11px;
   white-space: nowrap;
 }
 .store-sort select {
@@ -370,11 +417,12 @@
   background: #132c36;
   color: var(--store-ink);
   border: 1px solid var(--store-line);
-  border-radius: 6px;
-  font: 12px system-ui;
+  border-radius: 8px;
+  font-size: 12px;
 }
 .store-app .store-results {
-  font: 11px/1.5 system-ui;
+  font-size: 11px;
+  line-height: 1.5;
   color: var(--store-muted);
   margin: 0 0 18px;
 }
@@ -426,15 +474,17 @@
   top: 12px;
   border: 1px solid #ffffff20;
   background: #0d232be8;
-  border-radius: 4px;
+  border-radius: 8px;
   padding: 3px 7px;
   color: #d3c8ac;
-  font: 10px/1.5 system-ui;
+  font-size: 10px;
+  line-height: 1.5;
 }
 .store-product-category {
   display: block;
   padding: 16px 16px 0;
-  font: 10px/1.4 system-ui;
+  font-size: 10px;
+  line-height: 1.4;
   color: var(--store-muted);
 }
 .store-app .store-product h3 {
@@ -452,7 +502,8 @@
   gap: 8px;
   padding: 18px 16px 16px;
   margin-top: auto;
-  font: 600 12px system-ui;
+  font-weight: 600;
+  font-size: 12px;
 }
 .store-section-heading {
   margin: 4px 0 28px;
@@ -464,7 +515,8 @@
   margin: 8px 0 10px;
 }
 .store-section-heading > p:last-child:not(.store-overline) {
-  font: 12px/1.8 system-ui;
+  font-size: 12px;
+  line-height: 1.8;
   color: var(--store-muted);
   max-width: 620px;
 }
@@ -488,7 +540,8 @@
 }
 .store-empty > p {
   color: var(--store-muted);
-  font: 13px/1.8 system-ui;
+  font-size: 13px;
+  line-height: 1.8;
   margin: 0 0 22px;
 }
 .store-no-results {
@@ -508,7 +561,9 @@
   padding: 6px 0;
   min-height: 32px;
   text-align: left;
-  font: 500 12px/1.5 system-ui !important;
+  font-weight: 500 !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
   text-decoration: underline;
   text-underline-offset: 4px;
 }
@@ -526,7 +581,7 @@
   display: grid;
   place-items: center;
   position: sticky;
-  top: 0;
+  top: 42px;
   aspect-ratio: 1;
   background: linear-gradient(145deg, #23434b, #152f39);
   border: 1px solid var(--store-line);
@@ -536,32 +591,41 @@
   width: 92%;
   height: auto;
 }
+/* The item name is a section heading under a 51px page title, so it takes the section size
+   (32px) rather than the 36px hero size it had, which outranked the h1 between 601px and the
+   1100px step and inverted the page's heading order. h1 51/34 >= h2 36/32 >= h3 17/16 holds at
+   every width now. */
 .store-app .store-detail h2 {
   font:
-    36px/1.2 Georgia,
+    32px/1.2 Georgia,
     serif;
   margin: 10px 0 16px;
   overflow-wrap: anywhere;
 }
 .store-app .store-detail h3 {
-  font: 600 12px/1.6 system-ui;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.6;
   margin: 24px 0 8px;
   color: #ddd7c5;
 }
 .store-app .store-detail-description {
-  font: 13px/1.9 system-ui;
+  font-size: 13px;
+  line-height: 1.9;
   color: #bccbc5;
   margin-bottom: 20px;
 }
 .store-app .store-detail-price {
-  font: 26px/1.3 system-ui;
+  font-size: 26px;
+  line-height: 1.3;
   color: var(--store-ink);
   font-weight: 500;
   margin-bottom: 6px;
 }
 .store-app .store-muted {
   color: var(--store-muted);
-  font: 11px/1.8 system-ui;
+  font-size: 11px;
+  line-height: 1.8;
 }
 .store-detail-copy > .store-muted {
   margin-bottom: 16px;
@@ -574,7 +638,8 @@
   margin: 0;
   padding: 0;
   color: #bfcac2;
-  font: 12px/1.9 system-ui;
+  font-size: 12px;
+  line-height: 1.9;
 }
 .store-includes li {
   position: relative;
@@ -588,7 +653,8 @@
   color: var(--store-gold);
 }
 .store-app .store-terms {
-  font: 12px/1.85 system-ui;
+  font-size: 12px;
+  line-height: 1.85;
   color: var(--store-muted);
 }
 .store-checkout-layout {
@@ -613,7 +679,7 @@
   place-items: center;
   flex: 0 0 80px;
   height: 84px;
-  border-radius: 6px;
+  border-radius: 8px;
   background: #1a3540;
 }
 .store-cart-art svg {
@@ -631,7 +697,8 @@
   margin: 0 0 5px;
 }
 .store-cart-copy > p {
-  font: 11px/1.5 system-ui;
+  font-size: 11px;
+  line-height: 1.5;
   color: var(--store-muted);
 }
 .store-quantity {
@@ -644,7 +711,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font: 10px system-ui;
+  font-size: 10px;
   color: var(--store-muted);
 }
 .store-quantity input {
@@ -652,15 +719,16 @@
   min-height: 32px;
   background: #0a2029;
   border: 1px solid var(--store-line);
-  border-radius: 4px;
+  border-radius: 8px;
   color: var(--store-ink);
   padding: 5px;
-  font: 12px system-ui;
+  font-size: 12px;
 }
 .store-line-total {
   align-self: flex-start;
   padding-top: 4px;
-  font: 500 12px system-ui;
+  font-weight: 500;
+  font-size: 12px;
   white-space: nowrap;
 }
 .store-summary {
@@ -688,7 +756,8 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  font: 12px/1.6 system-ui;
+  font-size: 12px;
+  line-height: 1.6;
   margin: 12px 0;
   color: #c2ccc5;
 }
@@ -715,7 +784,9 @@
   border-radius: 8px;
 }
 .store-app .store-checkout-panel h3 {
-  font: 600 11px/1.5 system-ui;
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1.5;
   color: var(--store-muted);
   margin-bottom: 12px;
   text-transform: uppercase;
@@ -728,14 +799,16 @@
 }
 .store-checkout-panel > p {
   color: var(--store-muted);
-  font: 12px/1.8 system-ui;
+  font-size: 12px;
+  line-height: 1.8;
   margin-top: 10px;
 }
 .store-check {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  font: 12px/1.8 system-ui;
+  font-size: 12px;
+  line-height: 1.8;
   color: #c3cbc1;
   padding: 6px;
 }
@@ -787,7 +860,8 @@
   border-bottom: 1px solid var(--store-line);
 }
 .store-app .store-order-record h3 {
-  font: 600 12px system-ui;
+  font-weight: 600;
+  font-size: 12px;
   margin: 0 0 8px;
 }
 .store-order-record > div {
@@ -795,7 +869,8 @@
   flex: 1;
 }
 .store-order-record > div > p:last-child {
-  font: 12px/1.7 system-ui;
+  font-size: 12px;
+  line-height: 1.7;
   color: #bbc9c3;
   margin-top: 10px;
 }
@@ -878,9 +953,6 @@
   .store-body {
     padding: 16px 0 32px;
   }
-  .store-title {
-    font-size: 24px;
-  }
   .store-checkout-layout {
     grid-template-columns: 1fr;
   }
@@ -900,9 +972,6 @@
 @media (max-width: 540px) {
   .store-brand > .store-overline {
     font-size: 8px;
-  }
-  .store-title {
-    font-size: 21px;
   }
   .store-intro {
     font-size: 11px;
@@ -1035,7 +1104,9 @@
 .store-game-picker-label {
   padding: 8px 10px;
   color: var(--store-gold);
-  font: 600 11px/1.6 system-ui;
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1.6;
   cursor: pointer;
   list-style: none;
   display: flex;
@@ -1068,7 +1139,7 @@
   padding: 12px 10px;
   text-align: left;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--store-muted);
 }
@@ -1088,7 +1159,7 @@
   width: 30px;
   height: 30px;
   border: 1px solid #b9c8be30;
-  border-radius: 5px;
+  border-radius: 8px;
   color: #a8bcbf;
   background: #1b333d;
   font:
@@ -1105,18 +1176,23 @@
 }
 .store-game-copy strong {
   display: block;
-  font: 600 12px/1.5 system-ui;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--store-ink);
 }
 .store-game-copy small {
   display: block;
-  font: 10px/1.6 system-ui;
+  font-size: 10px;
+  line-height: 1.6;
   margin-top: 3px;
 }
 .store-game-state {
   grid-column: 2;
   justify-self: start;
-  font: 500 9px/1.5 system-ui;
+  font-weight: 500;
+  font-size: 9px;
+  line-height: 1.5;
   color: var(--store-muted);
 }
 .store-game[aria-pressed="true"] .store-game-state {
@@ -1126,7 +1202,9 @@
   margin: 0 10px 12px;
 }
 .store-app .store-game-context {
-  font: 600 10px/1.7 system-ui;
+  font-weight: 600;
+  font-size: 10px;
+  line-height: 1.7;
   letter-spacing: 0.08em;
   color: var(--store-gold);
   margin: 0 0 18px;
@@ -1159,7 +1237,8 @@
 .store-coming-soon > p {
   max-width: 640px;
   color: var(--store-muted);
-  font: 13px/1.85 system-ui;
+  font-size: 13px;
+  line-height: 1.85;
 }
 .store-concept-grid {
   display: grid;
@@ -1180,7 +1259,8 @@
   margin: 12px 0;
 }
 .store-concept-card > p:last-child {
-  font: 11px/1.7 system-ui;
+  font-size: 11px;
+  line-height: 1.7;
   color: var(--store-muted);
 }
 @media (max-width: 1100px) {

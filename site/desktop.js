@@ -1036,8 +1036,11 @@
  // The store is a page of its own at ./store/, reached by navigation exactly as Map and Wiki
  // are, and it stays a separate, explicitly labelled mock surface: it never shares payment,
  // account or entitlement state with the launcher lifecycle, and nothing here loads its module.
- // A page that already carries the Store link (Map, Wiki and Store itself do) keeps that one,
- // so the nav never lists Store twice.
+ // Every page now carries that Store link in its own static markup - the home page included, so
+ // a browser visitor on / has the same route the launcher has - which makes this append dead on
+ // all four pages. It is kept as the one place a page without the link would still get it, and
+ // the guard is what keeps the header to exactly one Store entry: matching on the link rather
+ // than on a class means the static one satisfies it, so nothing is appended here.
  const storeNav=document.querySelector('.site-header nav');
  if(storeNav&&!storeNav.querySelector('a[href="./store/"],a[href$="/store/"]')){
   const storeEntry=document.createElement('a');storeEntry.className='desktop-store-entry';storeEntry.href='./store/';storeEntry.textContent='Store';

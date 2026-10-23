@@ -12,6 +12,81 @@ const origin = process.env.EASTER_PUBLIC_ORIGIN || "http://127.0.0.1:18100",
   output = process.env.EASTER_REVIEW_OUTPUT;
 const MOCK_NOTICE =
   "This is a mock store. Products and USD prices are examples. No real payment is taken and nothing is delivered to the game.";
+/*
+ * The labelled mock surface has to stay labelled wherever the page is scrolled to, not only at
+ * the top of the flow: a grid of USD prices and "Sold out" badges with no visible disclaimer
+ * reads as a live shop. This scrolls to the bottom of the document, then reads the text of the
+ * leaf elements actually inside the viewport and requires at least one of them to say "mock" or
+ * "simulated", and the notice itself to still be on screen (it is sticky under the header).
+ */
+const assertMockInView = async (page, route) => {
+  const seen = await page.evaluate(() => {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    const inView = [];
+    for (const node of document.body.querySelectorAll("*")) {
+      if (node.children.length) continue;
+      const box = node.getBoundingClientRect();
+      if (box.width <= 0 || box.height <= 0) continue;
+      if (box.bottom <= 0 || box.top >= window.innerHeight) continue;
+      if (getComputedStyle(node).visibility === "hidden") continue;
+      const text = (node.innerText || "").trim();
+      if (/mock|simulated/i.test(text)) inView.push(text);
+    }
+    const notice = document.querySelector(".store-demo");
+    const box = notice.getBoundingClientRect();
+    return {
+      scrollY: Math.round(window.scrollY),
+      docHeight: document.documentElement.scrollHeight,
+      inView,
+      notice: {
+        position: getComputedStyle(notice).position,
+        top: Math.round(box.top),
+        bottom: Math.round(box.bottom),
+        viewport: window.innerHeight,
+        mock: /mock|simulated/i.test(notice.innerText || ""),
+      },
+    };
+  });
+  assert.ok(
+    seen.scrollY > 0,
+    `the page at ${route} actually scrolled (${seen.scrollY} of ${seen.docHeight})`,
+  );
+  assert.equal(
+    seen.notice.position,
+    "sticky",
+    `the mock notice is pinned, not only at the top of ${route}`,
+  );
+  assert.ok(
+    seen.notice.top >= 0 && seen.notice.bottom <= seen.notice.viewport,
+    `the mock notice is on screen at the bottom of ${route} (top ${seen.notice.top}, bottom ${seen.notice.bottom}, viewport ${seen.notice.viewport})`,
+  );
+  assert.ok(
+    seen.notice.mock && seen.inView.length > 0,
+    `a visible element still says the surface is a mock at the bottom of ${route}: ${JSON.stringify(seen.inView.slice(0, 4))}`,
+  );
+  // While the store's own sticky columns are pinned, the notice must not sit on top of them:
+  // both start below it (store.css pins them at the notice's measured 42px).
+  const pinned = await page.evaluate(() => {
+    window.scrollTo(0, 600);
+    const notice = document.querySelector(".store-demo").getBoundingClientRect();
+    const sidebar = document.querySelector(".store-sidebar");
+    const box = sidebar.getBoundingClientRect();
+    const offset = parseFloat(getComputedStyle(sidebar).top) || 0;
+    const first = sidebar.firstElementChild?.getBoundingClientRect() ?? null;
+    return {
+      sticky: getComputedStyle(sidebar).position === "sticky",
+      pinned: Math.abs(box.top - offset) <= 1,
+      noticeBottom: Math.round(notice.bottom),
+      firstChildTop: first ? Math.round(first.top) : null,
+    };
+  });
+  if (pinned.sticky && pinned.pinned)
+    assert.ok(
+      pinned.firstChildTop >= pinned.noticeBottom - 1,
+      `the pinned notice does not cover the sticky sidebar at ${route} (notice bottom ${pinned.noticeBottom}, sidebar top ${pinned.firstChildTop})`,
+    );
+  await page.evaluate(() => window.scrollTo(0, 0));
+};
 const bridge = () => {
   const state = {
     phase: "idle",
@@ -105,6 +180,43 @@ try {
       ),
       "no horizontal page overflow",
     );
+    // The store's type belongs to the site: the same stack the rest of site/ renders in, and a
+    // heading order where the page title is the largest thing on it.
+    const type = await page.evaluate(() => {
+      const family = (sel) => getComputedStyle(document.querySelector(sel)).fontFamily;
+      const sizes = [
+        ...document.querySelectorAll(".store-main h1,.store-main h2,.store-main h3"),
+      ].map((n) => ({ tag: n.tagName, size: parseFloat(getComputedStyle(n).fontSize) }));
+      return {
+        siteFamily: getComputedStyle(document.body).fontFamily,
+        storeFamily: family(".store-app"),
+        demoFamily: family(".store-demo"),
+        introFamily: family(".store-intro"),
+        sizes,
+      };
+    });
+    assert.match(type.siteFamily, /^Inter/, "the site itself renders in Inter");
+    assert.equal(
+      type.storeFamily,
+      type.siteFamily,
+      "store text uses the site's own stack, not a system-ui shorthand",
+    );
+    assert.equal(type.demoFamily, type.siteFamily);
+    assert.equal(type.introFamily, type.siteFamily);
+    const largest = (tag) =>
+      Math.max(
+        0,
+        ...type.sizes.filter((s) => s.tag === tag).map((s) => s.size),
+      );
+    assert.ok(
+      largest("H1") >= 34,
+      `the page title is at the site's page-heading scale (${largest("H1")}px)`,
+    );
+    assert.ok(
+      largest("H1") >= largest("H2") && largest("H2") >= largest("H3"),
+      `heading sizes are ordered h1 ${largest("H1")} >= h2 ${largest("H2")} >= h3 ${largest("H3")}`,
+    );
+    await assertMockInView(page, "#catalogue");
     if (output)
       await page.screenshot({ path: `${output}/store-catalogue-${width}.png` });
     await store
@@ -124,6 +236,7 @@ try {
       /^#item\/harbour-cottage$/,
       "an item detail has its own address",
     );
+    await assertMockInView(page, "#item/harbour-cottage");
     if (output)
       await page.screenshot({ path: `${output}/store-detail-${width}.png` });
     await store
@@ -158,11 +271,13 @@ try {
       .getByRole("spinbutton", { name: "Quantity for 1,000 Crowns" })
       .press("Tab");
     await store.getByRole("link", { name: "Cart · 6", exact: true }).waitFor();
+    await assertMockInView(page, "#cart");
     if (output)
       await page.screenshot({ path: `${output}/store-cart-${width}.png` });
     await store.getByRole("button", { name: "Review checkout" }).click();
     await store.getByRole("heading", { name: "Review your order" }).waitFor();
     assert.equal(new URL(page.url()).hash, "#checkout");
+    await assertMockInView(page, "#checkout");
     const submit = store.getByRole("button", { name: /Place test order/ });
     assert.equal(await submit.isDisabled(), true);
     assert.equal(
@@ -189,6 +304,7 @@ try {
     await store.locator(".store-order-record").waitFor();
     assert.equal(new URL(page.url()).hash, "#orders");
     assert.equal(await store.locator(".store-order-record").count(), 1);
+    await assertMockInView(page, "#orders");
     // Back and Forward belong to the browser, not to a private view stack.
     await page.goBack();
     await store.locator(".store-receipt").waitFor();
@@ -267,6 +383,66 @@ try {
     await page.locator(".store-product").first().waitFor();
     assert.equal(new URL(page.url()).hash, "#catalogue");
   });
+  // The home page reaches the store on its own. The link is in the static markup, so a visitor
+  // with no script - and no desktop bridge - still has the route a launcher visitor has.
+  const noScript = await browser.newPage({
+    viewport: { width: 1440, height: 1000 },
+    javaScriptEnabled: false,
+  });
+  try {
+    await noScript.goto(origin + "/", { waitUntil: "load" });
+    const staticEntry = noScript.locator('.site-header nav a[href="./store/"]');
+    assert.equal(
+      await staticEntry.count(),
+      1,
+      "the home header carries exactly one Store link without any script",
+    );
+    assert.equal(await staticEntry.textContent(), "Store");
+    assert.equal(
+      await noScript.locator(".site-header nav").evaluate((nav) => [
+        ...nav.children,
+      ].map((n) => n.textContent.trim().replace(/\s+/g, " ").split(" ")[0]).join(" ")),
+      "Home Download Map Wiki Store",
+      "Store is the fifth destination in the home header, after Wiki",
+    );
+    await staticEntry.click();
+    await noScript.waitForURL(origin + "/store/");
+    await noScript
+      .getByRole("heading", { name: "The Community store" })
+      .waitFor();
+  } finally {
+    await noScript.close();
+  }
+  // The same page with script running, still with no bridge: one Store link, five destinations.
+  const plain = await browser.newPage({
+    viewport: { width: 1440, height: 1000 },
+    reducedMotion: "reduce",
+  });
+  const plainErrors = [];
+  plain.on("pageerror", (e) => plainErrors.push(e.message));
+  try {
+    await plain.goto(origin + "/", { waitUntil: "networkidle" });
+    assert.equal(
+      await plain.evaluate(() => typeof window.easterDesktop),
+      "undefined",
+      "a plain browser page has no desktop bridge",
+    );
+    assert.equal(
+      await plain.locator('.site-header nav a[href="./store/"]').count(),
+      1,
+      "the home nav lists Store once with script running",
+    );
+    await plain.locator('.site-header nav a[href="./store/"]').click();
+    await plain.waitForURL(origin + "/store/");
+    assert.equal(
+      await plain.locator(".site-header nav").evaluate((nav) => nav.children.length),
+      5,
+      "the store page's header nav shows five destinations",
+    );
+    assert.deepEqual(plainErrors, [], "no page error navigating home -> store");
+  } finally {
+    await plain.close();
+  }
   // The launcher's nav entry is a link to the page, not a modal behind a button.
   const launcher = await browser.newPage({
     viewport: { width: 1440, height: 1000 },

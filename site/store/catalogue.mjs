@@ -41,6 +41,10 @@ export const CATEGORIES = [
   ["upgrades", "Account upgrades"],
   ["currency", "In-game money"],
 ];
+// No catalogue sentence may promise a payment or a delivery this mock does not make, so the
+// same closing sentence is appended to every product's terms below.
+export const MOCK_TERMS =
+  "This is a demo catalogue: nothing is charged, reserved or delivered to the game here.";
 export const CATALOGUE = [
   {
     id: "voyager-kit",
@@ -56,7 +60,7 @@ export const CATALOGUE = [
       "One compass and one empty map",
     ],
     terms:
-      "Consumed items are not replenished. Delivered to your in-game collection point.",
+      "Consumed items are not replenished. When the store opens, the pack is left at your in-game collection point.",
     repeatable: true,
     stock: null,
   },
@@ -89,7 +93,7 @@ export const CATALOGUE = [
     includes: [
       "One prebuilt sailing vessel",
       "A private collection berth",
-      "One-time delivery to the selected game account",
+      "One-time delivery to the account you choose when the store opens",
     ],
     terms:
       "One vessel per purchase. No crew, cargo or loss protection included. Subject to the server’s normal damage and ownership rules.",
@@ -108,7 +112,7 @@ export const CATALOGUE = [
     includes: [
       "One prebuilt two-masted vessel",
       "Cargo hold and captain’s cabin",
-      "One-time berth collection",
+      "One-time berth collection when the store opens",
     ],
     terms:
       "One vessel per purchase. Crew and trade goods are not included. Normal server rules still apply.",
@@ -127,10 +131,10 @@ export const CATALOGUE = [
     includes: [
       "One furnished player house",
       "Interior storage and crafting area",
-      "Ownership assigned to your game account",
+      "Ownership assigned to your account when the store opens",
     ],
     terms:
-      "A single in-game property, not real estate. No land expansion or immunity from server rules. Placement is assigned at fulfilment.",
+      "A single in-game property, not real estate. No land expansion or immunity from server rules. Placement would be assigned when the store opens.",
     repeatable: false,
     stock: 5,
   },
@@ -146,10 +150,10 @@ export const CATALOGUE = [
     includes: [
       "One furnished residence",
       "Workshop and terrace",
-      "Ownership assigned to your game account",
+      "Ownership assigned to your account when the store opens",
     ],
     terms:
-      "A single in-game property. Location and availability must be confirmed before payment. Normal server rules apply.",
+      "A single in-game property. Normal server rules apply. The demo listing is sold out, so no location is chosen, held or paid for.",
     repeatable: false,
     stock: 0,
   },
@@ -164,11 +168,11 @@ export const CATALOGUE = [
       "Thirty days of priority queue access for one game account. Spend less time waiting when the server is full.",
     includes: [
       "30 days of priority queue access",
-      "Applies to one game account",
+      "Applies to one account when the store opens",
       "One-time purchase; no automatic renewal",
     ],
     terms:
-      "Priority does not guarantee immediate entry or bypass maintenance. Starts when fulfilled. No gameplay stat bonuses.",
+      "Priority does not guarantee immediate entry or bypass maintenance. It would start when the store opens. No gameplay stat bonuses.",
     repeatable: false,
     stock: null,
   },
@@ -182,7 +186,7 @@ export const CATALOGUE = [
     description:
       "In-game money for trading and spending inside Easter Co. SMP.",
     includes: [
-      "1,000 Crowns credited in-game",
+      "1,000 Crowns credited when the store opens",
       "Spend with supported in-game merchants and players",
     ],
     terms:
@@ -200,7 +204,7 @@ export const CATALOGUE = [
     description:
       "A larger pack of in-game money for your next building project, trade or expedition.",
     includes: [
-      "2,500 Crowns credited in-game",
+      "2,500 Crowns credited when the store opens",
       "Spend with supported in-game merchants and players",
     ],
     terms:
@@ -208,7 +212,14 @@ export const CATALOGUE = [
     repeatable: true,
     stock: null,
   },
-].map((p) => ({ ...p, gameId: "easter-smp", currency: "USD" }));
+].map((p) => ({
+  ...p,
+  gameId: "easter-smp",
+  currency: "USD",
+  // The last sentence of every "Before you buy" paragraph says plainly what this page does not
+  // do, so an item detail can describe a ship or a house without promising to hand one over.
+  terms: `${p.terms} ${MOCK_TERMS}`,
+}));
 export function money(minor, currency = "USD") {
   return new Intl.NumberFormat(undefined, {
     style: "currency",

@@ -223,7 +223,7 @@ export function mountStore(root, { api = createMockStoreAPI() } = {}) {
     sidebar.append(categoryList);
     const note = el("div", "store-sidebar-note");
     note.append(
-      el("strong", "", "Real-currency checkout"),
+      el("strong", "", "Sample-currency checkout"),
       el(
         "p",
         "",
@@ -787,7 +787,7 @@ export function mountStore(root, { api = createMockStoreAPI() } = {}) {
       el(
         "p",
         "",
-        "No card or bank details required. All store products use real currency. Crowns are only spendable inside the game.",
+        "No card or bank details required. Prices are sample USD amounts and no real currency is taken. Crowns are only spendable inside the game.",
       ),
     );
     const terms = el("label", "store-check");
