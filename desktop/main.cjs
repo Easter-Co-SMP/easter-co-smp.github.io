@@ -19,6 +19,11 @@ const sessionAnswer=require('./session-cache.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,migrateLaunchPreferences,launchBehaviour,includeGraphicsValue}=require('./security.cjs');
 const {APP_USER_MODEL_ID,ICON_FILE,wantsAutoStart,autoStartDecision,shortcutSupport,readGameShortcuts,applyGameShortcuts}=require('./shortcuts.cjs');
 const install=require('./install.cjs');
+// The identity of a game that outlives this launcher. Owen's design: an update applies behind a
+// live Minecraft and the launcher comes back into it, so the client a launcher started is
+// recorded (pid + the process's own start time) before anything can restart, and a restarted
+// launcher reads that record back instead of offering Play.
+const gameMarker=require('./game-marker.cjs');
 const {configureVisuals,disableShaders}=require('./visuals.cjs');
 const {atomicJSON,installClient,applyGraphics,checkForUpdates,clientStatus,canPlay,createControl,launchOptions,launch}=install;
 const {renderOffload}=require('./hardware.cjs');
@@ -38,6 +43,18 @@ if(!app.isPackaged&&process.env.EASTER_TEST_HOME)app.setPath('userData',process.
 const instance=app.requestSingleInstanceLock();
 if(!instance)app.quit();
 let window,settings,session=null,working=false,game=null,controller,company=null,accessChecking=false,accountWorking=false;
+// A Play press is in flight from the moment the button is pressed until it has either started a
+// game or failed. It is what the launcher-update apply refuses to interrupt (updater.cjs
+// `updateMayApplyNow`): a running game is *not* a reason to wait — the client outlives the
+// launcher — but a press that has not settled into one is.
+let launchPresses=0;
+// Whether a staged update is waiting for the launcher to be free, and whether this process is
+// already applying one. Both are transitions of the apply step below.
+let applyWaiting=false,applyingUpdate=false;
+// The game this launcher found already running rather than started: the marker a previous
+// instance left behind. `adoptedGame` keeps the record (pid and start marker) so the launcher can
+// watch the process it no longer owns a handle on.
+let adoptedGame=null,adoptedWatch=null;
 const siteRoot=path.resolve(__dirname,'../site');
 const configRoot=()=>app.getPath('userData');
 const defaultLocation=()=>defaultInstallLocation(configRoot());
@@ -305,6 +322,18 @@ function notify(patch={}){
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
 // sign-in action through `actions`, and the phase returns to the resting value.
 function settle(message,extra={}){phase=null;progress=null;control=null;notify({message,device:controller?state.device:null,...extra});}
+// The sentence a running game has always had. It is said twice now — when Play starts the game
+// and when a restarted launcher comes back into one — and a second copy would be a second
+// author of the same words (doc/launcher-states.md, "The launcher comes back into the game it
+// left running").
+const GAME_RUNNING='Minecraft is running. Your map stays right here.';
+// The launcher's resting state, in one place because there are two shapes of it now: the
+// ordinary one (Play, Download, or the client being ready) and the in-game one, which is what a
+// launcher that came back to a game it did not start must publish instead of Play.
+function settleResting(){
+ if(game)return notify({phase:'running',message:GAME_RUNNING,device:null,progress:null});
+ return settle(client.installed?'Client ready.':'Download the game to get started.');
+}
 async function refreshClient(){client=await clientStatus(gameRoot());await install.loadDeployment(gameRoot());await readQuality();}
 // The display the client will open on, in the pixels the player actually has. Electron
 // reports a display's size in device-independent pixels, so a 2160p screen at 200%
@@ -926,7 +955,12 @@ async function exclusively(action){
   // The typed code decides what the dialog does next (a taken username sends the player
   // back to step 1), so it survives the rethrow as a safe error message does.
   throw Object.assign(Error(message),{code:error.code});
- }finally{working=false;}
+ }finally{
+  working=false;
+  // Whatever this operation was — an install, a sign-in, an update check — it was the reason a
+  // staged launcher update was waiting, so the launcher asks again now that it is over.
+  retryStagedUpdateApply();
+ }
 }
 // One control per pipeline run: it is what pause, resume and cancel act on, and
 // what makes the state report `paused` only while a paused transfer can continue.
@@ -1041,6 +1075,11 @@ function destroyTray(){
 }
 function showLauncher(){
  if(!window||window.isDestroyed()){createWindow();return;}
+ // A launcher that stepped aside *for a game* keeps its tray icon until the game ends, so the
+ // player always has the two actions that belong to a running game. A launcher that started in
+ // the tray because an update replaced it while it was hidden has no game to look after: once
+ // the player opens it, the icon has done its job and goes with it.
+ if(trayHidden&&!game){trayHidden=false;destroyTray();}
  if(window.isMinimized())window.restore();
  window.show();window.focus();
 }
@@ -1103,6 +1142,72 @@ function returnToLauncher(){
  if(!trayHidden)return;
  trayHidden=false;
  showLauncher();
+}
+// ---- The game, and the launcher that may no longer own it --------------------------------
+//
+// Owen's design (2026-10-23): "the launcher can update while a game is open, in the background
+// and resume — that was a big part of my design." Three things make that true, and this is all
+// of them:
+//
+//   * the client is spawned detached with no inherited pipes (desktop/install.cjs
+//     `execOptions`), so this launcher's own exit neither kills the game nor leaves a pipe
+//     behind that someone would have to keep servicing;
+//   * its identity is written down the moment it starts — pid plus the start time the operating
+//     system reports for that pid — so a restarted launcher can tell Minecraft apart from an
+//     unrelated process that later reused the number (desktop/game-marker.cjs);
+//   * and this launcher reads that record at startup, so an instance that did not start the game
+//     still publishes the in-game state instead of offering Play.
+const ADOPTED_WATCH_MS=process.platform==='linux'?2000:5000;
+async function rememberRunningGame(pid){
+ try{return await gameMarker.remember(configRoot(),pid);}catch{return null;}
+}
+function stopWatchingAdoptedGame(){
+ if(adoptedWatch){clearInterval(adoptedWatch);adoptedWatch=null;}
+}
+function forgetRunningGame(){
+ stopWatchingAdoptedGame();
+ adoptedGame=null;
+ try{gameMarker.forget(configRoot());}catch{}
+}
+// An adopted game is published as `game`, so every gate that asks "is Minecraft running?" keeps
+// the answer it always got, but there is no child process on this side of the relaunch: nothing
+// to read, no pipe to service, and nothing this launcher may kill.
+function adoptedChild(record){return {pid:record.pid,adopted:true,stdout:null,stderr:null,on(){return this;},once(){return this;},removeListener(){return this;}};}
+// Asked before the first broadcast, so no frame can offer Play for a game that is still running.
+// A marker that no longer matches its process is a game that has ended: it is removed and this
+// launcher starts in its ordinary state, never on a dead screen.
+async function adoptRunningGame(){
+ let adopted=null;
+ try{adopted=await gameMarker.adopt(configRoot());}catch{adopted=null;}
+ if(!adopted)return null;
+ adoptedGame=adopted.game;
+ game=adoptedChild(adopted.game);
+ watchAdoptedGame();
+ return adopted.game;
+}
+// The game outlived the process that spawned it, so this launcher watches the process instead of
+// a pipe: one liveness question every two seconds (one /proc read on Linux; five seconds
+// elsewhere, where the answer costs a spawned probe). The timer is unref'd, so a watched game is
+// never the reason this process stays alive.
+function watchAdoptedGame(){
+ if(adoptedWatch||!adoptedGame)return adoptedWatch;
+ adoptedWatch=setInterval(()=>{
+  const watched=adoptedGame;
+  if(!watched)return;
+  void gameMarker.stillRunning(watched).then(alive=>{
+   // A newer game may have replaced the one this tick was asked about: only the record this
+   // launcher is still watching may end the game state.
+   if(alive||adoptedGame!==watched)return;
+   forgetRunningGame();
+   game=null;
+   returnToLauncher();
+   // The exit code belongs to a process this launcher did not parent, so none is invented: the
+   // sentence is the one a clean exit has always had.
+   settle('Minecraft closed. Ready to play.');
+  }).catch(()=>{});
+ },ADOPTED_WATCH_MS);
+ adoptedWatch.unref?.();
+ return adoptedWatch;
 }
 // Play and the game shortcut reach this one function. The wake a Play press may start
 // belongs to that press, so it is cancelled if the press does not end in a launch:
@@ -1213,9 +1318,18 @@ async function launchThrough(){
  game=child;
  // Do not store launch arguments or raw stdout; Minecraft writes its own latest.log.
  child.stdout?.on('data',()=>{});child.stderr?.on('data',()=>{});
- child.once('error',()=>{game=null;returnToLauncher();const message='Minecraft could not start. Check Java and try again.';settle(message,{error:message});});
- child.once('exit',code=>{game=null;returnToLauncher();const message=code===0?'Minecraft closed. Ready to play.':'Minecraft closed with code '+code+'. Its log is in the client folder.';settle(message,{error:code===0?null:message});});
- notify({phase:'running',message:'Minecraft is running. Your map stays right here.',progress:null});
+ // The handlers go on first, so a client that dies while its identity is still being written is
+ // seen: an 'exit' nobody was listening for would leave `game` set and Play refused forever.
+ child.once('error',()=>{game=null;forgetRunningGame();returnToLauncher();const message='Minecraft could not start. Check Java and try again.';settle(message,{error:message});});
+ child.once('exit',code=>{game=null;forgetRunningGame();returnToLauncher();const message=code===0?'Minecraft closed. Ready to play.':'Minecraft closed with code '+code+'. Its log is in the client folder.';settle(message,{error:code===0?null:message});});
+ // The game is written down before anything can restart the launcher: its pid and the start
+ // time the operating system reports for that pid (desktop/game-marker.cjs). The client is
+ // spawned detached with no inherited pipes, so this record is the only thing that carries the
+ // game across a launcher update — and its start marker is what stops a recycled pid from being
+ // mistaken for Minecraft later. Nothing can relaunch in the meantime: an apply is refused for
+ // as long as this press is in flight (`launchPresses`), and the press ends after this line.
+ await rememberRunningGame(child.pid);
+ notify({phase:'running',message:GAME_RUNNING,progress:null});
  // Owen's setting: the launcher is a doorway, so it closes behind the game it started.
  if(settings.exitOnLaunch===true)setTimeout(()=>{ if(game){ app.quit(); } },800);
  // The linked alternative: it steps into the system tray instead of closing, and comes
@@ -1276,11 +1390,20 @@ async function saveShortcuts(){
 // Play button would not offer, cannot skip the launcher update and cannot mean something
 // different for the launch-behaviour settings.
 async function startGame(){
- if(backgroundUpdate)await backgroundUpdate.catch(()=>{});
- if(game||working||controller)throw Error('Wait for the current operation to finish.');
- if(app.isPackaged)await checkLauncherUpdate();
- if(!startupReady)throw Error('Update the launcher before playing.');
- return exclusively(play);
+ launchPresses+=1;
+ try{
+  if(backgroundUpdate)await backgroundUpdate.catch(()=>{});
+  if(game||working||controller)throw Error('Wait for the current operation to finish.');
+  if(app.isPackaged)await checkLauncherUpdate();
+  if(!startupReady)throw Error('Update the launcher before playing.');
+  return await exclusively(play);
+ }finally{
+  launchPresses-=1;
+  // The press has settled one way or the other, so a staged update that was waiting for it may
+  // go now — including the case where the press started a game, which a launcher update is
+  // allowed to run behind.
+  retryStagedUpdateApply();
+ }
 }
 // A shortcut launch waits for the mandatory update gate rather than racing it, and then
 // asks the one decision in shortcuts.cjs. A launch that may not start a game does nothing
@@ -1653,9 +1776,43 @@ async function resource(request){
   return new Response(response.body,{status:response.status,headers:{'Content-Type':response.headers.get('Content-Type')||'application/octet-stream','Content-Security-Policy':CSP}});
  }catch{return new Response('This page is unavailable.',{status:404});}
 }
+// ---- a relaunch that was in the tray -----------------------------------------------------
+//
+// Owen's rule of 2026-10-23: "if the launcher was minimized to system tray it should open in
+// the system tray, not as a regular window and pop up on the screen for a frame or two." The
+// switch is explicit (`--hidden-to-tray`, written by `updater.relaunchOptions` and read here by
+// `updater.wantsHiddenToTray`), it is honoured for exactly one window — the first one of this
+// process — and only where a tray icon can actually exist.
+//
+// The decision is made *before* the window exists, and the answer is what the first
+// `ready-to-show` obeys, so there is no path where the window is shown and then hidden again:
+// that would be the frame Owen is describing. In an unpackaged run the probe can be overridden
+// by `EASTER_TEST_TRAY=0|1`, which is how a seat with no panel proves both answers.
+let startHiddenToTray=false;
+async function decideStartHiddenToTray(){
+ if(!updater.wantsHiddenToTray(process.argv))return false;
+ const available=await trayHostAvailable();
+ const decision=launchBehaviour(settings,{trayAvailable:available,hiddenToTray:true});
+ if(decision.action!=='tray'||!ensureTray()){
+  // No tray host, or no icon could be created. The window comes up as an ordinary window: an
+  // invisible launcher with no icon is one nobody can reach, which is worse than the single
+  // frame this switch exists to avoid.
+  startHiddenToTray=false;
+  return false;
+ }
+ startHiddenToTray=true;
+ trayHidden=true;
+ return true;
+}
 function createWindow(){
+ // Consumed by the first window: a window created later (macOS `activate`, or a second
+ // instance arriving with no window) belongs to a player who is asking to see it.
+ const hiddenInTray=startHiddenToTray;
+ startHiddenToTray=false;
  window=new BrowserWindow({width:1360,height:920,minWidth:800,minHeight:600,backgroundColor:'#10232b',title:'Easter Co. Launcher',icon:path.join(__dirname,'launcher-icon.png'),show:false,autoHideMenuBar:true,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
- window.once('ready-to-show',()=>window.show());
+ // A tray relaunch does not show the window at all: the tray icon the decision above already
+ // created is the way back, and it is in the tray when the player looks for it.
+ window.once('ready-to-show',()=>{if(!hiddenInTray)window.show();});
  window.webContents.setWindowOpenHandler(({url})=>{try{void shell.openExternal(externalURL(url));}catch{}return {action:'deny'};});
  window.webContents.on('will-navigate',(event,url)=>{if(!url.startsWith('easter://easter/')){event.preventDefault();try{void shell.openExternal(externalURL(url));}catch{}}});
  window.webContents.session.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
@@ -1700,7 +1857,11 @@ async function checkLauncherUpdate(openGate=true){
     // The policy writes its own failed line; a clear that did not finish costs the player
     // nothing but a stale cache, so the update still applies and the next start retries.
    }
-   app.relaunch(updater.relaunchOptions());app.quit();return;
+   // The relaunch says where the window was. A launcher that is on screen comes back on screen;
+   // one that had stepped aside into the tray comes back into the tray, which is what
+   // `launchBehaviour` reads the switch for (Owen, 2026-10-23: no window popping up "for a
+   // frame or two"). Nothing else about this gate changes.
+   app.relaunch(updater.relaunchOptions({hiddenToTray:steppedAsideToTray()}));app.quit();return;
   }
   startupReady=openGate;notify({});
  }catch(error){
@@ -1721,27 +1882,125 @@ function startupUpdates(){
     const result=await updateOnLaunch();
     if(result===null)throw Error('The game update was cancelled. Retry to finish updating.');
    }
-   startupReady=true;settle(client.installed?'Client ready.':'Download the game to get started.');
+   // The resting state, which is the in-game one when this launcher came back to a game it did
+   // not start (see `settleResting`): a gate that settles must not talk a running game down to
+   // Play.
+   startupReady=true;settleResting();
   }catch(error){
    startupReady=false;launcherUpdate={phase:'blocked',percent:null,message:'Updates must finish before playing. '+safeError(error)};notify({});
   }finally{startupPromise=null;}
  })();
  return startupPromise;
 }
+// ---- applying what the background check staged -------------------------------------------
+//
+// Owen's design, and the whole of this section: a launcher that is out of date applies the
+// update, restarts and comes back — while a game is running, in the background, without
+// interrupting it (updater.cjs `updateMayApplyNow` is the rule, and a running game is explicitly
+// NOT a reason to wait; the client is detached and already written down by
+// `rememberRunningGame` above, so the new instance re-adopts it).
+//
+// Where the payload comes from is the poll's own record and nothing else:
+// `launcher-updates/staged.json` beside `<sha256>.asar`, the same two files
+// `createLauncherPoll` writes (updater.cjs `stagedState`). This never re-downloads and never
+// invents a second format. It DOES run the version policy's clear itself, because a stage that
+// activated without its clear is exactly what the staging ticket refused to allow: the level
+// comes from `classify(from, to)` and nothing else, and the clear runs before `current.json` is
+// written — the same order the startup gate uses, so a crash between the two leaves an
+// unactivated launcher rather than an uncleared one.
+const launcherStash=()=>path.join(configRoot(),'launcher-updates');
+// Whether the window stepped aside into the tray. This is the fact the relaunch switch is
+// decided on, and it is why `trayHidden` is read as well as the window's own visibility: a
+// launcher that was *born* hidden (a relaunch like this one) never stepped aside, and nobody is
+// looking for it in a tray that already holds an icon for it.
+function steppedAsideToTray(){
+ return trayHidden===true&&Boolean(window)&&!window.isDestroyed()&&!window.isVisible();
+}
+// What the apply refuses to interrupt, asked of the launcher's own state: a press that has not
+// settled into a game, a transfer, a sign-in, an install, or the startup gate. A game is not in
+// that list on purpose.
+function launcherBusyForUpdate(){
+ return Boolean(working||controller||accountWorking||backgroundUpdate||startupPromise||!startupReady);
+}
+async function applyStagedLauncherUpdate(reason){
+ if(applyingUpdate)return 'applying';
+ if(!updater.updateMayApplyNow({pressInFlight:launchPresses>0,busy:launcherBusyForUpdate(),phase})){
+  applyWaiting=true;
+  return 'deferred';
+ }
+ const root=launcherStash();
+ const pending=updater.stagedState(root,{current:APP_VERSION,runtime:process.versions.electron});
+ if(pending.outcome==='none'){applyWaiting=false;return 'none';}
+ // A record that cannot be applied is discarded rather than left for another try: a version
+ // this launcher already runs or has passed, a manifest that no longer matches this device or
+ // this runtime, or a payload that is not the length it claims. The payload itself stays in the
+ // stash — the minor clear owns payloads — and one line says which answer this was.
+ if(pending.outcome!=='ready'){
+  applyWaiting=false;
+  await updater.discardStaged({root});
+  updateLog.apply({outcome:'failed',version:pending.manifest?.version||null,from:APP_VERSION,note:pending.outcome});
+  return pending.outcome;
+ }
+ applyingUpdate=true;applyWaiting=false;
+ const record=pending.record;
+ try{await updater.applyVersionPolicy({from:APP_VERSION,to:record.version,dataRoot:configRoot(),log:updateLog});}catch{}
+ let activated=null;
+ try{activated=await updater.activateStaged({root,current:APP_VERSION,runtime:process.versions.electron,inspect:launcherIdentity});}catch{activated=null;}
+ if(!activated){
+  // The stash changed shape between the question and the activation: nothing was activated, so
+  // this launcher keeps running the version it has and says so in one line.
+  applyingUpdate=false;
+  updateLog.apply({outcome:'failed',version:record.version,from:APP_VERSION,note:'changed'});
+  return 'invalid';
+ }
+ updateLog.apply({outcome:'ok',version:activated.version,from:APP_VERSION,note:'applied'});
+ // The player is told where they can see it, and nowhere else: the mandatory-update surface the
+ // startup gate already owns (`phase:'restarting'` and its own sentence), never a second dialog
+ // and never a new string. A launcher in the tray gets no window and no broadcast at all — the
+ // point of the whole choreography is that the player notices nothing until they come back.
+ launcherUpdate={phase:'restarting',percent:100,version:activated.version,message:'Restarting launcher…'};
+ startupReady=false;
+ const inTray=steppedAsideToTray();
+ if(!inTray)notify({});
+ app.relaunch(updater.relaunchOptions({hiddenToTray:inTray}));
+ app.quit();
+ return 'relaunched';
+}
+// A stage that landed while the launcher was busy is not lost: the press, transfer or gate that
+// was in the way calls this as it settles.
+function retryStagedUpdateApply(){
+ if(!applyWaiting)return;
+ void applyStagedLauncherUpdate('idle').catch(()=>{});
+}
+// A staged record that could never be applied — a version this launcher already runs or has
+// passed, a manifest that no longer matches this device or this runtime, a payload that is not
+// what the record claims — is discarded once, at startup, instead of being left in the stash for
+// the apply step to refuse again on every trigger. A READY record is left exactly where it is: it
+// is a verified payload waiting for the apply step, and on a packaged build the startup gate above
+// supersedes it by finding the same release itself.
+async function discardUnusableStaged(){
+ const root=launcherStash();
+ let pending;
+ try{pending=updater.stagedState(root,{current:APP_VERSION,runtime:process.versions.electron});}catch{return 'none';}
+ if(pending.outcome==='none'||pending.outcome==='ready')return pending.outcome;
+ try{await updater.discardStaged({root});}catch{}
+ updateLog.apply({outcome:'failed',version:pending.manifest?.version||null,from:APP_VERSION,note:pending.outcome});
+ return pending.outcome;
+}
+
 // ---- asking again while the launcher is open -------------------------------------------
 //
 // Owen's rule of 2026-10-23: a running launcher asks its server "am I still on the latest
-// version?" every so often and, when it is not, updates — the restart is a separate ticket,
-// so this is the ask and the stage and nothing else. Every number is named in updater.cjs
-// beside the reason for it (POLL_INTERVAL_MS = 15 minutes, 90 s of jitter, a one-hour backoff
-// cap, a 15 s answer-by bound).
+// version?" every so often and, when it is not, stages the update. Every number is named in
+// updater.cjs beside the reason for it (POLL_INTERVAL_MS = 15 minutes, 90 s of jitter, a
+// one-hour backoff cap, a 15 s answer-by bound).
 //
-// What this must never do, and does not: paint anything. There is no `notify` here, no phase,
-// no dialog, no spinner and no page notice — a failed ask writes one line to
-// launcher-update.log and returns, and a stage writes one line and one field. It cannot delay
-// a Play press either: nothing in the launch path waits on it, and it defers itself while the
-// launcher is busy. And it never restarts the launcher: no `app.relaunch`, no `app.quit` on
-// this path — the only caller of those is the startup gate above.
+// What this must never do, and does not: paint anything. There is no `notify` here, no dialog,
+// no spinner and no page notice — a failed ask writes one line to launcher-update.log and
+// returns, and a stage writes one line and one field. It cannot delay a Play press either:
+// nothing in the launch path waits on it, and it defers itself while a press is in flight or an
+// install is transferring. It never restarts anything by itself: the stage it writes is what the
+// apply step above (`applyStagedLauncherUpdate`) picks up.
 let launcherPoll=null;
 // The redirect question, asked the one way Electron can answer it without following the
 // redirect: `net.fetch` refuses `redirect:'manual'` outright ("Redirect was cancelled",
@@ -1773,8 +2032,15 @@ function latestHop({url,signal}={}){
  });
 }
 // One poll per process, started once the startup gate has begun so the two never race the
-// same question. `busy` is what defers a check: the gate, a game, a transfer or another
-// launcher operation owns the network and the disk while any of them is live.
+// same question. `busy` is what defers a check: the gate, a press in flight, a transfer or
+// another launcher operation owns the network and the disk while any of them is live.
+//
+// A game is deliberately NOT one of those any more (Owen, 2026-10-23: "the launcher can update
+// while a game is open, in the background and resume"). A launcher sitting in the tray behind a
+// running Minecraft is exactly the launcher this question was asked for, so asking it while the
+// game plays is the point rather than an interference: the question is one header-only request,
+// and the stage it may write is applied by the section above, which knows how to do that
+// without touching the game.
 function startLauncherPoll(){
  if(launcherPoll)return launcherPoll;
  launcherPoll=updater.createLauncherPoll({
@@ -1785,16 +2051,22 @@ function startLauncherPoll(){
   fetch:net.fetch.bind(net),
   inspect:launcherIdentity,
   enabled:settings?.autoUpdateLauncher!==false,
-  busy:()=>Boolean(!startupReady||startupPromise||backgroundUpdate||game||working||controller||accountWorking),
+  busy:()=>Boolean(!startupReady||startupPromise||backgroundUpdate||working||controller||accountWorking||launchPresses>0),
   log:updateLog,
   // The stage is published as a field and nothing else: no phase moves, no dialog opens, and
   // no broadcast is sent for it. `notify({})` would repaint a state the player is looking at
   // and, because every broadcast drops `error`, could take a page notice away mid-read — a
   // background check must not touch the state channel at all. The field sits on the launcher's
   // state object, so it is in the answer to `status` and in the next broadcast the launcher
-  // makes for its own reasons; the restart ticket reads it from there.
+  // makes for its own reasons.
+  //
+  // The stage is also the whole trigger for the apply step: this is the moment the launcher has
+  // a verified payload on disk and is out of date, which is what "if it's not then it
+  // automatically updates and restarts" describes. The apply decides for itself whether it may
+  // go now (it may, behind a running game) or has to wait for a press or a transfer to settle.
   onStaged:staged=>{
    launcherUpdate={...launcherUpdate,staged:{version:staged.version,from:staged.from,stagedAt:staged.at}};
+   void applyStagedLauncherUpdate('staged').catch(()=>{});
   }
  });
  // An unpackaged run has no published release to compare itself against, so it never asks.
@@ -1905,8 +2177,20 @@ if(instance){
   await refreshClient();
   // Before the window exists, so the first launch a player sees is already configured
   // and no view can observe a half-seeded tree. A no-op for a tree that has already
-  // been seeded, and awaited only for the two reads it costs.
+  // been seeded, and awaited only for the two reads it costs. It also declines to touch a
+  // client tree while a game is running, so the adoption below happens first.
+  //
+  // The game this launcher may have left running is settled before that read and before any
+  // window or broadcast exists: an update applied behind a live Minecraft ends in this process
+  // starting while the game is still in the world, and the first thing the player may see when
+  // they come back is a launcher that says so instead of offering Play. A marker that no longer
+  // matches its process is removed here and this launcher starts in its ordinary state.
+  await adoptRunningGame();
+  await discardUnusableStaged();
   await seedClientDisplay();
+  // A relaunch that replaced a launcher sitting in the tray comes up in the tray, decided before
+  // the window is created so the first `ready-to-show` already knows not to show it.
+  await decideStartHiddenToTray();
   protocol.handle('easter',resource);registerIPC();createWindow();
   // Before the first broadcast, so the dialog's own render already knows whether the two
   // entries exist and the window never shows a shortcut state it has to correct.
@@ -1923,7 +2207,9 @@ if(instance){
   // demand before anything had been asked — ticket 24c8c6dc). This call sets `checking` before
   // it awaits, so the first state the player's window ever receives says the launcher is asking.
   if(company&&company.account.microsoftSubject&&!localRefreshable()&&!localTokenLive())void probeMinecraftSession();
-  notify({message:client.installed?'Client ready.':'Download the game to get started.'});
+  // The first state the player's window receives is the resting one, and while a game this
+  // launcher came back to is still running that state is the in-game one.
+  settleResting();
   if(app.isPackaged)void startupUpdates();
   else void updateOnLaunch()?.catch(()=>{});
   // The same question, asked again while the launcher stays open (updater.cjs
@@ -1941,5 +2227,5 @@ if(instance){
  });
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
  app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
- app.on('before-quit',()=>{launcherPoll?.stop();controller?.abort();control?.cancel();destroyTray();});
+ app.on('before-quit',()=>{launcherPoll?.stop();controller?.abort();control?.cancel();destroyTray();stopWatchingAdoptedGame();});
 }

@@ -21,7 +21,7 @@ let installed=false;
 install.clientStatus=async()=>({installed,version:'fixture',record:installed?{version:'fixture',java:'/fixture/java'}:null});
 install.checkForUpdates=async()=>{if(global.easterClientUpdateFail)throw Error('Game manifest unavailable.');return {applied:false};};
 install.installClient=async({notify})=>{notify({phase:'downloading',progress:{percent:50}});installed=true;return {message:'Client ready.'};};
-install.launch=async()=>{if(global.easterTestFailPlay)throw Error('Unable to start Minecraft. Try again.');const {EventEmitter}=require('node:events');global.easterTestGame=new EventEmitter();return global.easterTestGame;};
+install.launch=async()=>{if(global.easterTestFailPlay)throw Error('Unable to start Minecraft. Try again.');if(global.easterTestLaunch)return global.easterTestLaunch();const {EventEmitter}=require('node:events');global.easterTestGame=new EventEmitter();return global.easterTestGame;};
 // These fixtures stub the game installation; no client tree exists to configure.
 const visualSetup=require('../../desktop/visuals.cjs');
 visualSetup.configureVisuals=async()=>({});visualSetup.disableShaders=async()=>{};

@@ -1,8 +1,10 @@
 // The background version question, in a real Electron window: a failing check is a line in the
-// update log and nothing else, a newer release is staged and verified on disk without touching
-// what the player sees, and a check held in flight does not delay a Play press. Nothing here
-// waits for a timer in production code: the poller's interval is shortened by the harness, and
-// the schedule itself is proven in tests/desktop/update-poll.test.cjs.
+// update log and nothing else, a check held in flight does not delay a Play press, and a newer
+// release is staged and verified on disk — and then taken by the apply step, which is the whole
+// point of the question once Owen's design is in place (ticket 7620bcf9: the launcher updates
+// behind a running game and comes back into it). Nothing here waits for a timer in production
+// code: the poller's interval is shortened by the harness, and the schedule itself plus the
+// deferral rule are proven in tests/desktop/update-poll.test.cjs and updater.test.cjs.
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -79,27 +81,7 @@ try{
  await assert.rejects(()=>fs.access(path.join(stash,'staged.json')),'a failed check stages nothing');
  await assert.rejects(()=>fs.access(path.join(stash,'current.json')),'and activates nothing');
 
- // ---- 2. A newer release is staged and verified, and still paints nothing ------------
- const beforeStage=await snapshot(page);
- await app.evaluate(()=>{global.easterPollMode='newer';});
- await waitFor(async()=>await app.evaluate(()=>global.easterPollLines.some(entry=>entry.note==='staged')),'a staged release');
- await app.evaluate(()=>{global.easterPollMode='current';});
- const record=JSON.parse(await fs.readFile(path.join(stash,'staged.json'),'utf8'));
- assert.equal(record.version,'9.9.9','the staged record names the release');
- assert.equal(record.sha256,publishedHash,'and carries the hash the payload was verified against');
- const payload=await fs.readFile(path.join(stash,publishedHash+'.asar'));
- assert.equal(crypto.createHash('sha256').update(payload).digest('hex'),publishedHash,'the payload on disk is the verified bytes, byte for byte');
- assert.equal(await app.evaluate(()=>global.easterPollDownloads),2,'one manifest read and one payload download: nothing is fetched to answer the question alone');
- await assert.rejects(()=>fs.access(path.join(stash,'current.json')),'a background stage never writes the activation record bootstrap loads');
- const afterStage=await snapshot(page);
- const withoutStaged=state=>({...state,launcherUpdate:{...state.launcherUpdate,staged:undefined}});
- assert.deepEqual(withoutStaged(afterStage),withoutStaged(beforeStage),'a staged update paints nothing: every other field of the state is exactly as it was');
- assert.equal(afterStage.launcherUpdate.phase,'current','the launcher update phase never moved off current');
- assert.deepEqual({version:afterStage.launcherUpdate.staged.version,from:afterStage.launcherUpdate.staged.from},{version:'9.9.9',from:'1.0.44'},'the staged release is published as one field for the restart ticket to use');
- assert.deepEqual(await surfaces(page),{dialog:0,notice:false,spinner:0,progress:0},'and no update surface appears while a stage is on disk');
- assert.equal(await app.evaluate(()=>process.pid),pid,'nothing restarted the launcher: it is the same process');
-
- // ---- 3. A check in flight does not delay Play, and cannot overlap the next one -------
+ // ---- 2. A check in flight does not delay Play, and cannot overlap the next one -------
  await page.locator('[data-desktop-play][data-action=download]').click();
  await page.locator('[data-desktop-play][data-action=signin]').click();
  await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
@@ -118,17 +100,63 @@ try{
  // The held question is answered late; the poller is still exactly one check wide.
  await app.evaluate(()=>{global.easterPollMode='current';global.easterPollRelease();});
  await waitFor(async()=>(await app.evaluate(()=>global.easterPollConcurrent))===0,'the held check to settle');
+ // A whole install, sign-in and launch happened while the release question was held: nothing
+ // about it was displaced, and nothing has been staged yet, because no check has been answered
+ // with a newer release.
+ const playing=await page.evaluate(async()=>{const state=await window.easterDesktop.status();return {phase:state.phase,launcherUpdate:state.launcherUpdate};});
+ assert.equal(playing.phase,'running','the game is running after a check was held in flight');
+ assert.equal(playing.launcherUpdate.phase,'current','and the launcher update phase never left current');
+ await assert.rejects(()=>fs.access(path.join(stash,'staged.json')),'no check has staged anything yet');
  await app.evaluate(()=>global.easterTestGame.emit('exit',0));
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).phase==='ready');
- // A whole install, sign-in, launch and game exit happened with a staged release on disk and
- // the launcher never offered it: the phase the player was left on is the game's own return to
- // ready, and the launcher update phase is still `current`.
- const after=await page.evaluate(async()=>{const state=await window.easterDesktop.status();return {phase:state.phase,launcherUpdate:state.launcherUpdate};});
- assert.equal(after.phase,'ready','the game ending returned the hero to ready');
- assert.equal(after.launcherUpdate.phase,'current','and the launcher update phase never left current: a stage is not an offer');
- assert.deepEqual(after.launcherUpdate.staged&&{version:after.launcherUpdate.staged.version,from:after.launcherUpdate.staged.from},{version:'9.9.9',from:'1.0.44'},'the staged release is still published for the restart ticket to use');
- assert.deepEqual(await surfaces(page),{dialog:0,notice:false,spinner:0,progress:0},'and no update surface was ever shown');
- assert.equal(await app.evaluate(()=>process.pid),pid,'still the same process: nothing was relaunched or quit');
+
+ // ---- 3. A newer release is staged, verified, and then taken by the apply step -------
+ // Owen's design (ticket 7620bcf9): the question is asked so the launcher can update itself
+ // behind whatever it is doing, so a stage is no longer the end of the story — main.cjs's apply
+ // step reads this record, runs the version policy's clear, writes the activation record and
+ // asks for the restart. What stays proven here is the poll's own half: one line, one field, and
+ // the payload on disk byte for byte. That a stage alone never activates is proven in
+ // tests/desktop/update-poll.test.cjs ("update() with apply false …"), where the apply step is
+ // not in the room.
+ const beforeStage=await snapshot(page);
+ await app.evaluate(()=>{global.easterPollMode='newer';});
+ await waitFor(async()=>await app.evaluate(()=>global.easterPollLines.some(entry=>entry.note==='staged')),'a staged release');
+ await app.evaluate(()=>{global.easterPollMode='current';});
+ await waitFor(async()=>await app.evaluate(()=>global.easterRelaunch),'the apply step to take the stage');
+ const stagedLines=await app.evaluate(()=>global.easterPollLines);
+ assert.equal(stagedLines.filter(entry=>entry.note==='staged').length,1,'exactly one stage line, however many times the release server was unreachable before it');
+ assert.equal(await app.evaluate(()=>global.easterPollDownloads),2,'one manifest read and one payload download: nothing is fetched to answer the question alone');
+ const log=await fs.readFile(path.join(home,'Easter Company','launcher-update.log'),'utf8');
+ assert.match(log,/step=update-poll outcome=ok version=9\.9\.9 note=staged/,'the stage is one line in the update log');
+ assert.match(log,/step=update-apply outcome=ok version=9\.9\.9 from=1\.0\.44 note=applied/,'and the apply that took it is another');
+ const activation=JSON.parse(await fs.readFile(path.join(stash,'current.json'),'utf8'));
+ assert.equal(activation.version,'9.9.9','the staged release was activated: bootstrap will load it on the next start');
+ assert.equal(activation.sha256,publishedHash,'and the activation record carries the hash the payload was verified against');
+ const payload=await fs.readFile(path.join(stash,publishedHash+'.asar'));
+ assert.equal(crypto.createHash('sha256').update(payload).digest('hex'),publishedHash,'the payload on disk is the verified bytes, byte for byte');
+ await assert.rejects(()=>fs.access(path.join(stash,'staged.json')),'and the record it came from is gone once it has been applied');
+ const relaunch=await app.evaluate(()=>global.easterRelaunch);
+ assert.deepEqual(relaunch.args.filter(argument=>argument==='--hidden-to-tray'),[],'the window was on screen, so the relaunch carries no tray switch');
+ assert.equal(await app.evaluate(()=>global.easterQuits),1,'and the launcher asked to quit exactly once, for the restart');
+ // The player was looking at the launcher, so the mandatory-update surface said so: the gate's
+ // own dialog and its own sentence, never a second one.
+ await page.locator('#desktop-update[open]').waitFor();
+ assert.equal((await page.locator('#desktop-update h2').textContent()).trim(),'Restarting launcher…','the restart is announced with the sentence the gate already uses');
+ const afterApply=await snapshot(page);
+ assert.equal(afterApply.launcherUpdate.phase,'restarting');
+ assert.equal(afterApply.startupReady,false,'and the launcher is closed to new work while it restarts');
+ assert.equal(await app.evaluate(()=>process.pid),pid,'the same process asked for the restart: this is the apply step, not a new one');
+ assert.equal(beforeStage.launcherUpdate.phase,'current','before the question was answered there was no update surface at all');
  assert.deepEqual(errors,[]);
- console.log('Update poll PASS: one 302 question, a failed check is one log line with the state and the screen untouched, a real 9.9.9 payload verified and staged without current.json or any surface, a check held in flight does not delay Play, no overlap, no relaunch.');
-}finally{await app.close();await fs.rm(home,{recursive:true,force:true});}
+ console.log('Update poll PASS: one 302 question, a failed check is one log line with the state and the screen untouched, a check held in flight does not delay Play and no check ever overlaps another, and a real 9.9.9 payload verified and staged by the poll is then taken by the apply step — current.json, the policy line, one relaunch and one quit — which is what the question exists for.');
+}finally{
+ // The real functions go back before the close: the apply step recorded a quit rather than
+ // obeying it, so Playwright's own close is what actually ends this process.
+ await app.evaluate(()=>{global.easterRestoreApp();global.easterRealQuit=true;setTimeout(()=>global.easterQuitNow(),0);}).catch(()=>{});
+ const pid=await app.evaluate(()=>process.pid).catch(()=>null);
+ for(let attempt=0;attempt<50&&pid;attempt++){
+  try{process.kill(pid,0);}catch{break;}
+  await new Promise(resolve=>setTimeout(resolve,100));
+ }
+ await fs.rm(home,{recursive:true,force:true});
+}

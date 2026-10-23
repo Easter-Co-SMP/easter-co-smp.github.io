@@ -439,8 +439,17 @@ function launchOptions({root,version,javaPath,session,settings={},server=serverA
 // spawn replaces the whole environment when one is given, so the launched client gets
 // the launcher's environment with the display-GPU pin on top of it. With nothing to
 // pin, the options are exactly what they were before.
+//
+// One part of these options is not about the environment at all, and it is Owen's design of
+// 2026-10-23 — "the launcher can update while a game is open, in the background and resume":
+// the client is spawned `detached`, so it gets its own process group and session and the
+// launcher's own exit does not take it down, and with `stdio:'ignore'`, so it inherits no pipe
+// the launcher would have to keep servicing after it is gone (the launcher discards game output
+// anyway: "Do not store launch arguments or raw stdout"). What the restarted launcher has
+// instead of a pipe is the marker `desktop/game-marker.cjs` writes at launch — a pid plus the
+// process's own start time — which is what lets it come back into the game it left playing.
 function execOptions(launchEnv){
- const base={shell:false,windowsHide:true};
+ const base={shell:false,windowsHide:true,detached:true,stdio:'ignore'};
  if(!launchEnv||typeof launchEnv!=='object')return base;
  const extra=Object.fromEntries(Object.entries(launchEnv).filter(([,value])=>typeof value==='string'&&value));
  return Object.keys(extra).length?{...base,env:{...process.env,...extra}}:base;

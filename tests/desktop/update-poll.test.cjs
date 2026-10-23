@@ -261,9 +261,12 @@ test('the poll path cannot restart anything: no relaunch, no quit, no state chan
  const section=main.slice(start,end).split('\n').map(line=>/^\s*\/\//.test(line)?'':line).join('\n');
  for(const forbidden of ['app.relaunch(','app.quit(','.quit()'])
   assert.equal(section.includes(forbidden),false,'the background check must not call '+forbidden);
- // The gate is still the only place a launcher update is applied, and it still is.
- assert.equal((main.match(/app\.relaunch\(/g)||[]).length,1,'exactly one relaunch exists in main.cjs, in the startup gate');
- assert.match(main,/app\.relaunch\(updater\.relaunchOptions\(\)\);app\.quit\(\);/,'and it is the gate\'s own apply step');
+ // Two places apply a launcher update and no more: the startup gate's own step, and the apply
+ // step that takes what this poll staged (Owen's design: a launcher behind a running game
+ // updates in the background and comes back into it). The poll itself is neither of them.
+ assert.equal((main.match(/app\.relaunch\(/g)||[]).length,2,'exactly two relaunches exist in main.cjs: the gate and the apply step');
+ assert.match(main,/app\.relaunch\(updater\.relaunchOptions\(\{hiddenToTray:steppedAsideToTray\(\)\}\)\);app\.quit\(\);return;/,'the gate relays where the window was');
+ assert.match(main,/app\.relaunch\(updater\.relaunchOptions\(\{hiddenToTray:inTray\}\)\);\n app\.quit\(\);/,'and the apply step relaunches into the tray when the launcher was in it');
  // The check publishes nothing: its answer reaches the state only as the staged field.
  assert.equal(/notify\(/.test(section),false,'the background check never broadcasts a state');
 });

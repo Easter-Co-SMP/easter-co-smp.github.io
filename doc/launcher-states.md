@@ -1596,6 +1596,27 @@ update is not.
     not one. It never relaunches or quits — rules 1–9 are the mandatory gate, and this check
     adds to none of them. The full contract, every bound and the reason for each is
     [mandatory-updates.md](mandatory-updates.md), *Asking again while the launcher is open*.
+11. **A stage is applied behind a live game, and the game is not interrupted (2026-10-23).**
+    Owen's correction, in his words: *"the launcher can update while a game is open, in the
+    background and resume that was a big part of my design."* A running Minecraft is therefore
+    not a reason to wait. The launcher applies what rule 10 staged, quits, comes back on the new
+    version and re-adopts the game it left playing: the client is spawned detached with no
+    inherited pipes (`install.cjs` `execOptions`), its pid and the operating system's start time
+    for that pid are written to `<data>/running-game.json` when it is spawned
+    (`game-marker.cjs`), and a restarted launcher reads that marker before its first broadcast and
+    publishes the in-game state — `phase: 'running'`, the hero's **Minecraft is running** — instead
+    of Play. A marker that no longer matches its process, including a pid that has been reused, is
+    removed and the launcher starts in its ordinary state; when the adopted game ends, the
+    launcher settles *"Minecraft closed. Ready to play."* and forgets it. What an apply still
+    refuses to interrupt is a *press* that has not settled into a game, a transfer, a sign-in, an
+    install, or the startup gate (`updater.updateMayApplyNow`). The apply runs the version policy's
+    clear itself before writing `current.json`, and discards a staged record that cannot be applied
+    (a version this launcher already runs, a manifest that no longer matches this device, a payload
+    of the wrong length) with one `step=update-apply` line in `launcher-update.log`. Where the
+    player is looking at the launcher, the mandatory-update surface above says *Restarting
+    launcher…*; where the window is in the tray, nothing is said at all. The full choreography,
+    step by step, is [mandatory-updates.md](mandatory-updates.md), *Applying what was staged,
+    behind a live game*.
 
 ### What a version change clears (2026-10-19)
 
@@ -2059,6 +2080,30 @@ focuses the existing window instead of starting a second launcher, and it is the
 the game shortcut uses. The game ending brings the window back by itself in both cases.
 `EASTER_TEST_TRAY=0|1` overrides the probe in an unpackaged run, so a test seat with no panel
 can prove both paths.
+
+**A launcher relaunched from the tray comes back into the tray (2026-10-23).** Owen's other
+half of the same rule: *"if the launcher was minimized to system tray it should open in the
+system tray, not as a regular window and pop up on the screen for a frame or two."* When an
+update applies while the window has stepped aside, the relaunch carries exactly one extra
+switch — `--hidden-to-tray`, added by `updater.relaunchOptions` beside the two it already
+preserved (`--no-sandbox`, `--play`) and never any other argv — and `launchBehaviour` in
+`desktop/security.cjs` honours it: the new process creates the tray icon **before the window
+exists** and never calls `show()`, so there is no first frame to paint. The tray icon offers
+the same two actions it always has.
+
+The switch is honoured only where a tray icon can actually exist. On a desktop with no
+StatusNotifier host the window comes up as an ordinary window instead — an invisible launcher
+with no icon is one nobody can reach, which is worse than the one frame the switch exists to
+avoid. That is the one place `launchBehaviour` answers `stay` where the older `trayOnLaunch`
+rule answers `hide` with its sentence, and the difference is who asked: the player asked for
+`trayOnLaunch`, and nothing asked for this switch except the update itself.
+
+Both answers are measured in `tests/desktop/update-apply.electron.mjs` the same way: the
+window's `visible` is sampled every 10 ms across startup, every sample false for the tray
+relaunch (with the tray icon present) and true for the ordinary one; on a desktop with no tray
+host the same launch becomes visible and creates no icon. A launcher that started in the tray
+because an update replaced it has no game to look after, so opening it from the tray ends the
+stepped-aside state and takes the icon with it.
 
 **The launcher Home carries no marketing title.** Owen's decision of 2026-10-17: the
 crest and the small "Easter Co. SMP" eyebrow stay, and the large "The Ultimate

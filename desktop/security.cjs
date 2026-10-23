@@ -134,9 +134,23 @@ function migrateLaunchPreferences(stored){
 // behind a tray icon offering Open launcher and Quit, `hide` hides it where no tray icon
 // can be drawn and carries the sentence that says how to bring it back (start the
 // launcher again), and `stay` leaves the window as the player had it.
-function launchBehaviour(settings,{trayAvailable=false}={}){
+//
+// `hiddenToTray` is the other question this answers, and it is asked at *startup* rather than
+// when a game starts: this process was relaunched to apply an update, the window it replaced
+// was not on screen (it was in the tray), and Owen's rule of 2026-10-23 is that it "should open
+// in the system tray, not as a regular window and pop up on the screen for a frame or two". It
+// wins over `stay` because it describes where the window already was, and loses to `quit`
+// because closing behind the game is an explicit player choice.
+//
+// Where no tray icon can be drawn the switch is *not* honoured: the window comes up normally.
+// An invisible window with no icon is a launcher nobody can reach, and that is worse than the
+// one frame the switch exists to avoid — so `trayAvailable:false` answers `stay` here, unlike
+// the `trayOnLaunch` case below, where the player asked for the launcher to step aside and the
+// honest answer is `hide` with the sentence that says how to come back.
+function launchBehaviour(settings,{trayAvailable=false,hiddenToTray=false}={}){
  const chosen=cleanLaunchPreferences(settings||{});
  if(chosen.exitOnLaunch)return {action:'quit',message:null};
+ if(hiddenToTray===true&&trayAvailable)return {action:'tray',message:null};
  if(!chosen.trayOnLaunch)return {action:'stay',message:null};
  if(trayAvailable)return {action:'tray',message:null};
  return {action:'hide',message:'This desktop has no system tray, so start Easter Co. Launcher again to bring the window back.'};

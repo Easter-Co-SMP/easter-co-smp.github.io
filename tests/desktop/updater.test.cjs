@@ -1,5 +1,5 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto');
-const {update,selected,validate,compare,relaunchOptions,classify,clearPlan,CLEAR,withinDataDirectory,clearForLevel,applyVersionPolicy,UpdateLog}=require('../../desktop/updater.cjs');
+const {update,selected,staged,validate,compare,relaunchOptions,classify,clearPlan,CLEAR,withinDataDirectory,clearForLevel,applyVersionPolicy,UpdateLog}=require('../../desktop/updater.cjs');
 const bytes=Buffer.from('complete application payload'),sha=crypto.createHash('sha256').update(bytes).digest('hex');
 const manifest={schema:1,bootstrap:1,version:'1.0.12',platform:'linux',arch:'x64',runtime:'44.7.2',asset:'Easter-Company-Update-linux-x64.asar',size:bytes.length,sha256:sha};
 const context={release:'1.0.12',platform:'linux',arch:'x64',runtime:'44.7.2'};
@@ -294,4 +294,120 @@ test('a shortcut Play request survives launcher-update relaunch without forwardi
   assert.deepEqual(relaunchOptions({...options,argv:['/bin/launcher','--play=1']}).args,[]);
   assert.deepEqual(relaunchOptions({...options,argv:['/bin/launcher','--play']}).args,['--play']);
  }
+});
+
+// ---- applying what the background check staged ------------------------------------------
+// Owen's design, corrected on 2026-10-23: "the launcher can update while a game is open, in the
+// background and resume — that was a big part of my design." So these are the rules of the
+// apply step, and each test names the property it proves.
+test('the relaunch switch is explicit, is added only when asked for, and forwards nothing else',()=>{
+ const {wantsHiddenToTray,HIDDEN_TO_TRAY}=require('../../desktop/updater.cjs');
+ const base={platform:'linux',env:{APPIMAGE:'/apps/Launcher.AppImage'},execPath:'/tmp/mount/app',argv:['/bin/launcher','--no-sandbox','--play']};
+ assert.equal(HIDDEN_TO_TRAY,'--hidden-to-tray');
+ assert.deepEqual(relaunchOptions(base),{execPath:'/apps/Launcher.AppImage',args:['--no-sandbox','--play']},'no switch, no change: the ordinary relaunch is what it always was');
+ assert.deepEqual(relaunchOptions({...base,hiddenToTray:true}),{execPath:'/apps/Launcher.AppImage',args:['--no-sandbox','--play','--hidden-to-tray']},'the switch rides beside the two recognised ones');
+ // The switch is a caller's fact about the window, not something inherited from this process's
+ // own command line: a launcher whose window the player brought back comes up as a window.
+ assert.deepEqual(relaunchOptions({...base,argv:['/bin/launcher','--hidden-to-tray']}).args,[],'a switch this process was started with is not forwarded by itself');
+ assert.deepEqual(relaunchOptions({...base,argv:['/bin/launcher','--hidden-to-tray'],hiddenToTray:true}).args,['--hidden-to-tray']);
+ // Nothing else is ever forwarded, whatever the line says.
+ assert.deepEqual(relaunchOptions({...base,argv:['/bin/launcher','--hidden-to-tray','--play','--token=secret','/home/player']}).args,['--play']);
+ assert.equal(wantsHiddenToTray(['/bin/launcher','--hidden-to-tray']),true);
+ assert.equal(wantsHiddenToTray(['/bin/launcher','--hidden-to-tray=1']),false,'the switch is exact, never a prefix');
+ assert.equal(wantsHiddenToTray(['/bin/launcher']),false);
+ assert.equal(wantsHiddenToTray(null),false);
+});
+
+test('an apply refuses what it would destroy and never refuses a running game',()=>{
+ const {updateMayApplyNow}=require('../../desktop/updater.cjs');
+ // Owen's correction, as one assertion: a game in the world is the case this exists FOR.
+ assert.equal(updateMayApplyNow({phase:'running'}),true,'a running game does not stop an update: the launcher updates behind it and comes back');
+ assert.equal(updateMayApplyNow({}),true,'an idle launcher may apply');
+ assert.equal(updateMayApplyNow({phase:'ready'}),true);
+ // A press that has not settled into a game is the one thing that is interrupted: the press
+ // owns the client, the session and the wake, and it would lose all three.
+ assert.equal(updateMayApplyNow({pressInFlight:true}),false);
+ assert.equal(updateMayApplyNow({pressInFlight:true,phase:'running'}),false,'a press starting a second game is still a press');
+ // Work the launcher is in the middle of, and the startup gate itself.
+ assert.equal(updateMayApplyNow({busy:true}),false);
+ for(const phase of ['launching','starting-game','downloading','paused','verifying','installing','updating','checking-client'])
+  assert.equal(updateMayApplyNow({phase}),false,phase+' must settle first');
+ for(const phase of [null,undefined,'ready','uninstalled','running'])
+  assert.equal(updateMayApplyNow({phase}),true,String(phase)+' is not work in flight');
+});
+
+test('a staged record is read with its reason attached, and only a ready one may be activated',()=>fixture(async root=>{
+ const {stagedState}=require('../../desktop/updater.cjs');
+ const options={current:'1.0.11',runtime:'44.7.2',platform:'linux',arch:'x64'};
+ assert.deepEqual({outcome:stagedState(root,options).outcome,record:stagedState(root,options).record},{outcome:'none',record:null},'nothing staged is silence');
+ const writeStaged=async value=>{await fs.writeFile(path.join(root,'staged.json'),JSON.stringify(value));await fs.writeFile(path.join(root,value.sha256+'.asar'),bytes);};
+ await writeStaged(manifest);
+ assert.equal(stagedState(root,options).outcome,'ready','a verified payload that is newer than this launcher is ready');
+ assert.equal(stagedState(root,options).record.file,path.join(root,sha+'.asar'));
+ // The version this launcher already runs (or one it has passed) is stale, never applied.
+ await writeStaged({...manifest,version:'1.0.11'});
+ assert.equal(stagedState(root,options).outcome,'stale','the same version is not an update');
+ await writeStaged({...manifest,version:'1.0.10'});
+ assert.equal(stagedState(root,options).outcome,'stale','and neither is an older one');
+ // A record that no longer matches itself or this device is invalid: the manifest is the
+ // authority about what was downloaded, so a payload of the wrong length is never taken.
+ await writeStaged({...manifest,size:bytes.length+1});
+ assert.equal(stagedState(root,options).outcome,'invalid','a payload that is not the declared length');
+ await writeStaged({...manifest,arch:'arm64'});
+ assert.equal(stagedState(root,options).outcome,'invalid','another device\'s manifest');
+ await writeStaged({...manifest,runtime:'45.0.0'});
+ assert.equal(stagedState(root,options).outcome,'invalid','a launcher runtime this build cannot load');
+ await writeStaged(manifest);await fs.rm(path.join(root,sha+'.asar'));
+ assert.equal(stagedState(root,options).outcome,'invalid','a record whose payload is gone');
+ // The poller's own question still answers the record or nothing, from the same parse.
+ await writeStaged(manifest);
+ assert.equal(staged(root,options)?.version,'1.0.12');
+}));
+
+test('activation writes current.json from the staged record, hashes the payload, and clears the record',()=>fixture(async root=>{
+ const {activateStaged,staged}=require('../../desktop/updater.cjs');
+ const options={current:'1.0.11',runtime:'44.7.2',platform:'linux',arch:'x64'};
+ await fs.writeFile(path.join(root,'staged.json'),JSON.stringify(manifest));
+ await fs.writeFile(path.join(root,sha+'.asar'),bytes);
+ const activated=await activateStaged({root,...options});
+ assert.equal(activated?.version,'1.0.12','activation answers the record it activated');
+ assert.equal(activated?.file,path.join(root,sha+'.asar'),'and where the payload is');
+ await assert.rejects(fs.access(path.join(root,'staged.json')),'the staged record is removed once it has been activated');
+ const activation=JSON.parse(await fs.readFile(path.join(root,'current.json'),'utf8'));
+ assert.equal(activation.version,'1.0.12');
+ assert.equal(activation.sha256,sha);
+ assert.equal('file' in activation,false,'the activation record is the manifest, not the record with a path bolted on');
+ assert.equal(staged(root,options),null,'and nothing is staged any more');
+ // A payload whose bytes no longer hash to the record is refused, and nothing is activated.
+ const second=await fs.mkdtemp(path.join(os.tmpdir(),'updater-activate-'));
+ try{
+  await fs.writeFile(path.join(second,'staged.json'),JSON.stringify(manifest));
+  await fs.writeFile(path.join(second,sha+'.asar'),Buffer.alloc(bytes.length));
+  assert.equal(await activateStaged({root:second,...options}),null,'different bytes of the same length are not this release');
+  await assert.rejects(fs.access(path.join(second,'current.json')),'and nothing activates');
+ }finally{await fs.rm(second,{recursive:true,force:true});}
+}));
+
+test('a minor clear keeps the payload the apply step is waiting on, not only the one the relaunch loads',()=>fixture(async dataRoot=>{
+ // Both records and both payloads, which is the state a launcher is in when the background
+ // check has staged a release and an earlier one is already activated. The old clear kept only
+ // what current.json named, so it would have deleted the payload the apply step was about to
+ // activate — an update that cleared its own download.
+ const {clearForLevel}=require('../../desktop/updater.cjs');
+ const current={sha256:'a'.repeat(64)};
+ const staged={sha256:'b'.repeat(64)};
+ await fs.mkdir(path.join(dataRoot,'launcher-updates'),{recursive:true});
+ await fs.writeFile(path.join(dataRoot,'launcher-updates','current.json'),JSON.stringify(current));
+ await fs.writeFile(path.join(dataRoot,'launcher-updates','staged.json'),JSON.stringify(staged));
+ for(const name of ['a'.repeat(64)+'.asar','b'.repeat(64)+'.asar','c'.repeat(64)+'.asar'])await fs.writeFile(path.join(dataRoot,'launcher-updates',name),'payload');
+ const result=await clearForLevel('minor',{dataRoot});
+ assert.deepEqual(result.cleared.includes('launcher-updates'),true,'the stash is a cleared member');
+ assert.deepEqual((await fs.readdir(path.join(dataRoot,'launcher-updates'))).sort(),['a'.repeat(64)+'.asar','b'.repeat(64)+'.asar','current.json','staged.json'],'the activated pair and the staged pair both survive, and an older payload does not');
+}));
+
+test('the apply line carries the release, the launcher it came from and one outcome word',()=>{
+ const log=new UpdateLog({file:null,version:'1.0.44',now:()=>new Date('2026-10-23T12:00:00.000Z')});
+ assert.match(log.applyLine({version:'1.0.45',from:'1.0.44',note:'applied'}).trim(),/^2026-10-23T12:00:00\.000Z v1\.0\.44 step=update-apply outcome=ok version=1\.0\.45 from=1\.0\.44 note=applied$/);
+ assert.match(log.applyLine({outcome:'failed',version:'1.0.45',from:'1.0.44',note:'stale'}).trim(),/step=update-apply outcome=failed version=1\.0\.45 from=1\.0\.44 note=stale$/);
+ assert.match(log.applyLine({version:'1.0.45;sudo',from:'C:\\Users\\owen token=eyJ',note:'../../etc/passwd'}).trim(),/version=- from=- note=-$/,'a value a token cannot hold is written as -, never as itself');
 });

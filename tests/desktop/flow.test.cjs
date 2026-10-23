@@ -465,6 +465,19 @@ test('starting the game moves the launcher by exactly one rule, and never hides 
  assert.equal(launchBehaviour({trayOnLaunch:'yes'},{trayAvailable:true}).action,'stay');
  assert.equal(launchBehaviour({exitOnLaunch:'yes',trayOnLaunch:true},{trayAvailable:true}).action,'tray','a malformed close value leaves the tray choice alone');
  assert.equal(launchBehaviour(null,{trayAvailable:true}).action,'stay');
+ // The relaunch switch, which is a different question asked at startup: this window replaced
+ // one that was in the tray, so it comes up in the tray — regardless of the launch-time pair,
+ // and with no sentence, because the player is not being told anything they can see.
+ assert.deepEqual(launchBehaviour({},{trayAvailable:true,hiddenToTray:true}),{action:'tray',message:null});
+ assert.deepEqual(launchBehaviour({trayOnLaunch:true},{trayAvailable:true,hiddenToTray:true}),{action:'tray',message:null});
+ // Closing behind the game is an explicit choice the player made, so it wins over the switch.
+ assert.equal(launchBehaviour({exitOnLaunch:true},{trayAvailable:true,hiddenToTray:true}).action,'quit');
+ // Where no tray host exists the switch is NOT honoured: the window comes up as an ordinary
+ // window. An invisible launcher with no icon is one nobody can reach, which is worse than the
+ // frame the switch exists to avoid.
+ assert.deepEqual(launchBehaviour({},{trayAvailable:false,hiddenToTray:true}),{action:'stay',message:null});
+ assert.deepEqual(launchBehaviour({trayOnLaunch:true},{trayAvailable:false,hiddenToTray:true}).action,'hide','the trayOnLaunch rule is unchanged by the switch');
+ assert.equal(launchBehaviour({},{trayAvailable:true}).action,'stay','a switch nobody passed changes nothing');
 });
 
 // What the main process does with that decision. These are wiring assertions on the real
@@ -500,10 +513,12 @@ test('the window steps aside with a tray or a way back, and returns when the gam
  // The shortcut clicked while the launcher is running arrives on this same event with
  // its own command line, so the flag is read from there and not from the first launch.
  assert.match(source,/if\(wantsAutoStart\(argv\)\)void autoStart\(\);/,'a second launch carrying the auto-start flag starts the game through the same path');
- // Both game handlers put the window back, and keep the messages they settled before.
- const exitHandler=/child\.once\('exit',code=>\{game=null;returnToLauncher\(\);const message=code===0\?'Minecraft closed\. Ready to play\.':'Minecraft closed with code '\+code\+'\. Its log is in the client folder\.';settle\(message,\{error:code===0\?null:message\}\);\}\)/.exec(source);
- assert(exitHandler,'the exit handler restores the window and settles the same message');
- const errorHandler=/child\.once\('error',\(\)=>\{game=null;returnToLauncher\(\);const message='Minecraft could not start\. Check Java and try again\.';settle\(message,\{error:message\}\);\}\)/.exec(source);
+ // Both game handlers put the window back, keep the messages they settled before, and forget
+ // the running game's marker: a launcher that restarts after the game has ended must not adopt
+ // a process that is gone (tests/desktop/game-marker.test.cjs proves what adoption does).
+ const exitHandler=/child\.once\('exit',code=>\{game=null;forgetRunningGame\(\);returnToLauncher\(\);const message=code===0\?'Minecraft closed\. Ready to play\.':'Minecraft closed with code '\+code\+'\. Its log is in the client folder\.';settle\(message,\{error:code===0\?null:message\}\);\}\)/.exec(source);
+ assert(exitHandler,'the exit handler restores the window, forgets the marker and settles the same message');
+ const errorHandler=/child\.once\('error',\(\)=>\{game=null;forgetRunningGame\(\);returnToLauncher\(\);const message='Minecraft could not start\. Check Java and try again\.';settle\(message,\{error:message\}\);\}\)/.exec(source);
  assert(errorHandler,'the failure handler restores the window too');
  // The behaviours are mutually exclusive at the call site as well: one branch each.
  assert.match(source,/if\(settings\.exitOnLaunch===true\)setTimeout\(\(\)=>\{ if\(game\)\{ app\.quit\(\); \} \},800\);/);

@@ -18,9 +18,10 @@ Owen: "If the updater is open, every 10 or 15 minutes, or maybe 20, 30, 1 hour? 
 the launcher client ping our servers asking 'hey am I still running the latest version?', and
 if it's not then it automatically updates and restarts." The startup check answers that
 question once, at launch. A launcher left open for six hours used to learn about a release
-only by being restarted. It now asks again on its own, and it *stages* — it does not restart.
-The restart choreography, the deferral while a game runs and the tray-hidden relaunch are a
-separate ticket, so this half can be proven alone.
+only by being restarted. It now asks again on its own, and it *stages*: this half only ever
+writes a payload to disk. What takes that stage — the apply step, the relaunch and the game it
+has to keep alive — is the section after this one (*Applying what was staged, behind a live
+game*), so the question can still be proven without the choreography.
 
 **The question is the release's own `/releases/latest` redirect.** One request, no GitHub API
 call, no token, redirect not followed, body empty. Measured against the real endpoint on
@@ -68,8 +69,8 @@ next start, and it does not run the version policy's clear. That matters: a back
 that wrote `current.json` would make a `minor` release activate on the next ordinary start
 *without* the cache clear its level asks for, because bootstrap would then load the new bundle
 and the startup gate would find nothing newer. The apply step — the version policy, the
-activation record and the relaunch — stays where it is, on the startup gate, and the staged
-record is what a restart ticket reads to reach it.
+activation record and the relaunch — reads that staged record and does all three itself; see
+*Applying what was staged, behind a live game* below.
 
 **It cannot delay a launch, and it cannot overlap itself.** The next tick is armed only once
 the current check settles, so two checks cannot be in flight; a second request while one is
@@ -87,7 +88,96 @@ shipped build today and is proven by `tests/desktop/update-poll.test.cjs` rather
 journey; the wiring reads `settings.autoUpdateLauncher !== false` so unpinning it later needs
 no second change.
 
-**Nothing here restarts anything.** `desktop/updater.cjs` never calls `app.relaunch` or
+**Nothing in the poll restarts anything.** `desktop/updater.cjs` never calls `app.relaunch` or
 `app.quit`, and the background section of `desktop/main.cjs` is asserted to contain neither:
-the only relaunch in the launcher remains the startup gate's own apply step.
+the two relaunches in the launcher are the startup gate's own apply step and the apply step
+below, which is what takes a stage this section wrote.
+
+## Applying what was staged, behind a live game (2026-10-23)
+
+Owen's design, and his own correction of the first draft of this section: *"the launcher can
+update while a game is open, in the background and resume that was a big part of my design."*
+So a running Minecraft is **not** a reason to wait. The launcher stages the newer release,
+applies it, quits, comes back on the new version and re-adopts the game it left playing — and
+the player, in the world, notices nothing except that the launcher is current when they return.
+
+Three things make that true, and they are the whole of the mechanism:
+
+**The client outlives the launcher, deliberately.** `execOptions` in `desktop/install.cjs`
+spawns the client `detached` (its own process group and session, so the launcher's exit does
+not signal it) and with `stdio:'ignore'` (no pipe the launcher would have to keep servicing
+after it is gone; the launcher discards game output anyway). Neither of those is a side
+effect: they are the reason a relaunch no longer takes the game down or orphans it.
+
+**The game's identity is written down before anything can restart.** `desktop/game-marker.cjs`
+records `{pid, start, startedAt}` in `<data>/running-game.json` the moment the client is
+spawned, where `start` is the process's own start time as the operating system reports it —
+field 22 of `/proc/<pid>/stat` on Linux, `ps -o lstart=` on macOS, the process creation time
+through PowerShell on Windows. A pid alone is not an identity: pids are reused, and "pid 4711
+exists" is true of an unrelated browser an hour later. The marker matches only when the process
+at that pid started at exactly the recorded moment.
+
+**A restarted launcher reads it back.** `adoptRunningGame()` runs in `whenReady` before the
+first broadcast, so the first frame a returning player sees says Minecraft is running instead
+of offering Play, and a second Play is refused while that process lives. The launcher has no
+child handle on this side of the relaunch, so it watches liveness instead, on a named bound:
+
+| Bound | Value | Why |
+|---|---|---|
+| `ADOPTED_WATCH_MS` | 2 s on Linux, 5 s elsewhere | one `/proc` read is microseconds, and the marker is the only thing that can end a game state; on macOS and Windows the same question costs a spawned probe, so it is asked less often |
+| `game-marker.PROBE_TIMEOUT_MS` | 4 s | a process question slower than that is answered "unknown", which `adopt` treats as "not the game": coming back to a launcher that guesses wrong is worse than coming back to the ordinary state |
+
+The watch timer is unref'd, and it stops the moment the process is gone. When it goes, the marker
+is removed and the launcher settles the sentence a clean exit has always had — *"Minecraft
+closed. Ready to play."* — with no exit code invented for a process it did not parent. A marker
+that no longer matches its process is removed at startup and the launcher starts in its
+ordinary state: never a dead screen.
+
+**The apply step itself.** `applyStagedLauncherUpdate` in `desktop/main.cjs` reads the poll's
+own record — `launcher-updates/staged.json` beside `<sha256>.asar` (`updater.stagedState`) —
+and never invents a second format or re-downloads. It runs the version policy's clear itself,
+before the activation record, in the same order the startup gate uses, so a crash between the
+two leaves an unactivated launcher rather than an uncleared one:
+
+| Step | What it does | Why here |
+|---|---|---|
+| `updater.stagedState` | validates the record and the payload's length, and answers `none`, `stale`, `invalid` or `ready` with the record | a record that can never be applied is discarded, not retried |
+| `updater.applyVersionPolicy` | `classify(from, to)` and the clear that level asks for — one `step=update-policy` line | a stage must never activate without its clear |
+| `updater.activateStaged` | re-reads, re-validates, hashes the whole payload, writes `current.json`, removes `staged.json` | this is the bytes that run next; the same standard `selected` applies at load time |
+| `app.relaunch` + `app.quit` | the new process, with the window's own state as one explicit switch | see the tray rule below |
+
+One quiet line per apply goes to `launcher-update.log` (`step=update-apply … note=applied`,
+`note=stale` or `note=invalid`), beside the policy's own decision line. Nothing else is said.
+
+**What an apply still refuses to interrupt.** A *press* that has not settled into a game, a
+transfer, a sign-in, an install, or the startup gate itself: `updater.updateMayApplyNow` is the
+whole rule in one pure function (`pressInFlight`, `busy`, `phase`), and a game is deliberately
+absent from it. A stage that arrives while one of those is live is not lost — it waits, and the
+operation that was in the way asks again as it settles (`retryStagedUpdateApply`).
+
+**The tray, and the frame that is not painted.** *"If the launcher was minimized to system tray
+it should open in the system tray, not as a regular window and pop up on the screen for a frame
+or two."* `relaunchOptions` gains one explicit switch, `--hidden-to-tray` (beside the two
+recognised `--no-sandbox` / `--play` it already preserved, and never any other argv), written
+only when the window it replaces had stepped aside into the tray. `launchBehaviour` in
+`security.cjs` honours it — but only where a tray icon can actually exist:
+
+- **with a tray host**, the relaunch creates the tray icon *before the window exists* and never
+  calls `show()`. `visible` is sampled every 10 ms across startup and every sample is false
+  (`tests/desktop/update-apply.electron.mjs`); the ordinary relaunch, sampled identically, ends
+  visible.
+- **with no tray host** (`trayHostAvailable` false: no `org.kde.StatusNotifierWatcher` on the
+  session bus, the state of a bare X seat and of Owen's own i3/polybar desktop) the switch is
+  **not** honoured and the window comes up as an ordinary window. An invisible launcher with no
+  icon is one nobody can reach, which is worse than the single frame the switch exists to avoid.
+  This is the same measurement, and it is why `launchBehaviour` answers `stay` here rather than
+  `hide`.
+
+**Nothing about a manual update changes.** The startup gate, `update-gate.electron.mjs`,
+`bootstrap.electron.mjs`, the version-classification rules and the mandatory-update surface are
+exactly as they were; the apply step reuses that surface (`phase:'restarting'` and the sentence
+*Restarting launcher…*) when the player is looking at the launcher, and sends no broadcast at
+all when the window is in the tray, because a relaunch behind a running game is supposed to be
+invisible.
+
 

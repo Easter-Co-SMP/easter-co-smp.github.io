@@ -127,30 +127,104 @@ function selected(root,{bundled,runtime,platform=process.platform,arch=process.a
 // apply step?", so it validates the record exactly as `selected` does and checks the payload's
 // length. The bytes were hashed by `stage` when they were written and the file is named after
 // that hash, so re-hashing here would be a 40 MB read on every question and prove nothing new.
-function staged(root,{current,runtime,platform=process.platform,arch=process.arch}={}){
- try{
-  const manifest=JSON.parse(raw.readFileSync(path.join(root,'staged.json'),'utf8'));
-  validate(manifest,{release:manifest.version,platform,arch,runtime});
-  if(current!==undefined&&compare(manifest.version,current)<=0)return null;
-  const target=path.join(root,manifest.sha256+'.asar');
-  if(raw.statSync(target).size!==manifest.size)return null;
-  return {...manifest,file:target};
- }catch{return null;}
+//
+// `stagedState` is the same question asked with the reason attached, because the apply step has
+// to do something different with each answer: nothing staged is silence, a record that names a
+// version this launcher already runs or a payload that no longer matches itself is discarded
+// rather than applied, and only `ready` may be activated. A reader asking "may I apply this?"
+// gets the same verdict from `staged` below; the poller uses that one and needs no reasons.
+function stagedState(root,{current,runtime,platform=process.platform,arch=process.arch}={}){
+ let manifest;
+ try{manifest=JSON.parse(raw.readFileSync(path.join(root,'staged.json'),'utf8'));}
+ catch{return {outcome:'none',record:null,manifest:null};}
+ try{validate(manifest,{release:manifest.version,platform,arch,runtime});}
+ catch{return {outcome:'invalid',record:null,manifest};}
+ if(current!==undefined&&compare(manifest.version,current)<=0)return {outcome:'stale',record:null,manifest};
+ const target=path.join(root,manifest.sha256+'.asar');
+ try{if(raw.statSync(target).size!==manifest.size)return {outcome:'invalid',record:null,manifest};}
+ catch{return {outcome:'invalid',record:null,manifest};}
+ return {outcome:'ready',record:{...manifest,file:target},manifest};
 }
-function relaunchOptions({platform=process.platform,env=process.env,execPath=process.execPath,argv=process.argv}={}){
+function staged(root,options={}){
+ const {outcome,record}=stagedState(root,options);
+ return outcome==='ready'?record:null;
+}
+// The apply step's one write: what the background check staged becomes what bootstrap.cjs loads
+// on the next start. The record is re-read and re-validated here rather than trusted from the
+// earlier question, and the payload is hashed against it, because this is the moment the bytes
+// become the code that runs next — the same standard `selected` applies when it loads them. The
+// staged record is removed afterwards: it has been activated, and a record naming a version this
+// launcher already runs is a stale file the next start would have to discard.
+//
+// This is the activation and nothing else. It writes no cache, clears nothing and restarts
+// nothing: the version policy's clear and the relaunch are the caller's, and they belong
+// together because they are the one moment a version change may destroy something.
+async function activateStaged({root,runtime,current,platform=process.platform,arch=process.arch,inspect=()=>{}}={}){
+ const record=staged(root,{current,runtime,platform,arch});
+ if(!record)return null;
+ const {file,...manifest}=record;
+ const bytes=await fs.readFile(file);
+ if(bytes.length!==manifest.size||crypto.createHash('sha256').update(bytes).digest('hex')!==manifest.sha256)return null;
+ inspect(file,manifest);
+ await atomic(path.join(root,'current.json'),manifest);
+ // A record that survives its own activation would be answered "not newer than the launcher"
+ // on the next question, so it is removed here, once, rather than left for the next start.
+ await fs.rm(path.join(root,'staged.json'),{force:true});
+ return {...manifest,file};
+}
+// A staged record that cannot be applied is not left lying about: the payload it names stays in
+// the stash (the minor clear owns payloads), but the record goes, so the next question — a poll
+// tick or the next start — is answered from what is actually there rather than from a claim
+// that has already been refused once.
+async function discardStaged({root}={}){
+ try{await fs.rm(path.join(root,'staged.json'),{force:true});return true;}catch{return false;}
+}
+// Owen's rule of 2026-10-23, second half: "if the launcher was minimized to system tray it
+// should open in the system tray, not as a regular window and pop up on the screen for a frame
+// or two." So a relaunch carries one explicit switch when the window it is replacing was not on
+// screen, and the new process honours it — or does not, where no tray icon can exist
+// (`launchBehaviour` in security.cjs decides, and the probe that answers it is main.cjs's).
+const HIDDEN_TO_TRAY='--hidden-to-tray';
+function wantsHiddenToTray(argv=process.argv){return Array.isArray(argv)&&argv.includes(HIDDEN_TO_TRAY);}
+function relaunchOptions({platform=process.platform,env=process.env,execPath=process.execPath,argv=process.argv,hiddenToTray=false}={}){
  // A shortcut's Play request must survive the mandatory launcher update. Preserve
  // only the two recognised switches, never arbitrary launch arguments or paths.
  const args=['--no-sandbox','--play'].filter(argument=>argv.includes(argument));
+ // The tray switch is not carried over from this process's own command line: it says something
+ // about the window *now* (it stepped aside), and that is the caller's fact to state. A launcher
+ // whose window the player has brought back comes up as an ordinary window again.
+ if(hiddenToTray===true)args.push(HIDDEN_TO_TRAY);
  return {execPath:platform==='linux'&&env.APPIMAGE?env.APPIMAGE:execPath,args};
+}
+// ---- when a staged update may be applied ----------------------------------------------
+//
+// Owen's design, corrected by him the same day (2026-10-23): "the launcher can update while a
+// game is open, in the background and resume that was a big part of my design." So a running
+// game is NOT a reason to wait. The launcher applies the update behind a live Minecraft, quits,
+// comes back on the new version and re-adopts the game it left running: the client is spawned
+// detached with no inherited pipes (desktop/install.cjs `execOptions`), and its identity is
+// written down before the relaunch (desktop/game-marker.cjs) so the new instance knows what is
+// still playing.
+//
+// What an apply must still never do is interrupt work the launcher is in the middle of and
+// would lose: a Play press that has not settled into a game yet, a transfer, a sign-in, an
+// install, or the startup gate itself. Those are facts the caller owns — `pressInFlight` and
+// `busy` are already how main.cjs describes the launcher — and this is the one place the rule
+// is written down, so it can be walked by a test rather than believed by a reader.
+const APPLY_BLOCKING_PHASES=Object.freeze(['launching','starting-game','downloading','paused','verifying','installing','updating','checking-client']);
+function updateMayApplyNow({pressInFlight=false,busy=false,phase=null}={}){
+ if(pressInFlight===true||busy===true)return false;
+ return !APPLY_BLOCKING_PHASES.includes(String(phase||''));
 }
 // ---- asking again, while the launcher is open ----------------------------------------
 //
 // Owen's rule of 2026-10-23: "If the updater is open, every 10 or 15 minutes, or maybe 20,
 // 30, 1 hour? ... let's have the launcher client ping our servers asking 'hey am I still
 // running the latest version?', and if it's not then it automatically updates and restarts."
-// This section is the ping and the stage. The restart is a separate ticket and nothing here
-// calls app.relaunch or app.quit: this file never has, and the only caller that does is
-// main.cjs's startup gate.
+// This section is the ping and the stage. Nothing here restarts anything: this file has never
+// called app.relaunch or app.quit and still does not. The apply step reads what this section
+// wrote (`stagedState`, `activateStaged` above) and main.cjs's own apply choreography owns the
+// relaunch — see `updateMayApplyNow` for what it refuses to interrupt.
 //
 // **The question is the release's own `/releases/latest` redirect, not an API call.** One
 // request, no token, no GitHub API, and the redirect is not followed, so the answer is a bare
@@ -363,17 +437,25 @@ function withinDataDirectory(dataRoot,name){
  if(target===root||!target.startsWith(root+path.sep))throw refusal('Refusing to clear a path outside the launcher data directory.');
  return target;
 }
-// The names inside the update stash that must survive a clear: the record the relaunch reads
-// and the one payload it names. bootstrap.cjs loads the staged bundle from current.json, so a
-// clear that removed it would relaunch into the version being replaced and re-download the
-// same update on every start. A record that cannot be read keeps the whole stash instead,
-// which is the same safety with a worse clean-up, never a relaunch into nothing.
+// The names inside the update stash that must survive a clear: the record the relaunch reads and
+// the one payload it names, and — since the background check began staging — the second record
+// and the payload *it* names. bootstrap.cjs loads the current bundle from current.json, so a
+// clear that removed it would relaunch into the version being replaced and re-download the same
+// update on every start; and the staged pair is what the apply step is waiting to activate, so a
+// clear that removed it (which the minor-level clear would do, because it keeps only the record
+// it was written for) would delete the very payload the relaunch is about to apply. A stash with
+// no readable record keeps everything instead, which is the same safety with a worse clean-up,
+// never a relaunch into nothing.
+const STASH_RECORDS=Object.freeze(['current.json','staged.json']);
 async function keepStaged(filesystem,dir){
- try{
-  const record=JSON.parse(await filesystem.readFile(path.join(dir,'current.json'),'utf8'));
-  if(record&&typeof record.sha256==='string'&&/^[a-f0-9]{64}$/.test(record.sha256))return ['current.json',record.sha256+'.asar'];
- }catch{}
- return null;
+ const keep=new Set();
+ for(const name of STASH_RECORDS){
+  try{
+   const record=JSON.parse(await filesystem.readFile(path.join(dir,name),'utf8'));
+   if(record&&typeof record.sha256==='string'&&/^[a-f0-9]{64}$/.test(record.sha256))keep.add(name).add(record.sha256+'.asar');
+  }catch{}
+ }
+ return keep.size?[...keep]:null;
 }
 // Clearing, drivable without Electron: `filesystem` supplies the reads and `remove` supplies
 // the deletion, so a test can prove the matrix on a fixture directory and count exactly how
@@ -462,6 +544,17 @@ class UpdateLog{
  poll(entry={}){
   this.write(this.pollLine(entry));
  }
+ // The apply step's own line, in the same file and under the same rules: which staged release
+ // was applied (`applied`), or which staged record was thrown away and why (`stale`, `invalid`).
+ // The clear that follows writes its own `step=update-policy` decision line beside this one, so
+ // the file answers both questions — what was taken, and what it cost. One line per decision and
+ // none for a deferral: a game running is the normal state of the world, not an event.
+ applyLine({outcome='ok',version=null,from=null,note=null}={}){
+  return [this.now().toISOString(),'v'+(this.version||'unknown'),'step=update-apply','outcome='+(outcome==='failed'?'failed':'ok'),'version='+token(version),'from='+token(from),'note='+token(note)].join(' ')+'\n';
+ }
+ apply(entry={}){
+  this.write(this.applyLine(entry));
+ }
  write(line){
   if(!this.file)return;
   try{
@@ -493,5 +586,5 @@ async function applyVersionPolicy({from,to,dataRoot,filesystem=fs,remove,log=nul
  }catch{}
  return result;
 }
-module.exports={setFailureLog,fault,update,stage,selected,staged,validate,compare,version,relaunchOptions,BOOTSTRAP,LEVELS,classify,clearPlan,CLEAR,withinDataDirectory,clearForLevel,applyVersionPolicy,UpdateLog,
+module.exports={setFailureLog,fault,update,stage,selected,staged,stagedState,activateStaged,discardStaged,validate,compare,version,relaunchOptions,HIDDEN_TO_TRAY,wantsHiddenToTray,updateMayApplyNow,APPLY_BLOCKING_PHASES,BOOTSTRAP,LEVELS,classify,clearPlan,CLEAR,withinDataDirectory,clearForLevel,applyVersionPolicy,UpdateLog,
  LATEST_PAGE,POLL_INTERVAL_MS,POLL_JITTER_MS,POLL_BACKOFF_CAP_MS,POLL_BACKOFF_MAX,POLL_TIMEOUT_MS,tagVersion,latestVersion,pollDelay,createLauncherPoll};

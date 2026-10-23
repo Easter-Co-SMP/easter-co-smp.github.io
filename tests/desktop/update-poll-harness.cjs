@@ -55,6 +55,17 @@ updater.createLauncherPoll=options=>{
  return real({...options,probe:poll,fetch:download,intervalMs:Number(process.env.EASTER_POLL_INTERVAL||400),jitterMs:0,random:()=>0,
   log:{poll:entry=>{global.easterPollLines.push(entry);options.log?.poll?.(entry);}}});
 };
+// What the apply step (ticket 7620bcf9) does when it takes a stage: `app.relaunch` and `app.quit`
+// are recorded instead of performed, so this journey can go on looking at the process that asked
+// for the restart. `easterRestoreApp` puts the real functions back for the final close.
+const realRelaunch=app.relaunch.bind(app),realQuit=app.quit.bind(app);
+global.easterRelaunch=null;
+global.easterQuits=0;
+global.easterRealQuit=false;
+app.relaunch=options=>{global.easterRelaunch=options||{};};
+app.quit=()=>{global.easterQuits+=1;if(global.easterRealQuit)realQuit();};
+global.easterRestoreApp=()=>{app.quit=realQuit;app.relaunch=realRelaunch;};
+global.easterQuitNow=()=>{global.easterRealQuit=true;app.quit();};
 // The startup gate's question, answered without a single request.
 updater.update=async({current,notify})=>{
  global.easterStartupChecks=(global.easterStartupChecks||0)+1;
