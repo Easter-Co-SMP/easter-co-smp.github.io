@@ -409,3 +409,23 @@
 @media(min-width:601px) and (max-height:700px){
  .desktop-mode body.home>.home-content{padding:calc(16px + var(--launcher-notice-space,0px)) 40px 24px}
 }
+/* THE STORE IS A LAUNCHER SURFACE, NOT A WEBSITE DESTINATION. Owen, 2026-10-23: *"hide all
+   store elements when not inside of launcher"* - the store is a thing to discover once you are
+   already in, so nothing about it is advertised, linked or painted on the public site.
+   Every page keeps the Store link in its own static markup, because the relative route differs
+   per page (./store/ from the home page, ../store/ from map, wiki and the store itself) and the
+   launcher needs each one correct. These rules are what keep it out of the website: hidden here
+   is `display:none`, so it leaves the accessibility tree and the tab order too rather than
+   merely going transparent. `desktop-mode` on <html> is set by site/desktop.js from the
+   isolated preload bridge, never from a URL parameter or a saved preference, so a browser
+   cannot put itself in it. The store page itself also sends a browser visitor home
+   (site/store/store.mjs), so these rules are the guarantee for the no-script case rather than
+   the only gate. */
+.site-header nav a.store-entry,
+.store-main,
+.store-noscript,
+.store-footer>span:last-child{display:none}
+.desktop-mode .site-header nav a.store-entry{display:inline}
+.desktop-mode .store-main{display:block}
+.desktop-mode .store-noscript{display:block}
+.desktop-mode .store-footer>span:last-child{display:inline}

@@ -125,7 +125,11 @@ try {
     page.on("request", (r) => {
       if (!r.url().startsWith(origin)) external.push(r.url());
     });
-    // No click and no bridge: /store/ has to be the store on its own.
+    // The launcher's own bridge and no click: /store/ has to be the store on its own, reached by
+    // navigation, with nothing having been opened for it. The bridge is required now (Owen,
+    // 2026-10-23: the store is hidden outside the launcher), so this is the shape the launcher
+    // gives it: the isolated preload claiming desktop mode and nothing else.
+    await page.addInitScript(bridge);
     await page.goto(origin + "/store/", { waitUntil: "networkidle" });
     // downloads.js owns the header's Download popover and its setup dialog, so what is
     // asserted here is that the store itself is no dialog and nothing is open over the page.
@@ -354,6 +358,7 @@ try {
     });
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(bridge);
     await page.goto(origin + "/store/" + hash, { waitUntil: "networkidle" });
     await check(page);
     assert.deepEqual(errors, [], "no page error on " + hash);
@@ -383,37 +388,56 @@ try {
     await page.locator(".store-product").first().waitFor();
     assert.equal(new URL(page.url()).hash, "#catalogue");
   });
-  // The home page reaches the store on its own. The link is in the static markup, so a visitor
-  // with no script - and no desktop bridge - still has the route a launcher visitor has.
+  // THE STORE IS A LAUNCHER SURFACE, NOT A WEBSITE DESTINATION. Owen, 2026-10-23: *"hide all
+  // store elements when not inside of launcher."* The link stays in every page's static markup
+  // because each page's route to the store is relative and the launcher needs each one correct
+  // (./store/ from the home page, ../store/ from map, wiki and the store itself), so what makes
+  // the website storeless is desktop.css hiding it until `desktop-mode` arrives. That is why the
+  // no-script page is asserted first: it is the case with no JavaScript at all to hide anything.
   const noScript = await browser.newPage({
     viewport: { width: 1440, height: 1000 },
     javaScriptEnabled: false,
   });
   try {
     await noScript.goto(origin + "/", { waitUntil: "load" });
-    const staticEntry = noScript.locator('.site-header nav a[href="./store/"]');
+    const staticEntry = noScript.locator(".site-header nav a.store-entry");
     assert.equal(
       await staticEntry.count(),
       1,
-      "the home header carries exactly one Store link without any script",
+      "the home markup still carries the Store link, so the launcher has a route on every page",
     );
-    assert.equal(await staticEntry.textContent(), "Store");
     assert.equal(
-      await noScript.locator(".site-header nav").evaluate((nav) => [
-        ...nav.children,
-      ].map((n) => n.textContent.trim().replace(/\s+/g, " ").split(" ")[0]).join(" ")),
-      "Home Download Map Wiki Store",
-      "Store is the fifth destination in the home header, after Wiki",
+      await staticEntry.isVisible(),
+      false,
+      "without the bridge the Store entry is hidden, not merely moved down the page",
     );
-    await staticEntry.click();
-    await noScript.waitForURL(origin + "/store/");
-    await noScript
-      .getByRole("heading", { name: "The Community store" })
-      .waitFor();
+    assert.equal(
+      await noScript.locator(".site-header nav").evaluate((nav) =>
+        [...nav.children]
+          .filter((n) => n.getClientRects().length > 0)
+          .map((n) => n.textContent.trim().replace(/\s+/g, " ").split(" ")[0])
+          .join(" "),
+      ),
+      "Home Download Map Wiki",
+      "the home header offers four destinations, and the store is not one of them",
+    );
+    await noScript.goto(origin + "/store/", { waitUntil: "load" });
+    assert.equal(
+      await noScript.locator(".store-main").isVisible(),
+      false,
+      "a browser at /store/ with no script paints no store at all",
+    );
+    assert.equal(await noScript.locator(".store-demo").isVisible(), false);
+    assert.equal(
+      await noScript.locator(".store-product").count(),
+      0,
+      "no catalogue, no prices and no product markup reach a browser",
+    );
   } finally {
     await noScript.close();
   }
-  // The same page with script running, still with no bridge: one Store link, five destinations.
+  // The same page with script running and still no bridge: no store entry, and /store/ sends the
+  // visitor back to the site rather than showing a catalogue they have no way to buy from.
   const plain = await browser.newPage({
     viewport: { width: 1440, height: 1000 },
     reducedMotion: "reduce",
@@ -428,18 +452,25 @@ try {
       "a plain browser page has no desktop bridge",
     );
     assert.equal(
-      await plain.locator('.site-header nav a[href="./store/"]').count(),
-      1,
-      "the home nav lists Store once with script running",
+      await plain.evaluate(() =>
+        document.documentElement.classList.contains("desktop-mode"),
+      ),
+      false,
+      "a browser cannot put itself into desktop mode",
     );
-    await plain.locator('.site-header nav a[href="./store/"]').click();
-    await plain.waitForURL(origin + "/store/");
     assert.equal(
-      await plain.locator(".site-header nav").evaluate((nav) => nav.children.length),
-      5,
-      "the store page's header nav shows five destinations",
+      await plain.locator('.site-header nav a[href*="store/"]:visible').count(),
+      0,
+      "the home nav shows no Store entry in a browser, scripted or not",
     );
-    assert.deepEqual(plainErrors, [], "no page error navigating home -> store");
+    await plain.goto(origin + "/store/", { waitUntil: "networkidle" });
+    await plain.waitForURL(origin + "/");
+    assert.equal(
+      await plain.locator(".store-main").count(),
+      0,
+      "a browser that asks for /store/ is sent home and shown no store page",
+    );
+    assert.deepEqual(plainErrors, [], "no page error redirecting a browser home");
   } finally {
     await plain.close();
   }
@@ -456,8 +487,13 @@ try {
     0,
     "no Store button that opens a dialog",
   );
-  const entry = launcher.locator('.site-header nav a[href="./store/"]');
+  const entry = launcher.locator(".site-header nav a.store-entry");
   assert.equal(await entry.textContent(), "Store");
+  assert.equal(
+    await entry.isVisible(),
+    true,
+    "inside the launcher the store entry is shown, which is the whole difference",
+  );
   await entry.click();
   await launcher.waitForURL(origin + "/store/");
   await launcher

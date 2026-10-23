@@ -1115,13 +1115,13 @@
  }
  if(homeCopy)void import('./launcher-discovery.mjs').then(({mountDiscovery})=>mountDiscovery(homeCopy.parentElement,desktop));
  // The store is a page of its own at ./store/, reached by navigation exactly as Map and Wiki
- // are, and it stays a separate, explicitly labelled mock surface: it never shares payment,
- // account or entitlement state with the launcher lifecycle, and nothing here loads its module.
- // Every page now carries that Store link in its own static markup - the home page included, so
- // a browser visitor on / has the same route the launcher has - which makes this append dead on
- // all four pages. It is kept as the one place a page without the link would still get it, and
- // the guard is what keeps the header to exactly one Store entry: matching on the link rather
- // than on a class means the static one satisfies it, so nothing is appended here.
+ // are. Every page carries that Store link in its own static markup, because each page's route
+ // to the store is relative and this shared script cannot compute one for all four; the link is
+ // hidden in the website by site/desktop.css and shown only under `desktop-mode`, which is what
+ // makes the store a launcher surface and nothing on the website (Owen, 2026-10-23: *"hide all
+ // store elements when not inside of launcher"*). This append is therefore dead on all four
+ // pages and kept as the one place a page without the link would still get it; matching on the
+ // link rather than on a class is what keeps the header to exactly one Store entry.
  const storeNav=document.querySelector('.site-header nav');
  if(storeNav&&!storeNav.querySelector('a[href="./store/"],a[href$="/store/"]')){
   const storeEntry=document.createElement('a');storeEntry.className='desktop-store-entry';storeEntry.href='./store/';storeEntry.textContent='Store';

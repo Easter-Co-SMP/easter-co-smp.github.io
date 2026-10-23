@@ -1050,5 +1050,18 @@ export function mountStore(root, { api = createMockStoreAPI() } = {}) {
 
 // The store page is the only page with a mount point; importing this module elsewhere (as the
 // browser tests do for an injected adapter) renders nothing.
+//
+// A BROWSER IS NOT A SHOP FLOOR. Owen, 2026-10-23: *"hide all store elements when not inside of
+// launcher"* - the store lives inside the launcher and is discovered there, so a visitor who
+// types or shares this address is sent back to the site instead of being shown a catalogue they
+// have no way to buy from. `mode:'desktop'` is the isolated preload's own claim and the same
+// test site/desktop.js makes to enter desktop mode, so a published URL is not a way in and a URL
+// parameter or stored preference cannot forge one. The CSS in desktop.css hides every
+// store-shaped element until `desktop-mode` arrives, which covers the case where this module
+// never runs at all (scripting off), and the redirect covers the visitor who lands here.
 const mount = document.getElementById("store-root");
-if (mount) mountStore(mount);
+const bridge = globalThis.easterDesktop;
+if (mount) {
+  if (bridge && bridge.mode === "desktop") mountStore(mount);
+  else location.replace("../");
+}

@@ -4,6 +4,25 @@ const { chromium } = await import(
 );
 const origin = process.env.EASTER_PUBLIC_ORIGIN || "http://127.0.0.1:18100",
   output = process.env.EASTER_REVIEW_OUTPUT;
+// The store exists only inside the launcher (Owen, 2026-10-23: *"hide all store elements when
+// not inside of launcher"*), so every page that is meant to see it carries the isolated
+// preload's claim and nothing else. Same stub as tests/store-browser.mjs.
+const bridge = () => {
+  const state = {
+    phase: "idle",
+    settings: {},
+    install: {},
+    profile: null,
+    actions: [],
+    startupReady: true,
+  };
+  window.easterDesktop = {
+    mode: "desktop",
+    status: async () => state,
+    onState: () => () => {},
+    homeContent: async () => ({ schema: 1, posts: [], featuredItem: null }),
+  };
+};
 const browser = await chromium.launch({
   executablePath: "/usr/bin/chromium",
   args: ["--no-sandbox", "--disable-dev-shm-usage"],
@@ -22,6 +41,7 @@ try {
     });
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    await page.addInitScript(bridge);
     await page.goto(origin + "/store/", { waitUntil: "networkidle" });
     assert.equal(await page.locator(".company-store").count(), 0);
     assert.equal(await page.locator("dialog[open]").count(), 0);
