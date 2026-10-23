@@ -1,3 +1,19 @@
+# Easter Company launcher 1.0.47
+
+## The shop's artwork
+
+Each product now has an emblem that says what it is at a glance, drawn as local vectors rather
+than fetched images: loose coins for a small pack, a pouch for a hundred Stirling, a chest for a
+thousand, and a heart above gifted coins for the donation. Nothing is downloaded to draw them.
+
+## Where bought currency goes
+
+Every currency card says what it is worth in the game from the server's own figure, and the shop
+says once, above the products, that bought currency is deposited into your in-game bank account
+and can only be taken out in the game. It is the bank, not the wallet: the wallet is capped for
+play, and a purchase must never be cut down by a cap that exists for a different reason.
+
+
 # Easter Company launcher 1.0.46
 
 ## Paying happens inside the launcher
