@@ -17,16 +17,24 @@ Exactly what the server sends, in the server's order, and nothing priced in `sit
 
 | key | name | price | what a card says about it |
 | --- | --- | --- | --- |
-| `sterling-10` | 10 Sterling | $1.49 | 10 Sterling in the game |
-| `sterling-100` | 100 Sterling | $6.95 | 100 Sterling in the game |
-| `sterling-1000` | 1000 Sterling | $29.99 | 1,000 Sterling in the game |
+| `sterling-10` | 10 Sterling | $1.49 | 10 Sterling in your bank |
+| `sterling-100` | 100 Sterling | $6.95 | 100 Sterling in your bank |
+| `sterling-1000` | 1000 Sterling | $29.99 | 1,000 Sterling in your bank |
 | `donation-5` | Keep the lights on | $5.00 | A one-off donation. |
 | `penny` | Penny for the poor | $0.01 | A one-off donation. |
 
 The names and USD amounts in that table are the server's, quoted here as the record of what is
 sold; nothing in `site/` contains them. A card's second line is decided by `creditPence` (**what
 a pack is worth in the game**, from the server): above zero the card says how much Sterling
-arrives, and a product that credits nothing is described as a donation. That is why the
+arrives, and a product that credits nothing is described as a donation.
+
+**Where bought currency lands, and why it matters to the reader:** a purchase credits the
+player's **bank** — the uncapped in-game vault — and never the spendable wallet, because the
+wallet is capped for gameplay and a purchase must not be truncated by a cap that exists for a
+different reason (Owen, 2026-10-23: *"when adding in-game currency to a player, do not add to
+their wallet add to their bank account"*). That is why the card says "… in your bank" and not
+"… in the game": the bank is a real thing the player sees, so naming it is the honest version.
+The fulfilment half is the cloud's; this half only prints the number the server sends. That is why the
 `kind` word the server sends is carried but never parsed for meaning — two halves cannot disagree
 about what a product is worth if only one of them says what it is worth.
 
@@ -116,7 +124,7 @@ The whole visible vocabulary, exactly as Owen fixed it (ticket 45bb99ad): the bu
 browser. Your Sterling arrives the next time you join.**; signed out **Sign in to buy.**; any
 other failure **The store is unavailable right now.**; the orders view headed **Your orders**, and
 an empty one **No orders yet.**; a paid order **Paid** and a delivered one **In the game**; a
-donation **A one-off donation.** and a pack **N Sterling in the game** from `creditPence`.
+donation **A one-off donation.** and a pack **N Sterling in your bank** from `creditPence`.
 Everything else on the page is a product name, a price, a date or a product key the server sent.
 
 Two consequences worth stating, because they are the reviewer's to judge and not this half's to

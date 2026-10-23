@@ -72,12 +72,15 @@ const money = (amountMinor, currency) =>
     amountMinor / 100,
   );
 // What a Sterling pack is worth in the game, from the server's own creditPence: the card
-// describes the pack, it does not price it. A product that credits nothing is a donation.
+// describes the pack, it does not price it. The line names the BANK, not the wallet: bought
+// currency is credited to the player's bank account (Owen, 2026-10-23), which is the uncapped
+// in-game vault, because the wallet is capped for gameplay and a purchase must not be truncated
+// by a cap that exists for a different reason. A product that credits nothing is a donation.
 const worth = (p) =>
   p.creditPence > 0
     ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(
         p.creditPence / 100,
-      ) + " Sterling in the game"
+      ) + " Sterling in your bank"
     : COPY.donation;
 const dateOf = (iso) =>
   new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(

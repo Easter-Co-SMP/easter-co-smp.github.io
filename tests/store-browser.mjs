@@ -192,9 +192,9 @@ try {
     assert.deepEqual(
       await store.locator(".store-worth").allInnerTexts(),
       [
-        "10 Sterling in the game",
-        "100 Sterling in the game",
-        "1,000 Sterling in the game",
+        "10 Sterling in your bank",
+        "100 Sterling in your bank",
+        "1,000 Sterling in your bank",
         COPY.donation,
         COPY.donation,
       ],
@@ -436,7 +436,7 @@ try {
       const store = page.locator(".store-app");
       await page.getByRole("heading", { name: "100 Sterling", level: 2 }).waitFor();
       assert.match(await store.locator(".store-detail-price").innerText(), /\$6\.95/);
-      assert.match(await store.locator(".store-worth").innerText(), /100 Sterling in the game/);
+      assert.match(await store.locator(".store-worth").innerText(), /100 Sterling in your bank/);
       assert.equal(await store.getByRole("button", { name: /^Buy / }).count(), 1);
     });
     await coldLoad("#item/not-a-product", async (page) => {

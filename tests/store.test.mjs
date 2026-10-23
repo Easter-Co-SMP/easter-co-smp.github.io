@@ -14,7 +14,8 @@ const { AccountClient, AccountError, OPERATIONS, STORE_RETRY_BUDGET_MS } = requi
   "../desktop/accounts.cjs",
 );
 // The five products Owen sells, exactly as the cloud half is to send them. Prices are USD minor
-// units; creditPence is what a pack is worth in the game (so 100000 is 1,000 Sterling).
+// units; creditPence is what a pack is worth in the game (so 100000 is 1,000 Sterling), and
+// bought Sterling is credited to the player's bank, which is why the card says "in your bank".
 const PRODUCTS = [
   { key: "sterling-10", name: "10 Sterling", amountMinor: 149, currency: "USD", kind: "sterling", creditPence: 1000 },
   { key: "sterling-100", name: "100 Sterling", amountMinor: 695, currency: "USD", kind: "sterling", creditPence: 10000 },

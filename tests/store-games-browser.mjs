@@ -77,8 +77,8 @@ try {
       );
       assert.deepEqual(
         await store.locator(".store-worth").allInnerTexts(),
-        ["25 Sterling in the game", "A one-off donation.", "0.07 Sterling in the game"],
-        "the worth line comes from creditPence, and a product that credits nothing is a donation",
+        ["25 Sterling in your bank", "A one-off donation.", "0.07 Sterling in your bank"],
+        "the worth line comes from creditPence and names the bank, and a product that credits nothing is a donation",
       );
       // No product, price, category or placeholder of the old mock survives anywhere on the page.
       const served = (await page.locator("body").innerText()).replace(/\s+/g, " ");
