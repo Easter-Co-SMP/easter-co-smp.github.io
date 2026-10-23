@@ -53,12 +53,18 @@ The download will include the custom Easter Company launcher and Minecraft clien
 
 Do not display Source, source code bundles, standalone client/server bundle options, or the old direct-mod download section.
 
-The store is a page at site/store/, reached from the header nav on Home, Map, Wiki and itself
-like Map and Wiki are — never a dialog over the launcher. It is named "The Community store",
-stays `noindex`, is a labelled mock (sample products and USD prices, no real payment, nothing
-delivered to the game), and its mock notice is pinned so it stays visible at every scroll
-position. Its views are hash routes (#catalogue, #item/<id>, #cart, #checkout, #receipt/<id>,
-#orders); doc/launcher-store.md is the record.
+The store is a page at site/store/, reached only from the launcher's own nav — never a dialog,
+and never advertised on the website, which hides every store element until `desktop-mode`
+arrives. It is named "The Community store" and stays `noindex`. It is the REAL store: five
+products for real USD through Stripe's hosted Checkout page, driven by the account service
+through three commands on `window.easterDesktop` (`storeCatalogue`, `storeCheckout`,
+`storeOrders`) and never by a fetch from the page — the catalogue, the prices and the orders are
+the server's, and site/ holds no catalogue of its own. Buying is one product at a time from its
+own card: no cart, no quantity, no basket total. Its views are hash routes (#catalogue,
+#item/<key>, #orders); a stale link to a removed route lands on #catalogue. The
+`storeCatalogue`/`storeOrders` routes are not deployed yet, so the store refuses honestly
+("The store is unavailable right now.") rather than showing an empty shop. Player-facing copy is
+Owen's, frozen, and the page prints no other sentence; doc/launcher-store.md is the record.
 
 Role headings are Navy Conscript, Pirate Raider, and Bounty Hunter.
 Public map controls are zoom in/out, centre, and fullscreen; refresh is automatic.

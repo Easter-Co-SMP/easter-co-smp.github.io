@@ -909,6 +909,9 @@ and an operation cannot become repeatable by being written with a longer timeout
 | `POST /v2/game/session/revoke` | no, write | Ends the stored session everywhere |
 | `POST /v2/accounts/logout` | no, write | Ends the Company session, and is best effort anyway |
 | `POST /v2/accounts/session/refresh` | no | It rotates the very Company session it sends, so a repeat may present a token the first attempt already spent |
+| `GET /v2/accounts/store/catalogue` | yes, read | Changes nothing server side. The store's own window (`STORE_RETRY_BUDGET_MS` = 20 s) rather than the 90 s one: it is a page the player is looking at, not a Play press |
+| `GET /v2/accounts/store/orders` | yes, read | Changes nothing server side, same store window. Never an empty list by accident: a failed read is a refusal (doc/launcher-store.md) |
+| `POST /v2/accounts/checkout` | no, write (waited out on a declared `database_unavailable`) | It creates a Stripe Checkout Session, and a lost answer may have created one. The service declares a `database_unavailable` before it creates anything, so a cold account service is waited out instead of reported as a shut store. A press that fails outright is answered by the player pressing Buy again |
 
 What a repeatable call is asked again for, and what it is not (`transientFailure`):
 
@@ -925,12 +928,23 @@ What a repeatable call is asked again for, and what it is not (`transientFailure
   — four attempts, 3 s × attempt of backoff, a 90 s window, and **only** a 503 that declares
   `database_unavailable` — and that rule is not loosened by any of this.
 
+### The Community store's three commands
+
+`storeCatalogue`, `storeCheckout` and `storeOrders` are the only way the `/store/` page can ask
+anything, and all three go through the same account client, the same HTTPS-only origin rule and
+the same rule that a response body never reaches the renderer. Their answers are rebuilt field by
+field in `desktop/store.cjs`, and every failure is one of two sentences: **Sign in to buy.** and
+**The store is unavailable right now.** The wire shapes, the copy and what is not proved yet are
+in doc/launcher-store.md. None of the three is in `REACHABLE_BEFORE_STARTUP`: they need a signed-in
+session and none of them is needed to start the launcher.
+
 ### The budgets
 
 | Call | Window | Attempts |
 |---|---|---|
 | the mint (`POST /v2/game/session`) | `MINT_RETRY_BUDGET_MS` = 180 s | at most 6, each ≤ 29 s, backoff 2 s → 4 s → 8 s → 16 s → 16 s |
 | every read | `READ_RETRY_BUDGET_MS` = 90 s | at most 6, each ≤ 29 s, same backoff |
+| the store's two reads | `STORE_RETRY_BUDGET_MS` = 20 s | at most 2, each ≤ its own remaining window, same backoff |
 
 Three minutes is generous enough for a real cold start (one Aurora resume measured at 12–20 s plus
 a Lambda cold start, and the mint is five upstream calls) and still bounded; ninety seconds covers

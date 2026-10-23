@@ -34,6 +34,13 @@ const RETRY_BACKOFF_MS=2000,RETRY_BACKOFF_MAX_MS=16000,RETRY_ATTEMPTS_MAX=6;
 // Lambda cold start, and short enough that one failing read uses half of a Play press's own
 // three-minute wake window rather than all of it.
 const MINT_RETRY_BUDGET_MS=180000,READ_RETRY_BUDGET_MS=90000;
+// The Community store's three routes are given their own, shorter window. A shop page is one
+// the player is looking at with the catalogue in front of them, not a Play press, so twenty
+// seconds is enough for an Aurora resume plus a second attempt and short enough that a shut
+// store says so instead of leaving a spinner on a page (doc/launcher-store.md, "How long the
+// store waits"). Each attempt still gets the ordinary ceiling, which `attempt()` caps below the
+// gateway's own 30 s integration limit.
+const STORE_RETRY_BUDGET_MS=20000;
 const UNREACHABLE_MESSAGE='The Easter Company account service could not be reached.';
 // A service that says its own sealing key or Microsoft application is missing is not cold,
 // it is unconfigured: waiting three minutes for it would be a spinner that cannot end.
@@ -54,6 +61,17 @@ const OPERATIONS={
  '/v2/accounts/emails':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a read: it changes nothing server side'},
  '/v2/game/status':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a read: it changes nothing server side, and a bounce is not an answer about the server'},
  '/v2/accounts/username/available':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a question about a name: it writes nothing'},
+ // The Community store's own three routes (desktop/store.cjs). The two reads share the store's
+ // shorter window, for the reason beside that constant. The checkout is a WRITE and stays on the
+ // rule every write is on: it creates a Stripe Checkout Session, a lost answer may have created
+ // one, and this launcher does not reason its way around that rule for a payment route. What it
+ // gets instead is the one thing a write may have — the service's own declared
+ // `database_unavailable`, which it answers before it creates anything — so a cold account
+ // service is waited out rather than reported as a shut store. A press that fails outright is
+ // answered by the player pressing Buy again, which is one fresh session and no ambiguity.
+ '/v2/accounts/store/catalogue':{repeat:true,kind:'read',budgetMs:STORE_RETRY_BUDGET_MS,why:'a read: it changes nothing server side'},
+ '/v2/accounts/store/orders':{repeat:true,kind:'read',budgetMs:STORE_RETRY_BUDGET_MS,why:'a read: it changes nothing server side'},
+ '/v2/accounts/checkout':{repeat:false,wakeSafe:true,kind:'write',why:'it creates a Stripe Checkout Session, and the account service declares a database_unavailable before it creates anything'},
  // the mint: safe in effect
  '/v2/game/session':{repeat:true,kind:'mint',budgetMs:MINT_RETRY_BUDGET_MS,why:'it refreshes, rotates and stores the Microsoft token in one transaction, so a repeat costs one of the 30 mints per 10 minutes and corrupts nothing'},
  // Writes. None of them is retried after a lost answer, a dropped connection, a gateway
@@ -550,8 +568,28 @@ class AccountClient{
   }
   return {revoked:found?.revoked===true};
  }
- async updateProfile(token,body,onWait){const found=await this.attempt('/v2/accounts/profile',{method:'POST',token,body,onWait});return sanitizeAccount(found?.account);}
- async logout(token,signal,onWait){
+ // ---- the Community store -------------------------------------------------------
+ // Three routes, frozen with the cloud half (ticket 45bb99ad): the catalogue, one checkout,
+ // and the player's orders. They are methods here for the same reason the game and Minecraft
+ // routes are: one HTTP client, one bounded window, one HTTPS-only origin rule, and a response
+ // body that never reaches the renderer. Each returns the service's answer for shaping in
+ // desktop/store.cjs, which is the only place that decides what the page may see, so a body
+ // that skips it cannot be printed.
+ //
+ // `productKey` is the page's argument name; on the wire the body is `{product}` because that
+ // is what the deployed route reads (api/checkout_routes.py: "The request body names a product
+ // by one of the stable keys"). Nothing else about the price is sent: the server resolves the
+ // key to its own Stripe Price id, so this launcher cannot name an amount.
+ async storeCatalogue(token,signal){
+  return this.attempt('/v2/accounts/store/catalogue',{token,signal});
+ }
+ async storeCheckout(token,productKey,signal){
+  return this.attempt('/v2/accounts/checkout',{method:'POST',token,body:{product:productKey,client:this.client},signal});
+ }
+ async storeOrders(token,signal){
+  return this.attempt('/v2/accounts/store/orders',{token,signal});
+ }
+ async updateProfile(token,body,onWait){const found=await this.attempt('/v2/accounts/profile',{method:'POST',token,body,onWait});return sanitizeAccount(found?.account);} async logout(token,signal,onWait){
   // Revocation is best effort. A refusal or a dead network must still let the
   // launcher forget the session locally, so this resolves either way.
   try{await this.attempt('/v2/accounts/logout',{method:'POST',token,signal:signal??undefined,timeout:Math.min(this.timeout,8000),onWait});}catch{}
@@ -578,4 +616,4 @@ function storedSession(value){
 module.exports={AccountClient,AccountError,sanitizeAccount,publicAccount,verifiedEmails,MESSAGES,USERNAME_PATTERN,companySession,storedSession,companyVaultName,sanitizeGameSession,GAME_SESSION_TIMEOUT_MS,
  // The declared retry policy travels with the client so a test (and a reader) can see which
  // operations may be repeated and what each one is given, instead of inferring it from code.
- OPERATIONS,transientFailure,RETRY_ATTEMPT_CEILING_MS,RETRY_BACKOFF_MS,RETRY_BACKOFF_MAX_MS,RETRY_ATTEMPTS_MAX,MINT_RETRY_BUDGET_MS,READ_RETRY_BUDGET_MS,UNREACHABLE_MESSAGE};
+ OPERATIONS,transientFailure,RETRY_ATTEMPT_CEILING_MS,RETRY_BACKOFF_MS,RETRY_BACKOFF_MAX_MS,RETRY_ATTEMPTS_MAX,MINT_RETRY_BUDGET_MS,READ_RETRY_BUDGET_MS,STORE_RETRY_BUDGET_MS,UNREACHABLE_MESSAGE};

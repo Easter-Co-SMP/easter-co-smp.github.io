@@ -17,6 +17,11 @@ const identity=require('./identity.cjs');
 // is read where the state is published and nowhere a launch is decided (below).
 const sessionAnswer=require('./session-cache.cjs');
 const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,migrateLaunchPreferences,launchBehaviour,includeGraphicsValue}=require('./security.cjs');
+// The Community store's three commands (doc/launcher-store.md): what the server sells, one
+// checkout press, and the player's orders. The shaping and the two refusal sentences live
+// there, so this file only decides which session they are asked against and what "open the
+// player's browser" means here.
+const STORE=require('./store.cjs');
 const {APP_USER_MODEL_ID,ICON_FILE,wantsAutoStart,autoStartDecision,shortcutSupport,readGameShortcuts,applyGameShortcuts}=require('./shortcuts.cjs');
 const install=require('./install.cjs');
 // The identity of a game that outlives this launcher. Owen's design: an update applies behind a
@@ -1601,6 +1606,39 @@ function registerIPC(){
  // refusal, and the renderer shows its own unavailable state; nothing here is stored, and
  // no URL, token or identifier from it is ever asked for by the renderer.
  handle('home-content',()=>discovery.content());
+ // The Community store, inside the launcher (doc/launcher-store.md). Three commands, all
+ // against the signed-in Company session: the catalogue the server sells, one purchase press,
+ // and the player's own orders. None of them is reachable before the startup gate, because
+ // none of them is needed to start the launcher, and the page is reached by navigation after
+ // it. `company` is the session this process holds; the renderer never sees a token, and it
+ // cannot name a price - only a product key the server itself offered.
+ handle('store-catalogue',async()=>{
+  if(!company)throw STORE.signedOut();
+  try{return STORE.catalogue(await accounts.storeCatalogue(company.token));}
+  catch(error){throw STORE.refusal(error);}
+ });
+ handle('store-orders',async()=>{
+  if(!company)throw STORE.signedOut();
+  try{return STORE.orders(await accounts.storeOrders(company.token));}
+  catch(error){throw STORE.refusal(error);}
+ });
+ // One press, one product. Main asks the account service for a Stripe Checkout Session, opens
+ // the URL it answers with in the player's own browser through the launcher's HTTPS-only link
+ // rule, and returns. The card form is never in our window, and nothing here claims the
+ // payment happened: a URL that will not open is a refusal, and the page's next orders read is
+ // what says whether the payment arrived.
+ handle('store-checkout',async productKey=>{
+  if(!company)throw STORE.signedOut();
+  const key=STORE.productKey(productKey);
+  let press;
+  try{press=STORE.checkout(await accounts.storeCheckout(company.token,key));}
+  catch(error){throw STORE.refusal(error);}
+  // The buy is the browser: a Stripe URL that will not open is a refusal, never a sale this
+  // launcher says it started. `press.url` has already passed the HTTPS-only link rule.
+  try{await shell.openExternal(press.url);}
+  catch{throw STORE.unavailable();}
+  return press;
+ });
  handle('account-providers',()=>withActivity('account-working',()=>accounts.providers(),{replace:false,scope:'surface'}));
  handle('provider-sign-in',(provider,link=false)=>accountOperation(async(update)=>{
   if(company&&!link)throw Error('Sign out before signing in to a different account.');

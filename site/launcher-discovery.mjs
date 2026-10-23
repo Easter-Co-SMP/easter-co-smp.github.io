@@ -18,7 +18,7 @@ export function mountDiscovery(host, desktop) {
  region.append(social,store);host.append(region);
  let busy=false;
  function shell(card,label) {card.replaceChildren();card.append(node('p','discovery-label',label));}
- function message(card,title,body) {card.append(node('h2','discovery-title',title),node('p','discovery-copy',body));}
+ function message(card,title,body) {card.append(node('h2','discovery-title',title));if(body)card.append(node('p','discovery-copy',body));}
  function paint(payload,failed=false) {
   shell(social,'Latest news');shell(store,'Community store');
   const post=latestPost(payload?.posts),item=featuredItem(payload?.featuredItem);
@@ -30,7 +30,11 @@ export function mountDiscovery(host, desktop) {
   if(item){
    store.append(node('span','discovery-category',item.category));message(store,item.title,item.description);
    const view=node('button','discovery-action','Explore item');view.type='button';view.onclick=()=>showItem(item);store.append(view);
-  }else message(store,'Explore the Community store','Items, ships, player houses, account upgrades and in-game money. Preview the mock store with no real charges.');
+   // The store card's own description is gone with the mock. It used to promise a preview with
+   // no real charges, which stopped being true when the store became the real one (ticket
+   // 45bb99ad); the card names the shop and links to it, and the store page itself is the only
+   // place that says what is for sale, because the server is the only place that knows.
+  }else message(store,'Explore the Community store','');
   // The store is a page (site/store/), reached by navigation like Map and Wiki, so this card
   // links to it and the launcher never opens it over the app as a dialog.
   const browseStore=node('a','discovery-action','Browse the store');browseStore.href='./store/';store.append(browseStore);
@@ -41,7 +45,9 @@ export function mountDiscovery(host, desktop) {
  const dialog=node('dialog','discovery-dialog');dialog.setAttribute('aria-labelledby','store-item-heading');document.body.append(dialog);
  function showItem(item){
   dialog.replaceChildren();const heading=node('h2','',item.title);heading.id='store-item-heading';
-  dialog.append(node('p','discovery-label',item.category),heading,node('p','discovery-copy',item.description),node('p','discovery-store-note','Item preview. Purchasing is not available in this launcher yet.'));
+  // No notice about purchasing: the launcher's store sells real products now, and this
+  // preview names an editorial highlight, not an offer (doc/launcher-discovery.md).
+  dialog.append(node('p','discovery-label',item.category),heading,node('p','discovery-copy',item.description));
   const close=node('button','discovery-action','Back to launcher');close.type='button';close.onclick=()=>dialog.close();dialog.append(close);dialog.showModal();
  }
  async function load(){

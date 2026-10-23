@@ -1,198 +1,171 @@
-# The Community store page — mock commerce
+# The Community store — the real store, inside the launcher
 
-The store implements a complete presentation with an in-process mock API, as a normal
-page of the public site at `/store/`, alongside the aligned home cards and quiet
-profile refresh. The user-authorized mock testing rollout and independent review are
-recorded in `store-testing-rollout.md`. Real backend and payment integration remain
-separate work. No game services, player accounts or world data are changed.
+The store sells five real products for real USD, through Stripe's hosted Checkout page, and it
+lives only inside the launcher. `site/store/` is the page, `desktop/store.cjs` is the half that
+shapes what the account service sends, and the three commands on `window.easterDesktop` are the
+only way the page can ask for anything.
 
-## Experience
+This document replaces the mock-commerce record it used to be. The mock — nine example products,
+a five-category catalogue, a cart with quantities, a quote, a consent checkbox, a "Place test
+order" button and a demo receipt — is **deleted**, not hidden: `site/store/catalogue.mjs` and
+`site/store/mock-api.mjs` no longer exist, and `tests/store-games-browser.mjs` now asserts that
+they stay gone. `doc/store-testing-rollout.md` records the mock rollout as history, not as description.
 
-The store is a page, not a dialog. `site/store/index.html` owns the shell — the shared
-site header and its nav, the `h1` naming “The Community store”, the mock notice that is
-readable before any interaction, and the footer — and `site/store/store.css` is linked
-from that head rather than injected. `site/store/store.mjs` exports
-`mountStore(root, {api})` and renders everything inside `#store-root`. Nothing loads it
-from the launcher's own surface: `site/desktop.js` adds a plain `<a href="./store/">`
-nav link only when the page does not already carry one, and `site/launcher-discovery.mjs`
-links to `./store/` with the text “Browse the store”.
+## The products
 
-The page is reachable from the shared site header nav on Home, Map, Wiki and itself, and
-its views are hash routes, so Back, Forward and a shared link all reach the same view:
+Exactly what the server sends, in the server's order, and nothing priced in `site/`:
+
+| key | name | price | what a card says about it |
+| --- | --- | --- | --- |
+| `sterling-10` | 10 Sterling | $1.49 | 10 Sterling in the game |
+| `sterling-100` | 100 Sterling | $6.95 | 100 Sterling in the game |
+| `sterling-1000` | 1000 Sterling | $29.99 | 1,000 Sterling in the game |
+| `donation-5` | Keep the lights on | $5.00 | A one-off donation. |
+| `penny` | Penny for the poor | $0.01 | A one-off donation. |
+
+The names and USD amounts in that table are the server's, quoted here as the record of what is
+sold; nothing in `site/` contains them. A card's second line is decided by `creditPence` (**what
+a pack is worth in the game**, from the server): above zero the card says how much Sterling
+arrives, and a product that credits nothing is described as a donation. That is why the
+`kind` word the server sends is carried but never parsed for meaning — two halves cannot disagree
+about what a product is worth if only one of them says what it is worth.
+
+## The page
+
+`site/store/index.html` owns the shell (the shared site header and its nav, the `h1` "The
+Community store", the footer) and links `store.css` from its own head. `store.mjs` exports
+`mountStore(root, {bridge})` and renders everything inside `#store-root`. Views are hash routes:
 
 | Route | View |
 | --- | --- |
-| `#catalogue` | The selected game's catalogue; an empty or unrecognised hash lands here |
-| `#item/<id>` | One product's detail, `<id>` being a `catalogue.mjs` product id |
-| `#cart` | The cart and its demo totals |
-| `#checkout` | Quote review and the test order; without a live quote it falls back to `#cart` |
-| `#receipt/<id>` | One demo receipt; without that order in this session it falls back to `#orders` |
-| `#orders` | The mock purchase history |
+| `#catalogue` | Every product the server sells. An empty, unknown or removed hash lands here |
+| `#item/<key>` | One product on its own; a key this launcher does not have lands on `#catalogue` |
+| `#orders` | The player's own orders, read fresh every time the view is entered |
 
-One `hashchange` handler draws every view change. A route that cannot be honoured now —
-a receipt or checkout this session cannot back, an unknown item id — is redirected with
-`history.replaceState` to the view that can be, so the address bar never names a view
-that is not on screen. Category, search and sort are filter state on `#catalogue`, not
-routes: changing them never adds a history entry. The fragment is the store's whole
-routing surface, so the page carries no in-page anchor link.
+`#cart`, `#checkout` and `#receipt/<id>` are **gone**. Buying is one product at a time from its
+own card: there is no cart, no quantity and no basket total, because the server prices one line
+item of one and a total computed here would be a second source of pricing truth. A stale link to
+one of the removed routes is redirected in place with `history.replaceState`, so the address bar
+never names a view that is not on screen.
 
-The store keeps persistent navigation, category filters, search, sort, product details,
-stock/ownership states, cart quantities/removal, quote review, consent, one-time
-checkout, receipt and order history. Without a JavaScript-capable browser the page says
-so rather than showing an empty frame. During submission, controls are locked until the
-result is known; reads never lock navigation.
+The page is reached from the launcher's own nav only. Every page keeps its `Store` link in static
+markup (the route differs per page), `site/desktop.css` hides it and the whole store page until
+`desktop-mode` is on `<html>`, and `store.mjs` sends a browser visitor — no `window.easterDesktop`
+claiming `mode:'desktop'` — back to the site root. Nothing advertises the store on the website.
 
-Categories are items, ships, player houses, account upgrades and in-game money.
-The nine fictional products and all sample prices are defined in
-`site/store/catalogue.mjs`. They are authorized mock fixtures, not a live catalogue
-or offers in `home.json`. Local static vector illustrations are deliberate product
-placeholders, not screenshots or guarantees of delivered builds. No existing
-company artwork is redrawn. Replace them with approved real product previews
-before selling actual houses or ships.
+**A browser is not a shop floor** is unchanged from the previous commit and is re-proved by both
+browser suites: the no-script page paints no store, and a scripted page with no bridge is
+redirected home.
 
-**Every SKU costs real currency.** In this demo that is USD, integer minor units,
-formatted with Intl.NumberFormat. Crowns are one of those SKUs: bought for USD,
-spendable only inside the game. There is no store wallet, Crowns payment option,
-real payment field, payment SDK, cash-out route or conversion back to real money.
-Real prices, regions, currency support and gameplay policy remain product/backend
-decisions. Queue access is modelled as a one-time 30-day grant, never an implicit
-subscription or auto-renewal. It does not promise immediate server entry.
+## The bridge
 
-A persistent mock notice, explicit fictional recipient, purchase consent and a
-“Place test order” action distinguish this from real payment. The resulting receipt
-states that no money was charged and nothing was delivered in-game. Orders and
-mock ownership last only for the current page session and reset on reload or
-navigation to another page. They are not saved into the
-launcher's authenticated account or entitlement state.
+Three commands, added in `desktop/preload.cjs` and implemented in `desktop/main.cjs` through the
+account client (`desktop/accounts.cjs`). The page never fetches: it has no server address, no
+token and no catalogue.
 
-## Mock API boundary
-
-`createMockStoreAPI()` in `site/store/mock-api.mjs` returns:
-
-| Operation | Input | Output |
+| Command | Route | Answer |
 | --- | --- | --- |
-| `catalogue({signal})` | Optional AbortSignal | `{schema:1,currency,items,owned}` |
-| `quote({lines},{signal})` | SKU ids and integer quantities only | Quote id, exact line prices, subtotal, tax, total, currency, expiry |
-| `purchase({quoteId,idempotencyKey},{signal})` | Existing quote id and a stable attempt key | Immutable simulated order snapshot |
-| `orders({signal})` | Optional AbortSignal | Newest-first simulated order snapshots |
+| `storeCatalogue()` | `GET /v2/accounts/store/catalogue` | `{products:[{key,name,amountMinor,currency,kind,creditPence}]}`, in the server's order |
+| `storeCheckout(productKey)` | `POST /v2/accounts/checkout` with `{product}` | `{url, sessionId, product}`; **main** opens `url` in the player's own browser and returns |
+| `storeOrders()` | `GET /v2/accounts/store/orders` | `{orders:[{sessionId,product,amountMinor,currency,paid,creditPence,delivered,createdAt}]}` |
 
-The quote lives 120 seconds; tax is explicitly mocked at zero, not a real tax
-calculation. The API ignores client-supplied unit prices, checks quantities,
-product ids, stock and non-repeatable ownership, revalidates at purchase, and
-commits the order/stock atomically within the in-memory mock. A repeated key with
-the same quote returns the same receipt; changing its quote is refused. Successful
-idempotent retries resolve even after expiry. Read responses are cloned so the UI
-cannot mutate API state. No HTTP requests or credentials are used by this adapter.
+The renderer's argument is called `productKey`; on the wire the body is `{product}` because that
+is what the deployed route reads (`easter-co-cloud/api/checkout_routes.py`, "The request body
+names a product by one of the stable keys"). Nothing else travels: no price, no amount, no price
+id, no quantity — the server resolves the key to its own Stripe Price id, so this launcher cannot
+name an amount.
 
-Test-only `failNext(operation, code)` supports read/payment failures and
-`purchase-response` failure *after* the order commits. This proves that retrying
-an uncertain result with the original key returns one order. These test controls
-are never rendered in the shopping UI. The UI retains the cart and stable attempt
-key on a decline/interrupted response, clears consent, and requires another
-explicit confirmation. Expiry, changed price, stock or ownership refusal returns
-to cart and requires a fresh quote. Search does not recreate its input on keystrokes.
-Quick repeated submit clicks are locked synchronously.
+`storeCheckout` opens the URL with `shell.openExternal` **behind the existing HTTPS-only link rule
+in `desktop/security.cjs`** (`externalURL`), so a session that answers with any other scheme is
+refused rather than opened. The card form is never in our window.
 
-`mountStore(root, {api})` is the page entry point; the module is loaded by
-`site/store/index.html` itself. For now it **refuses non-mock adapters** — the page
-only accepts a mock commerce adapter. Live integration is an intentional later
-change, not something enabled by a runtime URL or a query parameter. Lifecycle,
-Play, install and authentication gates are untouched.
+None of the three is in `REACHABLE_BEFORE_STARTUP`: they need a signed-in session and are not
+needed to start the launcher.
 
-## Delta's real-money integration
+### Every failure is a refusal, never a silent empty list
 
-Keep the same renderer/adapter separation. Add narrow, authenticated preload/main
-operations to a fixed trusted commerce origin; never expose payment keys, arbitrary
-URLs, card data, account tokens or renderer-supplied prices. The purchaser and
-delivery account must be selected/validated by the server, not a typed username or
-a local ownership flag. The fictional Demo Captain is not a real recipient.
+Two sentences, both Owen's, and the page prints nothing else:
 
-A live quote must include currency, tax, price/availability versions, eligibility,
-recipient, sale window and expiry, plus clear refund and fulfilment conditions.
-Handle region restrictions, parental/age requirements and applicable consumer
-consent in the actual checkout flow. Currency packs must be separately fulfilled
-into the in-game ledger, never credited as a store-spendable balance. Ship/house
-stock needs reservation/transactional allocation and authoritative placement.
-Upgrades need server-owned effective/expiry timestamps and queue entitlements.
+| Situation | What the player reads |
+| --- | --- |
+| No Company session, or a 401 `invalid_session` | **Sign in to buy.** |
+| Service unreachable, 404 (route not deployed yet), 5xx, `unknown_product`, `checkout_not_configured`, `checkout_unavailable`, an answer this half cannot read, a URL that will not open | **The store is unavailable right now.** |
 
-Use a hosted payment flow opened by main with an approved origin and an order id;
-never collect card details in this renderer. Backend payment-provider callbacks
-must authorize fulfilment. A browser redirect is not proof of payment. Persist
-idempotency keys and orders server-side, support order lookup/reconciliation after
-timeouts or restart, and represent pending payment, paid/pending fulfilment,
-fulfilled, cancelled, failed, refunded and disputed separately. Do not activate
-items locally based on this mock's `simulated` receipt or copied catalogue data.
-Implement signed webhook verification, audit/receipt records, safe retries,
-refund/revocation workflows and support contact before real money is enabled.
-Replace the demo tax/prices and approve the full item descriptions before release.
+`desktop/store.cjs` maps every failure onto those two (`refusal()`), and `store.mjs` prints a
+refusal **only** when it is one of them: a message from somewhere else (the startup gate's own
+refusal, a transport fault, a bridge from another build) is reported as "The store is unavailable
+right now." rather than printed, so the page can never become a second author of launcher copy.
+
+An answer that cannot be drawn is refused, not half-rendered: a catalogue with no products, a
+duplicated key, a product with no name, a currency that is not three capitals, a non-integer
+amount or credit, an order with an unparseable `createdAt` or a `paid`/`delivered` that is not a
+real boolean. `paid` and `delivered` are read as `=== true`, so this launcher never claims "Paid"
+or "In the game" on evidence it did not receive.
+
+### Nothing here claims a purchase
+
+After the browser opens, the page says where the payment finishes and stops. It never says
+"payment received", never marks an item owned and never invents a receipt: the orders read — on
+the next visit to `#orders`, and on the next launch, because the page reads orders on mount — is
+what reports what really happened (pending, paid, delivered, or not there at all).
+
+## Player-facing copy
+
+The whole visible vocabulary, exactly as Owen fixed it (ticket 45bb99ad): the buy button
+**Buy**; while the browser opens **Opening Stripe…**; after it **Finish the payment in your
+browser. Your Sterling arrives the next time you join.**; signed out **Sign in to buy.**; any
+other failure **The store is unavailable right now.**; the orders view headed **Your orders**, and
+an empty one **No orders yet.**; a paid order **Paid** and a delivered one **In the game**; a
+donation **A one-off donation.** and a pack **N Sterling in the game** from `creditPence`.
+Everything else on the page is a product name, a price, a date or a product key the server sent.
+
+Two consequences worth stating, because they are the reviewer's to judge and not this half's to
+reword:
+
+- The sentence after a purchase names Sterling for every product, a donation included. It is one
+  frozen sentence, so a donation card prints it too.
+- An order that is not paid carries **no** status word at all. There is no "pending" copy, so the
+  page prints nothing rather than inventing one.
+
+The shared home screen's store card (`site/launcher-discovery.mjs`) lost the description that
+promised a preview "with no real charges", and the item-preview dialog lost its "purchasing is not
+available in this launcher yet" note: both were true of the mock and false of this store.
+
+## How long the store waits
+
+`STORE_RETRY_BUDGET_MS` = **20 s** for each of the two reads (`desktop/accounts.cjs`,
+`OPERATIONS`). A store page is one the player is looking at with the catalogue in front of them,
+not a Play press: twenty seconds is one Aurora resume plus a second attempt, and short enough
+that a shut store says so instead of leaving a spinner on the page. Each attempt is still capped
+by `attempt()` below the gateway's 30 s integration limit, and every read and write on this client
+follows the same rule as the rest of the account API: the checkout is a **write**, so it is never
+repeated after a lost answer — it is only waited out on the service's own declared
+`database_unavailable`, which it answers before it creates anything. A press that fails outright
+is answered by the player pressing **Buy** again.
 
 ## Verification
 
-`npm test` includes the mock commerce tests. Python/site checks remain unchanged.
-For browser journeys, serve `site/` locally and run:
+- `npm test` — includes `tests/store.test.mjs`: the wire shape, the two sentences, the strict
+  `paid`/`delivered` reading, the HTTPS-only checkout URL, the declared retry rows, and the fact
+  that a 404 from a service that has not shipped the routes yet becomes "unavailable" rather than
+  an empty shop. No network.
+- `EASTER_PUBLIC_ORIGIN=http://127.0.0.1:18100 PLAYWRIGHT_MODULE=… node tests/store-browser.mjs`
+  — the real page against a stubbed bridge at 1440, 1100, 800, 390 and 320: five products and
+  their USD prices, the Buy press recording the key, "Opening Stripe…" then the sentence after it,
+  the orders view empty/pending/paid/delivered, the unavailable and signed-out states, a bridge
+  with no store commands, a stale `#cart` link landing on `#catalogue`, and the launcher-only rule.
+- `… node tests/store-games-browser.mjs` — the catalogue is the server's: unusual products render
+  in the server's order with the server's prices, a long name stays inside its card, an empty
+  catalogue is a refusal, and `site/store/store.mjs` contains none of the five products or prices.
 
-```sh
-EASTER_PUBLIC_ORIGIN=http://127.0.0.1:18100 \
-PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
-node tests/store-browser.mjs
-```
+**What is not proved, and cannot be from here yet:** no real Stripe payment has been made through
+this page, no real Stripe session has been opened from the launcher, and the two new routes do not
+exist in the deployed account API — `/v2/accounts/store/catalogue` and `/v2/accounts/store/orders`
+answer 404 today, which this half reports honestly as "The store is unavailable right now." The
+bridge is proved against the frozen contract and a stub, not against the service.
 
-`EASTER_REVIEW_OUTPUT` optionally points to an existing screenshot directory.
-The browser suite uses fixture-only launcher bindings, never a person's account.
-It purchases all five product categories at 1440, 1100, 800 and 390 px; checks
-search, categories, stock/ownership, quantity changes, quotes, consent, receipts,
-history, decline, expiry, uncertain-response retry and failed-catalogue recovery.
-Mock unit tests independently cover atomicity, quantity validation, authoritative
-prices, idempotency and abort/copy isolation. This demonstrates frontend/mock
-readiness, not live payment readiness.
-
-The same suite proves the page shape rather than a dialog: no dialog element is open
-over the store, no inline script ships with the page, no off-origin request is made,
-the header nav entry navigates, and a cold load of a hash route honours that route on
-its own. A scoped axe WCAG 2 A/AA and WCAG 2.1 AA scan found no violations in
-catalogue, checkout and receipt views. The shared-home browser suite also passes all
-24 populated/long/empty/failed layout cases. These checks do not replace the
-designated frontend reviewer’s production sign-off.
-
-## The public page
-
-`/store/` is the storefront itself: a normal site page using the same `store.mjs`
-interface and mock API, with no native bridge, real account, payment field or external
-store request. Its demo catalogue and prices are not live offers. The page is marked
-`noindex,nofollow` because it is a labelled mock rather than a live commercial
-storefront, but its URL can be shared directly and opened cold on any hash route.
-Publishing it does not publish a new installer or bypass the packaged-launcher release
-gates; the launcher ships `site/` as its UI, so a build older than a `site/` change
-shows the older page until the next release.
-
-## Game-scoped storefronts
-
-Game selection is a vertical list in the sidebar, directly below “BROWSE THE
-STORE”, labelled “Choose Your Game”, above item categories. Easter Co. SMP
-is the available example; Orbital Racing and Frontier are explicitly fictional
-coming-soon placeholders, not release announcements. Their concept views have no
-SKUs, prices or purchase controls. The selected game has a labelled pressed button,
-gold outline and its own catalogue heading. On compact screens the labelled
-disclosure starts collapsed, opens the same vertical list, and closes after a game
-is selected; the panel can scroll without covering the catalogue.
-
-`GAMES` defines stable game IDs and availability metadata. Every product now has
-`gameId`. Catalogue responses include game metadata, while quote/order snapshots
-and their lines retain authoritative game identity. An optional requested quote
-or line game must match the SKU's game. Unknown products and mismatched games are
-refused; one checkout contains one game's items. Switching views never silently
-clears the cart. Opening a retained cart restores its actual game selection;
-product details, cart rows, delivery confirmation, receipt and order history state
-the target game explicitly.
-
-For future backend work, scope entitlements and currency ledgers by account AND
-game. SMP queue priority and Crowns are not global launcher benefits. If genuine
-launcher-wide upgrades are introduced, model that scope explicitly rather than
-inheriting the last selected game. All store purchases still use real currency;
-in-game currencies stay in their own games and never pay for store purchases.
-
-`tests/store-games-browser.mjs` covers the “Choose Your Game” picker, selection,
-placeholder non-purchasability, cart retention and correctly scoped
-checkout/receipts at 1440, 1100, 800, 390 and 320 px. The independent frontend
-reviewer approved desktop/mobile visual and keyboard behaviour for this
-mock-preview update.
+One cross-ticket consequence to watch: `easter-co-cloud/api/checkout_routes.py` builds its Stripe
+`success_url` as `https://easter-co-smp.github.io/store/#receipt/{CHECKOUT_SESSION_ID}` and its
+`cancel_url` as the store's `#cart`. Both routes are removed by this change, so a player who pays
+lands on the public site's store page — which, correctly, sends a browser visitor home. The cloud
+half should point both at a page that can be read outside the launcher.

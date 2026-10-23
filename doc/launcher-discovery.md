@@ -107,11 +107,12 @@ and Retry; the client remains usable. A missing bridge shows honest empty cards.
 Main should enforce payload bounds, endpoint trust, timeouts, caching, freshness,
 and publication visibility. Never pass social credentials into the renderer.
 
-A featured item opens a keyboard-accessible preview dialog, with explicit notice
-that purchasing is unavailable. The bridge and the document are done; checkout is not,
-and the boundary below is the standing rule for when it is built.
-The current frontend intentionally accepts no price, checkout URL, purchase
-callback or ownership claim. Previewing a catalogue item does not grant it.
+A featured item opens a keyboard-accessible preview dialog. It carries no price, no
+checkout URL, no purchase callback and no ownership claim: it names an editorial
+highlight from this document, and buying happens on the store page, through the
+launcher's own three commands (doc/launcher-store.md). The dialog's old notice that
+"purchasing is not available in this launcher yet" is gone with the mock, because it
+is not true of the real store. Previewing a catalogue item does not grant it.
 
 ## Store decisions before commerce is enabled
 

@@ -1,5 +1,10 @@
 # Mock store testing rollout — 2026-10-20
 
+> **Superseded.** The mock described here was deleted when the store became the real one
+> (ticket 45bb99ad, doc/launcher-store.md): no notice, no demo products, no cart, no test
+> order, no mock receipt. This file is the record of that rollout and its approvals, not a
+> description of the store that ships today.
+
 Owen authorized merging and deploying the mock store for production testing and
 sharing. This supersedes the earlier handoff that left merge/release with Delta.
 Real payments and in-game fulfilment remain disabled.
