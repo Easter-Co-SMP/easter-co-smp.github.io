@@ -388,7 +388,7 @@
   align-items: flex-end;
   gap: 6px;
 }
-/* The "finish the payment in your browser" line is about the whole row, so it runs the width
+/* The "finish the payment in the Stripe window" line is about the whole row, so it runs the width
    under it rather than being squeezed into the control's column. */
 .store-product > .store-status {
   grid-area: note;
@@ -616,8 +616,60 @@
     flex-basis: 100%;
   }
 }
+/* THE PAYMENT DIALOG. Owen's own surface (2026-10-23: *"the launcher needs a 'Payment Successful'
+   modal"*): Sol's panel and gold tab, a scrim over the page, and nothing else - one heading, one
+   sentence and one control, so there is no confetti to draw and nothing to animate. It is fixed
+   rather than absolute because it covers the window the player is looking at, and #store-root is
+   inside no transformed ancestor on this page, so fixed really is the viewport here. */
+.store-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #06131acc;
+}
+.store-modal-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  width: min(420px, 100%);
+  padding: 26px 24px 22px;
+  border: 1px solid var(--store-line);
+  border-radius: 10px;
+  background: var(--store-panel);
+  box-shadow: 0 18px 48px #0009;
+}
+.store-modal-heading {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 550;
+  letter-spacing: -0.02em;
+  color: var(--store-ink);
+}
+.store-modal-body {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--store-muted);
+}
+.store-modal-close {
+  align-self: stretch;
+  margin-top: 4px;
+}
+@media (max-width: 600px) {
+  .store-modal {
+    padding: 16px;
+  }
+  .store-modal-panel {
+    padding: 22px 18px 18px;
+  }
+}
 /* Sol's reduced-motion block, plus main's spinner: no rotation while a read is in flight, and no
-   transition anywhere on the page. */
+   transition anywhere on the page. The payment dialog has nothing to animate either way. */
 @media (prefers-reduced-motion: reduce) {
   .store-busy {
     animation: none;

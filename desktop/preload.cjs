@@ -53,7 +53,8 @@ contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  // The Community store. Three commands and no fourth: the catalogue the server sells, one
  // purchase press, and the player's own orders. The renderer sends a product KEY and nothing
  // else - no price, no amount, no URL - main is the only half that talks to the account
- // service, and it opens the Stripe page in the player's own browser. Each answers with a
+ // service, and it opens the Stripe page in a modal window of its own inside the launcher,
+ // answering the press with `outcome: 'paid' | 'cancelled' | 'closed'`. Each answers with a
  // refusal sentence when it cannot, which is why the page can print exactly what it is told.
  storeCatalogue:invoke('store-catalogue'),storeCheckout:invoke('store-checkout'),storeOrders:invoke('store-orders'),
  chooseJava:invoke('choose-java'),openFolder:invoke('open-folder'),openMicrosoft:invoke('open-microsoft'),

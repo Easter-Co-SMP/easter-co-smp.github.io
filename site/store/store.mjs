@@ -25,16 +25,29 @@
  *
  * The sentences below are Owen's, fixed in writing, and this page prints no others: every
  * failure is one of the two refusals main chose, never a wording of this page's own.
+ *
+ * PAYING HAPPENS IN THE LAUNCHER. Since 2026-10-23 the press answers `outcome` as well as the
+ * session it opened — `paid`, `cancelled` or `closed` — because main now loads Stripe's Checkout
+ * page into a modal window of its own instead of handing it to the player's browser, and it reads
+ * the success and cancel fragments Stripe navigates to as the payment ending. Three consequences
+ * live in this module: `paid` opens the launcher's own "Payment Successful" dialog, `cancelled`
+ * says nothing at all, and `closed` keeps the sentence that says where the payment happens. None
+ * of the three writes an order: the row is the server's, and the orders read is what shows it.
  */
 import { productArt } from "./art.mjs";
 
 const COPY = {
   buy: "Buy",
-  // While the browser is being handed the Stripe page.
+  // While the Stripe window is being opened.
   opening: "Opening Stripe\u2026",
-  // After it. The launcher opened a page; it did not see a payment, so this is all it says.
+  // After a payment window the player closed by hand. The word changed with the flow (Owen,
+  // 2026-10-23): the payment finishes in the launcher's own window, not in a browser.
   finish:
-    "Finish the payment in your browser. Your Sterling arrives the next time you join.",
+    "Finish the payment in the Stripe window. Your Sterling arrives the next time you join.",
+  // Owen's heading, in his words, for a payment the launcher saw finish. The body is his too.
+  successful: "Payment Successful",
+  orderRecorded: "Your order is recorded.",
+  close: "Close",
   signedOut: "Sign in to buy.",
   unavailable: "The store is unavailable right now.",
   orders: "Your orders",
@@ -138,6 +151,10 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     ordersLoading = false,
     pressing = null,
     opened = null,
+    // The launcher's "Payment Successful" dialog: the element while it is open, and the key of
+    // the product it is about, which is where focus goes back to when it closes.
+    modal = null,
+    paidFor = null,
     // One counter per in-flight read, so entering a route never discards the answer another
     // read is already carrying in.
     catalogueRead = 0,
@@ -249,17 +266,73 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     }
     const buy = button(COPY.buy, () => void buyProduct(p.key), "store-button store-primary");
     buy.setAttribute("aria-label", COPY.buy + " " + p.name);
+    // The payment dialog hands focus back to THIS control when it closes, so the row it left is
+    // found by the key the server sent rather than by a name this page would have to guess at.
+    buy.dataset.buy = p.key;
     buy.disabled = Boolean(pressing);
     wrap.append(buy);
     return wrap;
   }
-  // What the player reads after the browser has been handed the page. It describes where the
+  // What the player reads after a payment window they closed by hand. It describes where the
   // payment happens, not that it happened.
   function openedNote(p) {
     if (opened !== p.key) return null;
     const note = el("p", "store-status", COPY.finish);
     note.setAttribute("role", "status");
     return note;
+  }
+  /*
+   * Owen's dialog, 2026-10-23: *"the launcher needs a 'Payment Successful' modal for when the
+   * stripe transaction succeeds"*. His heading, his body sentence, and one control - no
+   * confetti, no exclamation mark, no second sentence, because the order's own row is what says
+   * what was bought.
+   *
+   * It lives outside `content` on purpose: every paint replaces that region, and a dialog that a
+   * route change can delete underneath the player is not a dialog. It is announced as a modal
+   * dialog (role, aria-modal, labelled by its own heading), focus moves into it as it opens, and
+   * both Escape and Enter close it, wherever the focus happens to be.
+   */
+  function openPaymentSuccessful(key) {
+    if (modal) return;
+    paidFor = key;
+    modal = el("div", "store-modal");
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-labelledby", "store-payment-heading");
+    const panel = el("div", "store-modal-panel"),
+      heading = el("h2", "store-modal-heading", COPY.successful),
+      close = button(COPY.close, () => dismissPaymentSuccessful(), "store-button store-primary store-modal-close");
+    heading.id = "store-payment-heading";
+    panel.append(heading, el("p", "store-modal-body", COPY.orderRecorded), close);
+    modal.append(panel);
+    root.append(modal);
+    document.addEventListener("keydown", paymentKey, true);
+    close.focus();
+  }
+  function paymentKey(event) {
+    if (event.key !== "Escape" && event.key !== "Enter") return;
+    event.preventDefault();
+    event.stopPropagation();
+    dismissPaymentSuccessful();
+  }
+  /*
+   * Closing it does two things the ticket names and nothing else: it re-reads the orders, so the
+   * row the server recorded is the one the Orders view holds (never a row this page invented from
+   * the fragment Stripe navigated to), and it gives focus back to the Buy control of the product
+   * that was just bought. That read is silent - it does not repaint the view the player is on,
+   * which would take the focus it has just been given.
+   */
+  function dismissPaymentSuccessful() {
+    if (!modal) return;
+    const key = paidFor;
+    document.removeEventListener("keydown", paymentKey, true);
+    modal.remove();
+    modal = null;
+    paidFor = null;
+    void loadOrders({ repaint: false });
+    const back = key ? content.querySelector('[data-buy="' + CSS.escape(key) + '"]') : null;
+    if (back) back.focus();
+    else content.focus({ preventScroll: true });
   }
   function catalogueView() {
     if (message || !products.length) return;
@@ -313,22 +386,40 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
     }
     content.append(list);
   }
+  /*
+   * One press, and then the three answers main can give about what happened in its own window
+   * (doc/launcher-store.md, "Paying"):
+   *
+   *   paid       the success fragment arrived: the launcher's "Payment Successful" dialog, and
+   *              the orders read that dialog dismisses into.
+   *   cancelled  the cancel fragment arrived: nothing at all. The store is left exactly as it was
+   *              before the press, down to the note a previous press may have left.
+   *   closed     the window ended any other way: no dialog and no claim, and the sentence that
+   *              says where the payment finishes, which is the only thing this page says about a
+   *              press it did not see finish. An answer with no `outcome` (a bridge from an older
+   *              build) is read this way too: it opened a window and cannot claim anything.
+   */
   async function buyProduct(key) {
     if (!store || pressing || !product(key)) return;
+    const before = opened;
     pressing = key;
     message = null;
     paint();
-    let openedNow = false;
+    let outcome = null;
     try {
-      await store.storeCheckout(key);
-      openedNow = true;
+      const answer = await store.storeCheckout(key);
+      outcome = answer && answer.outcome;
     } catch (error) {
       message = refusal(error);
-    } finally {
-      pressing = null;
-      if (openedNow) opened = key;
-      paint();
     }
+    pressing = null;
+    if (!message) {
+      if (outcome === "cancelled") opened = before;
+      else if (outcome !== "paid") opened = key;
+      else opened = null;
+    }
+    paint();
+    if (!message && outcome === "paid") openPaymentSuccessful(key);
   }
   async function loadCatalogue() {
     if (!store) return;
@@ -357,24 +448,34 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
       }
     }
   }
-  async function loadOrders() {
+  /*
+   * `repaint: false` is the payment dialog's own read (dismissPaymentSuccessful). It keeps the
+   * rows the server answers with and says nothing about a failure: the player has not been
+   * promised a list, and a refusal painted over the view they are standing on would be a second
+   * answer to a question they did not ask. The Orders view is still entered by its own read, so a
+   * failed silent read costs nothing but the freshness of a list nobody is looking at.
+   */
+  async function loadOrders({ repaint = true } = {}) {
     if (!store) return;
     const token = ++ordersRead;
-    ordersLoading = true;
-    message = null;
-    paint();
+    if (repaint) {
+      ordersLoading = true;
+      message = null;
+      paint();
+    }
     try {
       const answer = await store.storeOrders();
       if (token !== ordersRead) return;
       if (!answer || !Array.isArray(answer.orders)) throw Error("unreadable orders");
       orders = answer.orders;
     } catch (error) {
-      if (token === ordersRead) {
+      if (token !== ordersRead) return;
+      if (repaint) {
         orders = [];
         message = refusal(error);
       }
     } finally {
-      if (token === ordersRead) {
+      if (token === ordersRead && repaint) {
         ordersLoading = false;
         paint();
       }

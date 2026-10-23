@@ -15,7 +15,7 @@
 // Stripe refusing — is "The store is unavailable right now." That is the honest limit of what
 // this half knows: it cannot tell an operator's missing Stripe key from a sleeping database,
 // and it must not pretend to.
-const {externalURL}=require('./security.cjs');
+const {stripeCheckoutURL}=require('./security.cjs');
 const {AccountError}=require('./accounts.cjs');
 const SENTENCES=Object.freeze({
  signedOut:'Sign in to buy.',
@@ -75,12 +75,13 @@ function catalogue(payload){
  return {products};
 }
 // POST /v2/accounts/checkout -> {url, sessionId, product}
-// The URL is the only thing this half acts on, and it is checked by the launcher's own
-// HTTPS-only link rule before it is ever handed to shell.openExternal: a session that answers
-// with any other scheme is not something to open on a player's desktop.
+// The URL is the only thing this half acts on, and it is checked against the launcher's own
+// in-app payment rule before it is ever loaded into a window this process owns: HTTPS on the
+// Stripe Checkout host and nothing else. It is checked again in desktop/main.cjs, where the
+// window is made, because a service answer is the far side of a network either way.
 function checkout(payload){
  let url;
- try{url=externalURL(payload?.url);}
+ try{url=stripeCheckoutURL(payload?.url);}
  catch{throw unavailable();}
  const sessionId=payload?.sessionId,
   key=payload?.product;

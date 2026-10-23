@@ -1,9 +1,18 @@
 # The Community store — the real store, inside the launcher
 
 The store sells five real products for real USD, through Stripe's hosted Checkout page, and it
-lives only inside the launcher. `site/store/` is the page, `desktop/store.cjs` is the half that
-shapes what the account service sends, and the three commands on `window.easterDesktop` are the
-only way the page can ask for anything.
+lives only inside the launcher — the payment included. `site/store/` is the page,
+`desktop/store.cjs` is the half that shapes what the account service sends,
+`desktop/main.cjs`'s `openStripeCheckout()` is the modal window the card form is filled in, and the
+three commands on `window.easterDesktop` are the only way the page can ask for anything.
+
+**Payments moved inside the launcher on 2026-10-23.** Owen, after paying with a test card from his
+own Windows launcher: *"It opened stripe in my web browser, but it should open in an embedded view
+within the launcher instead, and when it succeeds it should not redirect to the website or
+anything, all functionality should maintain within the launcher. And also the launcher needs a
+'Payment Successful' modal for when the stripe transaction succeeds."* Before that commit
+`storeCheckout()` handed the Checkout URL to `shell.openExternal` and Stripe's own redirect took
+the player to the public site. See "Paying, inside the launcher" below for what replaced it.
 
 This document replaces the mock-commerce record it used to be. The mock — nine example products,
 a five-category catalogue, a cart with quantities, a quote, a consent checkbox, a "Place test
@@ -117,7 +126,7 @@ token and no catalogue.
 | Command | Route | Answer |
 | --- | --- | --- |
 | `storeCatalogue()` | `GET /v2/accounts/store/catalogue` | `{products:[{key,name,amountMinor,currency,kind,creditPence}]}`, in the server's order |
-| `storeCheckout(productKey)` | `POST /v2/accounts/checkout` with `{product}` | `{url, sessionId, product}`; **main** opens `url` in the player's own browser and returns |
+| `storeCheckout(productKey)` | `POST /v2/accounts/checkout` with `{product}` | `{outcome, url, sessionId, product}`; **main** opens `url` in a modal window of its own, waits for the payment to finish there, and answers with `outcome: 'paid' \| 'cancelled' \| 'closed'` |
 | `storeOrders()` | `GET /v2/accounts/store/orders` | `{orders:[{sessionId,product,amountMinor,currency,paid,creditPence,delivered,createdAt}]}` |
 
 The renderer's argument is called `productKey`; on the wire the body is `{product}` because that
@@ -126,9 +135,12 @@ names a product by one of the stable keys"). Nothing else travels: no price, no 
 id, no quantity — the server resolves the key to its own Stripe Price id, so this launcher cannot
 name an amount.
 
-`storeCheckout` opens the URL with `shell.openExternal` **behind the existing HTTPS-only link rule
-in `desktop/security.cjs`** (`externalURL`), so a session that answers with any other scheme is
-refused rather than opened. The card form is never in our window.
+`storeCheckout` never hands a URL to the operating system. The address is checked by
+`stripeCheckoutURL()` in `desktop/security.cjs` before anything opens — HTTPS, no credentials, and
+the host must be `checkout.stripe.com` — so a service answer pointing anywhere else is refused
+with the store's one sentence and no window opens. The same rule is applied twice: in
+`desktop/store.cjs` where the answer is shaped, and again in `desktop/main.cjs` where the window is
+made, because a service answer is the far side of a network either way.
 
 None of the three is in `REACHABLE_BEFORE_STARTUP`: they need a signed-in session and are not
 needed to start the launcher.
@@ -153,18 +165,85 @@ amount or credit, an order with an unparseable `createdAt` or a `paid`/`delivere
 real boolean. `paid` and `delivered` are read as `=== true`, so this launcher never claims "Paid"
 or "In the game" on evidence it did not receive.
 
-### Nothing here claims a purchase
+### Paying, inside the launcher
 
-After the browser opens, the page says where the payment finishes and stops. It never says
-"payment received", never marks an item owned and never invents a receipt: the orders read — on
-the next visit to `#orders`, and on the next launch, because the page reads orders on mount — is
-what reports what really happened (pending, paid, delivered, or not there at all).
+`openStripeCheckout()` (`desktop/main.cjs`) loads the Checkout URL into a `BrowserWindow` that
+belongs to the launcher:
+
+| Option | Value |
+| --- | --- |
+| `parent` | the launcher window — without it `modal` means nothing, so a press with no window is refused |
+| `modal` | `true` (the launcher window takes no input while it is up) |
+| `width` / `height` | `STRIPE_WINDOW_WIDTH` 480 × `STRIPE_WINDOW_HEIGHT` 760, each capped at the launcher window's own bounds so the dialog never hangs off a small window |
+| `autoHideMenuBar`, `removeMenu()` | `true`, then the menu is removed — no menu bar, and none to reveal with Alt |
+| `isDevToolsOpened()` after `openDevTools()` | `false` — `devTools: false` is asserted by its behaviour, not by the option being present |
+| `minimizable`, `maximizable`, `fullscreenable` | `false` |
+| `show` | `false`, shown on `ready-to-show` so nothing paints a white frame first |
+| `webPreferences` | `nodeIntegration: false`, `contextIsolation: true`, `sandbox: true`, `webSecurity: true`, `devTools: false`, `spellcheck: false`, **no preload**, and its own in-memory session (`partition: 'stripe-checkout'`) so the launcher's cookies and storage are not Stripe's to read |
+
+The window is given exactly one starting address (`stripeCheckoutURL`, above) and then decides
+every navigation **before it loads**:
+
+- a navigation whose fragment starts `#store-paid` means the payment finished — the account
+  service sets `https://easter-co-smp.github.io/#store-paid/{CHECKOUT_SESSION_ID}` as the Stripe
+  session's `success_url`;
+- a navigation whose fragment starts `#store-cancelled` means the player backed out — the
+  `cancel_url` is `https://easter-co-smp.github.io/#store-cancelled`;
+- in both cases the navigation is cancelled (`preventDefault` on `will-navigate` and
+  `will-redirect`), the window is destroyed, and the launcher window is what the player comes
+  back to. The website is never fetched and no tab opens anywhere;
+- a navigation staying on `https://checkout.stripe.com` is allowed, so Stripe's own page keeps
+  working; **any other host is cancelled and nothing else happens**;
+- a same-document hash change loads nothing, so it cannot leave the launcher, and it is still read
+  as one of the two signals (`did-navigate-in-page`), because a success URL on Stripe's own host
+  would arrive only there;
+- `setWindowOpenHandler` denies every new window and the session denies every permission, so
+  nothing inside a payment can open anything.
+
+`storeCheckout()`'s answer says what happened, and only those three things:
+
+| `outcome` | When | What the page does |
+| --- | --- | --- |
+| `'paid'` | the `#store-paid` fragment arrived | opens the **Payment Successful** dialog |
+| `'cancelled'` | the `#store-cancelled` fragment arrived | nothing at all |
+| `'closed'` | anything else ended the window — the player closed it, the window was closed for them, the load failed | the sentence that says where the payment finishes |
+
+A window closed any other way is **not** a payment: `'closed'` claims nothing, shows no dialog and
+writes nothing. An answer with no `outcome` at all (a bridge from an older build) is read the same
+way.
+
+### The Payment Successful dialog
+
+Owen's surface, in his words: heading **Payment Successful**, body **Your order is recorded.**
+and one control, **Close** — no confetti, no exclamation mark, no second sentence. It is drawn in
+`site/store/store.mjs` outside the content region (a route change must not delete a dialog
+underneath the player) and styled by `.store-modal` in `site/store/store.css`.
+
+- It is a modal dialog in markup as well as in intent: `role="dialog"`, `aria-modal="true"`,
+  `aria-labelledby` pointing at its own heading.
+- Focus moves into it when it opens (the Close control), and returns to the **Buy** control of the
+  product just bought when it closes.
+- **Escape** and **Enter** close it as well as the button.
+- Close dismisses it and re-reads the orders, so the row on screen is the account service's own
+  and never one this page invented from the fragment Stripe navigated to. The service's answer is
+  the authority: a player whose payment the service has not recorded yet sees no row, and one
+  whose payment it has recorded sees the row it answered with.
+- A **cancelled** payment says nothing at all: no dialog, no sentence, and the store is exactly as
+  it was before the press.
+
+**What the dialog does not claim:** it says the order is *recorded*, which is what the success
+fragment means, and it names no product, no amount and no delivery. The order's row — `Paid`, `In
+the game`, the amount — is printed only from the account service's own answer.
 
 ## Player-facing copy
 
-The whole visible vocabulary, exactly as Owen fixed it (ticket 45bb99ad): the buy button
-**Buy**; while the browser opens **Opening Stripe…**; after it **Finish the payment in your
-browser. Your Sterling arrives the next time you join.**; signed out **Sign in to buy.**; any
+The whole visible vocabulary, exactly as Owen fixed it (ticket 45bb99ad, with the two changes the
+payment window forced on 2026-10-23): the buy button
+**Buy**; while the Stripe window opens **Opening Stripe…**; after a window the player closed by
+hand **Finish the payment in the Stripe window. Your Sterling arrives the next time you join.**
+(it said "in your browser" until the payment moved inside the launcher); a payment the launcher
+saw finish **Payment Successful** and **Your order is recorded.**, with one control **Close**;
+signed out **Sign in to buy.**; any
 other failure **The store is unavailable right now.**; the orders view headed **Your orders**, and
 an empty one **No orders yet.**; a paid order **Paid** and a delivered one **In the game**; a
 donation **A one-off donation.** and a pack **N Sterling in your bank** from `creditPence`.
@@ -173,8 +252,8 @@ Everything else on the page is a product name, a price, a date or a product key 
 Two consequences worth stating, because they are the reviewer's to judge and not this half's to
 reword:
 
-- The sentence after a purchase names Sterling for every product, a donation included. It is one
-  frozen sentence, so a donation card prints it too.
+- The sentence after a hand-closed payment window names Sterling for every product, a donation
+  included. It is one frozen sentence, so a donation card prints it too.
 - An order that is not paid carries **no** status word at all. There is no "pending" copy, so the
   page prints nothing rather than inventing one.
 
@@ -217,14 +296,34 @@ is answered by the player pressing **Buy** again.
   a different file extension, which is exactly what Sol's sheet did. Every medallion is the `kind`
   the server sent, in the server's order, and none carries a `data-product` key.
 
-**What is not proved, and cannot be from here yet:** no real Stripe payment has been made through
-this page, no real Stripe session has been opened from the launcher, and the two new routes do not
-exist in the deployed account API — `/v2/accounts/store/catalogue` and `/v2/accounts/store/orders`
-answer 404 today, which this half reports honestly as "The store is unavailable right now." The
-bridge is proved against the frozen contract and a stub, not against the service.
+- `xvfb-run -a node tests/desktop/store-payment.electron.mjs` — **the payment window itself**,
+against a local fixture page served by the harness for the Checkout host (no real Stripe session
+exists, and none is opened): Buy opens a window inside the launcher (modal, parented, menu-less,
+node off, no preload) while `shell.openExternal` is never called; the success fragment closes it
+and opens Owen's dialog; the cancel fragment closes it and says nothing; closing it by hand claims
+nothing and leaves the store usable; a navigation to another host is refused before it loads; and
+a Checkout URL on any other host opens nothing at all.
+- `tests/store-browser.mjs` drives the same dialog against the stubbed bridge at 320–1440px:
+`paid` → the dialog with its role, labels, focus and one control → Close → the orders re-read and
+focus back on Buy; Escape and Enter; and `cancelled` → no dialog, no sentence, the store exactly as
+it was.
 
-One cross-ticket consequence to watch: `easter-co-cloud/api/checkout_routes.py` builds its Stripe
-`success_url` as `https://easter-co-smp.github.io/store/#receipt/{CHECKOUT_SESSION_ID}` and its
-`cancel_url` as the store's `#cart`. Both routes are removed by this change, so a player who pays
-lands on the public site's store page — which, correctly, sends a browser visitor home. The cloud
-half should point both at a page that can be read outside the launcher.
+**What is not proved, and cannot be from here:** no real Stripe payment has been made through this
+window, and no real Checkout Session has been opened from the launcher — the journey drives a
+local fixture page, because the account is in Stripe test mode and a session opened just to prove a
+window is a session nobody asked for. What a real Checkout page does inside this window (its own
+internal navigations, a 3-D Secure step in an iframe, a wallet redirect that leaves
+`checkout.stripe.com` for a top-level page) is **not** covered: Stripe's own host may navigate
+within itself, and a top-level navigation anywhere else is cancelled by design, so a payment method
+that needs a cross-host top-level redirect cannot complete in this window. The card form Owen
+used does not.
+
+The two store reads answer 404 in the deployed account API today, which this half reports honestly
+as "The store is unavailable right now."
+
+One cross-ticket consequence: the success and cancel fragments this window reads are the **cloud
+half's** to set on the Stripe session — `https://easter-co-smp.github.io/#store-paid/{CHECKOUT_SESSION_ID}`
+and `https://easter-co-smp.github.io/#store-cancelled`. The deployed values were both the bare site
+root when this was written, and a session carrying those produces neither fragment: the window
+would simply be closed by the player. Until that deploy, the fixture above is the only thing that
+proves the fragments work.

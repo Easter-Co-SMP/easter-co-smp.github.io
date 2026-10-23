@@ -33,7 +33,10 @@ const COPY = {
   buy: "Buy",
   opening: "Opening Stripe\u2026",
   finish:
-    "Finish the payment in your browser. Your Sterling arrives the next time you join.",
+    "Finish the payment in the Stripe window. Your Sterling arrives the next time you join.",
+  successful: "Payment Successful",
+  orderRecorded: "Your order is recorded.",
+  close: "Close",
   signedOut: "Sign in to buy.",
   unavailable: "The store is unavailable right now.",
   orders: "Your orders",
@@ -56,7 +59,16 @@ const ORDER = {
 // the products, the orders and the one failure a scenario is about.
 function installBridge(cfg) {
   const home = { schema: 1, posts: [], featuredItem: null };
-  const store = { catalogue: 0, orders: 0, checkouts: [], release: null, releaseCatalogue: null };
+  const store = {
+    catalogue: 0,
+    orders: 0,
+    checkouts: [],
+    // The rows the stub's service holds. A scenario can add one from the test side: the page only
+    // ever shows what this list answers with.
+    orders_: (cfg.orders || []).slice(),
+    release: null,
+    releaseCatalogue: null,
+  };
   window.__store = store;
   window.easterDesktop = {
     mode: "desktop",
@@ -83,7 +95,7 @@ function installBridge(cfg) {
     storeOrders: async () => {
       store.orders += 1;
       if (cfg.ordersError) throw new Error(cfg.ordersError);
-      return { orders: cfg.orders || [] };
+      return { orders: store.orders_ };
     },
     storeCheckout: async (key) => {
       store.checkouts.push(key);
@@ -92,6 +104,9 @@ function installBridge(cfg) {
         url: "https://checkout.stripe.com/c/pay/cs_test_1",
         sessionId: "cs_test_1",
         product: key,
+        // What main saw happen in its own payment window (doc/launcher-store.md, "Paying").
+        // `closed` is the default because it is the only outcome that claims nothing.
+        outcome: cfg.checkoutOutcome || "closed",
       };
       // A held answer is how the "while the browser opens" sentence is read at all: it is
       // painted only while main has not come back yet.
@@ -320,8 +335,9 @@ try {
       await page.screenshot({ path: `${output}/store-catalogue-${width}.png` });
     console.log("Store catalogue passed:", width, height);
   }
-  // BUYING. One press on one card: the key the page sent, the sentence while the browser is
-  // being handed the page, and the sentence after it. Nothing here says a payment happened.
+  // BUYING. One press on one card: the key the page sent, the sentence while the launcher's
+  // Stripe window is opening, and the sentence after a window the player closed by hand. Nothing
+  // here says a payment happened.
   {
     const { page, errors } = await storePage({
       config: { products: PRODUCTS, orders: [], holdCheckout: true },
@@ -346,8 +362,13 @@ try {
       COPY.finish,
     );
     const afterBuy = (await store.innerText()).replace(/\s+/g, " ");
-    assert.match(afterBuy, /Finish the payment in your browser/);
+    assert.match(
+      afterBuy,
+      /Finish the payment in the Stripe window\. Your Sterling arrives the next time you join\./,
+    );
+    assert.doesNotMatch(afterBuy, /browser/);
     assert.doesNotMatch(afterBuy, /received|complete|thank/i);
+    assert.equal(await store.locator(".store-modal").count(), 0, "a closed window says nothing more");
     assert.equal(
       await store.getByRole("button", { name: COPY.buy + " 1000 Sterling" }).count(),
       1,
@@ -375,6 +396,140 @@ try {
     );
     assert.equal(await store.locator(".store-status").count(), 0, "nothing claims a browser opened");
     console.log("A refused press says the store is unavailable and opens nothing");
+  }
+  // THE PAYMENT DIALOG. `outcome: "paid"` is the one answer from main that may claim a payment,
+  // and it claims it in the launcher's own words: Owen's heading, Owen's body sentence, and one
+  // control. What it does NOT do is invent an order - the row is the service's, so the stub's own
+  // list is what appears, and only after the dialog's read.
+  {
+    const { page, errors } = await storePage({
+      config: { products: PRODUCTS, orders: [], checkoutOutcome: "paid" },
+    });
+    const store = page.locator(".store-app");
+    await store.locator(".store-product").first().waitFor();
+    await store.getByRole("button", { name: COPY.buy + " 10 Sterling" }).click();
+    const modal = store.locator(".store-modal");
+    await modal.waitFor();
+    assert.equal(await modal.getAttribute("role"), "dialog");
+    assert.equal(await modal.getAttribute("aria-modal"), "true");
+    const labelledBy = await modal.getAttribute("aria-labelledby");
+    assert.equal(
+      await page.evaluate((id) => document.getElementById(id)?.textContent, labelledBy),
+      COPY.successful,
+      "the dialog is labelled by its own heading",
+    );
+    assert.equal(
+      await store.getByRole("heading", { name: COPY.successful, exact: true }).count(),
+      1,
+    );
+    assert.equal(
+      (await modal.innerText()).replace(/\s+/g, " ").trim(),
+      COPY.successful + " " + COPY.orderRecorded + " " + COPY.close,
+      "one heading, one sentence and one control: no second sentence and no exclamation mark",
+    );
+    assert.doesNotMatch(await modal.innerText(), /!/);
+    assert.equal(
+      await page.evaluate(
+        () => document.activeElement === document.querySelector(".store-modal-close"),
+      ),
+      true,
+      "focus moves into the dialog when it opens",
+    );
+    assert.equal(
+      await store.locator(".store-order-record").count(),
+      0,
+      "the dialog writes no order row by itself",
+    );
+    // The account service records the purchase; the dialog's own read is what shows it.
+    await page.evaluate(
+      (row) => window.__store.orders_.push(row),
+      { ...ORDER, product: "sterling-10", amountMinor: 149, paid: true },
+    );
+    const reads = await page.evaluate(() => window.__store.orders);
+    await modal.getByRole("button", { name: COPY.close, exact: true }).click();
+    await modal.waitFor({ state: "detached" });
+    assert.equal(
+      await page.evaluate(() => window.__store.orders),
+      reads + 1,
+      "Close re-reads the orders once",
+    );
+    assert.equal(await store.locator(".store-modal").count(), 0, "and dismisses the dialog");
+    assert.equal(
+      await page.evaluate(() => document.activeElement?.dataset?.buy),
+      "sterling-10",
+      "focus returns to the Buy control of the product just bought",
+    );
+    await store.getByRole("link", { name: "Orders", exact: true }).click();
+    await store.locator(".store-order-record").waitFor();
+    const row = (await store.locator(".store-order-record").innerText()).replace(/\s+/g, " ");
+    assert.match(row, /10 Sterling/);
+    assert.match(row, /Paid/);
+    assert.deepEqual(errors, []);
+    console.log(
+      "Payment Successful passed: Owen's dialog, one control, and a row that only the service can write",
+    );
+  }
+  // Escape and Enter close it too, and neither leaves the dialog behind. The dialog is measured
+  // rather than assumed at the smallest window the suite drives: it fits, with no sideways scroll.
+  {
+    const closers = [
+      ["Escape", (page) => page.keyboard.press("Escape")],
+      ["Enter", (page) => page.keyboard.press("Enter")],
+    ];
+    for (const [name, close] of closers) {
+      const { page } = await storePage({
+        width: 320,
+        height: 568,
+        config: { products: PRODUCTS, orders: [], checkoutOutcome: "paid" },
+      });
+      const store = page.locator(".store-app");
+      await store.locator(".store-product").first().waitFor();
+      await store.getByRole("button", { name: COPY.buy + " 10 Sterling" }).click();
+      await store.locator(".store-modal").waitFor();
+      const box = await store.locator(".store-modal-panel").boundingBox();
+      assert.ok(
+        box.x >= 0 && box.y >= 0 && box.x + box.width <= 320 && box.y + box.height <= 568,
+        `the dialog fits the 320px window (${Math.round(box.x)},${Math.round(box.y)} ${Math.round(box.width)}x${Math.round(box.height)})`,
+      );
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+        0,
+        "and it never makes the page scroll sideways",
+      );
+      await close(page);
+      await store.locator(".store-modal").waitFor({ state: "detached" });
+      assert.equal(
+        await page.evaluate(() => document.activeElement?.dataset?.buy),
+        "sterling-10",
+        name + " closes the dialog and gives focus back to Buy",
+      );
+      assert.equal(await store.locator(".store-modal").count(), 0);
+      await page.close();
+    }
+    console.log("Keyboard passed: Escape and Enter close the payment dialog, and it fits 320px");
+  }
+  // A CANCELLED payment says nothing at all: no dialog, no sentence, and the store exactly as it
+  // was before the press.
+  {
+    const { page, errors } = await storePage({
+      config: { products: PRODUCTS, orders: [], checkoutOutcome: "cancelled" },
+    });
+    const store = page.locator(".store-app");
+    await store.locator(".store-product").first().waitFor();
+    const before = (await store.innerText()).replace(/\s+/g, " ").trim();
+    await store.getByRole("button", { name: COPY.buy + " 10 Sterling" }).click();
+    await page.waitForFunction(() => window.__store.checkouts.length === 1);
+    await store.getByRole("button", { name: COPY.buy + " 10 Sterling" }).waitFor();
+    assert.equal(await store.locator(".store-modal").count(), 0, "no dialog");
+    assert.equal(await store.locator(".store-status").count(), 0, "and no sentence");
+    assert.equal(
+      (await store.innerText()).replace(/\s+/g, " ").trim(),
+      before,
+      "the store is exactly as it was before the press",
+    );
+    assert.equal(await page.evaluate(() => window.__store.orders), 0, "and nothing is re-read");
+    assert.deepEqual(errors, []);
+    console.log("Cancelled passed: no dialog, no sentence, the store exactly as it was");
   }
   // ORDERS, as the server reports them: empty, pending, paid, delivered. A pending order is
   // never worded as paid, and a paid one is never worded as delivered.

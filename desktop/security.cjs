@@ -17,6 +17,44 @@ function externalURL(value){
  if(url.protocol!=='https:'||url.username||url.password)throw Error('Only HTTPS links can open outside the launcher');
  return url.href;
 }
+// ---- the payment page inside the launcher ------------------------------------------------
+//
+// Owen, 2026-10-23: "It opened stripe in my web browser, but it should open in an embedded view
+// within the launcher instead". So the Stripe Checkout page is loaded into a window this process
+// owns, and that window is given exactly one address it may start at: the Checkout host, over
+// HTTPS, with no credentials in it. The URL arrives from the account service, so it is checked
+// here as well as there — a service answer is the far side of a network, and this is the rule
+// that decides what a window on Owen's desktop opens.
+const STRIPE_CHECKOUT_HOST='checkout.stripe.com';
+function stripeCheckoutURL(value){
+ const url=new URL(value);
+ if(url.protocol!=='https:'||url.username||url.password||url.hostname!==STRIPE_CHECKOUT_HOST||url.port)throw Error('Only a Stripe Checkout page can open inside the launcher');
+ return url.href;
+}
+// The two navigations that mean the payment is over, read from the fragment of the address the
+// page is navigating to. The account service's Stripe session carries
+// `https://easter-co-smp.github.io/#store-paid/{CHECKOUT_SESSION_ID}` as its success URL and
+// `https://easter-co-smp.github.io/#store-cancelled` as its cancel URL, so the window sees one of
+// them as it finishes; `startsWith` rather than equality because the success fragment carries the
+// session id after it. Anything else is not an outcome, and a window that closes any other way is
+// not a payment.
+function stripeOutcome(value){
+ let url;
+ try{url=new URL(value);}catch{return null;}
+ if(url.protocol!=='https:'||url.username||url.password)return null;
+ if(url.hash.startsWith('#store-paid'))return 'paid';
+ if(url.hash.startsWith('#store-cancelled'))return 'cancelled';
+ return null;
+}
+// What the payment window may navigate to *while it is still a payment*: Stripe's own Checkout
+// host, over HTTPS on its default port. Everything else — the website, another shop's page, a wallet's login — is
+// refused by the caller before it loads, so nothing about the payment leaves the launcher.
+function stripeNavigable(value){
+ try{
+  const url=new URL(value);
+  return url.protocol==='https:'&&!url.username&&!url.password&&!url.port&&url.hostname===STRIPE_CHECKOUT_HOST;
+ }catch{return false;}
+}
 function publicProfile(session){return session?.profile?{name:session.profile.name,id:session.profile.id,skin:typeof session.profile.skin==='string'&&session.profile.skin.startsWith('data:image/png;base64,')?session.profile.skin:null}:null;}
 // fetch-shaped request on Node's own TLS stack. Chromium's fetch inside Electron
 // refuses Node-served TLS endpoints during the handshake, so the account API is
@@ -167,4 +205,4 @@ function includeGraphicsValue(input,fallback=false){
  if(!input||typeof input!=='object'||typeof input.includeGraphics!=='boolean')return Boolean(fallback);
  return input.includeGraphics;
 }
-module.exports={localFile,trustedFrame,externalURL,publicProfile,apiFetch,cleanSettings,cleanLaunchPreferences,cleanShortcutPreferences,migrateLaunchPreferences,launchBehaviour,SERVER_ADDRESS,checkServer,includeGraphicsValue};
+module.exports={localFile,trustedFrame,externalURL,stripeCheckoutURL,stripeOutcome,stripeNavigable,STRIPE_CHECKOUT_HOST,publicProfile,apiFetch,cleanSettings,cleanLaunchPreferences,cleanShortcutPreferences,migrateLaunchPreferences,launchBehaviour,SERVER_ADDRESS,checkServer,includeGraphicsValue};

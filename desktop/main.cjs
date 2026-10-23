@@ -16,7 +16,7 @@ const identity=require('./identity.cjs');
 // say what this launcher last knew before the account service answers. Presentation only: it
 // is read where the state is published and nowhere a launch is decided (below).
 const sessionAnswer=require('./session-cache.cjs');
-const {localFile,trustedFrame,externalURL,publicProfile,cleanSettings,migrateLaunchPreferences,launchBehaviour,includeGraphicsValue}=require('./security.cjs');
+const {localFile,trustedFrame,externalURL,stripeCheckoutURL,stripeOutcome,stripeNavigable,publicProfile,cleanSettings,migrateLaunchPreferences,launchBehaviour,includeGraphicsValue}=require('./security.cjs');
 // The Community store's three commands (doc/launcher-store.md): what the server sells, one
 // checkout press, and the player's orders. The shaping and the two refusal sentences live
 // there, so this file only decides which session they are asked against and what "open the
@@ -1622,22 +1622,24 @@ function registerIPC(){
   try{return STORE.orders(await accounts.storeOrders(company.token));}
   catch(error){throw STORE.refusal(error);}
  });
- // One press, one product. Main asks the account service for a Stripe Checkout Session, opens
- // the URL it answers with in the player's own browser through the launcher's HTTPS-only link
- // rule, and returns. The card form is never in our window, and nothing here claims the
- // payment happened: a URL that will not open is a refusal, and the page's next orders read is
- // what says whether the payment arrived.
+ // One press, one product. Main asks the account service for a Stripe Checkout Session, loads
+ // the URL it answers with into the launcher's own modal payment window, waits there for the
+ // payment to finish or the player to close it, and answers with what happened. Nothing leaves
+ // the launcher: the success and cancel URLs the account service set on the session are the
+ // website's own addresses, and both are read as signals and blocked before they load
+ // (openStripeCheckout; doc/launcher-store.md, "Paying"). A URL that will not open is a refusal,
+ // and a payment is only claimed when the success fragment arrived -- the page's orders read is
+ // still what says whether the order was recorded.
  handle('store-checkout',async productKey=>{
   if(!company)throw STORE.signedOut();
   const key=STORE.productKey(productKey);
   let press;
   try{press=STORE.checkout(await accounts.storeCheckout(company.token,key));}
   catch(error){throw STORE.refusal(error);}
-  // The buy is the browser: a Stripe URL that will not open is a refusal, never a sale this
-  // launcher says it started. `press.url` has already passed the HTTPS-only link rule.
-  try{await shell.openExternal(press.url);}
-  catch{throw STORE.unavailable();}
-  return press;
+  // `press.url` has already passed the Stripe-host rule in both halves. The window is the one
+  // place a payment can happen, and its outcome is the whole answer this handler adds.
+  const finished=await openStripeCheckout(press.url);
+  return {...press,outcome:finished.outcome};
  });
  handle('account-providers',()=>withActivity('account-working',()=>accounts.providers(),{replace:false,scope:'surface'}));
  handle('provider-sign-in',(provider,link=false)=>accountOperation(async(update)=>{
@@ -1995,6 +1997,97 @@ function createWindow(){
  window.webContents.session.setPermissionCheckHandler(()=>false);
  window.loadURL('easter://easter/');
  window.on('closed',()=>{window=null;});
+}
+// ---- paying inside the launcher -----------------------------------------------------------
+//
+// Owen, 2026-10-23, all three of his sentences at once: "It opened stripe in my web browser, but
+// it should open in an embedded view within the launcher instead, and when it succeeds it should
+// not redirect to the website or anything, all functionality should maintain within the
+// launcher. And also the launcher needs a 'Payment Successful' modal for when the stripe
+// transaction succeeds."
+//
+// So the Checkout page is a modal child of the launcher window: the launcher's own window, with
+// no menu, no dev tools, no node, no preload and none of this app's session. The two addresses
+// Stripe navigates to when the payment ends are the website's own (the account service sets
+// `#store-paid/{CHECKOUT_SESSION_ID}` and `#store-cancelled` on the session), so both are read
+// and then blocked before anything loads: the site is never fetched, no browser opens anywhere,
+// and the launcher window is what the player comes back to.
+//
+// The window is a fixed column because Checkout is laid out as one, and it never grows past the
+// launcher window it is modal to, so a small window keeps a modal that fits inside it.
+const STRIPE_WINDOW_WIDTH=480,STRIPE_WINDOW_HEIGHT=760;
+// One payment window at a time: a second press while one is open is refused rather than stacked.
+let stripeWindow=null;
+// Resolves `{outcome}` - `paid` (the success fragment), `cancelled` (the cancel fragment) or
+// `closed` (anything else that ends it, including the player closing it by hand) - and rejects
+// with the store's one sentence when the page it was given cannot be shown at all. Never both,
+// and never twice: whichever comes first wins, so a closed window cannot overwrite a payment.
+function openStripeCheckout(url){
+ let target;
+ try{target=stripeCheckoutURL(url);}catch{return Promise.reject(STORE.unavailable());}
+ // The parent is the launcher window itself: `modal` is only real with one, and a payment that
+ // is not attached to the window the player pressed Buy in is a window that can be lost.
+ const parent=window&&!window.isDestroyed()?window:null;
+ if(!parent||stripeWindow)return Promise.reject(STORE.unavailable());
+ let settle;
+ const finished=new Promise((resolve,reject)=>{settle={resolve,reject,settled:false};});
+ const close=()=>{
+  const win=stripeWindow;
+  stripeWindow=null;
+  if(win&&!win.isDestroyed())win.destroy();
+ };
+ const end=outcome=>{
+  if(settle.settled)return;
+  settle.settled=true;
+  close();
+  settle.resolve({outcome});
+ };
+ const fail=()=>{
+  if(settle.settled)return;
+  settle.settled=true;
+  close();
+  settle.reject(STORE.unavailable());
+ };
+ const screenBounds=parent.getBounds();
+ const stripe=new BrowserWindow({
+  width:Math.min(STRIPE_WINDOW_WIDTH,screenBounds.width),
+  height:Math.min(STRIPE_WINDOW_HEIGHT,screenBounds.height),
+  parent,modal:true,show:false,autoHideMenuBar:true,resizable:true,minimizable:false,maximizable:false,
+  fullscreenable:false,title:'Stripe Checkout',backgroundColor:'#ffffff',
+  // Its own in-memory session: the launcher's cookies, storage and service worker are not
+  // Stripe's to read, and nothing Stripe writes outlives the window.
+  webPreferences:{partition:'stripe-checkout',nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,devTools:false,spellcheck:false}
+ });
+ stripeWindow=stripe;
+ // No menu at all: `autoHideMenuBar` alone hides it until Alt is pressed, and a payment window is
+ // not a place a menu belongs.
+ stripe.removeMenu();
+ stripe.once('ready-to-show',()=>{if(!stripe.isDestroyed())stripe.show();});
+ stripe.on('closed',()=>{if(stripeWindow===stripe)stripeWindow=null;end('closed');});
+ // Nothing in a payment window opens anything: no system browser, no second window.
+ stripe.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+ stripe.webContents.session.setPermissionRequestHandler((_contents,_permission,callback)=>callback(false));
+ stripe.webContents.session.setPermissionCheckHandler(()=>false);
+ // Every navigation is decided BEFORE it loads. Stripe's own host may navigate within itself -
+ // the page is allowed to keep working - and the two fragments end the payment whether they
+ // arrive as a navigation, a redirect or a hash change inside the page.
+ const arrival=(event,address)=>{
+  const outcome=stripeOutcome(address);
+  if(!outcome&&stripeNavigable(address))return;
+  event.preventDefault();
+  if(outcome)end(outcome);
+ };
+ stripe.webContents.on('will-navigate',arrival);
+ stripe.webContents.on('will-redirect',arrival);
+ // A same-document hash change loads nothing and so never leaves the launcher, but it is still
+ // one of the two signals: a success URL on Stripe's own host would arrive only here.
+ stripe.webContents.on('did-navigate-in-page',(_event,address,isMainFrame)=>{
+  if(!isMainFrame)return;
+  const outcome=stripeOutcome(address);
+  if(outcome)end(outcome);
+ });
+ stripe.loadURL(target).catch(fail);
+ return finished;
 }
 // An existing install checks for updates on launch, in the background, through the
 // same pipeline. A check that finds nothing changes no state at all.

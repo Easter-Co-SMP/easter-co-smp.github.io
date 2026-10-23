@@ -125,6 +125,78 @@ test("checkout forwards the Stripe URL only when it is an HTTPS link, and keeps 
     );
 });
 
+// The payment moved inside the launcher on 2026-10-23, and with it the rule about what may be
+// loaded: HTTPS was never enough, because the URL is now opened in a window this launcher owns.
+// Stripe's Checkout host is the only address a payment window may start at.
+test("a checkout URL on any host but Stripe's Checkout host is refused, not opened", () => {
+  for (const url of [
+    "https://easter-co-smp.github.io/",
+    "https://example.test/c/pay/cs_test_a1",
+    "https://checkout.stripe.com.evil.test/c/pay/cs_test_a1",
+    "https://pay.stripe.com/c/pay/cs_test_a1",
+    "https://checkout.stripe.com:8443/c/pay/cs_test_a1",
+  ])
+    assert.throws(
+      () => STORE.checkout({ url, sessionId: "cs_1", product: "sterling-10" }),
+      (error) => error.message === STORE.SENTENCES.unavailable,
+      url + " never reaches a window",
+    );
+  assert.equal(
+    STORE.checkout({
+      url: "https://checkout.stripe.com/c/pay/cs_test_a1#fragment",
+      sessionId: "cs_1",
+      product: "sterling-10",
+    }).url,
+    "https://checkout.stripe.com/c/pay/cs_test_a1#fragment",
+  );
+});
+
+// The two fragments the payment window reads, and the only two. `paid` needs the prefix, not an
+// exact string, because the cloud half's success URL carries the session id after it; everything
+// else — including the bare site root the deployed session still points at — is no outcome at
+// all, which is what makes a hand-closed window a `closed` and not a sale.
+test("only the two store fragments mean the payment ended, and only over HTTPS", () => {
+  const { stripeOutcome, stripeNavigable, stripeCheckoutURL } = require(
+    "../desktop/security.cjs",
+  );
+  assert.equal(
+    stripeOutcome("https://easter-co-smp.github.io/#store-paid/cs_test_a1"),
+    "paid",
+  );
+  assert.equal(stripeOutcome("https://easter-co-smp.github.io/#store-paid"), "paid");
+  assert.equal(
+    stripeOutcome("https://easter-co-smp.github.io/#store-cancelled"),
+    "cancelled",
+  );
+  for (const url of [
+    "https://easter-co-smp.github.io/",
+    "https://easter-co-smp.github.io/#store",
+    "https://easter-co-smp.github.io/store/#orders",
+    "http://easter-co-smp.github.io/#store-paid/cs_test_a1",
+    "https://user:pass@easter-co-smp.github.io/#store-paid/cs_test_a1",
+    "not a url",
+    "",
+    undefined,
+  ])
+    assert.equal(stripeOutcome(url), null, String(url));
+  // The payment window keeps working on Stripe's own host and nowhere else.
+  assert.equal(stripeNavigable("https://checkout.stripe.com/c/pay/cs_test_a1"), true);
+  for (const url of [
+    "https://easter-co-smp.github.io/#store-paid/cs_1",
+    "https://example.test/",
+    "http://checkout.stripe.com/c/pay/cs_1",
+    "https://checkout.stripe.com.evil.test/",
+    "https://checkout.stripe.com:8443/c/pay/cs_1",
+    "",
+  ])
+    assert.equal(stripeNavigable(url), false, url);
+  assert.throws(() => stripeCheckoutURL("https://example.test/pay"));
+  assert.equal(
+    stripeCheckoutURL("https://checkout.stripe.com/c/pay/cs_test_a1"),
+    "https://checkout.stripe.com/c/pay/cs_test_a1",
+  );
+});
+
 test("an order says Paid and In the game only on the server's own booleans", () => {
   const [pending] = STORE.orders({ orders: [ORDER] }).orders;
   assert.equal(pending.paid, false);

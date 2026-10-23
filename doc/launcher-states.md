@@ -911,7 +911,7 @@ and an operation cannot become repeatable by being written with a longer timeout
 | `POST /v2/accounts/session/refresh` | no | It rotates the very Company session it sends, so a repeat may present a token the first attempt already spent |
 | `GET /v2/accounts/store/catalogue` | yes, read | Changes nothing server side. The store's own window (`STORE_RETRY_BUDGET_MS` = 20 s) rather than the 90 s one: it is a page the player is looking at, not a Play press |
 | `GET /v2/accounts/store/orders` | yes, read | Changes nothing server side, same store window. Never an empty list by accident: a failed read is a refusal (doc/launcher-store.md) |
-| `POST /v2/accounts/checkout` | no, write (waited out on a declared `database_unavailable`) | It creates a Stripe Checkout Session, and a lost answer may have created one. The service declares a `database_unavailable` before it creates anything, so a cold account service is waited out instead of reported as a shut store. A press that fails outright is answered by the player pressing Buy again |
+| `POST /v2/accounts/checkout` | no, write (waited out on a declared `database_unavailable`) | It creates a Stripe Checkout Session, and a lost answer may have created one. The service declares a `database_unavailable` before it creates anything, so a cold account service is waited out instead of reported as a shut store. A press that fails outright is answered by the player pressing Buy again. The **payment window** that follows is the player's own time, not a retry window, and nothing here bounds it |
 
 What a repeatable call is asked again for, and what it is not (`transientFailure`):
 
@@ -937,6 +937,22 @@ field in `desktop/store.cjs`, and every failure is one of two sentences: **Sign 
 **The store is unavailable right now.** The wire shapes, the copy and what is not proved yet are
 in doc/launcher-store.md. None of the three is in `REACHABLE_BEFORE_STARTUP`: they need a signed-in
 session and none of them is needed to start the launcher.
+
+**`storeCheckout` answers with what happened in the launcher, not with a URL for a browser.** It
+loads the Checkout page into a modal child of the launcher window and answers
+`{outcome: 'paid' | 'cancelled' | 'closed', url, sessionId, product}`, where `paid` is the
+`#store-paid` fragment arriving in that window and `cancelled` is `#store-cancelled` — both
+cancelled before they load, so the website is never fetched and no browser opens. A window closed
+any other way is `closed` and claims nothing. The window's bounds are named
+(`STRIPE_WINDOW_WIDTH` 480 by `STRIPE_WINDOW_HEIGHT` 760, each capped at the launcher window's own
+size) and its loaded address must be `https://checkout.stripe.com`, checked in both halves
+(`stripeCheckoutURL` in `desktop/security.cjs`). The dialog the page draws afterwards is described
+in doc/launcher-store.md, "The Payment Successful dialog".
+
+There is no longer a *timeout* on this command and there must not be one: the player is filling in
+a card form, so the press stays open for as long as the payment window is. The one bounded part
+is the initial load — a Checkout URL that will not load at all is refused with the store's one
+sentence rather than leaving an empty window on the screen.
 
 ### The budgets
 
