@@ -21,6 +21,21 @@ try{
   }
   throw Error('Timed out waiting for '+what+'.');
  };
+ // Signing out is a round trip, so the header is still the account menu when this journey
+ // clicks it a tick later: that click opens the profile menu, and the broadcast that follows
+ // closes it again, so the sign-in chooser is never asked for and its identifier - inline in
+ // the chooser since the two dialogs were split - stays closed and therefore invisible.
+ // Measured on 6ac6aa2: the header reads "Sign in" 27 ms after Logout, and a click from
+ // there opens the chooser with the identifier already visible. Every sign-out below waits
+ // for that flip, which is also the assertion that the header ever went back to signing in.
+ const logout=async()=>{
+  await page.locator('.desktop-account-nav').click();
+  await page.getByRole('button',{name:'Logout',exact:true}).click();
+  const signIn=page.locator('.desktop-account-nav').filter({hasText:'Sign in'});
+  await signIn.waitFor();
+  await signIn.click();
+  await page.locator('#desktop-company-signin').waitFor();
+ };
  await page.keyboard.press('Escape');
  await page.locator('.desktop-account-nav').click();
  const chooser=page.locator('#desktop-company-signin');
@@ -74,8 +89,7 @@ try{
  await page.keyboard.press('Escape');await page.locator('.desktop-account-nav').filter({hasText:'Independent fixture profile'}).waitFor();
  state=await page.evaluate(()=>window.easterDesktop.status());assert.equal(state.account.username,name);
  assert.deepEqual(state.account.providers,['discord','google']);
- await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Logout',exact:true}).click();
- await page.locator('.desktop-account-nav').click();
+ await logout();
  await page.locator('#desktop-company-signin').getByLabel('Username or Email',{exact:true}).fill(name);
  await page.locator('#desktop-company-signin').getByLabel('Password',{exact:true}).fill('provider fixture passphrase');
  await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in',exact:true}).click();
@@ -91,8 +105,7 @@ try{
  // fixture derives the provider subject from the code, so this second Discord sign-in IS the
  // same person as the one who signed up at the top of this journey.
  const returningId=(await page.evaluate(()=>window.easterDesktop.status())).account.id;
- await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Logout',exact:true}).click();
- await page.locator('.desktop-account-nav').click();
+ await logout();
  await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Discord',exact:true}).click();
  const returning=await waitForStatus(s=>s.account?.id===returningId,'the returning Discord sign-in to land in the account it is linked to');
  assert.equal(returning.account.username,name,'and it is the account whose username was already chosen');
@@ -103,8 +116,7 @@ try{
  // A forgotten password has no reset and no recovery chooser (Owen, 2026-10-22): the route is
  // to sign in with a linked account, which this journey has just done, and change it in My
  // Profile. The chooser says that in one sentence where the recovery link used to be.
- await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Logout',exact:true}).click();
- await page.locator('.desktop-account-nav').click();
+ await logout();
  const signedOutChooser=page.locator('#desktop-company-signin');await signedOutChooser.waitFor();
  assert.equal(await signedOutChooser.getByRole('button',{name:'Forgot your password?',exact:true}).count(),0,'the chooser offers no password recovery');
  assert.equal((await signedOutChooser.locator('.company-no-reset').textContent()).trim(),'If you have forgotten your password there is no reset: sign in with a linked account, then change the password in My Profile.');
