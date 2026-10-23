@@ -214,12 +214,12 @@ try {
     assert.deepEqual(
       await store.locator(".store-worth").allInnerTexts(),
       [
-        "10 Sterling in your bank",
-        "100 Sterling in your bank",
-        "1,000 Sterling in your bank",
+        "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.",
+        "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.",
+        "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.",
         COPY.donation,
       ],
-      "a pack says what it is worth from creditPence, and a donation says it is a donation",
+      "every currency pack shares the bank deposit instructions, and a donation says it is a donation",
     );
     assert.equal(await store.getByRole("button", { name: /^Buy / }).count(), 4);
     assert.equal(
@@ -665,7 +665,7 @@ try {
       const store = page.locator(".store-app");
       await page.getByRole("heading", { name: "100 Sterling", level: 2 }).waitFor();
       assert.match(await store.locator(".store-detail-price").innerText(), /\$6\.95/);
-      assert.match(await store.locator(".store-worth").innerText(), /100 Sterling in your bank/);
+      assert.equal(await store.locator(".store-worth").innerText(), "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game.");
       assert.equal(await store.getByRole("button", { name: /^Buy / }).count(), 1);
     });
     await coldLoad("#item/not-a-product", async (page) => {

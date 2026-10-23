@@ -75,29 +75,20 @@ const anchor = (href, cls) => {
 };
 const artwork = (kind, cls = "store-art") => {
   const n = el("div", cls);
-  // The emblems are local static vectors, chosen by the kind the server sent. A kind with no
-  // emblem of its own still gets one: art is decoration, never a claim. data-kind is what the
-  // sheet tints a donation's medallion by, so Sol's medallion variants survive without this page
-  // keying anything on a product key it is not allowed to know.
+  // Local vector emblems stay crisp in the catalogue and detail view.
   n.dataset.kind = kind;
   n.setAttribute("aria-hidden", "true");
-  n.innerHTML = productArt(kind === "donation" ? "flag" : "coins");
+  n.innerHTML = productArt(kind === "donation" ? "donation" : "coins");
   return n;
 };
 const money = (amountMinor, currency) =>
   new Intl.NumberFormat(undefined, { style: "currency", currency }).format(
     amountMinor / 100,
   );
-// What a Sterling pack is worth in the game, from the server's own creditPence: the card
-// describes the pack, it does not price it. The line names the BANK, not the wallet: bought
-// currency is credited to the player's bank account (Owen, 2026-10-23), which is the uncapped
-// in-game vault, because the wallet is capped for gameplay and a purchase must not be truncated
-// by a cap that exists for a different reason. A product that credits nothing is a donation.
+// Purchases go to the bank; every currency pack shares Owen's deposit instructions.
 const worth = (p) =>
   p.creditPence > 0
-    ? new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(
-        p.creditPence / 100,
-      ) + " Sterling in your bank"
+    ? "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game."
     : COPY.donation;
 const dateOf = (iso) =>
   new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(

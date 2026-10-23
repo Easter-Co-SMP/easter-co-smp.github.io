@@ -327,3 +327,7 @@ and `https://easter-co-smp.github.io/#store-cancelled`. The deployed values were
 root when this was written, and a session carrying those produces neither fragment: the window
 would simply be closed by the player. Until that deploy, the fixture above is the only thing that
 proves the fragments work.
+
+## Currency descriptions and donation art (2026-10-23)
+
+Superseding the earlier worth-line wording above, every currency pack now reads: "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game." Titles and server prices are unchanged. Donations retain "A one-off donation." The donation emblem is a detailed local vector heart above gifted gold coins, replacing the flag, in both catalogue and item views.
