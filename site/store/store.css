@@ -402,41 +402,23 @@
   line-height: 1.6;
   text-align: left;
 }
-/* THE COIN MEDALLION. Sol's stand-in for a product photograph: a gold ring, an inset ring, a
-   dashed inner ring and a teal radial gradient, with the local vector emblem centred in it.
-   Sol keyed two variants on product keys; this page has no catalogue, so the only variant left
-   is on the `kind` the server sends, and both of his donation variants are folded into one: his
-   copper ground on his softened square. */
+/* Local inventory artwork. The transparent cut-outs carry their own material
+   and lighting; a second frame or glow would compete with the objects at 64px. */
 .store-art {
   position: relative;
   display: grid;
   place-items: center;
   width: 94px;
   height: 94px;
-  overflow: hidden;
   border-radius: 50%;
-  border: 1px solid #e4c48670;
-  outline: 1px solid #e4c48625;
-  outline-offset: -7px;
-  background: radial-gradient(circle at 28% 20%, #526059, #223935 55%, #142c31);
-  box-shadow: inset 0 0 18px #06171c70;
-}
-.store-art::after {
-  content: "";
-  position: absolute;
-  inset: 11px;
-  border: 1px dashed #e4c48630;
-  border-radius: inherit;
-  pointer-events: none;
 }
 .store-art svg {
-  width: 78%;
-  height: 78%;
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 .store-art[data-kind="donation"] {
   border-radius: 9px;
-  border-color: #bf8c6f80;
-  background: radial-gradient(circle at 28% 20%, #695348, #3d3831 55%, #1b2c2e);
 }
 /* THE PRODUCT'S OWN VIEW. Sol's panel: a 150px medallion column beside the copy, on the same
    card ground as a row. */
@@ -581,9 +563,6 @@
   .store-product .store-art {
     width: 64px;
     height: 64px;
-  }
-  .store-product .store-art::after {
-    inset: 8px;
   }
   .store-product-footer {
     flex-direction: row;

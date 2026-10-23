@@ -62,10 +62,8 @@ const anchor = (href, cls) => {
 };
 const artwork = (kind, cls = "store-art") => {
   const n = el("div", cls);
-  // The emblems are local static vectors, chosen by the kind the server sent. A kind with no
-  // emblem of its own still gets one: art is decoration, never a claim. data-kind is what the
-  // sheet tints a donation's medallion by, so Sol's medallion variants survive without this page
-  // keying anything on a product key it is not allowed to know.
+  // The local illustrations are decorative. Choose by the server's kind only;
+  // product names, prices and bank credit continue to come from the service.
   n.dataset.kind = kind;
   n.setAttribute("aria-hidden", "true");
   n.innerHTML = productArt(kind === "donation" ? "flag" : "coins");
