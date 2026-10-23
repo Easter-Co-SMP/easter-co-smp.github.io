@@ -113,9 +113,11 @@ function orders(payload){
  if(shaped.some(entry=>!entry))throw unavailable();
  return {orders:shaped};
 }
-// The key the page asked for, or a refusal. Only a key this launcher has seen in the catalogue
-// is forwarded, and only after a shape check: the page cannot name a product the server never
-// offered, and no price, amount or id travels with it.
+// The key the page asked for, or a refusal. This is a SHAPE check and nothing more: this half
+// does not keep a catalogue, so it cannot tell a key the server offered from one it never did.
+// What is checked here is that the renderer sent a product key at all - a lower-case identifier
+// and no price, amount, id or URL - and the server is the authority on which keys are for sale:
+// an unknown one is its own 400 unknown_product, which refusal() turns into the one sentence.
 function productKey(value){
  if(typeof value!=='string'||!PRODUCT_KEY.test(value))throw unavailable();
  return value;

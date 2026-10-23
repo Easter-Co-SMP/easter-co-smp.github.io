@@ -224,14 +224,12 @@ test("storeCheckout names the product and nothing else, on the route the service
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://accounts.test/v2/accounts/checkout");
   assert.equal(calls[0].options.method, "POST");
-  assert.deepEqual(JSON.parse(calls[0].options.body), {
-    product: "penny",
-    client: "launcher/test",
-  });
+  // Exactly the one field the route reads: a payment request carries nothing else.
+  assert.deepEqual(JSON.parse(calls[0].options.body), { product: "penny" });
   assert.equal(calls[0].options.headers.Authorization, "Bearer session-token");
-  // No price, no amount, no currency, no quantity: the server prices the product it knows.
-  assert.equal(calls[0].options.body.includes("price"), false);
-  assert.equal(calls[0].options.body.includes("amount"), false);
+  // No price, no amount, no currency, no quantity, and no client identifier: the server prices
+  // the product it knows.
+  for (const field of ["price", "amount", "client"]) assert.equal(calls[0].options.body.includes(field), false);
   assert.equal(answer.product, "penny");
 });
 

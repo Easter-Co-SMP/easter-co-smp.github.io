@@ -583,8 +583,10 @@ class AccountClient{
  async storeCatalogue(token,signal){
   return this.attempt('/v2/accounts/store/catalogue',{token,signal});
  }
+ // The body is exactly `{product}`: the route reads that one field and nothing else, and a
+ // payment request should carry only what the route reads.
  async storeCheckout(token,productKey,signal){
-  return this.attempt('/v2/accounts/checkout',{method:'POST',token,body:{product:productKey,client:this.client},signal});
+  return this.attempt('/v2/accounts/checkout',{method:'POST',token,body:{product:productKey},signal});
  }
  async storeOrders(token,signal){
   return this.attempt('/v2/accounts/store/orders',{token,signal});
