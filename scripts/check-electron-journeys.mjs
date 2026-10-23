@@ -340,7 +340,7 @@ if (listOnly) {
   const pad = Math.max(...gates.map((name) => name.length));
   for (const name of gates) {
     const fixture = FIXTURES[name] ? `fixture :${FIXTURES[name].port}${FIXTURES[name].env ? ' ' + JSON.stringify(FIXTURES[name].env) : ''}` : 'no fixture';
-    const bound = fmtSeconds((TIMEOUTS[name] || DEFAULT_TIMEOUT_MS) / 1000).replace('s', 's bound');
+    const bound = `bound ${Math.round((TIMEOUTS[name] || DEFAULT_TIMEOUT_MS) / 1000)}s`;
     console.log(`  gate  ${name.padEnd(pad)}  ${fixture.padEnd(34)} ${bound}`);
   }
   for (const name of notGates) console.log(`  --    ${name.padEnd(pad)}  not a gate: ${NOT_GATES[name]}`);
@@ -384,11 +384,9 @@ await requireOnPath('xvfb-run', 'xvfb-run is not on PATH, and every journey runs
 
 // The account fixture is needed by four of the journeys, so it is checked before the sweep
 // rather than after 20 failures with the same import error.
-let dockerUsable = true;
 try {
   execFileSync('docker', ['inspect', '--type=container', '--format', '{{.State.Running}}', pgContainer], {stdio: ['ignore', 'pipe', 'ignore'], encoding: 'utf8'});
-} catch (error) {
-  dockerUsable = false;
+} catch {
   missing.push(
     `the docker container ${pgContainer} on 127.0.0.1:${pgPort} does not exist or the docker daemon is unreachable, ` +
       'so company.electron.mjs, handover.electron.mjs, providers.electron.mjs and wait-post-approval.electron.mjs cannot run',
