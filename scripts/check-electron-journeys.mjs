@@ -525,7 +525,9 @@ async function startFixture(spec, logFile) {
 
 // The last thing the journey said that reads like an error, and the frame that names the
 // journey itself. Journeys fail through assert.equal, through Playwright timeouts and
-// through a thrown Error, so this reads the stack rather than one known message.
+// through a thrown Error, and Node dumps a failing top-level await as a message, a Call log
+// and a property block - so this reads the message and skips the properties, rather than
+// quoting `name: 'TimeoutError'` at whoever has to diagnose it.
 function diagnose(output, name) {
   const lines = output.split('\n');
   const frame = new RegExp(`tests/desktop/${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:(\\d+)(?::(\\d+))?`);
@@ -537,31 +539,50 @@ function diagnose(output, name) {
       break;
     }
   }
-  const isError = (line) =>
-    /(^|[^a-z])([A-Z]\w*Error|Error:|error|Timeout|Exception)\b/.test(line) &&
-    !/^\s+at\s/.test(line) &&
-    !/^node:internal/.test(line) &&
-    !/^\s*$/.test(line) &&
-    !/^⚠|^\s+\[/.test(line);
+  const noise = (line) =>
+    line.trim() === '' ||
+    /^\s+at\s/.test(line) ||
+    /^node:internal/.test(line) ||
+    /^\s*(name|code|stack|log|errors):/.test(line) ||
+    /^\s*[\]}],?$/.test(line) ||
+    /^\s*-\s/.test(line) ||
+    /^\s*\d+ × /.test(line) ||
+    /^Call log:/.test(line) ||
+    /^Node\.js v/.test(line);
+  const isMessage = (line) => {
+    const text = line.trim();
+    return (
+      /^(?:[A-Za-z]*Error\b|FAILED\b)/.test(text) ||
+      /^(?:Expected|Actual)\b/.test(text) ||
+      (/^[a-z][\w.$]*:\s/.test(text) && /(timeout|exceeded|expected|failed|refused)/i.test(text)) ||
+      (/Timeout\b/.test(text) && /(exceeded|waiting)/i.test(text))
+    );
+  };
   let lastError = null;
-  for (const line of lines) if (isError(line)) lastError = line.trim();
+  for (const line of lines) if (!noise(line) && isMessage(line)) lastError = line.trim();
   if (!lastError) {
     for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i].trim();
-      if (line && !/^at\s/.test(line) && !/^node:internal/.test(line)) {
-        lastError = line;
+      if (!noise(lines[i])) {
+        lastError = lines[i].trim();
         break;
       }
     }
   }
-  return {where, lastError};
+  // The "waiting for" line is what the journey was actually blocked on, and is the one thing
+  // a Playwright timeout does not say in its own message.
+  let waiting = null;
+  for (const line of lines) {
+    const match = /^\s*- waiting for (.+)$/.exec(line);
+    if (match) waiting = match[1].trim();
+  }
+  return {where, lastError, waiting};
 }
 
 async function runJourney(name) {
   const spec = FIXTURES[name] || null;
   const bound = TIMEOUTS[name] || DEFAULT_TIMEOUT_MS;
   const logFile = path.join(logDir, `${name}.log`);
-  const result = {name, status: 'FAIL', seconds: 0, where: null, lastError: null, note: null, fixture: null};
+  const result = {name, status: 'FAIL', seconds: 0, where: null, lastError: null, waiting: null, note: null, fixture: null};
 
   if (spec) {
     const fixtureLog = path.join(logDir, `fixture-${spec.port}.log`);
@@ -638,23 +659,26 @@ async function runJourney(name) {
   }
   if (timedOut) {
     result.note = `ran away: killed at its ${Math.round(bound / 1000)}s bound`;
-    const {where, lastError} = diagnose(output, name);
+    const {where, lastError, waiting} = diagnose(output, name);
     result.where = where;
     result.lastError = lastError;
+    result.waiting = waiting;
     return result;
   }
   if (exit.signal) {
     result.note = `was killed by ${exit.signal}`;
-    const {where, lastError} = diagnose(output, name);
+    const {where, lastError, waiting} = diagnose(output, name);
     result.where = where;
     result.lastError = lastError;
+    result.waiting = waiting;
     return result;
   }
   if (exit.code !== 0) {
     result.note = `exit ${exit.code}`;
-    const {where, lastError} = diagnose(output, name);
+    const {where, lastError, waiting} = diagnose(output, name);
     result.where = where;
     result.lastError = lastError;
+    result.waiting = waiting;
     return result;
   }
   // Exit 0 is not a verdict on its own: a journey that printed nothing produced none.
@@ -690,6 +714,7 @@ for (const name of selected) {
     if (result.where) console.log(`        at ${result.where}`);
     if (result.note) console.log(`        ${result.note}`);
     if (result.lastError) console.log(`        last error: ${result.lastError}`);
+    if (result.waiting) console.log(`        blocked on: ${result.waiting}`);
   }
 }
 
@@ -758,6 +783,15 @@ if (interrupted) {
   process.exit(130);
 }
 for (const where of cleanliness) console.error(`electron journeys: cleanup - ${where}`);
+if (failed !== 0 && Object.keys(foreignAtStart).length) {
+  // Said beside every failing sweep that began with other people's Electron/Chromium on the
+  // box, because contention wears a product failure's clothes (doc/releasing.md, "Run it
+  // alone"). It does not soften the verdict: the failure still fails the gate.
+  console.error(
+    `electron journeys: note - ${describeContenders(foreignAtStart)} were already running when this sweep started; ` +
+      'a journey that fails under that contention is not a product fault, so re-run it alone before diagnosing',
+  );
+}
 if (failed === 0 && cleanliness.length === 0) {
   console.log(`electron journeys PASS: ${passed} of ${selected.length} gates passed in ${fmtDuration(total)}${notGates.length ? ` (${notGates.map((name) => name).join(', ')} not a gate)` : ''}`);
   process.exit(0);
