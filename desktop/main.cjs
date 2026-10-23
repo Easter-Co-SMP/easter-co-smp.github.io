@@ -1685,7 +1685,12 @@ function foldUsername(value){
  handle('account-refresh',()=>exclusively(async()=>{if(!session)throw Error('Sign in first.');await enrolAccount({throwOnError:true});return publicAccount(company);}));
  // Company account only: the Microsoft session on this device is kept.
  handle('account-sign-out',async()=>{if(working||controller||accountWorking)throw Error('Wait for the current operation to finish.');await forgetCompany();notify({message:'Signed out of your Easter Company account.'});});
- handle('retry-updates',()=>{if(game)throw Error('Close Minecraft before updating the launcher.');return startupUpdates();});
+ // A retry while Minecraft is running is allowed: the launcher updates in the background and the
+ // game is not interrupted (Owen, 2026-10-23). The sentence that used to refuse here — "Close
+ // Minecraft before updating the launcher." — described a rule the design no longer has, so it is
+ // gone rather than reworded; the generic busy guard inside startupUpdates is what still stops a
+ // retry landing in the middle of another operation.
+ handle('retry-updates',()=>startupUpdates());
  handle('play',()=>startGame());
  handle('settings',async input=>{
   if(working||controller)throw Error('Wait for the current operation before changing settings.');
