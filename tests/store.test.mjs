@@ -13,7 +13,7 @@ const STORE = require("../desktop/store.cjs");
 const { AccountClient, AccountError, OPERATIONS, STORE_RETRY_BUDGET_MS } = require(
   "../desktop/accounts.cjs",
 );
-// The five products Owen sells, exactly as the cloud half is to send them. Prices are USD minor
+// The four products Owen sells, exactly as the cloud half is to send them. Prices are USD minor
 // units; creditPence is what a pack is worth in the game (so 100000 is 1,000 Sterling), and
 // bought Sterling is credited to the player's bank, which is why the card says "in your bank".
 const PRODUCTS = [
@@ -21,7 +21,6 @@ const PRODUCTS = [
   { key: "sterling-100", name: "100 Sterling", amountMinor: 695, currency: "USD", kind: "sterling", creditPence: 10000 },
   { key: "sterling-1000", name: "1000 Sterling", amountMinor: 2999, currency: "USD", kind: "sterling", creditPence: 100000 },
   { key: "donation-5", name: "Keep the lights on", amountMinor: 500, currency: "USD", kind: "donation", creditPence: 0 },
-  { key: "penny", name: "Penny for the poor", amountMinor: 1, currency: "USD", kind: "donation", creditPence: 0 },
 ];
 const ORDER = {
   sessionId: "cs_test_a1",
@@ -49,11 +48,11 @@ const clientWith = (answer) => {
 const ok = (body) => ({ ok: true, status: 200, json: async () => body });
 const fail = (status, body) => ({ ok: false, status, json: async () => body });
 
-test("the catalogue is the server's five products, in the server's order, and nothing else", () => {
+test("the catalogue is the server's four products, in the server's order, and nothing else", () => {
   const { products } = STORE.catalogue({ products: PRODUCTS });
   assert.deepEqual(
     products.map((p) => p.key),
-    ["sterling-10", "sterling-100", "sterling-1000", "donation-5", "penny"],
+    ["sterling-10", "sterling-100", "sterling-1000", "donation-5"],
   );
   assert.deepEqual(products[0], PRODUCTS[0]);
   // Anything the service adds that this half does not know is dropped, never forwarded.
@@ -111,12 +110,12 @@ test("checkout forwards the Stripe URL only when it is an HTTPS link, and keeps 
     undefined,
   ])
     assert.throws(
-      () => STORE.checkout({ url, sessionId: "cs_1", product: "penny" }),
+      () => STORE.checkout({ url, sessionId: "cs_1", product: "sterling-10" }),
       (error) => error.message === STORE.SENTENCES.unavailable,
     );
   for (const broken of [
-    { url: "https://checkout.stripe.com/c/pay/x", product: "penny" },
-    { url: "https://checkout.stripe.com/c/pay/x", sessionId: "", product: "penny" },
+    { url: "https://checkout.stripe.com/c/pay/x", product: "sterling-10" },
+    { url: "https://checkout.stripe.com/c/pay/x", sessionId: "", product: "sterling-10" },
     { url: "https://checkout.stripe.com/c/pay/x", sessionId: "cs_1", product: "x".repeat(65) },
     {}
   ])
@@ -218,19 +217,19 @@ test("the two store reads repeat inside the store's own window; the checkout is 
 
 test("storeCheckout names the product and nothing else, on the route the service serves", async () => {
   const { client, calls } = clientWith(
-    ok({ url: "https://checkout.stripe.com/c/pay/cs_1", sessionId: "cs_1", product: "penny" }),
+    ok({ url: "https://checkout.stripe.com/c/pay/cs_1", sessionId: "cs_1", product: "sterling-10" }),
   );
-  const answer = await client.storeCheckout("session-token", "penny");
+  const answer = await client.storeCheckout("session-token", "sterling-10");
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://accounts.test/v2/accounts/checkout");
   assert.equal(calls[0].options.method, "POST");
   // Exactly the one field the route reads: a payment request carries nothing else.
-  assert.deepEqual(JSON.parse(calls[0].options.body), { product: "penny" });
+  assert.deepEqual(JSON.parse(calls[0].options.body), { product: "sterling-10" });
   assert.equal(calls[0].options.headers.Authorization, "Bearer session-token");
   // No price, no amount, no currency, no quantity, and no client identifier: the server prices
   // the product it knows.
   for (const field of ["price", "amount", "client"]) assert.equal(calls[0].options.body.includes(field), false);
-  assert.equal(answer.product, "penny");
+  assert.equal(answer.product, "sterling-10");
 });
 
 test("the two reads ask their own routes with the session and no body", async () => {
@@ -267,7 +266,7 @@ test("a route the deployed service does not have yet is the unavailable sentence
   });
   const unconfigured = clientWith(fail(503, { error: "checkout_not_configured" }));
   await assert.rejects(
-    unconfigured.client.storeCheckout("session-token", "penny"),
+    unconfigured.client.storeCheckout("session-token", "sterling-10"),
     (error) => {
       assert.equal(STORE.refusal(error).message, STORE.SENTENCES.unavailable);
       return true;

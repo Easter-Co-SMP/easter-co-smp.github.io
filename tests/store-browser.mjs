@@ -1,5 +1,5 @@
 /*
- * The Community store is a page at /store/ and the real one: five products the server sells,
+ * The Community store is a page at /store/ and the real one: four products the server sells,
  * one at a time from their own cards, and the player's own orders. This suite drives the real
  * page shell against a STUBBED LAUNCHER BRIDGE at five viewport sizes and proves the shape the
  * launcher relies on - no dialog, no inline script, no off-origin request, a header nav entry
@@ -18,13 +18,14 @@ const { chromium } = await import(
 );
 const origin = process.env.EASTER_PUBLIC_ORIGIN || "http://127.0.0.1:18100",
   output = process.env.EASTER_REVIEW_OUTPUT;
-// The five live products, in the server's order, exactly as the cloud half is to send them.
+// The four live products, in the server's order, exactly as the cloud half sends them. The
+// $0.01 penny was dropped on 2026-10-23: Stripe's minimum charge for USD is $0.50 and it refuses
+// the Checkout Session with amount_too_small, so a one-cent product can never be sold.
 const PRODUCTS = [
   { key: "sterling-10", name: "10 Sterling", amountMinor: 149, currency: "USD", kind: "sterling", creditPence: 1000 },
   { key: "sterling-100", name: "100 Sterling", amountMinor: 695, currency: "USD", kind: "sterling", creditPence: 10000 },
   { key: "sterling-1000", name: "1000 Sterling", amountMinor: 2999, currency: "USD", kind: "sterling", creditPence: 100000 },
   { key: "donation-5", name: "Keep the lights on", amountMinor: 500, currency: "USD", kind: "donation", creditPence: 0 },
-  { key: "penny", name: "Penny for the poor", amountMinor: 1, currency: "USD", kind: "donation", creditPence: 0 },
 ];
 // Owen's sentences, character for character. This suite is their second reader: if the page is
 // ever reworded, this stops rather than blessing the new wording.
@@ -184,7 +185,7 @@ try {
     const store = page.locator(".store-app");
     await store.locator(".store-product").first().waitFor();
     assert.equal(new URL(page.url()).hash, "#catalogue");
-    assert.equal(await store.locator(".store-product").count(), 5, "five products, and only five");
+    assert.equal(await store.locator(".store-product").count(), 4, "four products, and only four");
     assert.deepEqual(
       await store.locator(".store-product-name").allInnerTexts(),
       PRODUCTS.map((p) => p.name),
@@ -192,7 +193,7 @@ try {
     );
     assert.deepEqual(
       await store.locator(".store-price").allInnerTexts(),
-      ["$1.49", "$6.95", "$29.99", "$5.00", "$0.01"],
+      ["$1.49", "$6.95", "$29.99", "$5.00"],
       "every price is the server's USD amount",
     );
     assert.deepEqual(
@@ -202,11 +203,10 @@ try {
         "100 Sterling in your bank",
         "1,000 Sterling in your bank",
         COPY.donation,
-        COPY.donation,
       ],
       "a pack says what it is worth from creditPence, and a donation says it is a donation",
     );
-    assert.equal(await store.getByRole("button", { name: /^Buy / }).count(), 5);
+    assert.equal(await store.getByRole("button", { name: /^Buy / }).count(), 4);
     assert.equal(
       await store
         .getByRole("button", { name: COPY.buy + " 1000 Sterling" })
@@ -675,12 +675,12 @@ try {
     );
     assert.equal(
       walked.filter((c) => c.startsWith("store-product-open")).length,
-      5,
+      4,
       "every product name, the link to its own view, is reachable",
     );
     assert.equal(
       walked.filter((c) => c.startsWith("store-button")).length,
-      5,
+      4,
       "every Buy control is reachable",
     );
     assert.ok(walked.includes("store-skip|Skip to store"), "and the skip link is walked too");

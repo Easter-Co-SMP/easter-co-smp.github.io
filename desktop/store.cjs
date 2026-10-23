@@ -21,9 +21,9 @@ const SENTENCES=Object.freeze({
  signedOut:'Sign in to buy.',
  unavailable:'The store is unavailable right now.'
 });
-// What each product key may look like. The keys are the server's own (`sterling-10`, `penny`,
-// ...); this is a shape check, not a catalogue: the page never learns a key the server did not
-// send, and a key-shaped string is all storeCheckout() will forward.
+// What each product key may look like. The keys are the server's own (`sterling-10`,
+// `donation-5`); this is a shape check, not a catalogue: the page never learns a key the server
+// did not send, and a key-shaped string is all storeCheckout() will forward.
 const PRODUCT_KEY=/^[a-z0-9][a-z0-9-]{0,63}$/;
 const CURRENCY=/^[A-Z]{3}$/;
 // What a product is called and what kind it is, in the bounds a card can draw. A kind is a
@@ -62,7 +62,7 @@ function product(value){
  return {key,name,amountMinor:value.amountMinor,currency,kind,creditPence};
 }
 // GET /v2/accounts/store/catalogue -> {products:[{key,name,amountMinor,currency,kind,creditPence}]}
-// An empty list is refused rather than rendered: this store sells five products, so nothing on
+// An empty list is refused rather than rendered: this store sells four products, so nothing on
 // sale is an answer this half cannot explain, and a shop that silently draws no cards would
 // look like a bug rather than a shut door.
 function catalogue(payload){

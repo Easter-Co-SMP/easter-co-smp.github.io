@@ -21,7 +21,6 @@ Exactly what the server sends, in the server's order, and nothing priced in `sit
 | `sterling-100` | 100 Sterling | $6.95 | 100 Sterling in your bank |
 | `sterling-1000` | 1000 Sterling | $29.99 | 1,000 Sterling in your bank |
 | `donation-5` | Keep the lights on | $5.00 | A one-off donation. |
-| `penny` | Penny for the poor | $0.01 | A one-off donation. |
 
 The names and USD amounts in that table are the server's, quoted here as the record of what is
 sold; nothing in `site/` contains them. A card's second line is decided by `creditPence` (**what
@@ -73,7 +72,7 @@ mount gate (`bridge.mode === "desktop"`, else `location.replace("../")`) is asse
 
 Owen commissioned a separate front-end pass (Sol, `origin/work` 26660a2, "Replace mock storefront
 with five-product shop"). It was written before the store had any behaviour, so it could not be
-merged as it stood: it hard-coded the five products and their USD prices in
+merged as it stood: it hard-coded the products and their USD prices in
 `site/store/catalogue.mjs`, kept a client-side "selection for review" flow with a `#cart` route and
 an Orders section with no service behind them, and — because it branched before 5e5a2fc — it
 dropped the mount gate and the `store-entry` class. The design was applied to the wired page
@@ -202,7 +201,7 @@ is answered by the player pressing **Buy** again.
   that a 404 from a service that has not shipped the routes yet becomes "unavailable" rather than
   an empty shop. No network.
 - `EASTER_PUBLIC_ORIGIN=http://127.0.0.1:18100 PLAYWRIGHT_MODULE=… node tests/store-browser.mjs`
-  — the real page against a stubbed bridge at 1440, 1100, 800, 390 and 320: five products and
+  — the real page against a stubbed bridge at 1440, 1100, 800, 390 and 320: four products and
   their USD prices, the Buy press recording the key, "Opening Stripe…" then the sentence after it,
   the orders view empty/pending/paid/delivered, the unavailable and signed-out states, a bridge
   with no store commands, a stale `#cart` link landing on `#catalogue`, and the launcher-only rule.
@@ -213,7 +212,7 @@ is answered by the player pressing **Buy** again.
   still under it, and the two standing rules asserted in the markup and the module source.
 - `… node tests/store-games-browser.mjs` — the catalogue is the server's: unusual products render
   in the server's order with the server's prices, a long name stays inside its card, an empty
-  catalogue is a refusal, `site/store/store.mjs` contains none of the five products or prices, and
+  catalogue is a refusal, `site/store/store.mjs` contains none of the products or prices, and
   neither does `site/store/store.css` — a sheet that named a product key would be a catalogue with
   a different file extension, which is exactly what Sol's sheet did. Every medallion is the `kind`
   the server sent, in the server's order, and none carries a `data-product` key.
