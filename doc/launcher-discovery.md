@@ -124,8 +124,9 @@ currency, expiry, and an authoritative refreshed quote before payment. An ad's
 cached price must never become a checkout authorization.
 
 Use a main-process action accepting an item ID, not arbitrary payment URLs or
-renderer prices. Open a dedicated store view with full contents, conditions,
-price, ownership and confirmation before checkout; never purchase on tile click.
+renderer prices. Send that item to the store page — today the card's link reaches it
+at `/store/`, and an item is a `#item/<id>` route — where full contents, conditions,
+price, ownership and confirmation sit before checkout; never purchase on tile click.
 Only backend-confirmed receipts may unlock items, with pending/retry/refund states.
 Do not infer ownership from local storage or a successful browser redirect.
 Avoid payment SDKs, account secrets, trackers and remotely executed content in
@@ -178,9 +179,14 @@ page rather than clipping a client card or creating a separate client scrollbar.
 The browser checks assert these geometry rules for populated, long-copy, empty
 and failed states at 1440, 1100, 900, 600 and 390 px, plus 1100 × 600.
 
-## Mock store frontend
+## Mock store page
 
-The launcher now offers a separately labelled mock store through its navigation
-and home card. See [launcher-store.md](launcher-store.md) for the full frontend,
-fixture catalogue, quote/order adapter and real-currency integration contract.
-`home.json` remains a public editorial document and is not a commerce authority.
+The store is a page of its own at `site/store/index.html`, served at `/store/`, and the
+home card's store action links to it — `site/launcher-discovery.mjs` renders that action
+as `<a href="./store/">Browse the store</a>`, so it navigates rather than opening a
+surface over the home screen. The shared site header nav carries the same destination,
+and `site/desktop.js` adds its plain `<a href="./store/">` nav entry only when the page
+does not already carry one. See [launcher-store.md](launcher-store.md) for the page's
+hash routes, fixture catalogue, quote/order adapter and real-currency integration
+contract. `home.json` remains a public editorial document and is not a commerce
+authority.

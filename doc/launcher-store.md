@@ -1,20 +1,46 @@
-# Company store frontend — mock commerce
+# The Community store page — mock commerce
 
-The store implements a complete presentation with an in-process mock API, alongside
-the aligned home cards and quiet profile refresh. The user-authorized mock testing
-rollout and independent review are recorded in `store-testing-rollout.md`. Real
-backend and payment integration remain separate work. No game services, player
-accounts or world data are changed.
+The store implements a complete presentation with an in-process mock API, as a normal
+page of the public site at `/store/`, alongside the aligned home cards and quiet
+profile refresh. The user-authorized mock testing rollout and independent review are
+recorded in `store-testing-rollout.md`. Real backend and payment integration remain
+separate work. No game services, player accounts or world data are changed.
 
 ## Experience
 
-The launcher header has a Store entry on every shared page. The home store card
-also opens the mock. The website has neither entry. The store is an accessible
-modal surface, with its own scroll region, persistent navigation, category filters,
-search, sort, product details, stock/ownership states, cart quantities/removal,
-quote review, consent, one-time checkout, receipt and order history. Native dialog
-focus containment, Escape/close and focus return are preserved. During submission,
-controls and Escape are locked until the result is known; reads never lock Close.
+The store is a page, not a dialog. `site/store/index.html` owns the shell — the shared
+site header and its nav, the `h1` naming “The Community store”, the mock notice that is
+readable before any interaction, and the footer — and `site/store/store.css` is linked
+from that head rather than injected. `site/store/store.mjs` exports
+`mountStore(root, {api})` and renders everything inside `#store-root`. Nothing loads it
+from the launcher's own surface: `site/desktop.js` adds a plain `<a href="./store/">`
+nav link only when the page does not already carry one, and `site/launcher-discovery.mjs`
+links to `./store/` with the text “Browse the store”.
+
+The page is reachable from the shared site header nav on Home, Map, Wiki and itself, and
+its views are hash routes, so Back, Forward and a shared link all reach the same view:
+
+| Route | View |
+| --- | --- |
+| `#catalogue` | The selected game's catalogue; an empty or unrecognised hash lands here |
+| `#item/<id>` | One product's detail, `<id>` being a `catalogue.mjs` product id |
+| `#cart` | The cart and its demo totals |
+| `#checkout` | Quote review and the test order; without a live quote it falls back to `#cart` |
+| `#receipt/<id>` | One demo receipt; without that order in this session it falls back to `#orders` |
+| `#orders` | The mock purchase history |
+
+One `hashchange` handler draws every view change. A route that cannot be honoured now —
+a receipt or checkout this session cannot back, an unknown item id — is redirected with
+`history.replaceState` to the view that can be, so the address bar never names a view
+that is not on screen. Category, search and sort are filter state on `#catalogue`, not
+routes: changing them never adds a history entry. The fragment is the store's whole
+routing surface, so the page carries no in-page anchor link.
+
+The store keeps persistent navigation, category filters, search, sort, product details,
+stock/ownership states, cart quantities/removal, quote review, consent, one-time
+checkout, receipt and order history. Without a JavaScript-capable browser the page says
+so rather than showing an empty frame. During submission, controls are locked until the
+result is known; reads never lock navigation.
 
 Categories are items, ships, player houses, account upgrades and in-game money.
 The nine fictional products and all sample prices are defined in
@@ -36,8 +62,8 @@ A persistent mock notice, explicit fictional recipient, purchase consent and a
 “Place test order” action distinguish this from real payment. The resulting receipt
 states that no money was charged and nothing was delivered in-game. Orders and
 mock ownership last only for the current page session and reset on reload or
-navigation to another launcher page. They
-are not saved into the launcher's authenticated account or entitlement state.
+navigation to another page. They are not saved into the
+launcher's authenticated account or entitlement state.
 
 ## Mock API boundary
 
@@ -67,8 +93,9 @@ explicit confirmation. Expiry, changed price, stock or ownership refusal returns
 to cart and requires a fresh quote. Search does not recreate its input on keystrokes.
 Quick repeated submit clicks are locked synchronously.
 
-The UI factory is `createStore({api})`; `openStore()` uses one lazy-loaded singleton.
-For now it **refuses non-mock adapters**. Live integration is an intentional later
+`mountStore(root, {api})` is the page entry point; the module is loaded by
+`site/store/index.html` itself. For now it **refuses non-mock adapters** — the page
+only accepts a mock commerce adapter. Live integration is an intentional later
 change, not something enabled by a runtime URL or a query parameter. Lifecycle,
 Play, install and authentication gates are untouched.
 
@@ -114,35 +141,34 @@ node tests/store-browser.mjs
 The browser suite uses fixture-only launcher bindings, never a person's account.
 It purchases all five product categories at 1440, 1100, 800 and 390 px; checks
 search, categories, stock/ownership, quantity changes, quotes, consent, receipts,
-history, keyboard close/focus return, decline, expiry, uncertain-response retry
-and failed-catalogue recovery. Mock unit tests independently cover atomicity,
-quantity validation, authoritative prices, idempotency and abort/copy isolation.
-This demonstrates frontend/mock readiness, not live payment readiness.
+history, decline, expiry, uncertain-response retry and failed-catalogue recovery.
+Mock unit tests independently cover atomicity, quantity validation, authoritative
+prices, idempotency and abort/copy isolation. This demonstrates frontend/mock
+readiness, not live payment readiness.
 
-Additional validation: a scoped axe WCAG 2 A/AA and WCAG 2.1 AA scan found no
-violations in catalogue, checkout and receipt views. The shared-home browser suite
-also passes all 24 populated/long/empty/failed layout cases. These checks do not
-replace the designated frontend reviewer’s production sign-off.
+The same suite proves the page shape rather than a dialog: no dialog element is open
+over the store, no inline script ships with the page, no off-origin request is made,
+the header nav entry navigates, and a cold load of a hash route honours that route on
+its own. A scoped axe WCAG 2 A/AA and WCAG 2.1 AA scan found no violations in
+catalogue, checkout and receipt views. The shared-home browser suite also passes all
+24 populated/long/empty/failed layout cases. These checks do not replace the
+designated frontend reviewer’s production sign-off.
 
-## Shareable public testing preview
+## The public page
 
-`/store/` is a standalone mock preview using the exact same `store.mjs` interface
-and mock API as the launcher. It opens the storefront immediately; Close/Escape
-returns to a clearly labelled landing page with reopen and website links. It uses
-no native bridge, real account, payment field or external store request. Its demo
-catalogue and prices are not live offers. The website homepage and navigation are
-unchanged. The page is marked noindex/nofollow to distinguish the testing preview
-from a live commercial storefront, but its URL can be shared directly.
-
-Run `tests/store-preview-browser.mjs` with the same Playwright/origin variables to
-verify public-only purchase flow at 1440, 390 and 320 px, mock notices, no external
-requests, legal links, native dialog close/reopen and focus return. Publishing this
-page does not publish a new installer or bypass the packaged-launcher release gates.
+`/store/` is the storefront itself: a normal site page using the same `store.mjs`
+interface and mock API, with no native bridge, real account, payment field or external
+store request. Its demo catalogue and prices are not live offers. The page is marked
+`noindex,nofollow` because it is a labelled mock rather than a live commercial
+storefront, but its URL can be shared directly and opened cold on any hash route.
+Publishing it does not publish a new installer or bypass the packaged-launcher release
+gates; the launcher ships `site/` as its UI, so a build older than a `site/` change
+shows the older page until the next release.
 
 ## Game-scoped storefronts
 
 Game selection is a vertical list in the sidebar, directly below “BROWSE THE
-STORE”, labelled “Chose Your Game”, above item categories. Easter Co. SMP
+STORE”, labelled “Choose Your Game”, above item categories. Easter Co. SMP
 is the available example; Orbital Racing and Frontier are explicitly fictional
 coming-soon placeholders, not release announcements. Their concept views have no
 SKUs, prices or purchase controls. The selected game has a labelled pressed button,
@@ -165,7 +191,8 @@ launcher-wide upgrades are introduced, model that scope explicitly rather than
 inheriting the last selected game. All store purchases still use real currency;
 in-game currencies stay in their own games and never pay for store purchases.
 
-`tests/store-games-browser.mjs` covers selection, placeholder non-purchasability,
-cart retention and correctly scoped checkout/receipts at 1440, 1100, 800, 390 and
-320 px. The independent frontend reviewer approved desktop/mobile visual and
-keyboard behaviour for this mock-preview update.
+`tests/store-games-browser.mjs` covers the “Choose Your Game” picker, selection,
+placeholder non-purchasability, cart retention and correctly scoped
+checkout/receipts at 1440, 1100, 800, 390 and 320 px. The independent frontend
+reviewer approved desktop/mobile visual and keyboard behaviour for this
+mock-preview update.

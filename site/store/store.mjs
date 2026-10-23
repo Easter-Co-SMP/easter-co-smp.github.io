@@ -98,7 +98,7 @@ export function mountStore(root, { api = createMockStoreAPI() } = {}) {
   const gamePicker = el("details", "store-game-picker");
   gamePicker.open = !compactGames.matches;
   gamePicker.append(
-    el("summary", "store-game-picker-label", "Chose Your Game"),
+    el("summary", "store-game-picker-label", "Choose Your Game"),
     gamesNav,
   );
   root.append(navbar, layout, announce);

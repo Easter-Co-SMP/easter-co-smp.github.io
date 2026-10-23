@@ -2992,10 +2992,17 @@ absence, emptiness or failure leaves every other surface exactly as it was.
 
 ## Mock commerce surface
 
-The Company store is a separate modal frontend using the in-process mock API in
-`site/store/`. It accepts no launcher account credentials and never updates
-`canPlay`, game currency, inventory, account ownership or queue permissions.
-Real-currency-priced purchases, including in-game money packs, are simulations
-for a fictional recipient. The UI/adapter and future backend contract are in
-[launcher-store.md](launcher-store.md). Existing launcher lifecycle gates remain
-unchanged, including while the store is open.
+The Community store is a page of its own at `site/store/index.html`, served at
+`/store/` and reached by navigation exactly as `/map/` and `/wiki/` are: the shared site
+header nav links to it from Home, Map, Wiki and the store itself. There is no dialog, and
+nothing in the launcher opens a store surface over the page. `site/store/store.mjs`
+exports `mountStore(root, {api})`, which renders into `#store-root` from the in-process
+mock API in `site/store/`, and the page's views are hash routes — `#catalogue`,
+`#item/<id>`, `#cart`, `#checkout`, `#receipt/<id>`, `#orders` — drawn by one
+`hashchange` handler, with `replaceState` for a route that cannot be honoured in this
+session. It accepts no launcher account credentials and never updates `canPlay`, game
+currency, inventory, account ownership or queue permissions. Real-currency-priced
+purchases, including in-game money packs, are simulations for a fictional recipient, and
+the page is marked `noindex` as a labelled mock. The UI/adapter and future backend
+contract are in [launcher-store.md](launcher-store.md). Existing launcher lifecycle gates
+remain unchanged, including while the store page is open.

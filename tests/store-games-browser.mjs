@@ -41,7 +41,7 @@ try {
     assert.equal(await store.locator(".store-sidebar .store-games").count(), 1);
     assert.equal(
       await picker.locator("summary").textContent(),
-      "Chose Your Game",
+      "Choose Your Game",
     );
     const rows = await games
       .locator(".store-game")
