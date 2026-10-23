@@ -112,14 +112,21 @@ try{
  assert.equal((await hero('play').innerText()).includes('FixtureCaptain'),true,'and it names the Minecraft identity it will start');
  // Signing Minecraft out everywhere is what an account with nothing stored looks like, and it is
  // the honest hero this launcher had before the account service held anything: the same sentence
- // main used, with no claim about why the stored session is gone.
+ // main used, with no claim about why the stored session is gone. Owen had the section that
+ // carried the control removed from Linked Accounts on 2026-10-23 and kept the machinery, so the
+ // capability is driven through the preload bridge from the page — the same call the old control
+ // made — and the dialog is asserted to offer it no longer while keeping everything else.
  await page.locator('.desktop-account-nav').click();
  await page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
  const linkedAccountsDialog=page.locator('#company-linked-accounts');await linkedAccountsDialog.waitFor();
  assert.equal(await linkedAccountsDialog.getByRole('button',{name:'Verified emails',exact:true}).count(),0,'Linked Accounts carries nothing about emails');
  assert.equal(await linkedAccountsDialog.getByLabel('New password',{exact:true}).count(),0,'and nothing about the password');
- await linkedAccountsDialog.getByRole('button',{name:'Sign out of Minecraft everywhere',exact:true}).click();
- await linkedAccountsDialog.locator('.company-status').filter({hasText:'Signed Minecraft out everywhere.'}).waitFor();
+ assert.equal((await status()).minecraftSession.serverHeld,true,'this password sign-in plays from the session the account service stores');
+ assert.equal(await linkedAccountsDialog.locator('.company-minecraft-session').count(),0,'so Linked Accounts has no Minecraft session section to draw');
+ assert.equal(await linkedAccountsDialog.getByRole('button',{name:'Sign out of Minecraft everywhere',exact:true}).count(),0,'and offers no control to end it');
+ assert(!(await linkedAccountsDialog.innerText()).includes('Minecraft session'),'no word of that section is left in the dialog');
+ const revokedAnswer=await page.evaluate(()=>window.easterDesktop.signOutMinecraft());
+ assert.equal(revokedAnswer.message,'Signed Minecraft out everywhere. The next game on any computer needs a Microsoft sign-in.','the launcher says what main answered, exactly as the dialog used to print it: '+JSON.stringify(revokedAnswer));
  await page.keyboard.press('Escape');await linkedAccountsDialog.waitFor({state:'hidden'});
  await hero('connect-microsoft').waitFor();
  const withoutSession=await hero('connect-microsoft').innerText();

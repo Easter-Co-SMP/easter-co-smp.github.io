@@ -45,7 +45,7 @@ reachable without signing in; it is a static page with no JavaScript requirement
 | Account service and database in AWS `us-east-2` | `/root/easter-co-cloud/infra/easter_accounts_stack.py` |
 | No cookies, analytics or trackers; localStorage and IndexedDB only | search of `site/` |
 | Public map and data exclude player positions and player records | `scripts/validate.py` allowlist |
-| "Sign out of Minecraft everywhere" revokes the stored session | `doc/launcher-states.md` |
+| Revoking the stored Microsoft session: the launcher keeps the capability (`window.easterDesktop.signOutMinecraft()`, `desktop/main.cjs`'s revoke path) but **no surface offers it as of 2026-10-23** — Owen had the section removed from Linked Accounts and kept the machinery, and the copy must not promise a control that is not there | `doc/launcher-states.md` (*Signing Minecraft out everywhere*), `desktop/preload.cjs`, `desktop/main.cjs`, `site/company-profile.mjs`, `tests/desktop/server-session.electron.mjs` |
 | Installers are unsigned, so SmartScreen warns | recorded launcher release evidence |
 | The account cluster is NOT encrypted at rest, so the copy makes no such claim | `rds describe-db-clusters e-server-cloud-db`, us-east-2, 2026-10-19: `StorageEncrypted: false`, `BackupRetentionPeriod: 1`, `DeletionProtection: false` |
 

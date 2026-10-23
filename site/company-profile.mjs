@@ -2,9 +2,13 @@ import {PASSWORD_POLICY} from './company-auth.mjs';
 import {createWaitFeedback} from './wait-feedback.mjs';
 // The signed-in account has two surfaces, named by Owen on 2026-10-22: My Profile holds what the
 // player is called, their picture, their verified emails and their password; Linked Accounts
-// holds the providers this account plays through and the Minecraft session they share. The menu
-// entry list in site/desktop.js opens one dialog each, so neither surface can imply the other
-// holds something it does not (doc/launcher-states.md, *The profile menu*).
+// holds the providers this account plays through. The menu entry list in site/desktop.js opens one
+// dialog each, so neither surface can imply the other holds something it does not
+// (doc/launcher-states.md, *The profile menu*). Owen had the Minecraft session section taken off
+// Linked Accounts on 2026-10-23 ("Let's remove the bottom 'Minecraft session' section please"),
+// and only the surface went: the launcher can still end the stored session —
+// `window.easterDesktop.signOutMinecraft()` and the main-process revoke path behind it are
+// untouched — but no surface offers it, and this file must not draw one again without his word.
 const NAMES={microsoft:'Microsoft / Xbox',google:'Google',steam:'Steam',discord:'Discord'};
 // What each linked provider's row may show, in the order it is drawn. The values are the
 // account's own record of what that provider holds (desktop/accounts.cjs publishes them after
@@ -143,8 +147,10 @@ export async function openMyProfile({desktop,getState,isAccountLocked,openEmails
 }
 
 // ---- Linked Accounts -------------------------------------------------------
-// The providers this account plays through, and the Minecraft session they share. Nothing about
-// an address or a password is on this surface: those belong to My Profile.
+// The providers this account plays through. Nothing about an address or a password is on this
+// surface: those belong to My Profile. Nothing about the stored Minecraft session is here either,
+// by Owen's decision of 2026-10-23: that section and its control are gone from the surface, and
+// the capability behind them (`signOutMinecraft`, desktop/main.cjs's revoke) is kept.
 export async function openLinkedAccounts({desktop,getState,signInMicrosoft,isAccountLocked,cancelSignIn}){
  if(document.querySelector('#company-linked-accounts'))return null;
  // The one busy state, in the rows' own place. This surface used to await the providers answer
@@ -160,7 +166,6 @@ export async function openLinkedAccounts({desktop,getState,signInMicrosoft,isAcc
   markup:'<p>Links stay with this Easter Company account and cannot be removed from the launcher yet. Microsoft / Xbox and Minecraft ownership are required to play Minecraft.</p>'
    +'<p class="company-wait" hidden></p>'
    +'<div class="company-provider-links"></div>'
-   +'<div class="company-minecraft-session" hidden><h3>Minecraft session</h3><p>Your Microsoft session is stored on your Easter Company account, so any computer you sign in on is ready to play without asking Microsoft again.</p><button type="button" data-revoke-minecraft data-account-change>Sign out of Minecraft everywhere</button></div>'
    +'<p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p>'
  });
  const {modal}=surface;
@@ -190,18 +195,11 @@ export async function openLinkedAccounts({desktop,getState,signInMicrosoft,isAcc
  // controls unavailable while the game runs.
  function paint(){
   const account=getState()?.account;if(!account){modal.close();return;}
-  // The stored-session control belongs to the account service's own answer, not to a guess: it is
-  // offered only once the launcher has seen a session this account stores (doc/launcher-states.md,
-  // "Signing Minecraft out everywhere"), and a state from a build without that field draws no such
-  // section at all.
-  const sessionSection=modal.querySelector('.company-minecraft-session');
-  if(sessionSection)sessionSection.hidden=getState()?.minecraftSession?.serverHeld!==true;
   const list=modal.querySelector('.company-provider-links');list.replaceChildren();
   // No row is drawn until the availability answer is in: a row drawn earlier could only offer a
   // Connect on a guess, and a list drawn from a failed answer would say nothing is linked when
   // the truth is that nobody could read it. The wait line the markup puts just above this list is
-  // what stands in the section meanwhile; the stored-session section further down is the account's
-  // own record and is drawn whatever the provider answer does.
+  // what stands in the section meanwhile.
   if(!answered||failed){surface.applyLock();return;}
   // A missing or malformed record is no details at all, which renders exactly as the dialog
   // did before this field existed. It is never an error and never a broken row.
@@ -245,21 +243,6 @@ export async function openLinkedAccounts({desktop,getState,signInMicrosoft,isAcc
  }
  surface.state.paint=paint;
  paint();
- // One control, one request, and the dialog prints the sentence the launcher answered with —
- // "signed out everywhere", "the launcher cannot do that yet", or the account service's own
- // refusal. It never words that outcome itself, because only the main process saw the answer.
- const revoke=modal.querySelector('[data-revoke-minecraft]');
- if(revoke)revoke.onclick=async()=>{
-  if(surface.state.busy||isAccountLocked())return;
-  surface.state.busy=true;surface.message('',true);surface.message('');
-  for(const button of modal.querySelectorAll('button'))button.disabled=true;
-  try{
-   const answer=await desktop.signOutMinecraft();
-   const sentence=typeof answer==='string'?answer:typeof answer?.message==='string'?answer.message:typeof answer?.value?.message==='string'?answer.value.message:'';
-   surface.message(sentence||'Signed Minecraft out everywhere.');
-  }catch(error){surface.message(error?.message||'The launcher could not sign Minecraft out.',true);}
-  finally{surface.state.busy=false;for(const button of modal.querySelectorAll('button'))button.disabled=false;paint();}
- };
  // The one read this surface makes, asked when the dialog opens, and the only thing the section
  // waits for. `openLinkedAccounts` itself does not await it: it returns the dialog's view at
  // once, so a broadcast that changes the account lock still reaches a dialog that is still

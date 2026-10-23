@@ -450,14 +450,16 @@ confused with one another:
   ignored rather than refused, so a launcher can ship before the cloud half does.
 - **Company logout does not touch the stored Microsoft session.** Signing out of the Easter Company
   account on one machine, or of the launcher's own saved Microsoft session, leaves the stored one
-  where it is; only the revoke control ends it, and only the account service can do that.
+  where it is; only the revoke ends it, and only the account service can do that. Since 2026-10-23
+  the revoke is a capability of the launcher rather than a control: no surface offers it (see
+  *Signing Minecraft out everywhere* below).
 
 ### The new field
 
 | Field | Type | Meaning |
 |---|---|---|
 | `minecraftSession.state` | string | One of `local`, `server`, `checking`, `reauth`, `busy`, `required`, `unlinked`. What decides the hero's action, and never a claim about a service the launcher has not asked. |
-| `minecraftSession.serverHeld` | boolean | True once the account service has answered a mint for this account in this launcher session, so the launcher knows the service holds a session. It is what offers *Sign out of Minecraft everywhere*; while it is false the control is absent, because the launcher has seen nothing to sign out. |
+| `minecraftSession.serverHeld` | boolean | True once the account service has answered a mint for this account in this launcher session, so the launcher knows the service holds a session, and false after a revoke says the service no longer holds one. **It stays published, and it stays because it is read for more than the control that went with it on 2026-10-23:** the same flag on a vault entry is what lets `desktop/main.cjs`'s `restorableSession` restore a handed-over session whose refresh token is deliberately gone, and it is what tells the launcher whether it has seen a session the revoke could end (`window.easterDesktop.signOutMinecraft()` still reaches that revoke path exactly as before). What changed is only the surface: **no dialog offers *Sign out of Minecraft everywhere* any more**, so nothing is shown or hidden from this field. It is kept because the capability and its contract still exist and because Owen wants the control available to come back; a build that drew a control from it would be drawing a surface he removed. |
 | `minecraftSession.checkedAt` | string \| null | ISO-8601 local time of the last mint attempt, or null when none has been made in this session. |
 
 The seven words, each of which the launcher only says when it knows it:
@@ -605,10 +607,25 @@ instead.
 
 ### Signing Minecraft out everywhere
 
-The profile dialog offers **Sign out of Minecraft everywhere** when — and only when —
-`minecraftSession.serverHeld` is true, because that is the only moment the launcher has seen a
-stored session to sign out. It calls `POST /v2/game/session/revoke` with the Company session and
-reads the answer as four outcomes, each said plainly:
+**No surface offers this as of 2026-10-23.** Owen, with the Linked Accounts dialog open: *"Let's
+remove the bottom 'Minecraft session' section please."* Asked whether the control went with it he
+chose to keep the machinery and remove only the surface, so the section, its sentence and its
+button are gone from `site/company-profile.mjs` and nothing takes their place — no heading, no
+reserved slot, no empty space — and what remains in that dialog (its intro sentence, the provider
+rows, their labels and detail lines, the Connect controls, the lock and the cold-API busy and
+failure states) is character for character what it was. The **capability is kept and still works**:
+`desktop/preload.cjs` still exposes `window.easterDesktop.signOutMinecraft()`, `desktop/main.cjs`'s
+revoke path behind it is untouched, and `tests/desktop/server-session.electron.mjs` drives it
+through that bridge and asserts the same outcomes this section documents. Nothing in the launcher
+calls it today. It is kept because **Owen wants the control available to come back**, and because
+the contract below — the revoke route, its four answers and the state each leaves — is a live
+agreement with the account service whether or not a button is drawn over it.
+
+The capability's own contract: the launcher calls `POST /v2/game/session/revoke` with the Company
+session. The surface that used to offer it gated the button on `minecraftSession.serverHeld` being
+true, because that is the only moment the launcher has seen a stored session to sign out; the field
+is still published and still carries that meaning (see *The new field* above), it simply has no
+surface reading it any more. The four answers, each said plainly:
 
 - **`{"revoked": true}`**: `Signed Minecraft out everywhere. The next game on any computer needs a
   Microsoft sign-in.` The launcher now knows nothing is stored: `serverHeld` becomes false, the
@@ -622,8 +639,10 @@ reads the answer as four outcomes, each said plainly:
 - **No answer, or any other refusal**: the account service's own sentence, and `serverHeld` is
   left as it was, because the launcher cannot see that anything changed.
 
-The control is never offered for an account with no stored session, and the dialog never says a
-machine was signed out on evidence it does not have.
+The control is never offered for an account with no stored session — it is not offered at all since
+2026-10-23 — and neither the old surface nor the capability behind it ever says a machine was signed
+out on evidence it does not have: `desktop/main.cjs` returns the service's own sentence and leaves
+`serverHeld` alone when it cannot see that anything changed.
 
 ### Where it is shown
 
@@ -642,8 +661,10 @@ machine was signed out on evidence it does not have.
 - **`actions`** carries `link-microsoft` for a genuinely unlinked account and `connect-microsoft`
   for a linked one this machine cannot launch with, so a view that renders the list of remaining
   requirements says the true one.
-- The profile dialog's own sentence for the sign-out control is the only place that outcome is
-  written; it is never a page notice and never an `error`.
+- The sign-out's outcome is now written nowhere on a surface, because no surface offers it: the
+  launcher's answer is the sentence `desktop/main.cjs` returns (`revoked` plus `message`), which
+  used to be printed in the profile dialog's own status line. It is never a page notice, never an
+  `error`, and the prose above is the only place the four sentences are documented.
 - Nothing on any surface names a provider code, a token, an HTTP status or a host.
 
 ### What is proven, and what is not
@@ -656,10 +677,16 @@ shapes, the sanitizing of the minted session, the `reauth_required` mapping, the
 outcomes, the once-only fallback and the revoke outcomes; `tests/desktop/server-session.electron.mjs`
 proves the same behaviour through the real main process — a password sign-in that reaches Play with
 no Microsoft prompt, the vault written without a refresh token after a confirmed hand-over, the
-`reauth_required` fallback through the real device-code dialog, and the revoke control — against a
-fixture API. `tests/browser.mjs` proves the hero's own rendering of the session words: an unlinked
+`reauth_required` fallback through the real device-code dialog, and the revoke driven through the
+preload bridge with no dialog control in front of it (the three sentences, the one authenticated
+POST per press, and the state each answer leaves) — against a fixture API. `tests/browser.mjs`
+proves the hero's own rendering of the session words: an unlinked
 account, a linked one with no session here, one the service will not renew, one it mints, one it
 cannot answer yet (the retry, and never a Microsoft prompt), and the wait while it is asked.
+`tests/profile-lock-browser.mjs` drives the real Linked Accounts dialog and proves the removal
+itself: no section, no revoke control and none of its words in the dialog in any launcher state,
+even while the launcher reports a stored session, with the dialog's settled text character for
+character what it was before the section went.
 
 `tests/desktop/handover.test.cjs` proves the rule above against Microsoft's rotation semantics (the
 token kept, the token sent, and the Graph leg's successor), and `tests/desktop/handover.electron.mjs`
@@ -2049,8 +2076,10 @@ picture, the verified emails (the existing `openEmails` section, opened from it)
 form: a new password and a confirmation, 8 to 128 characters as the account service enforces,
 and no current password, because any active sign-in is enough — Owen, the same day: *"does not
 require them to enter the current password, just have any active login session"*.
-**Linked Accounts** holds the provider rows and the Minecraft session section, and nothing about
-emails or passwords. **Logout** keeps its place and its behaviour, appended unconditionally like
+**Linked Accounts** holds the provider rows, and nothing about emails or passwords. It held a
+Minecraft session section below them until Owen had it removed on 2026-10-23 (*Signing Minecraft
+out everywhere*): the section and its control are gone from the surface, and the capability
+behind them is kept. **Logout** keeps its place and its behaviour, appended unconditionally like
 the other two and answering to the account lock rather than to any account state. There is no
 password reset and no recovery service, so the sign-in chooser's "Forgot your password?" link is
 removed and one sentence stands where it was — sign in with a linked account, then change the
@@ -2363,8 +2392,11 @@ launch state this contract already names, so an account change is as unavailable
 during it as during any other launch state; today it is only unreachable because
 the hero offers no Play during a wake, which is the hero's rule and not this one.
 The rule also covers the profile dialog's own controls — Save name, Choose picture,
-Remove picture, Connect and Sign out of Minecraft everywhere — and not only the menu
-entry that opens it. While the game ran those were unreachable only because the
+Remove picture, Connect, the verified emails and the password form — and not only the
+menu entry that opens it. It covered Sign out of Minecraft everywhere too until Owen had
+that control removed from Linked Accounts on 2026-10-23 (see *Signing Minecraft out
+everywhere*): the lock is now proved on the controls that remain, and the removal is
+asserted rather than left to say nothing. While the game ran those were unreachable only because the
 opener was locked and the dialog is modal, an argument that expires the moment the
 dialog gains a second entry point or a control moves. The locked set has one home,
 `site/desktop.js`, which hands the answer to `site/company-profile.mjs`, so the
@@ -2373,9 +2405,9 @@ refused rather than merely unpainted. The dialog's close control is not an accou
 change and stays available. `tests/profile-lock-browser.mjs` drives the real renderer
 and the real dialog through a stub bridge and proves each part: every phase in the
 locked set disables the whole profile menu, a dialog that is already open loses every
-account control while the game runs or the server wakes, a save or sign-out forced
-past the disabled state reaches main not once, and both surfaces come back when the
-launcher is idle.
+account control while the game runs or the server wakes, a save or Connect forced
+past the disabled state reaches main not once, no click in the dialog reaches
+`signOutMinecraft` at all, and both surfaces come back when the launcher is idle.
 
 ## One verb, and sentences that carry no status (2026-10-18)
 

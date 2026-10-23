@@ -10,7 +10,9 @@
 //      the same account signing in with its password on "another machine" is ready to play.
 //   C. the service answering reauth_required inside a Play press: one sentence, one
 //      interactive sign-in, and then the launch — never a loop.
-//   D. "Sign out of Minecraft everywhere" in the profile dialog, saying only what it saw.
+//   D. signing out of Minecraft everywhere through the preload bridge, with no dialog control in
+//      front of it (Owen had the section taken off Linked Accounts on 2026-10-23), saying only
+//      what the launcher saw.
 //
 // The account service is a real loopback HTTP stub; the Microsoft legs and the game process are
 // the harness's fixtures. Nothing here reaches the live API, which has no session route yet.
@@ -24,6 +26,8 @@ const UHS='fixture-uhs-0123456789abcdef0123456789abcdef';
 const ACCOUNT={id:7,username:'captainfixture',minecraftUuid:'12345678-90ab-cdef-1234-567890abcdef',minecraftName:'FixtureCaptain',displayName:'Captain Fixture',roles:['crew'],createdAt:'2026-01-01T00:00:00Z',passwordRequired:false,microsoftLinked:true,microsoftSubject:createHash('sha256').update('xbox-uhs:'+UHS).digest('hex')};
 const REAUTH_SENTENCE='Microsoft needs you to sign in again before Minecraft starts.';
 const REVOKED_SENTENCE='Signed Minecraft out everywhere. The next game on any computer needs a Microsoft sign-in.';
+const NOT_REVOCABLE_SENTENCE='The launcher cannot sign Minecraft out on other computers yet.';
+const NOTHING_STORED_SENTENCE='No Minecraft session was stored for your account, so there was nothing to sign out.';
 // The stub's own switches. `mint` and `revoke` are what the service answers; the journey flips
 // them the way a live service changes its mind.
 // `mintDelay` makes the mint slow on purpose: the sign-in must not wait for it, and the journey
@@ -211,44 +215,62 @@ try{
  assert(!surface.includes(REAUTH_SENTENCE),'the sentence belonged to the press that failed, not to the game now running');
  await c.close();
 
- // ---- D: signing Minecraft out everywhere --------------------------------------------
+ // ---- D: signing Minecraft out everywhere, through the bridge --------------------------
+ // Owen had the Minecraft session section taken off Linked Accounts on 2026-10-23 ("Let's remove
+ // the bottom 'Minecraft session' section please") and chose to keep the machinery. So this
+ // journey no longer presses a control in the dialog: it drives the capability the way the
+ // launcher still exposes it — `window.easterDesktop.signOutMinecraft()`, the preload bridge, from
+ // the page — and asserts exactly what the dialog used to report: main's own sentence for each of
+ // the three answers, the one authenticated POST per press, and the state each answer leaves.
+ // That keeps the main-process path proven end to end with no surface in front of it.
  process.stdout.write('[journey] scenario  D\n');
  service.mint='ok';service.revoke='ok';
  const d=await launch();
  await d.passwordSignIn();
  await d.hero('play').waitFor();
+ assert.equal((await d.status()).minecraftSession.serverHeld,true,'the launcher knows the account service holds a session for this account');
  await d.page.locator('.desktop-account-nav').click();
  await d.page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
  const profile=d.page.locator('#company-linked-accounts');
  await profile.waitFor();
- const revoke=profile.getByRole('button',{name:'Sign out of Minecraft everywhere',exact:true});
- await revoke.waitFor();
+ // The surface that used to carry the control is gone, in the one state that used to draw it.
+ const settled=(await profile.innerText()).replace(/\s+/g,' ').trim();
+ assert.equal(await profile.locator('.company-minecraft-session').count(),0,'Linked Accounts draws no Minecraft session section even though a stored session is known');
+ assert.equal(await profile.getByRole('button',{name:'Sign out of Minecraft everywhere',exact:true}).count(),0,'and offers no control to sign it out');
+ assert(!settled.includes('Minecraft session'),'the section\'s own words are nowhere in the dialog: '+settled);
+ // The capability itself. One press, one authenticated POST, and the sentence the dialog used to
+ // print in its status line is still the answer main gives.
  const deletesBefore=service.calls.filter(call=>call.path==='/v2/game/session/revoke').length;
- await revoke.click();
- await profile.locator('.company-status').filter({hasText:REVOKED_SENTENCE}).waitFor();
+ const revokedAnswer=await d.page.evaluate(()=>window.easterDesktop.signOutMinecraft());
  const deletes=service.calls.filter(call=>call.path==='/v2/game/session/revoke');
  assert.equal(deletes.length,deletesBefore+1,'the revoke is one authenticated POST, not a DELETE');
  assert.equal(deletes.at(-1).method,'POST');
  assert.equal(deletes.at(-1).authorization,'Bearer fixture-company-session-token');
+ assert.deepEqual({revoked:revokedAnswer.revoked,message:revokedAnswer.message},{revoked:true,message:REVOKED_SENTENCE},'the launcher answers with the sentence the dialog used to print, because only main saw the service');
  const revoked=await d.status();
  assert.equal(revoked.minecraftSession.state,'reauth','the next Play needs the interactive flow');
  assert.equal(revoked.minecraftSession.serverHeld,false,'and the launcher no longer claims a stored session');
  assert.equal(revoked.canPlay,false,'Play is not left enabled for a session that was just ended');
- await revoke.waitFor({state:'hidden'});
  // A service with no revoke route is said as it is: nothing was revoked, and nothing is claimed.
+ // The same account signs in again on "another machine" first, so the launcher has a stored
+ // session of its own to lose and this answer has something to leave alone.
  service.revoke='absent';service.mint='ok';
  await profile.locator('.dialog-close').click();
  await d.page.evaluate(()=>window.easterDesktop.signOut());
  await d.hero('signin').waitFor();
  await d.passwordSignIn();
  await d.hero('play').waitFor();
- await d.page.locator('.desktop-account-nav').click();
- await d.page.getByRole('button',{name:'Linked Accounts',exact:true}).click();
- await profile.waitFor();
- await profile.getByRole('button',{name:'Sign out of Minecraft everywhere',exact:true}).click();
- await profile.locator('.company-status').filter({hasText:'The launcher cannot sign Minecraft out on other computers yet.'}).waitFor();
+ assert.equal((await d.status()).minecraftSession.serverHeld,true,'the second machine knows the account service holds a session again');
+ const absentAnswer=await d.page.evaluate(()=>window.easterDesktop.signOutMinecraft());
+ assert.deepEqual({revoked:absentAnswer.revoked,message:absentAnswer.message},{revoked:false,message:NOT_REVOCABLE_SENTENCE},'a service with no such route is answered with its own sentence, never a claim about other machines');
+ assert.equal((await d.status()).minecraftSession.serverHeld,true,'and the launcher keeps the session it cannot end');
+ // The third answer the dialog could print: the service's honest "there was nothing stored".
+ service.revoke='nothing';
+ const nothingAnswer=await d.page.evaluate(()=>window.easterDesktop.signOutMinecraft());
+ assert.deepEqual({revoked:nothingAnswer.revoked,message:nothingAnswer.message},{revoked:false,message:NOTHING_STORED_SENTENCE},'and a "there was nothing stored" is passed on as the service said it');
+ assert.equal((await d.status()).minecraftSession.serverHeld,false,'while the launcher stops claiming a stored session');
  await d.close();
- console.log('Server-held Microsoft session PASS: password sign-in plays with no Microsoft prompt, the hand-over is proved before the vault drops the refresh token, reauth_required falls back once and launches, and signing out everywhere says only what the service answered.');
+ console.log('Server-held Microsoft session PASS: password sign-in plays with no Microsoft prompt, the hand-over is proved before the vault drops the refresh token, reauth_required falls back once and launches, and signing out everywhere still works through the preload bridge with no dialog control in front of it - one authenticated POST, and main\'s own three sentences for revoked, no such route, and nothing stored, with the state each one leaves. Linked Accounts draws no Minecraft session section and no revoke control in the state that used to show them.');
 }finally{
  await new Promise(resolve=>stub.close(resolve));
  for(const home of homes)await fs.rm(home,{recursive:true,force:true});

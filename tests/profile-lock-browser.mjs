@@ -3,11 +3,17 @@
 // doc/launcher-states.md (*Launcher UI review*) disables account changes while the launcher is
 // authenticating or playing. Two holes were left in that rule: `starting-game`, the server wake,
 // was missing from the list the profile menu was disabled from, and the account dialogs' own
-// controls - Save name, Choose picture, Remove picture, the verified emails, the password form,
-// Connect and Sign out of Minecraft everywhere - never consulted the lock at all. Neither was
-// reachable, because the hero offers no Play during a wake and the dialogs open only from a menu
-// entry the lock disables; a guard that holds only because nobody has moved a button is not a
-// guard.
+// controls - Save name, Choose picture, Remove picture, the verified emails, the password form
+// and Connect - never consulted the lock at all. Neither was reachable, because the hero offers
+// no Play during a wake and the dialogs open only from a menu entry the lock disables; a guard
+// that holds only because nobody has moved a button is not a guard.
+//
+// Owen had the Minecraft session section removed from Linked Accounts on 2026-10-23 ("Let's remove
+// the bottom 'Minecraft session' section please"), keeping the machinery behind it. So this
+// journey now proves two things about that control instead of driving it: Linked Accounts carries
+// no revoke control, no section and none of its words in any state, and no click the dialog can be
+// made to deliver reaches `signOutMinecraft`. The lock itself is proved on the controls that
+// remain - Connect, and My Profile's own list - exactly as before.
 //
 // The menu is Owen's of 2026-10-22 - My Profile, Linked Accounts, Logout - and the three
 // surfaces behind it answer to the same lock: this journey reads the entries by
@@ -135,7 +141,33 @@ try{
  const allAreNot=names=>Object.fromEntries(names.map(name=>[name,false]));
  const NAME='Captain Owen';
  const PROFILE_CONTROLS=['Save name','Choose picture','Remove picture','Verified emails','Change password'];
- const ACCOUNT_CONTROLS=['Connect Google','Sign out of Minecraft everywhere'];
+ // Connect Google is the one account-change control Linked Accounts still owns. It read
+ // `['Connect Google','Sign out of Minecraft everywhere']` until Owen had the Minecraft session
+ // section removed on 2026-10-23; the list keeps proving the lock on what the surface still draws,
+ // and `noRevokeControl` below proves the removal itself rather than leaving it to say nothing.
+ const ACCOUNT_CONTROLS=['Connect Google'];
+ // The dialog's text with no Minecraft session section in it, captured character for character
+ // from the tree before the section was removed (serverHeld false, so the section was not drawn)
+ // and asserted here against a state where that section *would* have been drawn. Same sentence,
+ // same provider rows, same labels, same Connect controls: the surface lost the section and
+ // nothing else.
+ const LINKED_ACCOUNTS_TEXT='× Linked Accounts Links stay with this Easter Company account and cannot be removed from the launcher yet. Microsoft / Xbox and Minecraft ownership are required to play Minecraft. Microsoft / Xbox · linked Google Connect Steam Connect Discord Connect';
+ const noRevokeControl=async()=>{
+  const shape=await page.evaluate(()=>{
+   const dialog=document.querySelector('#company-linked-accounts');
+   return {section:dialog.querySelectorAll('.company-minecraft-session').length,
+    buttons:[...dialog.querySelectorAll('button')].map(button=>button.textContent.trim()),
+    revokeAttributed:dialog.querySelectorAll('[data-revoke-minecraft]').length,
+    text:dialog.innerText.replace(/\s+/g,' ').trim()};
+  });
+  assert.equal(shape.section,0,'no Minecraft session section is drawn at all: not hidden, not an empty slot');
+  assert.equal(shape.revokeAttributed,0,'and no element carries the control\'s own attribute');
+  assert(!shape.buttons.includes('Sign out of Minecraft everywhere'),'the revoke control is not a button in the dialog: '+JSON.stringify(shape.buttons));
+  assert(!shape.text.includes('Minecraft session'),'and the section\'s heading is nowhere in the dialog: '+shape.text);
+  assert(!shape.text.includes('Sign out of Minecraft everywhere'),'nor its control: '+shape.text);
+  assert.equal(shape.text,LINKED_ACCOUNTS_TEXT,'the dialog\'s settled text is otherwise unchanged: '+shape.text);
+  return shape;
+ };
  await menu.getByRole('button',{name:'My Profile',exact:true}).click();
  const profile=page.locator('#company-profile');
  await profile.waitFor({state:'visible'});
@@ -191,24 +223,38 @@ try{
  await linked.waitFor({state:'visible'});
  assert.deepEqual(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS),allAreNot(ACCOUNT_CONTROLS),'every control in Linked Accounts is usable while the launcher is idle');
  assert.equal(await linked.getByRole('button',{name:'Save name',exact:true}).count(),0,'Linked Accounts carries nothing about the profile');
+ // The removal, asserted on the state where the old section would have been drawn: this fixture
+ // reports minecraftSession.serverHeld true, which is exactly the answer that used to unhide it.
+ assert.equal(await page.evaluate(async()=>(await window.easterDesktop.status()).minecraftSession.serverHeld),true,'the fixture still reports a stored session, so the section is being withheld by the surface and not by the state');
+ await noRevokeControl();
+ note('Linked Accounts draws no Minecraft session section and carries no revoke control, in a state where the launcher reports a stored session');
  await pushState({phase:'running'});
  await page.waitForFunction(()=>[...document.querySelectorAll('#company-linked-accounts [data-account-change]')].every(button=>button.disabled));
- assert.deepEqual(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS),allAre(ACCOUNT_CONTROLS),'the running game disables Connect and Sign out of Minecraft everywhere: '+JSON.stringify(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS)));
+ assert.deepEqual(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS),allAre(ACCOUNT_CONTROLS),'the running game disables every Connect control in Linked Accounts: '+JSON.stringify(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS)));
+ await noRevokeControl();
  const beforeLinked=await recorded();
- await page.locator('#company-linked-accounts [data-revoke-minecraft]').evaluate(button=>button.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true})));
- await page.locator('#company-linked-accounts [aria-label="Connect Google"]').evaluate(button=>button.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true})));
- assert.deepEqual(await recorded(),beforeLinked,'a sign-out everywhere and a Connect forced past the disabled state reach main not once');
+ // Every control the dialog has, forced past the disabled state. There is no revoke control to
+ // force any more, so the point of this press is that nothing the surface can be made to deliver
+ // reaches the capability either: `signOutMinecraft` is on the stub bridge and is never called.
+ for(const selector of ['[aria-label="Connect Google"]','[aria-label="Connect Steam"]','[aria-label="Connect Discord"]']){
+  await page.locator('#company-linked-accounts '+selector).evaluate(button=>button.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true})));
+ }
+ assert.deepEqual(await recorded(),beforeLinked,'a Connect forced past the disabled state reaches main not once');
+ assert(!(await recorded()).includes('signOutMinecraft'),'and nothing in the dialog calls signOutMinecraft, which the bridge still offers');
  await pushState({phase:'ready'});
  // The two providers this build cannot offer keep their own reason for being unavailable
- // (data-unavailable), which is not the lock: the wait reads the two controls that are offered.
- await page.waitForFunction(()=>document.querySelector('#company-linked-accounts [data-revoke-minecraft]').disabled===false&&document.querySelector('#company-linked-accounts [aria-label="Connect Google"]').disabled===false);
+ // (data-unavailable), which is not the lock.
+ await page.waitForFunction(()=>document.querySelector('#company-linked-accounts [aria-label="Connect Google"]').disabled===false);
  assert.deepEqual(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS),allAreNot(ACCOUNT_CONTROLS),'and Linked Accounts comes back when the launcher is idle again');
- note('Linked Accounts holds only the provider rows and the Minecraft session, and both answer to the same lock');
+ assert.equal(await linked.locator('[data-account-change]').count(),3,'Linked Accounts offers exactly the three Connect controls and no fourth account change');
+ await noRevokeControl();
+ assert(!(await recorded()).includes('signOutMinecraft'),'and no click in this journey ever reached signOutMinecraft');
+ note('Linked Accounts holds only the provider rows, every one of them answers to the same lock, and the Minecraft session control is gone from it in every state');
 
  await linked.locator('.dialog-close').click();
  await linked.waitFor({state:'detached'});
  assert.deepEqual(errors,[],'the account lock raises no page error');
- console.log(`PROFILE LOCK PASS: ${notes.length} checks — the account lock is one named list in site/desktop.js that includes starting-game, the server wake, and both account dialogs ask the launcher for it instead of carrying a copy: the three menu entries (My Profile, Linked Accounts, Logout, with Logout present in every state) and the controls inside My Profile and Linked Accounts are disabled during signing-in, refreshing, launching, starting-game and running, a forced name save, password change, picture change, emails read, Connect or sign-out-everywhere is refused while locked, and both surfaces come back when the launcher is idle. Screenshots: ${images}`);
+ console.log(`PROFILE LOCK PASS: ${notes.length} checks — the account lock is one named list in site/desktop.js that includes starting-game, the server wake, and both account dialogs ask the launcher for it instead of carrying a copy: the three menu entries (My Profile, Linked Accounts, Logout, with Logout present in every state) and the controls inside My Profile and Linked Accounts are disabled during signing-in, refreshing, launching, starting-game and running, a forced name save, password change, picture change, emails read or Connect is refused while locked, both surfaces come back when the launcher is idle, and Linked Accounts draws no Minecraft session section and no "Sign out of Minecraft everywhere" control in any of those states even while the launcher reports a stored session — with its settled text character for character what it was before that section was removed. Screenshots: ${images}`);
 }finally{
  await browser.close();
 }
