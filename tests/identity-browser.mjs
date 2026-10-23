@@ -382,7 +382,25 @@ try{
  assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:/verify/i}).count(),0,'no Verify control exists on any provider row');
  assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:'Connect Google',exact:true}).count(),1,'an unlinked provider keeps its Connect action');
  assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:'Connect Steam',exact:true}).isDisabled(),true,'a provider this build cannot offer is not pressable');
- assert.match(await page.locator('#company-linked-accounts').innerText(),/cannot be removed from the launcher yet/,'the dialog says plainly why a linked account carries no control');
+ // The unlink rule made structural (Owen, 2026-10-23): all four rows are present, the linked one
+ // carries no control of any kind, and the unlinked ones carry one Connect and nothing else - so a
+ // control that could remove a link cannot be added to a row without failing here.
+ assert.deepEqual(linked.map(row=>row.label),['Microsoft / Xbox · linked','Google','Steam','Discord'],'all four provider rows are drawn, in their fixed order, with linked state in the label: '+JSON.stringify(linked));
+ for(const row of linked){
+  const named=row.buttons.map(button=>button.label||button.text);
+  if(row.label.includes('· linked'))assert.deepEqual(row.buttons,[],'a linked row carries no button at all: '+JSON.stringify(row));
+  else assert.deepEqual(named,['Connect '+row.label],'an unlinked row carries one Connect and nothing else: '+JSON.stringify(row));
+ }
+ assert.equal(await page.locator('#company-linked-accounts [data-unlink],#company-linked-accounts [data-remove],#company-linked-accounts [data-disconnect]').count(),0,'and no row or control carries an unlink, remove or disconnect attribute');
+ // Owen, 2026-10-23: the third-party link is the verification that a person is one person, so a
+ // link cannot be removed and the dialog says so and why. The old sentence ended "from the launcher
+ // yet", which promised a removal that is not coming; this asserts the sentence itself, and that
+ // nothing in it reads as a promise.
+ const linkedText=await page.locator('#company-linked-accounts').innerText();
+ assert.match(linkedText,/Links stay with this Easter Company account and cannot be removed\. Your linked account is how we know you are you, and a link that could be removed would let a person keep making new Easter Company accounts\./,'the dialog says plainly that a link cannot be removed and why it cannot: '+linkedText.replace(/\s+/g,' '));
+ assert(!/\byet\b|for now|temporarily|coming soon|in future|later release/i.test(linkedText),'and nothing in it promises a removal later: '+linkedText.replace(/\s+/g,' '));
+ assert.equal(await page.locator('#company-linked-accounts').getByRole('button',{name:/unlink|un-link|disconnect|remove|delete/i}).count(),0,'no control offers to unlink, disconnect or remove a provider');
+ assert.equal(await page.locator('#company-linked-accounts a[href]').count(),0,'and no link in the dialog points at one either');
  await page.screenshot({path:`${images}/profile-linked-1440.png`,animations:'disabled'});
  for(const [width,height] of [[800,600],[390,568]]){
   await page.setViewportSize({width,height});
@@ -396,7 +414,7 @@ try{
  await page.getByRole('button',{name:'Connect Google',exact:true}).click();
  const providerCall=await page.evaluate(()=>window.__fixture.calls.filter(call=>call.name==='signInProvider').at(-1));
  assert.deepEqual(providerCall,{name:'signInProvider',payload:{provider:'google',link:true}},'Connect runs the provider link flow');
- note('a linked provider is described with no action; only an unlinked one offers Connect');
+ note('a linked provider is described with no action; only an unlinked one offers Connect, and no control in the dialog could unlink, disconnect or remove a provider');
  await page.locator('#company-linked-accounts .dialog-close').click();
  await page.locator('#company-linked-accounts').waitFor({state:'detached'});
 
@@ -613,7 +631,7 @@ try{
 
  assert.deepEqual(errors,[],'the launcher raises no page error');
  assert.deepEqual(requests.filter(url=>!/^data:/.test(url)&&!url.startsWith(origin)),[],'the renderer reads nothing over the network of its own: every request it made was for the page itself');
- console.log(`IDENTITY PASS: ${notes.length} checks — display name first in the header and the account view, the Minecraft head from state.profile.skin or state.minecraftHead with the initial tile last, five Minecraft-session shapes with their own words, action and glyph (probing, unreadable answer, dead Easter Company session, reconnect, unlinked) and no pause icon and no "Sign in with Microsoft" over a signed-in linked account, no provider control that can only fail, each linked provider's own details drawn as text with no line where there is no value, and a cold account API answered by one honest busy state that settles into those same rows or one failure sentence. Screenshots: ${images}`);
+ console.log(`IDENTITY PASS: ${notes.length} checks — display name first in the header and the account view, the Minecraft head from state.profile.skin or state.minecraftHead with the initial tile last, five Minecraft-session shapes with their own words, action and glyph (probing, unreadable answer, dead Easter Company session, reconnect, unlinked) and no pause icon and no "Sign in with Microsoft" over a signed-in linked account, no provider control that can only fail and no control at all that could unlink, disconnect or remove a provider (a linked row carries none, an unlinked row carries its Connect only), the dialog's own sentence that a link cannot be removed and why with no "yet" in it, each linked provider's own details drawn as text with no line where there is no value, and a cold account API answered by one honest busy state that settles into those same rows or one failure sentence. Screenshots: ${images}`);
 }finally{
  await browser.close();
 }

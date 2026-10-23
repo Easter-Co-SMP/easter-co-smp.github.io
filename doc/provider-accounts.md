@@ -5,6 +5,23 @@ and PROJECT.md. All four providers are signup, login and permanent linking optio
 Microsoft/Xbox, Google, Steam and Discord. Company account IDs remain stable.
 No account is merged by display name or email, and no unlink/transfer route exists.
 
+**Linking is permanent, and that is deliberate (2026-10-23).** A link cannot be removed,
+on any surface. Owen's reason: *"Since users create their Easter Company account with a 3rd
+party auth as a verification method - we can't let people un-link stuff right now, cause
+otherwise they could keep un-linking accounts in-order to make new easter company
+accounts."* The third-party link is the verification that a person is one person, so a
+removal route would let somebody unlink and re-enrol repeatedly to mint Easter Company
+accounts. The cloud half has no unlink route (nothing in `api/` registers one, and
+`api/identity_store.py` and `api/play_store.py` both note that a ban is designed to survive
+an unlink, precisely so that unlinking cannot launder one), and the launcher half offers no
+control that could remove one: `site/company-profile.mjs` draws a linked provider as a
+described row with no control at all, and its own sentence says so — *Links stay with this
+Easter Company account and cannot be removed. Your linked account is how we know you are
+you, and a link that could be removed would let a person keep making new Easter Company
+accounts.* `tests/identity-browser.mjs` and `tests/profile-lock-browser.mjs` assert both the
+wording (with no "yet" in it) and that no control in the dialog could unlink, disconnect or
+remove a provider.
+
 ## Account lifecycle
 
 1. Sign in with a provider. Its identity is verified server-side.

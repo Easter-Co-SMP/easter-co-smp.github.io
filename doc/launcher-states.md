@@ -2079,7 +2079,27 @@ require them to enter the current password, just have any active login session"*
 **Linked Accounts** holds the provider rows, and nothing about emails or passwords. It held a
 Minecraft session section below them until Owen had it removed on 2026-10-23 (*Signing Minecraft
 out everywhere*): the section and its control are gone from the surface, and the capability
-behind them is kept. **Logout** keeps its place and its behaviour, appended unconditionally like
+behind them is kept.
+
+**A link cannot be removed, and the dialog says so (2026-10-23).** Owen, after the session
+section went: *"Since users create their Easter Company account with a 3rd party auth as a
+verification method - we can't let people un-link stuff right now, cause otherwise they could
+keep un-linking accounts in-order to make new easter company accounts."* The third-party link is
+the verification that a person is one person, so removal would let somebody unlink repeatedly to
+mint Easter Company accounts, and there is no unlink route in the account service to call anyway.
+The sentence at the top of Linked Accounts reads exactly: *Links stay with this Easter Company
+account and cannot be removed. Your linked account is how we know you are you, and a link that
+could be removed would let a person keep making new Easter Company accounts. Microsoft / Xbox and
+Minecraft ownership are required to play Minecraft.* The word **yet** came out of it with this
+rule: the old line said links "cannot be removed from the launcher yet", which promised a removal
+that is not coming, and no wording may imply one — no "yet", "for now", "temporarily" or "coming
+soon" here. The rule is structural as well as prose: a linked provider is a described row with no
+control of any kind, only an unlinked one carries **Connect**, nothing in the dialog is named or
+attributed for unlinking, disconnecting or removing a provider, and `tests/identity-browser.mjs`
+and `tests/profile-lock-browser.mjs` assert all of it, including that the sentence carries no
+promise of a removal.
+
+**Logout** keeps its place and its behaviour, appended unconditionally like
 the other two and answering to the account lock rather than to any account state. There is no
 password reset and no recovery service, so the sign-in chooser's "Forgot your password?" link is
 removed and one sentence stands where it was — sign in with a linked account, then change the

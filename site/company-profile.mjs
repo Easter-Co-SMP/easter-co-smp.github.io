@@ -163,7 +163,12 @@ export async function openLinkedAccounts({desktop,getState,signInMicrosoft,isAcc
  // beside one sentence in a role=status region - and this dialog adds no look of its own.
  const surface=accountSurface({
   id:'company-linked-accounts',title:'Linked Accounts',isAccountLocked,cancelSignIn,
-  markup:'<p>Links stay with this Easter Company account and cannot be removed from the launcher yet. Microsoft / Xbox and Minecraft ownership are required to play Minecraft.</p>'
+  // Owen, 2026-10-23, on why that line says what it says: "Since users create their Easter Company
+  // account with a 3rd party auth as a verification method - we can't let people un-link stuff right
+  // now, cause otherwise they could keep un-linking accounts in-order to make new easter company
+  // accounts." So the sentence states the fact and the reason, and the word "yet" is gone: a
+  // removal is not late, it is not coming, and nothing here may read as a promise of one.
+  markup:'<p>Links stay with this Easter Company account and cannot be removed. Your linked account is how we know you are you, and a link that could be removed would let a person keep making new Easter Company accounts. Microsoft / Xbox and Minecraft ownership are required to play Minecraft.</p>'
    +'<p class="company-wait" hidden></p>'
    +'<div class="company-provider-links"></div>'
    +'<p class="company-error" role="alert" hidden></p><p class="company-status" role="status"></p>'

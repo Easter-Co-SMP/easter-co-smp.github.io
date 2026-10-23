@@ -148,10 +148,16 @@ try{
  const ACCOUNT_CONTROLS=['Connect Google'];
  // The dialog's text with no Minecraft session section in it, captured character for character
  // from the tree before the section was removed (serverHeld false, so the section was not drawn)
- // and asserted here against a state where that section *would* have been drawn. Same sentence,
- // same provider rows, same labels, same Connect controls: the surface lost the section and
- // nothing else.
- const LINKED_ACCOUNTS_TEXT='× Linked Accounts Links stay with this Easter Company account and cannot be removed from the launcher yet. Microsoft / Xbox and Minecraft ownership are required to play Minecraft. Microsoft / Xbox · linked Google Connect Steam Connect Discord Connect';
+ // and asserted here against a state where that section *would* have been drawn, so the surface
+ // lost the section and nothing else. It has one deliberate difference from that capture: the
+ // intro sentence, which Owen reworded on 2026-10-23 (see below), so this literal is today's
+ // dialog and any other change to it has to be made here on purpose.
+ // Owen, 2026-10-23, on why a link cannot go: the third-party link is the verification that a
+ // person is one person, so removal would let somebody unlink repeatedly to mint new Easter Company
+ // accounts. The sentence states that and the reason, and carries no "yet": a removal is not late,
+ // it is not coming. This literal is the whole dialog, so the promise-free wording is pinned here
+ // as well as in tests/identity-browser.mjs, which asserts the sentence on its own.
+ const LINKED_ACCOUNTS_TEXT='× Linked Accounts Links stay with this Easter Company account and cannot be removed. Your linked account is how we know you are you, and a link that could be removed would let a person keep making new Easter Company accounts. Microsoft / Xbox and Minecraft ownership are required to play Minecraft. Microsoft / Xbox · linked Google Connect Steam Connect Discord Connect';
  const noRevokeControl=async()=>{
   const shape=await page.evaluate(()=>{
    const dialog=document.querySelector('#company-linked-accounts');
@@ -159,6 +165,12 @@ try{
     buttons:[...dialog.querySelectorAll('button')].map(button=>button.textContent.trim()),
     revokeAttributed:dialog.querySelectorAll('[data-revoke-minecraft]').length,
     children:[...dialog.children].map(child=>child.tagName.toLowerCase()+'.'+child.className),
+    // Every control the dialog offers, by the two things a name is read from, plus the attributes a
+    // removal would be wired through. A menu entry counts: so does an anchor.
+    unlinkables:[...dialog.querySelectorAll('button,a,[role=menuitem],[data-unlink],[data-unlink-provider],[data-remove-provider],[data-disconnect]')]
+     .map(node=>({tag:node.tagName.toLowerCase(),name:(node.getAttribute('aria-label')||node.textContent||'').trim(),data:Object.entries(node.dataset).map(([key,value])=>key+'='+value).join(' ')}))
+     .filter(control=>/unlink|un-link|disconnect|remove|delete|revoke|detach/i.test(control.name+' '+control.data)),
+    providerRows:[...dialog.querySelectorAll('.company-provider-link')].map(row=>({row:(row.querySelector('.company-provider-name')?.textContent||'').trim(),controls:[...row.querySelectorAll('button,a,[role=menuitem]')].map(node=>(node.getAttribute('aria-label')||node.textContent||'').trim())})),
     text:dialog.innerText.replace(/\s+/g,' ').trim()};
   });
   assert.equal(shape.section,0,'no Minecraft session section is drawn at all: not hidden, not an empty slot');
@@ -170,6 +182,14 @@ try{
   // ones it had with the section hidden, in the same order.
   assert.deepEqual(shape.children,['button.dialog-close','h2.','p.','p.company-wait wait-feedback','div.company-provider-links','p.company-error','p.company-status'],'and no element, empty or otherwise, stands where the section was: '+JSON.stringify(shape.children));
   assert.equal(shape.text,LINKED_ACCOUNTS_TEXT,'the dialog\'s settled text is otherwise unchanged: '+shape.text);
+  // The unlink rule, made structural so a later change cannot add such a control quietly: no
+  // button, link or menu entry in this dialog names unlinking, disconnecting or removing a
+  // provider, and nothing carries an attribute implying one. The cloud API has no unlink route
+  // (verified in /root/easter-co-cloud: nothing in api/ registers one, and api/identity_store.py
+  // and api/play_store.py say a ban survives an unlink precisely so it cannot launder one), so a
+  // control here could only fail - and would also read as the removal Owen has ruled out.
+  assert.deepEqual(shape.unlinkables,[],'no control offers to unlink, disconnect or remove a provider: '+JSON.stringify(shape.unlinkables));
+  assert.deepEqual(shape.providerRows,[{row:'Microsoft / Xbox · linked',controls:[]},{row:'Google',controls:['Connect Google']},{row:'Steam',controls:['Connect Steam']},{row:'Discord',controls:['Connect Discord']}],'the four provider rows carry Connect only where there is no link, and a linked row carries no control at all: '+JSON.stringify(shape.providerRows));
   return shape;
  };
  await menu.getByRole('button',{name:'My Profile',exact:true}).click();
@@ -231,7 +251,8 @@ try{
  // reports minecraftSession.serverHeld true, which is exactly the answer that used to unhide it.
  assert.equal(await page.evaluate(async()=>(await window.easterDesktop.status()).minecraftSession.serverHeld),true,'the fixture still reports a stored session, so the section is being withheld by the surface and not by the state');
  await noRevokeControl();
- note('Linked Accounts draws no Minecraft session section and carries no revoke control, in a state where the launcher reports a stored session');
+ assert.equal(await page.evaluate(()=>document.querySelectorAll('#company-linked-accounts .company-provider-link').length),4,'and all four provider rows are there to be read');
+ note('Linked Accounts draws no Minecraft session section and carries no revoke control, in a state where the launcher reports a stored session, and offers no way to unlink a provider - a linked row carries no control at all and an unlinked one carries its Connect only');
  await pushState({phase:'running'});
  await page.waitForFunction(()=>[...document.querySelectorAll('#company-linked-accounts [data-account-change]')].every(button=>button.disabled));
  assert.deepEqual(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS),allAre(ACCOUNT_CONTROLS),'the running game disables every Connect control in Linked Accounts: '+JSON.stringify(await controlStates('company-linked-accounts',ACCOUNT_CONTROLS)));
@@ -258,7 +279,7 @@ try{
  await linked.locator('.dialog-close').click();
  await linked.waitFor({state:'detached'});
  assert.deepEqual(errors,[],'the account lock raises no page error');
- console.log(`PROFILE LOCK PASS: ${notes.length} checks — the account lock is one named list in site/desktop.js that includes starting-game, the server wake, and both account dialogs ask the launcher for it instead of carrying a copy: the three menu entries (My Profile, Linked Accounts, Logout, with Logout present in every state) and the controls inside My Profile and Linked Accounts are disabled during signing-in, refreshing, launching, starting-game and running, a forced name save, password change, picture change, emails read or Connect is refused while locked, both surfaces come back when the launcher is idle, and Linked Accounts draws no Minecraft session section and no "Sign out of Minecraft everywhere" control in any of those states even while the launcher reports a stored session — with its settled text character for character what it was before that section was removed. Screenshots: ${images}`);
+ console.log(`PROFILE LOCK PASS: ${notes.length} checks — the account lock is one named list in site/desktop.js that includes starting-game, the server wake, and both account dialogs ask the launcher for it instead of carrying a copy: the three menu entries (My Profile, Linked Accounts, Logout, with Logout present in every state) and the controls inside My Profile and Linked Accounts are disabled during signing-in, refreshing, launching, starting-game and running, a forced name save, password change, picture change, emails read or Connect is refused while locked, both surfaces come back when the launcher is idle, and Linked Accounts draws no Minecraft session section, no "Sign out of Minecraft everywhere" control and no control of any kind that would unlink, disconnect or remove a provider — in any of those states, even while the launcher reports a stored session — with the four provider rows offering Connect only where there is no link, and its settled text pinned character for character to today's copy. Screenshots: ${images}`);
 }finally{
  await browser.close();
 }
