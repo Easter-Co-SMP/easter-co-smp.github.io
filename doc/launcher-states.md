@@ -1585,6 +1585,17 @@ update is not.
    for a patch, the cache for a minor, and the stored session for a major.
 9. **`version` is the launcher, `install.version` is the game client.** They are
    unrelated and must never be rendered as if they were the same thing.
+10. **The question is asked again while the launcher is open, and it stages only
+    (2026-10-23).** Every fifteen minutes, with jitter and a backoff after failures, the
+    launcher asks the release's own `/releases/latest` redirect whether it is still current
+    and, when it is not, stages the payload through the same pipeline the gate uses. It has
+    no `notify`, no `phase` and no surface of its own: a failure is one line in
+    `launcher-update.log`, and a stage is one line plus `launcherUpdate.staged` with no
+    broadcast sent for it. It writes `staged.json`, never `current.json`, so a background
+    stage does not activate: the version policy's clear belongs to the apply step and this is
+    not one. It never relaunches or quits — rules 1–9 are the mandatory gate, and this check
+    adds to none of them. The full contract, every bound and the reason for each is
+    [mandatory-updates.md](mandatory-updates.md), *Asking again while the launcher is open*.
 
 ### What a version change clears (2026-10-19)
 
@@ -1655,6 +1666,18 @@ so no path, no player data and no credential can reach the line; anything else i
 
 ```
 2026-10-19T12:00:00.000Z v1.0.28 step=update-policy outcome=ok level=minor from=1.0.27 to=1.1.0 cleared=minecraft|launcher-updates|Cache|...
+```
+
+**The same file records the background check, under its own step.** The periodic question
+(rule 10 above) writes `step=update-poll` and only when there is something to say: one line
+per failed check, with the code that answered (`note=ENOTFOUND`, `note=not-latest-answer`) and
+no sentence, and one line per stage (`outcome=ok version=1.0.45 note=staged`). A check that
+finds the launcher current writes nothing — that is the normal state of the world 96 times a
+day, and recording it would rotate away the lines that say something happened.
+
+```
+2026-10-23T12:00:00.000Z v1.0.44 step=update-poll outcome=failed version=- note=ENOTFOUND
+2026-10-23T12:15:00.000Z v1.0.44 step=update-poll outcome=ok version=1.0.45 note=staged
 ```
 
 **An update that cannot clear still applies.** The clear runs on the relaunch path only,
@@ -1962,7 +1985,7 @@ update gate*:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `autoUpdateLauncher` | on | Keep the launcher itself current. Applying an update in place is not built yet, so this governs the version check and the notice in the settings dialog; nothing is installed by it. |
+| `autoUpdateLauncher` | on | Keep the launcher itself current. `cleanSettings` pins it on, so a saved `false` is not honoured; when the value is false the periodic version check does not run at all (rule 10 above), which is the branch `tests/desktop/update-poll.test.cjs` proves because it cannot be reached in a shipped build today. |
 | `autoUpdateGame` | on | Keep the installed game client current. When off, no update starts on its own and a launch never begins a transfer the player did not ask for. |
 | `exitOnLaunch` | off | Close the launcher when the game starts. |
 | `trayOnLaunch` | off | Minimise the launcher to the system tray when the game starts, offering **Open launcher** and **Quit**, and bring the window back when the game ends. |

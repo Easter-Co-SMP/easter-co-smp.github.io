@@ -1672,6 +1672,13 @@ function updateOnLaunch(){
 }
 // Launcher updates precede every game update and gate all privileged operations.
 let launcherUpdate={phase:app.isPackaged?'checking':'current',version:null,percent:null,message:null};
+// A downloaded payload is code, so its identity is checked before it is accepted: the bundle
+// must say it is this launcher, at exactly the version the manifest claimed. One function, so
+// the startup gate and the background check cannot disagree about what an acceptable payload is.
+function launcherIdentity(file,manifest){
+ const pkg=require(file+'/package.json');
+ if(pkg.name!=='easter-company-launcher'||pkg.version!==manifest.version)throw Error('The downloaded launcher identity is invalid.');
+}
 async function checkLauncherUpdate(openGate=true){
  if(!app.isPackaged)return;
  startupReady=false;
@@ -1679,7 +1686,7 @@ async function checkLauncherUpdate(openGate=true){
   const target=await updater.update({current:APP_VERSION,runtime:process.versions.electron,
    root:path.join(configRoot(),'launcher-updates'),fetch:net.fetch.bind(net),
    notify:value=>{launcherUpdate=value;notify({});},
-   inspect:(file,manifest)=>{const pkg=require(file+'/package.json');if(pkg.name!=='easter-company-launcher'||pkg.version!==manifest.version)throw Error('The downloaded launcher identity is invalid.');}});
+   inspect:launcherIdentity});
   if(target){
    // The apply step is the relaunch below, so this is the one moment a version change is
    // allowed to clear anything (doc/launcher-states.md, "What a version change clears"):
@@ -1720,6 +1727,79 @@ function startupUpdates(){
   }finally{startupPromise=null;}
  })();
  return startupPromise;
+}
+// ---- asking again while the launcher is open -------------------------------------------
+//
+// Owen's rule of 2026-10-23: a running launcher asks its server "am I still on the latest
+// version?" every so often and, when it is not, updates — the restart is a separate ticket,
+// so this is the ask and the stage and nothing else. Every number is named in updater.cjs
+// beside the reason for it (POLL_INTERVAL_MS = 15 minutes, 90 s of jitter, a one-hour backoff
+// cap, a 15 s answer-by bound).
+//
+// What this must never do, and does not: paint anything. There is no `notify` here, no phase,
+// no dialog, no spinner and no page notice — a failed ask writes one line to
+// launcher-update.log and returns, and a stage writes one line and one field. It cannot delay
+// a Play press either: nothing in the launch path waits on it, and it defers itself while the
+// launcher is busy. And it never restarts the launcher: no `app.relaunch`, no `app.quit` on
+// this path — the only caller of those is the startup gate above.
+let launcherPoll=null;
+// The redirect question, asked the one way Electron can answer it without following the
+// redirect: `net.fetch` refuses `redirect:'manual'` outright ("Redirect was cancelled",
+// measured 2026-10-23) and follows it otherwise, while net.request reports the hop through its
+// `redirect` event and can be cancelled before any body is read. The timeout is the poller's
+// named bound, and the request is aborted on it and on the poller's own cancellation.
+function latestHop({url,signal}={}){
+ return new Promise((resolve,reject)=>{
+  let settled=false;
+  const finish=outcome=>{
+   if(settled)return;
+   settled=true;clearTimeout(timer);
+   try{signal?.removeEventListener?.('abort',cancel);}catch{}
+   try{request.abort();}catch{}
+   outcome();
+  };
+  const request=net.request({url,redirect:'manual',method:'GET'});
+  const cancel=()=>finish(()=>{const aborted=Error('The launcher update check was cancelled.');aborted.name='AbortError';reject(aborted);});
+  const timer=setTimeout(()=>finish(()=>{const timedOut=Error('The launcher update check timed out.');timedOut.name='TimeoutError';timedOut.code='timeout';reject(timedOut);}),updater.POLL_TIMEOUT_MS);
+  timer.unref?.();
+  if(signal?.aborted)return cancel();
+  signal?.addEventListener?.('abort',cancel,{once:true});
+  request.on('redirect',(status,_method,location)=>finish(()=>resolve({status,location})));
+  // A 2xx here means GitHub answered the page itself rather than redirecting; it carries no
+  // tag, so it is an unanswered question and `latestVersion` refuses it rather than guessing.
+  request.on('response',response=>finish(()=>resolve({status:response.statusCode,location:''})));
+  request.on('error',error=>finish(()=>reject(error)));
+  request.end();
+ });
+}
+// One poll per process, started once the startup gate has begun so the two never race the
+// same question. `busy` is what defers a check: the gate, a game, a transfer or another
+// launcher operation owns the network and the disk while any of them is live.
+function startLauncherPoll(){
+ if(launcherPoll)return launcherPoll;
+ launcherPoll=updater.createLauncherPoll({
+  current:APP_VERSION,
+  root:path.join(configRoot(),'launcher-updates'),
+  runtime:process.versions.electron,
+  probe:latestHop,
+  fetch:net.fetch.bind(net),
+  inspect:launcherIdentity,
+  enabled:settings?.autoUpdateLauncher!==false,
+  busy:()=>Boolean(!startupReady||startupPromise||backgroundUpdate||game||working||controller||accountWorking),
+  log:updateLog,
+  // The stage is published as a field and nothing else: no phase moves, no dialog opens, and
+  // no broadcast is sent for it. `notify({})` would repaint a state the player is looking at
+  // and, because every broadcast drops `error`, could take a page notice away mid-read — a
+  // background check must not touch the state channel at all. The field sits on the launcher's
+  // state object, so it is in the answer to `status` and in the next broadcast the launcher
+  // makes for its own reasons; the restart ticket reads it from there.
+  onStaged:staged=>{
+   launcherUpdate={...launcherUpdate,staged:{version:staged.version,from:staged.from,stagedAt:staged.at}};
+  }
+ });
+ // An unpackaged run has no published release to compare itself against, so it never asks.
+ if(app.isPackaged)launcherPoll.start();
+ return launcherPoll;
 }
 // What this machine says about its own graphics, asked once at startup. Electron
 // answers only after the app is ready, and it never reports video memory, so the
@@ -1846,6 +1926,9 @@ if(instance){
   notify({message:client.installed?'Client ready.':'Download the game to get started.'});
   if(app.isPackaged)void startupUpdates();
   else void updateOnLaunch()?.catch(()=>{});
+  // The same question, asked again while the launcher stays open (updater.cjs
+  // `createLauncherPoll`): fifteen minutes, quiet, and it only ever stages.
+  startLauncherPoll();
   // The game shortcut's own launch. Scheduled after the startup update gates so the
   // auto-start waits for them rather than racing them.
   if(wantsAutoStart(process.argv))void autoStart();
@@ -1858,5 +1941,5 @@ if(instance){
  });
  app.on('activate',()=>{if(BrowserWindow.getAllWindows().length===0)createWindow();});
  app.on('window-all-closed',()=>{if(process.platform!=='darwin')app.quit();});
- app.on('before-quit',()=>{controller?.abort();control?.cancel();destroyTray();});
+ app.on('before-quit',()=>{launcherPoll?.stop();controller?.abort();control?.cancel();destroyTray();});
 }

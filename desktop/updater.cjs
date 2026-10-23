@@ -41,8 +41,11 @@ function fault(message,{step='launcher-update',status,host}={}){
  try{failureLog?.append({step,outcome:'failed',status:Number.isInteger(status)?status:undefined,note:host});}catch{}
  return failed;
 }
-async function json(fetch,url){
- const response=await fetch(url,{signal:AbortSignal.timeout(20000),cache:'no-store',headers:{Accept:'application/json'}});
+// One timeout, or the caller's own cancellation AND that timeout: a check the launcher can
+// abort on quit is also bounded by the same number it was bounded by before.
+function bounded(signal,ms){return signal?AbortSignal.any([signal,AbortSignal.timeout(ms)]):AbortSignal.timeout(ms);}
+async function json(fetch,url,{signal}={}){
+ const response=await fetch(url,{signal:bounded(signal,20000),cache:'no-store',headers:{Accept:'application/json'}});
  if(!response.ok)throw fault('The launcher update could not be checked. Check your connection and try again.',{status:response.status,host:hostOf(url)});
  const text=await response.text();if(text.length>65536)throw Error('The update response is too large.');
  return JSON.parse(text);
@@ -53,12 +56,12 @@ async function atomic(file,value){
  try{await fs.writeFile(temp,JSON.stringify(value),{mode:0o600});await fs.rename(temp,file);}
  finally{await fs.rm(temp,{force:true});}
 }
-async function stage(manifest,{root,fetch,notify=()=>{}}){
+async function stage(manifest,{root,fetch,notify=()=>{},signal}={}){
  await fs.mkdir(root,{recursive:true,mode:0o700});
  const target=path.join(root,manifest.sha256+'.asar'),temp=target+'.'+crypto.randomUUID()+'.part';
  let handle;
  try{
-  const response=await fetch(manifest.url,{signal:AbortSignal.timeout(300000)});
+  const response=await fetch(manifest.url,{signal:bounded(signal,300000)});
   if(!response.ok||!response.body)throw fault('The launcher update could not be downloaded. Try again.',{step:'launcher-asset',status:response.status,host:hostOf(manifest.url)});
   const length=response.headers.get('content-length');
   if(length!==null&&Number(length)!==manifest.size)throw Error('The launcher update size does not match the release.');
@@ -77,15 +80,31 @@ async function stage(manifest,{root,fetch,notify=()=>{}}){
   return target;
  }finally{await handle?.close();await fs.rm(temp,{force:true});}
 }
-async function update({current,platform=process.platform,arch=process.arch,runtime,root,fetch=globalThis.fetch,notify=()=>{},inspect=()=>{}}){
+// The one pipeline that turns "a release is published" into a verified payload on disk. It
+// answers the path of the verified payload when a strictly newer release was downloaded, and
+// null when this launcher already is the published one.
+//
+// `apply` decides what happens after the payload is verified, and it is the whole difference
+// between the startup gate and the background check:
+//   * `apply:true` (the startup gate) writes `current.json`, the activation record bootstrap
+//     loads on the next start, and announces the restart. This is the only path that
+//     activates anything, and the version policy's clear belongs to it because it is the one
+//     moment a version change may destroy something.
+//   * `apply:false` (the background check, ticket 2cd301e3) writes `staged.json` instead and
+//     announces nothing. A background stage that wrote `current.json` would make a minor
+//     release activate on the next ordinary start *without* the clear its level asks for,
+//     because bootstrap would then load the new bundle and the startup gate would find
+//     nothing newer. So the staged record is a fact about the stash, not an activation.
+async function update({current,platform=process.platform,arch=process.arch,runtime,root,fetch=globalThis.fetch,notify=()=>{},inspect=()=>{},apply=true,signal}={}){
  notify({phase:'checking',percent:null,message:'Checking launcher updates…'});
  const name='Easter-Company-Update-'+platform+'-'+arch+'.json';
- const info=await json(fetch,LATEST+name);
+ const info=await json(fetch,LATEST+name,{signal});
  const release=info?.version;
  const manifest=validate(info,{release,platform,arch,runtime});
  if(compare(release,current)<=0){notify({phase:'current',version:current,percent:null,message:null});return null;}
- const target=await stage(manifest,{root,fetch,notify});
+ const target=await stage(manifest,{root,fetch,notify,signal});
  await inspect(target,manifest);
+ if(!apply){await atomic(path.join(root,'staged.json'),manifest);return target;}
  await atomic(path.join(root,'current.json'),manifest);
  notify({phase:'restarting',version:release,percent:100,message:'Restarting launcher…'});
  return target;
@@ -102,11 +121,164 @@ function selected(root,{bundled,runtime,platform=process.platform,arch=process.a
   inspect(target,manifest);return target;
  }catch{return null;}
 }
+// What the background check has staged, and where it is. `selected` above answers "may this
+// payload be loaded as the running launcher now?" and hashes the whole payload because it is
+// about to execute it; this answers "what is sitting in the stash, verified, waiting for an
+// apply step?", so it validates the record exactly as `selected` does and checks the payload's
+// length. The bytes were hashed by `stage` when they were written and the file is named after
+// that hash, so re-hashing here would be a 40 MB read on every question and prove nothing new.
+function staged(root,{current,runtime,platform=process.platform,arch=process.arch}={}){
+ try{
+  const manifest=JSON.parse(raw.readFileSync(path.join(root,'staged.json'),'utf8'));
+  validate(manifest,{release:manifest.version,platform,arch,runtime});
+  if(current!==undefined&&compare(manifest.version,current)<=0)return null;
+  const target=path.join(root,manifest.sha256+'.asar');
+  if(raw.statSync(target).size!==manifest.size)return null;
+  return {...manifest,file:target};
+ }catch{return null;}
+}
 function relaunchOptions({platform=process.platform,env=process.env,execPath=process.execPath,argv=process.argv}={}){
  // A shortcut's Play request must survive the mandatory launcher update. Preserve
  // only the two recognised switches, never arbitrary launch arguments or paths.
  const args=['--no-sandbox','--play'].filter(argument=>argv.includes(argument));
  return {execPath:platform==='linux'&&env.APPIMAGE?env.APPIMAGE:execPath,args};
+}
+// ---- asking again, while the launcher is open ----------------------------------------
+//
+// Owen's rule of 2026-10-23: "If the updater is open, every 10 or 15 minutes, or maybe 20,
+// 30, 1 hour? ... let's have the launcher client ping our servers asking 'hey am I still
+// running the latest version?', and if it's not then it automatically updates and restarts."
+// This section is the ping and the stage. The restart is a separate ticket and nothing here
+// calls app.relaunch or app.quit: this file never has, and the only caller that does is
+// main.cjs's startup gate.
+//
+// **The question is the release's own `/releases/latest` redirect, not an API call.** One
+// request, no token, no GitHub API, and the redirect is not followed, so the answer is a bare
+// 302 whose `Location` names the tag and whose body is empty — measured against the real
+// endpoint on 2026-10-23: `302`, `content-length: 0`,
+// `location: .../releases/tag/launcher-v1.0.44`, 21-138 ms. Following that redirect would
+// download the release page; the manifest under `/releases/latest/download/` would be a
+// second request plus a CDN round trip. Neither is needed to answer "is there something
+// newer?", and the manifest is still read — through `update()` — only when the answer is yes.
+//
+// **Every bound is named, and each one is here rather than in the wiring.**
+//   POLL_INTERVAL_MS     15 minutes. 96 checks a day of a ~1 KB header-only request. The
+//                        alternative tick paid by every player must be cheap enough that it
+//                        decides nothing else in the launcher; a shorter one buys nothing
+//                        (releases are cut by hand, a handful a week at most) and a longer
+//                        one leaves a player on an old build for an hour after a fix ships.
+//   POLL_JITTER_MS       90 s added at random, so a fleet started together does not check in
+//                        lockstep: the whole point of a 302 is that a synchronised herd is
+//                        the only thing that could ever make it expensive.
+//   POLL_BACKOFF_CAP_MS  one hour. After consecutive failures the interval doubles (30 min,
+//                        60 min) and stops at the cap, so an offline laptop asks at most 24
+//                        times a day and any success returns it to 15 minutes.
+//   POLL_BACKOFF_MAX     three doublings reach the cap; more would only be arithmetic.
+//   POLL_TIMEOUT_MS      15 s for the redirect question. A hop that takes longer than a
+//                        release page fetch is not an answer, and the next tick is a fresh try.
+const LATEST_PAGE='https://github.com/Easter-Co-SMP/easter-co-smp.github.io/releases/latest';
+const POLL_INTERVAL_MS=15*60*1000,POLL_JITTER_MS=90*1000,POLL_BACKOFF_CAP_MS=60*60*1000,POLL_BACKOFF_MAX=3,POLL_TIMEOUT_MS=15000;
+// The tag the redirect points at. `launcher-v` is the prefix scripts/release.sh publishes
+// under, and the version has to be one `version()` accepts, so a tag this launcher cannot read
+// is an unanswered question rather than a downgrade or a crash.
+const TAG_LOCATION=/\/releases\/tag\/launcher-v((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/;
+function tagVersion(location){const match=TAG_LOCATION.exec(String(location||''));return match?match[1]:null;}
+function pollFault(message,{step='launcher-poll',status}={}){
+ const failed=Error(message);
+ if(Number.isInteger(status))failed.httpStatus=status;
+ failed.step=step;
+ failed.code='not-latest-answer';
+ return failed;
+}
+// One question, one answer: the version `/releases/latest` points at. `probe` is the transport
+// that resolves a manual-redirect hop (`{status, location}`), because Electron's `net.fetch`
+// *refuses* `redirect:'manual'` with "Redirect was cancelled" (measured 2026-10-23) and follows
+// the redirect otherwise; main.cjs answers it with net.request, a test with a stub. An answer
+// that is not a 3xx carrying a readable tag is a failed check, never a version.
+async function latestVersion({probe,signal,url=LATEST_PAGE}={}){
+ const hop=await probe({url,signal});
+ const release=tagVersion(hop?.location);
+ const status=Number(hop?.status);
+ if(!(status>=300&&status<400)||!release)throw pollFault('The launcher update could not be checked.',{status:Number.isInteger(status)?status:undefined});
+ return release;
+}
+// How long until the next question. The base interval doubles per consecutive failure up to
+// the cap, and up to `jitterMs` of uniform noise is added so a fleet does not arrive together.
+// `random` is injectable so a test can pin both ends of the jitter without sleeping.
+function pollDelay({failures=0,intervalMs=POLL_INTERVAL_MS,jitterMs=POLL_JITTER_MS,backoffCapMs=POLL_BACKOFF_CAP_MS,random=Math.random}={}){
+ const exponent=Math.min(Math.max(0,Math.floor(Number(failures)||0)),POLL_BACKOFF_MAX);
+ const base=Math.min(intervalMs*2**exponent,backoffCapMs);
+ const noise=Math.min(Math.max(Number(random())||0,0),0.999999)*Math.max(0,jitterMs);
+ return base+Math.floor(noise);
+}
+// The loop itself, drivable without Electron and without waiting: every knob is an option and
+// the clock is injected. Its properties are the ticket's:
+//   * it never overlaps itself — the next tick is armed only once the current check settles,
+//     and a second `check()` while one is in flight is refused rather than queued;
+//   * its timer is unref'd, so a pending version question is never the reason a process lives;
+//   * `stop()` cancels the timer and aborts a check in flight, and a check cancelled that way
+//     is not a failure: it writes nothing and moves no interval;
+//   * nothing it does can be seen. It has no notify, no phase, no window: its only output is
+//     `log` (one line per failure, and one per stage) and `onStaged` (a field for the state the
+//     view already publishes, carried by whatever broadcast comes next);
+//   * `enabled:false` is the `autoUpdateLauncher` preference, and it means no timer at all.
+function createLauncherPoll({current,root,runtime,platform=process.platform,arch=process.arch,probe,fetch=globalThis.fetch,inspect=()=>{},enabled=true,busy=()=>false,log=null,onStaged=()=>{},timers={setTimeout,clearTimeout},intervalMs=POLL_INTERVAL_MS,jitterMs=POLL_JITTER_MS,backoffCapMs=POLL_BACKOFF_CAP_MS,random=Math.random,now=()=>new Date().toISOString()}={}){
+ const poll={started:false,stopped:false,running:false,failures:0,timer:null,controller:null,last:null};
+ const clear=()=>{if(poll.timer!==null){timers.clearTimeout(poll.timer);poll.timer=null;}};
+ function arm(){
+  if(poll.stopped)return;
+  const delay=pollDelay({failures:poll.failures,intervalMs,jitterMs,backoffCapMs,random});
+  poll.timer=timers.setTimeout(()=>{poll.timer=null;void tick();},delay);
+  if(poll.timer&&typeof poll.timer.unref==='function')poll.timer.unref();
+ }
+ function line(entry){try{log?.poll?.(entry);}catch{}}
+ // The question, then — only if the answer is "not current" — the same pipeline the startup
+ // gate uses, with activation withheld. The manifest is re-read and re-validated there, so the
+ // tag is a hint and the manifest is the authority about what is actually downloaded.
+ async function run(signal){
+  const release=await latestVersion({probe,signal});
+  if(compare(release,current)<=0){poll.last={state:'current',version:release,at:now()};return poll.last;}
+  const target=await update({current,root,runtime,platform,arch,fetch,inspect,signal,apply:false});
+  if(!target){poll.last={state:'current',version:release,at:now()};return poll.last;}
+  // The staged record is the authority on what was written, and `release` is the tag that sent
+  // it here; the record wins, because the manifest is what `validate` accepted.
+  const record=staged(root,{current,runtime,platform,arch});
+  poll.last={state:'staged',version:record?.version||release,from:String(current),at:now()};
+  line({outcome:'ok',version:poll.last.version,note:'staged'});
+  try{onStaged(poll.last);}catch{}
+  return poll.last;
+ }
+ async function tick(){
+  if(poll.stopped||poll.running||!enabled)return poll.last;
+  // A launcher in the middle of a game, an install or its own startup gate is not asked: the
+  // question would compete with work the player is waiting for. Deferring is not failing, so
+  // the interval it re-arms is the healthy one.
+  if(busy()){arm();return poll.last;}
+  poll.running=true;poll.controller=new AbortController();
+  try{
+   await run(poll.controller.signal);
+   poll.failures=0;
+  }catch(error){
+   // A cancelled check is not an answer about the release. The stage path's own failures are
+   // already a line in install.log; this is the one line the update log gets.
+   if(!poll.stopped&&error?.name!=='AbortError'){
+    poll.failures+=1;
+    line({outcome:'failed',version:null,note:error?.code||(error?.name&&error.name!=='Error'?error.name:'failed')});
+   }
+  }finally{
+   poll.running=false;poll.controller=null;arm();
+  }
+  return poll.last;
+ }
+ // What the launcher may see of the loop: whether it is armed, what it last answered, and how
+ // many failures are behind the current interval. The timer and the controller stay inside.
+ const state=()=>({started:poll.started,stopped:poll.stopped,running:poll.running,armed:poll.timer!==null,failures:poll.failures,last:poll.last});
+ return {
+  start(){if(poll.started||poll.stopped||!enabled)return state();poll.started=true;arm();return state();},
+  stop(){poll.stopped=true;clear();try{poll.controller?.abort();}catch{}return state();},
+  check(){return tick();},
+  state
+ };
 }
 // ---- how big a version change is, and what that change may clear --------------
 // Owen's rule of 2026-10-19: "if only the patch is incremented between current client and
@@ -276,8 +448,22 @@ class UpdateLog{
    .concat(note?['note='+token(note)]:[]).join(' ')+'\n';
  }
  append(entry={}){
+  this.write(this.line(entry));
+ }
+ // The background check's own line, in the same file and under the same rules, with the
+ // vocabulary that question needs: `step=update-poll`, the release it was about, and why it
+ // failed. Only failures and stages are written — a check that finds the launcher current is
+ // the normal state of the world 96 times a day, and a file that records it would rotate away
+ // the lines that say something happened. A failure is `note=unreachable`,
+ // `note=not-latest-answer` or the error's own name; anything a token cannot hold is `-`.
+ pollLine({outcome='ok',version=null,note=null}={}){
+  return [this.now().toISOString(),'v'+(this.version||'unknown'),'step=update-poll','outcome='+(outcome==='failed'?'failed':'ok'),'version='+token(version),'note='+token(note)].join(' ')+'\n';
+ }
+ poll(entry={}){
+  this.write(this.pollLine(entry));
+ }
+ write(line){
   if(!this.file)return;
-  const line=this.line(entry);
   try{
    try{raw.mkdirSync(path.dirname(this.file),{recursive:true});}catch{}
    let size=0;
@@ -307,4 +493,5 @@ async function applyVersionPolicy({from,to,dataRoot,filesystem=fs,remove,log=nul
  }catch{}
  return result;
 }
-module.exports={setFailureLog,fault,update,stage,selected,validate,compare,version,relaunchOptions,BOOTSTRAP,LEVELS,classify,clearPlan,CLEAR,withinDataDirectory,clearForLevel,applyVersionPolicy,UpdateLog};
+module.exports={setFailureLog,fault,update,stage,selected,staged,validate,compare,version,relaunchOptions,BOOTSTRAP,LEVELS,classify,clearPlan,CLEAR,withinDataDirectory,clearForLevel,applyVersionPolicy,UpdateLog,
+ LATEST_PAGE,POLL_INTERVAL_MS,POLL_JITTER_MS,POLL_BACKOFF_CAP_MS,POLL_BACKOFF_MAX,POLL_TIMEOUT_MS,tagVersion,latestVersion,pollDelay,createLauncherPoll};
