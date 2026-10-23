@@ -13,8 +13,9 @@
 #   2. npm test, the python suites, and the site validator.
 #   2a. scripts/check-electron-journeys.mjs: every journey doc/releasing.md precondition 2
 #      lists, one at a time under xvfb-run, with the account fixture of its own for the four
-#      that drive the real handler. Measured ~9 minutes here; it is in --check rather than in
-#      --cut alone because --cut calls --check and a step expressed twice drifts.
+#      that drive the real handler. Budget nine minutes for it (measured 7 m 23 s and 7 m 25 s
+#      across two sweeps on 2026-10-23, doc/releasing.md). It is in --check rather than in
+#      --cut alone because --cut calls --check, so a step expressed twice would drift.
 #   3. npm run pack, then scripts/check-packaged-first-screen.mjs against that package:
 #      the packaged artifact's first screen and its Play Now stage, with isolated HOMEs.
 #   4. Bump the current version to the new one in package.json and in both package-lock
@@ -72,7 +73,7 @@ run_check() {
   # nothing here reads PASS out of a truncated pipe. `npm test`'s glob is
   # tests/desktop/*.test.cjs and cannot match a *.electron.mjs, which is how two of these
   # journeys sat red on main unnoticed on 2026-10-23.
-  echo "release: electron journeys, one at a time (~9 min)"
+  echo "release: electron journeys, one at a time (~7.5 min measured)"
   node scripts/check-electron-journeys.mjs >/tmp/release-journeys.log 2>&1 \
     || { grep -E '^  FAIL |^electron journeys ' /tmp/release-journeys.log | head -30; die "an Electron journey failed (full log: /tmp/release-journeys.log)"; }
   grep -qE '^electron journeys PASS' /tmp/release-journeys.log \
