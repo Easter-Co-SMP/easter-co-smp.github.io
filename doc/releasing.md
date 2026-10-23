@@ -62,6 +62,14 @@ name from `/releases/latest/download/`. The launcher job is
    described the row's meaning without naming its words or its LED, so the gate kept the
    three-sentence rule while the product moved on, and a correct 1.0.44 package failed the
    check that protects the release (found 2026-10-23, before the cut).
+
+   **A `release/` tree built before the bump cannot be re-checked after the version is
+   published.** It carries the older version, sees the release it just published, and
+   self-updates and relaunches mid-check (`desktop/main.cjs`, `app.relaunch`), so the gate
+   dies with "Target page, context or browser has been closed" — the product behaving
+   correctly, wearing a gate failure's clothes. Measured 2026-10-23 after 1.0.44 shipped.
+   Re-run the gate against a freshly packed tree (`npm run pack`) or against the published
+   AppImage's own first screen inside `--verify`, never against yesterday's `release/`.
 2. The full check suite passes on that exact tree: `python -m unittest discover -s tests
    -p 'test_*.py'` (use `/root/e-server/.venv/bin/python`), `python scripts/validate.py
    site`, `npm test`, `node tests/drawings.mjs`, `node tests/browser.mjs` against a local
