@@ -222,7 +222,7 @@
   // The first player of a session is waiting for a cold start: the hero says so and
   // offers no second Play, because the launch happens by itself the moment the server
   // is joinable. This is a phase of Play, and it is never an account or install state.
-  if(phase==='starting-game')return {kind:'starting',label:'Starting your server…',note:'Minecraft opens when your server is ready'};
+  if(phase==='starting-game')return {kind:'starting',label:'Starting the server…',note:'Minecraft opens when the server is ready'};
   if(state&&state.canPlay&&phase!=='launching'&&phase!=='running')return {kind:'play',label:'PLAY NOW',note:'Minecraft Java Edition'};
   if(phase==='launching')return {kind:'busy',label:'Launching Minecraft…',note:'Please wait'};
   if(phase==='running')return {kind:'running',label:'Minecraft is running',note:'The map stays open alongside'};
@@ -847,7 +847,7 @@
   const waking=gameOf(current)?.waking===true;
   if(waking&&serverWaitStartedAt===null)serverWaitStartedAt=localActivity?.startedAt||Date.now();
   if(!waking)serverWaitStartedAt=null;
-  const gameWait=waking?{stage:'server-starting',message:current.game.message||'Waiting for your server to be ready…',detail:current.game.detail,startedAt:serverWaitStartedAt}:null;
+  const gameWait=waking?{stage:'server-starting',message:current.game.message||'Waiting for the server to be ready…',detail:current.game.detail,startedAt:serverWaitStartedAt}:null;
   const heroActivity=!signInPending&&!signin.open&&!document.querySelector('.desktop-company-dialog[open]')&&current.startupReady!==false&&!transferring(current)?gameWait||(heroScoped(activity)?activity:null):null;
   heroWait?.set(heroActivity);
   // The profile menu is the other surface: the verified-email read it starts reports inside it,
@@ -930,7 +930,7 @@
  }
  // Play Now starts the game. It opens nothing: the dialog is for sign-in and client
  // settings. Failures appear in the visible page notice without opening Settings.
- const start=()=>{clearFailure();localActivity={stage:'play-requested',message:'Checking your server…',startedAt:Date.now()};render(current||{});void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report).finally(()=>{localActivity=null;render(current||{});});};
+ const start=()=>{clearFailure();localActivity={stage:'play-requested',message:'Checking the server…',startedAt:Date.now()};render(current||{});void Promise.resolve(typeof playAction==='function'?playAction():Promise.reject(Error('This launcher build cannot start the game.'))).catch(report).finally(()=>{localActivity=null;render(current||{});});};
  const openSettings=()=>{open();if(settingsButton&&!settingsButton.hidden)settingsButton.setAttribute('aria-expanded','true');
   // The two shortcut rows say whether the files are really there, so the truth is asked
   // for as the dialog opens rather than trusted from the last broadcast.
