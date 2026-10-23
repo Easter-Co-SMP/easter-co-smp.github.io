@@ -1,3 +1,28 @@
+# Easter Company launcher 1.0.43
+
+## The store looks like the rest of the site
+
+- The store's type is the site's type again: it was rendering in a different face from the
+  map and the wiki, and its title was smaller than the headings under it. The title now
+  matches the wiki's page heading.
+- On a narrow window the store's header is the same height and gutter as the map and the
+  wiki.
+- The sentence saying the store is a mock stays on screen while you scroll the catalogue,
+  instead of scrolling away and leaving prices and "Sold out" badges looking real.
+- Corners and buttons use the site's own shapes.
+
+## You can reach the store from the home page
+
+The header of every page — home, map, wiki and the store — lists Store beside Map and Wiki,
+in the launcher and in a browser.
+
+## Nothing promises what the mock does not do
+
+Item terms no longer mention confirming availability "before payment", and no product page
+promises delivery or ownership: every item carries the same line saying this is a demo
+catalogue where nothing is charged, reserved or delivered.
+
+
 # Easter Company launcher 1.0.42
 
 ## The store is a page now
