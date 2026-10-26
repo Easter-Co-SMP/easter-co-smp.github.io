@@ -1,3 +1,33 @@
+# Easter Company launcher 1.0.49
+
+## Signing in no longer asks you to copy a code
+
+Microsoft sign-in used to show you a code and send you to a page to type it. The launcher now opens
+Microsoft's own sign-in page in your browser and takes the answer back itself, over a connection
+that exists for exactly one reply and then closes.
+
+- Nothing to copy, nothing to type, and no code left on screen.
+- The launcher proves it is the same request it started before it accepts the answer.
+- Cancelling in the browser, or closing it, leaves you signed out exactly as you were.
+
+## Microsoft's consent screen says Easter Company
+
+The launcher used to sign in through another application's registration, so Microsoft's page named
+someone else. It now uses Easter Company's own, which is the name you will see when you approve it.
+
+## Everyone signs in once
+
+Because the registration changed, the sessions the account service held were issued to the old
+application and cannot be renewed. Every player signs in with Microsoft once after this update; if
+you have linked Google, Discord or Steam as well they are untouched, and your username, roles and
+purchases stay with your account.
+
+## The website can sign you in too
+
+The site has its own sign-in at `easter-co-smp.github.io/account/`, for the store and your account
+details. It does not start Minecraft — Play still belongs to the launcher, here.
+
+
 # Easter Company launcher 1.0.48
 
 ## The store opens at once
