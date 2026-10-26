@@ -88,13 +88,17 @@ Map annotations, terrain cache, and UI preferences persist in the desktop sessio
 The shell bundles the site so its interface opens without a web connection. Map data refreshes
 from Pages, with the bundled snapshot and persistent tile cache as fallbacks.
 
-Microsoft device-code login follows the existing drun shortcut's consumers → Xbox Live →
-XSTS → Minecraft Java profile chain. Tokens never cross IPC or enter web storage. OS-backed
-safeStorage encrypts remembered accounts; Linux basic_text is rejected and the UI explicitly
-shows This session only when secure storage is unavailable. Sign-out deletes this app's session.
-The inherited public client ID currently displays **Prism Launcher** in Microsoft's consent UI,
-just like the existing shortcut. Set EASTER_MICROSOFT_CLIENT_ID to an Easter Company
-registration approved for Minecraft/Xbox access when available; no secret belongs in the app.
+Microsoft sign-in opens Microsoft's own page in the player's browser and takes the answer on a
+loopback redirect (authorization code + PKCE S256); nothing is copied into the launcher. It then
+follows consumers → Xbox Live → XSTS → Minecraft Java profile. Tokens never cross IPC or enter
+web storage. OS-backed safeStorage encrypts remembered accounts; Linux basic_text is rejected and
+the UI explicitly shows This session only when secure storage is unavailable. Sign-out deletes
+this app's session.
+The public client ID is Easter Company's own registration (personal Microsoft accounts only, no
+secret in the app), so Microsoft's consent screen names **Easter Company**. It requires one
+redirect URI, `http://localhost/callback` — Microsoft ignores the port of a localhost URI, which
+is what lets the launcher use an ephemeral one. Set EASTER_MICROSOFT_CLIENT_ID to point a build at
+a different registration.
 
 Easter Company account enrolment rides on that same Microsoft session: the Mojang access
 token the launcher already holds is posted to `POST /v1/accounts/login`, and the first
