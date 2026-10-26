@@ -62,6 +62,11 @@ const GRAPH_REQUEST_SCOPE=GRAPH_SCOPE+' '+OFFLINE_ACCESS;
 // Microsoft displays Prism Launcher for this inherited registration.
 // Set EASTER_MICROSOFT_CLIENT_ID when Easter Company has its own approved registration.
 const DEFAULT_CLIENT_ID='c36a9fb6-4f2a-41ff-90bd-ae7cc92031eb';
+// The most requests the registration check will ever make, and the only hosts it will follow
+// one to: the consumers authority hands the question to its own consumer sign-in host, and
+// nothing else is ever asked.
+const REGISTRATION_HOPS=2;
+const REGISTRATION_HOSTS=Object.freeze(['login.microsoftonline.com','login.live.com']);
 // How much of a refused page the registration check will read before deciding. The page is
 // Microsoft's own error page, a few kilobytes; this is only here so an answer that is not
 // one cannot be read forever.
@@ -458,26 +463,52 @@ class MicrosoftAuth{
  // The page's own AADSTS code decides which sentence the player gets: 50011 is the reply-URL
  // mismatch, which is a URI to add, and 700016 is a client id the authority does not know,
  // which is a different fix. Both are logged; neither reaches the sentence as a code.
- // Any answer this cannot read is `unknown` and the sign-in goes ahead: a probe must never
- // be the thing that refuses a sign-in it did not understand.
+ //
+ // TWO HOPS, AND NO MORE, BECAUSE THAT IS WHAT THE AUTHORITY DOES. Measured on 2026-10-26
+ // against `login.microsoftonline.com/consumers`: that endpoint does not answer the question
+ // itself, it proxies the whole request to `login.live.com/oauth20_authorize.srf`, and only
+ // there does the answer arrive — a page whose text is "invalid_request: The provided value for
+ // the input parameter 'redirect_uri' is not valid ..." when the address is not registered, or
+ // a redirect back to the address when it is. So a second hop is read, and ONLY to Microsoft's
+ // own sign-in hosts, and only while the answer is not already our own callback. Every request
+ // here is made with `redirect:'manual'`, so the probe never follows a redirect into the
+ // listener: following one would hand the launcher a `login_required` answer and end a real
+ // sign-in before the player had seen it.
+ // Any answer this cannot read is `unknown` and the sign-in goes ahead: a probe must never be
+ // the thing that refuses a sign-in it did not understand.
  async registration(url,redirectUri,signal){
   const probe=new URL(url.href);
   probe.searchParams.set('prompt','none');
   probe.searchParams.set('state',stateToken());
-  let response;
-  try{
-   response=await this.request(probe.href,{method:'GET',redirect:'manual',cache:'no-store',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});
-  }catch(error){
-   if(error?.name==='AbortError'||signal?.aborted)throw abortFromSignal();
-   return 'unknown';
+  let target=probe.href;
+  let response=null;
+  for(let hop=0;hop<REGISTRATION_HOPS;hop+=1){
+   try{
+    response=await this.request(target,{method:'GET',redirect:'manual',cache:'no-store',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});
+   }catch(error){
+    if(error?.name==='AbortError'||signal?.aborted)throw abortFromSignal();
+    return 'unknown';
+   }
+   if(!response)return 'unknown';
+   const forwarded=typeof response.headers?.get==='function'?String(response.headers.get('location')||''):'';
+   const redirecting=Number.isInteger(response.status)&&response.status>=300&&response.status<400;
+   // Anything that is not a redirect is an answer, and is read below.
+   if(!redirecting)break;
+   // The authority's own hand-off to its consumer sign-in host: read what that answers, once.
+   if(forwarded.startsWith(redirectUri))return 'registered';
+   let host='';
+   try{host=new URL(forwarded).hostname;}catch{break;}
+   if(hop===REGISTRATION_HOPS-1||!REGISTRATION_HOSTS.includes(host))break;
+   target=forwarded;
   }
   if(!response)return 'unknown';
-  const location=typeof response.headers?.get==='function'?String(response.headers.get('location')||''):'';
-  if(response.status>=300&&response.status<400&&location.startsWith(redirectUri))return 'registered';
   if(Number.isInteger(response.status)&&response.status>=500)return 'trouble';
   let body='';
   try{body=String(await response.text()).slice(0,REGISTRATION_PAGE_LIMIT);}catch{return 'unknown';}
   if(body.includes('AADSTS50011'))return this.refuseRegistration('reply-url','AADSTS50011');
+  // The consumer authority's own wording for the same refusal, measured above: no AADSTS
+  // number, so it is recognised by its sentence and logged under its own error name.
+  if(/redirect_uri/i.test(body)&&/not valid/i.test(body))return this.refuseRegistration('reply-url','invalid_request');
   if(/AADSTS700016|AADSTS70001\b/.test(body))return this.refuseRegistration('client','AADSTS700016');
   // A JSON refusal from the authorize endpoint is an ordinary start-step refusal, worded and
   // logged exactly as one.
