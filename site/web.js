@@ -16,14 +16,19 @@ if(webAccount){
    const menu=document.createElement('div');menu.id='web-account-menu';menu.className='desktop-profile-menu';menu.setAttribute('popover','auto');menu.setAttribute('aria-label','Account options');document.body.append(menu);
    const notice=document.createElement('p');notice.className='web-account-notice';notice.setAttribute('role','alert');notice.hidden=true;menu.append(notice);
    let current=webAccount.getState(),profile=null,linked=null;
-   const signInMicrosoft=async()=>({ok:false,error:'Use the launcher to sign in with Microsoft.'});
+   // Microsoft signs in on its own page. site/account/ starts the browser flow, is the address
+   // Microsoft sends the browser back to, and is where a Company session for a Microsoft account
+   // is made; doc/BROWSER_SIGN_IN.md in the cloud repository is the contract. Both entry points
+   // below go there rather than answering with a sentence about the launcher, which stopped
+   // being true when that page shipped. Linking stays a launcher action: the exchange is a
+   // sign-in, and it has no link mode for an account that is already signed in.
+   const signInMicrosoft=async options=>{
+    if(options?.link)return {ok:false,error:'Connect Microsoft in the launcher.'};
+    const destination=new URL('account/',base);destination.search='provider=microsoft';
+    location.assign(destination.href);
+    return {ok:true};
+   };
    const auth=createCompanyAuth({desktop:webAccount,signInMicrosoft});
-   // Microsoft currently has no browser broker. Say so, rather than offering a
-   // native-only command or running the Xbox token chain in a public renderer.
-   const microsoft=document.querySelector('#desktop-company-signin .company-microsoft');
-   microsoft.hidden=true;
-   const note=document.createElement('p');note.className='company-provider-note';note.textContent='Microsoft sign-in is available in the launcher. On the website, use your Company username and password or another configured provider.';
-   microsoft.after(note);
    const action=(label,fn)=>{const button=document.createElement('button');button.type='button';button.textContent=label;button.onclick=()=>{menu.hidePopover();void fn();};menu.append(button);};
    const options={desktop:webAccount,getState:()=>current,isAccountLocked:()=>current.accountWorking===true,cancelSignIn:()=>webAccount.cancelSignIn()};
    action('My Profile',async()=>{const {openMyProfile}=await import('./company-profile.mjs');profile=await openMyProfile({...options,openEmails:()=>auth.emails()});});

@@ -1,10 +1,19 @@
 import {AccountClient,AccountError,publicAccount,companySession} from './account-client.mjs';
 import * as store from './store-contract.mjs';
+import {createMicrosoftSignIn,readCallback,ACCOUNT_PATH,NOT_CONFIGURED,START_AGAIN} from './account/microsoft-signin.mjs';
 const SESSION_KEY='easter-company-web-session-v1';
 const PROVIDERS={google:['https://accounts.google.com','/o/oauth2/v2/auth'],discord:['https://discord.com','/oauth2/authorize'],steam:['https://steamcommunity.com','/openid/login']};
+// Where a browser may sign in with Microsoft, and what a callback must look like, are one
+// contract: site/account/microsoft-signin.mjs holds both, because the registered redirect
+// literal has to be compared in the same file that sends the flow (doc/BROWSER_SIGN_IN.md
+// section 6 in the cloud repository).
+const atRedirect=where=>{
+ try{return where.pathname===ACCOUNT_PATH;}
+ catch{return false;}
+};
 // Browser-only account capability. Never assigned to window.easterDesktop. No native,
 // game, filesystem, updater or shell operation is available to the website.
-export function createWebAccount({storage,client=new AccountClient({client:'website/1'}),openWindow=(...args)=>window.open(...args),navigate=url=>location.assign(url),changed=()=>{}}={}){
+export function createWebAccount({storage,client=new AccountClient({client:'website/1'}),openWindow=(...args)=>window.open(...args),navigate=url=>location.assign(url),changed=()=>{},microsoftBrowser=createMicrosoftSignIn(),where=globalThis.location}={}){
  if(storage===undefined){try{storage=globalThis.sessionStorage;}catch{storage=null;}}
  let session=null,working=false,providerAbort=null,generation=0,expiryTimer=null;
  const listeners=new Set();
@@ -73,7 +82,10 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
   signInProvider:(provider,link=false)=>{
    if(working)return Promise.resolve({ok:false,error:'Another account request is in progress.'});
    const allowed=PROVIDERS[provider];
-   if(!allowed)return Promise.resolve({ok:false,error:'Use the launcher to sign in with Microsoft.'});
+   // Microsoft is not in the broker's list because it is not run through the popup broker at
+   // all: it has its own browser flow at site/account/ (doc/BROWSER_SIGN_IN.md), which this page
+   // cannot drive from here. The sentence points there rather than claiming it is impossible.
+   if(!allowed)return Promise.resolve({ok:false,error:'Sign in with Microsoft on your account page.'});
    const popup=openWindow('about:blank','_blank');
    if(!popup)return Promise.resolve({ok:false,error:'Allow a sign-in window for this site and try again.'});
    popup.opener=null;
@@ -100,6 +112,39 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
     }finally{clearTimeout(timeout);providerAbort=null;popup.close();}
    });
   },
+  // Microsoft, which is the one sign-in that leaves this page. The flow starts here, Microsoft
+  // answers on the registered redirect address (site/account/), and the two values it brought
+  // back are posted once to the service's exchange. Nothing of Microsoft's is kept: what is
+  // saved below is the Company session the service minted, through the same seam a password
+  // sign-in uses. No Minecraft session is asked for anywhere on this path - the exchange stores
+  // no provider token, so Play stays in the launcher - and this page therefore holds no
+  // Microsoft token, of either kind, to lose.
+  startMicrosoftSignIn:()=>run(async()=>{
+   await ready;
+   // The redirect is a contract with the Azure registration, so a flow is refused rather than
+   // started from an address that is not the one Microsoft has: sending the authority a URI
+   // nobody registered fails after the player has already signed in.
+   if(!atRedirect(where))throw new AccountError('not_configured',NOT_CONFIGURED);
+   if(session)throw new AccountError('invalid_request','Sign out before using another account.');
+   const flow=await microsoftBrowser.start();
+   // A full-page navigation, not a popup: Microsoft's sign-in page refuses to be framed, and
+   // the answer comes back to this page rather than to a window we would have to poll.
+   navigate(flow.authorizeUrl);
+   return flow;
+  }),
+  // Finish a callback this page received, from the query string it actually arrived with. The
+  // state posted is the state received, and a callback that carried none is refused here
+  // instead of being sent to a service that could only refuse it too.
+  completeMicrosoftSignIn:search=>run(async()=>{
+   await ready;
+   if(!atRedirect(where))throw new AccountError('not_configured',NOT_CONFIGURED);
+   const callback=readCallback(search);
+   // The authority's own refusal - the player cancelled, consent was withheld, the tenant said
+   // no - is not an exchange and never becomes one: there is no code to redeem.
+   if(callback.kind==='refused')throw new AccountError(callback.error||'invalid_request','Sign-in cancelled.');
+   if(callback.kind!=='code')throw new AccountError('oauth_state_invalid',START_AGAIN);
+   save(client.signed(await microsoftBrowser.exchange(callback.code,callback.state)));
+  }),
   cancelSignIn:async()=>providerAbort?.abort(),
   signOut:async()=>{providerAbort?.abort();const previous=session?.token;forget();if(previous)await client.logout(previous);},
   storeCatalogue:async()=>{await ready;try{return store.catalogue(await read(()=>client.storeCatalogue(token())));}catch(error){throw error.code==='store_signed_out'?error:store.refusal(error);}},
