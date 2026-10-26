@@ -172,7 +172,17 @@ test('the renderer only ever sees a name, a username and roles',async()=>{
  // opaque handle the account menu switches on, and an email never leaves the server. The
  // Minecraft name and each linked provider's own details are published for the profile
  // dialog; the tests for what may appear there are in provider-details.test.cjs.
- assert.deepEqual(publicAccount(signed),{id:'EC-42',username:'testcaptain',name:'Captain Testbeard',minecraftName:'TestCaptain',roles:['crew'],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],primaryProvider:'microsoft',providerDetails:null,picture:null});
+ assert.deepEqual(publicAccount(signed),{id:'EC-42',username:'testcaptain',name:'Captain Testbeard',minecraftName:'TestCaptain',roles:['crew'],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],primaryProvider:'microsoft',providerDetails:null,picture:null,skin:null});
+ // The skin is the one image the site can crop a face from, and it travels on exactly the terms
+ // the picture does: an inline PNG data URI, or nothing. A URL claiming to be a skin is dropped
+ // rather than fetched, and the whole texture is kept - cropping is the renderer's job (the
+ // browser's in site/web.js, the launcher's own canvas in site/desktop.js).
+ const texture='data:image/png;base64,'+Buffer.from('skin-texture-fixture').toString('base64');
+ const vaulted=skin=>storedSession({token:SESSION,expiresAt:1,account:{...ACCOUNT,skin}});
+ assert.equal(publicAccount(vaulted(texture)).skin,texture);
+ assert.equal(publicAccount(vaulted('https://textures.minecraft.net/texture/fixture')).skin,null);
+ assert.equal(publicAccount(vaulted('data:image/jpeg;base64,AAAA')).skin,null);
+ assert.equal(publicAccount(vaulted('x'.repeat(360001))).skin,null);
  // A response that nests the session wrongly must be refused, not stored empty.
  assert.throws(()=>companySession({created:true,account:ACCOUNT,token:SESSION,expiresAt:1}),(error)=>error.code==='invalid_response');
  assert.throws(()=>companySession({created:true,account:ACCOUNT,session:{token:'',expiresAt:1}}),(error)=>error.code==='invalid_response');

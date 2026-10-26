@@ -244,21 +244,33 @@ function sanitizeAccount(account){
  const providers=Array.isArray(account.providers)?account.providers.filter(p=>['microsoft','google','steam','discord'].includes(p)):account.microsoftLinked?['microsoft']:[];
  const primaryProvider=providers.includes(account.primaryProvider)?account.primaryProvider:providers[0]||null;
  const picture=typeof account.picture==='string'&&account.picture.length<=360000&&(account.picture.startsWith('data:image/png;base64,')||/^https:\/\//.test(account.picture))?account.picture:null;
+ // The player's whole Minecraft skin texture, in the one form both surfaces can draw from: the
+ // account service publishes it as a data: URI (never a pre-cropped head - cropping is the
+ // renderer's job, and site/desktop.js and site/web.js each do it), and a browser page cannot
+ // fetch it from Mojang itself because sessionserver.mojang.com carries no CORS header. There
+ // is no https:// branch here, unlike the picture: a skin is only ever the inline texture, so a
+ // URL claiming to be one is dropped rather than fetched. Absent or unreadable means no
+ // Minecraft identity to draw, which is the tile.
+ const skin=typeof account.skin==='string'&&account.skin.length<=360000&&account.skin.startsWith('data:image/png;base64,')?account.skin:null;
  // What each linked provider holds. These are the first values in the launcher that came from
  // Microsoft, Steam and Discord, so the payload's own shape is rebuilt field by field below and
  // nothing else is kept. A provider that is not linked on this account carries no details at
  // all, whatever the payload says; a malformed object is no details, never a refusal.
  const providerDetails=sanitizeProviderDetails(account.providerDetails,providers);
- return {providers,primaryProvider,providerDetails,picture,id,companyId:'EC-'+id,username,passwordRequired,minecraftUuid:uuid?uuid.toLowerCase():null,minecraftName:minecraftName||null,displayName,roles,createdAt,microsoftLinked:account.microsoftLinked===true,microsoftSubject};
+ return {providers,primaryProvider,providerDetails,picture,skin,id,companyId:'EC-'+id,username,passwordRequired,minecraftUuid:uuid?uuid.toLowerCase():null,minecraftName:minecraftName||null,displayName,roles,createdAt,microsoftLinked:account.microsoftLinked===true,microsoftSubject};
 }
 // The renderer needs a name to show, nothing more. No UUID, no token, and the Company
 // ID travels only as the opaque account handle the account menu switches on: it is
 // never a label the player reads. The Minecraft name and the linked providers' own details
 // are here because the profile dialog draws them, and both are already the sanitized ones.
+// `skin` joins `picture` on the same terms - a data:image/png;base64 URI or nothing - and is
+// the only image either surface paints besides the picture: the face is cropped from it in the
+// browser (site/web.js) or the launcher's own canvas (site/desktop.js), so showing a player's
+// head costs the page no request to any host.
 function publicAccount(session){
  if(!session?.account)return null;
  const account=session.account,details=account.providerDetails;
- return {id:account.companyId,username:account.username,name:account.displayName||account.minecraftName||account.username||'Company member',minecraftName:account.minecraftName||null,roles:account.roles||[],passwordRequired:account.passwordRequired,microsoftLinked:account.microsoftLinked,providers:account.providers||[],primaryProvider:account.primaryProvider||null,providerDetails:details&&Object.keys(details).length?details:null,picture:account.picture?.startsWith('data:image/png;base64,')?account.picture:null};
+ return {id:account.companyId,username:account.username,name:account.displayName||account.minecraftName||account.username||'Company member',minecraftName:account.minecraftName||null,roles:account.roles||[],passwordRequired:account.passwordRequired,microsoftLinked:account.microsoftLinked,providers:account.providers||[],primaryProvider:account.primaryProvider||null,providerDetails:details&&Object.keys(details).length?details:null,picture:account.picture?.startsWith('data:image/png;base64,')?account.picture:null,skin:account.skin?.startsWith('data:image/png;base64,')?account.skin:null};
 }
 
 // The verified-address list is the only payload the launcher asks for because of an email, and
