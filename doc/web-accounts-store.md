@@ -143,9 +143,12 @@ node tests/web-accounts-browser.mjs. The latter uses fixture-only credentials,
 provider pages and checkout sessions at 1440/834/390/320 widths. It covers wrong
 password, successful sign-in, profile edits, store navigation and orders, validated
 checkout navigation, forged success fragment distrust, logout and provider signup.
-Existing store-browser.mjs retains the launcher flows and now expects the public
-store route instead of the superseded browser redirect. Independent frontend review
-is required before production, in addition to these checks.
+Its three cold-load journeys hold `/me` on the route — the delay belongs where the
+player's Aurora resume is, not in a sleep after the load — and assert what the control
+says on its FIRST frame, what a click reaches there, and what happens when the read
+answers or answers 401. Existing store-browser.mjs retains the launcher flows and now
+expects the public store route instead of the superseded browser redirect. Independent
+frontend review is required before production, in addition to these checks.
 
 The control's label is the name a player is called, not the handle they type: the
 display name, then the Minecraft name, then the username - the order
@@ -214,3 +217,17 @@ screenshot: the fixture skin's checkerboard face and half-transparent hat come b
 as exact 4x4 blocks and a composited blend at the offsets the launcher's arithmetic
 puts them. No third-party image host is added, the control's box is measured before
 and after every face paints, and the launcher's own copy of the crop is untouched.
+
+The cold-load pass (branch fix/web-boot) reproduced both defects against the base
+commit `4561b79` in Chromium at 1440 with `/me` held on the route, then measured the
+fix the same way: first frame `OCEaster` with the face and no sign-in offered; the
+read reconciling the name; a session with no document inert (`aria-busy`, disabled,
+the mark); a 401 returning the control to `Sign in` with the document dropped. The
+face measures 32x32 with a 4px radius at 1440 and 834 and 24x24 at 390 and 320, in a
+pill that is still 40px at 1440/834 and 44px at 390/320 with the nav one row. Gates:
+411 Node tests, 146 Python tests (one skipped), the generated contract freshness
+check, `validate.py site`, and `tests/web-accounts-browser.mjs` (twelve journeys),
+`tests/account-browser.mjs` and `tests/browser.mjs` with `site/` on loopback. Not
+deployed and not released by this branch: the coordinator publishes. `read_image`
+does not work in this environment, so every verdict here is a measured number or a
+value read back from the DOM, never a look at a screenshot.
