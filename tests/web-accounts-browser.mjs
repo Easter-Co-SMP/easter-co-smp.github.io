@@ -113,16 +113,19 @@ try{
   // ---- The account control's face, in the states that matter -------------------------------
   // Owen, 2026-10-26, signed in on the live site: "there's no user image in the `oceaster` user
   // element". The face follows the account document and nothing else - the picture the account
-  // already carries, else the tile - because the launcher's other source, the Minecraft head by
-  // `minecraftUuid`, is not reachable from a page: sessionserver.mojang.com answers with no
-  // Access-Control-Allow-Origin, so the page's own fetch of it fails before any JSON exists. What
-  // is proved here is the precedence, the placeholder, and that no state moves the control. The
-  // wipe in flight keeps username, password and roles and drops every provider link, so the tile
-  // is the state a player meets first: it is measured like a first-class state, not an error path.
+  // already carries, else the head cropped from the skin it carries, else the tile - because the
+  // launcher's other source, the Minecraft head by `minecraftUuid`, is not reachable from a page:
+  // sessionserver.mojang.com answers with no Access-Control-Allow-Origin, so the page's own fetch
+  // of it fails before any JSON exists. That is why the whole texture travels in the document and
+  // this suite hands the control one. What is proved here is the precedence, the placeholder, and
+  // that no state moves the control. The wipe in flight keeps username, password and roles and
+  // drops every provider link, so the tile is the state a player meets first: it is measured like
+  // a first-class state, not an error path.
   const facePage=await context.newPage();
   facePage.on('pageerror',error=>errors.push(error.message));
-  // Nothing the face shows may cost a request to another host. With a data: URI picture this
-  // listener sees the preview origin and the API fixture and nothing else.
+  // Nothing the face shows may cost a request to another host. Both images are data: URIs inside
+  // the account document and the crop is local canvas work, so this listener must see the preview
+  // origin and the API fixture and nothing else.
   const faceRequests=[];
   facePage.on('request',request=>faceRequests.push(request.url()));
   const snapshot=()=>facePage.evaluate(()=>{
