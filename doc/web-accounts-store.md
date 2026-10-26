@@ -154,6 +154,23 @@ says 'sign in'". Both defects were one storage shape.
   **non-interactive, `aria-busy`, and the Easter Company mark with no name** rather than
   a sign-in a click would refuse. No new player-facing copy: it reuses the mark and the
   signed-in accessible name.
+- **The account page asks the seam the same question**, and it was the same lie in a bigger
+  panel: `site/account/account.mjs` booted with a blanket `paint()` and, after the boot read,
+  `if(bridge.getState().account)paint()`, so `startupReady` never reached it. Measured at 1440
+  on `e4c1ade` with a saved session that had no document and `/me` held on the route: the first
+  painted frame was the whole options panel — Microsoft, Google, Steam, Discord, the username
+  and password fields, `Sign in`, seven reachable controls — while the nav beside it was already
+  `aria-busy` and disabled, and any of them would have been refused by the seam itself. `paint`
+  now takes `startupReady:false` as the nav does: **the Easter Company mark, `aria-busy` on the
+  answer region, and nothing to press**, with no new sentence and no second spinner (an ordinary
+  cold load is not a sign-in in flight). Measured on the fix at the same hold: first painted
+  frame at `t+47 ms` is the mark with `aria-busy="true"` and zero reachable controls, then the
+  account on the frame the read answers. A 401 returns to the options with the stored key gone.
+- A cached document paints the page's account on its first painted frame here too, and `paint`
+  keys on **the name it draws**, not merely on being signed in: `/me` reconciles the document
+  this load painted from storage, so a name changed on another surface now reaches the page
+  instead of stopping at the nav. Busy emits still rebuild nothing, which is what keeps a typed
+  username and password where the player left them.
 - The face is the launcher's geometry, which Owen called the better one ("also on web,
   the profile image is a small circle not fully shown like on the launcher, launcher
   style is better"): **32x32 with a 4px radius**, the cropped head still
@@ -175,7 +192,10 @@ the site, an inert `#store-paid` fragment, logout and provider signup.
 Its three cold-load journeys hold `/me` on the route — the delay belongs where the
 player's Aurora resume is, not in a sleep after the load — and assert what the control
 says on its FIRST frame, what a click reaches there, and what happens when the read
-answers or answers 401. store-browser.mjs keeps every launcher flow and asserts the reverse
+answers or answers 401. `tests/account-browser.mjs` holds its own three in the same shape
+for the page: every animation frame's view of the answer, a cached document, no document,
+and a 401, at 1440/834/390, each counted as the one document load it arrived on.
+store-browser.mjs keeps every launcher flow and asserts the reverse
 of its old web expectation: no page links into `/store/`, the public URL lands on the home
 page with no store API call, and the launcher's own entry still reaches the store from every
 page. Independent
