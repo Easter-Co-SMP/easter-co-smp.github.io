@@ -154,7 +154,7 @@
         <li><strong>Steam</strong> — we verify your Steam identity through Steam's OpenID endpoint. Public profile metadata is fetched only if it is available; we do not receive your Steam password.</li>
       </ul>
       <p>For Google and Discord we use the confidential authorisation-code flow, and the code is exchanged on our server against our own registered client and exact callback address. <strong>We never store a provider's access token or refresh token</strong> — only the verified identity and profile data the provider returns. Your provider password is never seen by us.</p>
-      <p>Provider sign-in happens in your normal browser. The website opens a separate sign-in window for configured Google, Steam and Discord providers. Microsoft sign-in is available in the launcher. No Company password or session token is ever placed in a provider URL.</p>
+      <p>Provider sign-in happens in your normal browser. The website opens Microsoft's own sign-in page for a Microsoft account, and a separate sign-in window for configured Google, Steam and Discord providers. Microsoft sign-in is also available in the launcher. No Company password or session token is ever placed in a provider URL.</p>
     </section>
 
     <section id="google">

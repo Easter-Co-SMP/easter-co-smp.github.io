@@ -42,18 +42,20 @@ product, amount, price, copy policy or launcher release is changed here.
    origin allowlist, GET/POST/OPTIONS, and Authorization/Content-Type headers.
    Do not work around this with a public proxy or no-cors. Fixture tests do not
    prove live browser access. This branch is not ready for production publication.
-2. Microsoft/Xbox uses a native launcher authentication chain; the provider broker
-   supports Google/Steam/Discord only. Microsoft is explicitly unavailable in the
-   website chooser; password sign-in still works for an existing Microsoft-created
-   Company account. Full provider parity needs a browser-safe Microsoft broker.
+2. Microsoft sign-in on the website is `site/account/` driving the service's
+   authorization-code + PKCE endpoints (`/v2/oauth/microsoft/start` and `/exchange`),
+   with the exchange server-side so no Microsoft token ever reaches the browser. The
+   launcher keeps its own loopback flow; both use one registration. A browser session
+   identifies, shops, orders and reads status — it cannot mint a Minecraft session,
+   so Play stays in the launcher (`doc/../easter-co-cloud/doc/BROWSER_SIGN_IN.md`).
 3. Provider availability is read from the service; unconfigured providers remain
-   disabled. The callback completion page currently says to return to the launcher;
-   its copy needs to cover a website sign-in too.
+   disabled. `https://easter-co-smp.github.io/account/` is the callback page, and it
+   must be registered as a Web redirect URI on the Microsoft application.
 
-Backend infrastructure was inspected read-only. No API, provider registration,
-Stripe configuration, live account, payment, launcher installer or game server was
-modified. Keep this frontend branch separate until the backend prerequisites are
-implemented and the live browser journeys can be verified.
+The CORS prerequisite in 1 was implemented in the service: the stage answers the
+preflight for the site origin only, and `api/cors.py` adds the header to ordinary
+responses. The live journeys still have to be verified against a deployed service —
+fixture tests do not prove live browser access.
 
 ## Checks
 
