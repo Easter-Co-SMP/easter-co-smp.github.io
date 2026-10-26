@@ -3,23 +3,35 @@ const {setTimeout:delay}=require('node:timers/promises');
 const {randomUUID,createHash}=require('node:crypto');
 const {appendFileSync,mkdirSync,statSync,renameSync}=require('node:fs');
 const path=require('node:path');
+const {LoopbackRedirect,pkcePair,stateToken,LOOPBACK_TIMEOUT_MS,REGISTERED_REDIRECT}=require('./loopback.cjs');
 const AUTHORITY='https://login.microsoftonline.com/consumers/oauth2/v2.0';
+// ---- NOBODY COPIES A CODE ANY MORE ----------------------------------------------
+// This file used to sign in with the device code flow: ask Microsoft for a code, show the
+// player the code, send them to a page and have them type it in. Owen's ask was to delete
+// that step ("removing the step which requires the user to copy and paste the code manually
+// would also be great"), so the code is acquired the way every native application acquires
+// one: the launcher opens the player's own browser at Microsoft's sign-in page, Microsoft
+// hands the answer back to a loopback socket this process is listening on for exactly one
+// request, and the code is exchanged with a PKCE S256 verifier that never left memory.
+// `desktop/loopback.cjs` owns that socket and says in one place what it accepts; the only
+// things this file adds are the authorize address, the registration check below, and the
+// exchange itself. Everything downstream — Xbox Live, XSTS, Minecraft — is untouched.
 // Both resources are asked for in one consent: Xbox Live, which is what signs in to
 // Xbox Live, and User.Read, which the account service needs to read the Microsoft
 // account's own email. Microsoft — not the launcher — decides which resource a token is
-// minted for, so nothing below assumes the device-code answer is already an Xbox Live
+// minted for, so nothing below assumes the authorize answer is already an Xbox Live
 // token: xboxSignIn proves that from the token's own claims and reissues it when it
 // cannot. The Graph token is requested separately, below, and is transient: it is never
 // stored, never logged and never leaves this process except on the one account request
 // that carries it.
 // ONE RESOURCE, ONE REQUEST. Xbox Live and Microsoft Graph are different resources, and
-// Microsoft's token endpoint refuses a device-code exchange whose granted scopes span
-// both. Measured, not guessed: this string carried the Graph scope from 1.0.22 to 1.0.25
-// and every fresh Microsoft sign-in in that window failed with `400 invalid_scope` at
-// code completion (signin.log, 2026-10-18T22:10 and 2026-10-19T06:53) - the device-code
-// request is accepted, the ticket is entered, and then the exchange is refused, which is
-// why it looked like a failure after Microsoft had already said yes. The Graph token is
-// requested on its own afterwards, with the refresh token this exchange returns, and
+// Microsoft's token endpoint refuses a code exchange whose granted scopes span both.
+// Measured, not guessed: this string carried the Graph scope from 1.0.22 to 1.0.25 and
+// every fresh Microsoft sign-in in that window failed with `400 invalid_scope` at code
+// completion (signin.log, 2026-10-18T22:10 and 2026-10-19T06:53) - the sign-in request is
+// accepted, the sign-in is completed, and then the exchange is refused, which is why it
+// looked like a failure after Microsoft had already said yes. The Graph token is requested
+// on its own afterwards, with the refresh token this exchange returns, and
 // graphAccessToken tolerates every way that can fail.
 const SCOPE='XboxLive.signin offline_access';
 const GRAPH_SCOPE='https://graph.microsoft.com/User.Read';
@@ -50,6 +62,20 @@ const GRAPH_REQUEST_SCOPE=GRAPH_SCOPE+' '+OFFLINE_ACCESS;
 // Microsoft displays Prism Launcher for this inherited registration.
 // Set EASTER_MICROSOFT_CLIENT_ID when Easter Company has its own approved registration.
 const DEFAULT_CLIENT_ID='c36a9fb6-4f2a-41ff-90bd-ae7cc92031eb';
+// How much of a refused page the registration check will read before deciding. The page is
+// Microsoft's own error page, a few kilobytes; this is only here so an answer that is not
+// one cannot be read forever.
+const REGISTRATION_PAGE_LIMIT=65536;
+// A sign-in that never came back, said so that a player who closed the tab can act on it and
+// an owner whose app registration is missing the callback address can too. The address named
+// is the one that has to be registered, without a port: Microsoft ignores the port of a
+// localhost redirect URI when it matches one (desktop/loopback.cjs).
+const TIMEOUT_CAUSE={detail:'the Microsoft sign-in page was not completed',advice:'Start sign-in again. If the browser showed a Microsoft error page instead of a sign-in page, add '+REGISTERED_REDIRECT+' as a redirect URI on the Microsoft app registration.'};
+function abortFromSignal(){
+ const error=Error('The sign-in was cancelled.');
+ error.name='AbortError';
+ return error;
+}
 // A token's audience is proven to be Xbox Live's only by an Xbox Live relying party;
 // anything else is not proof and is reissued before it is used.
 const XBOX_AUDIENCE=/^https?:\/\/([a-z0-9-]+\.)*xboxlive\.com\/?$/i;
@@ -62,10 +88,14 @@ class AuthError extends Error{constructor(message,code,step){super(message);this
 // block: the sentence goes to a player who cannot act on a provider code, so it carries
 // no HTTP status, no AAD error string, no XErr number and no internal step name. The log
 // carries all of those, which is where an owner diagnoses from. A token, a refresh token,
-// a device code, a user code, an email address and the response body never appear in
-// either, which is why nothing below interpolates a value it has not whitelisted first.
-// Every sentence is free of the word "token" on purpose: main.cjs's safeError() replaces
-// any message that contains it with a generic refusal.
+// an authorization code, a PKCE verifier, an email address and the response body never
+// appear in either, which is why nothing below interpolates a value it has not
+// whitelisted first. Every sentence is free of the word "token" on purpose: main.cjs's
+// safeError() replaces any message that contains it with a generic refusal.
+//
+// `browser-sign-in` is the step that used to be `device-code`: the launcher opening
+// Microsoft's sign-in page in the player's own browser. The name changed with the flow, so
+// a line in the log from either era still says which leg it was.
 //
 // `reach` is how the step reads in a sentence about a connection that never arrived,
 // because "Xbox Live did not accept the sign-in: the connection failed" would claim a
@@ -74,7 +104,7 @@ class AuthError extends Error{constructor(message,code,step){super(message);this
 // stopped while signing in to Xbox Live" did. It is still the same step in plain words,
 // and still one sentence per step.
 const STEPS={
- 'device-code':{title:'Microsoft sign-in',verb:'could not start',advice:'Try again.',reach:'Microsoft to ask for a sign-in code'},
+ 'browser-sign-in':{title:'Microsoft sign-in',verb:'could not start',advice:'Try again.',reach:'the Microsoft sign-in page'},
  'code-completion':{title:'Microsoft sign-in',verb:'did not finish',advice:'Start sign-in again.',reach:'Microsoft to finish the sign-in'},
  'xbox-live':{title:'Xbox Live',verb:'did not accept the Microsoft sign-in',advice:'Try again.',reach:'Xbox Live'},
  xsts:{title:'Xbox Live authorisation',verb:'did not accept the sign-in',advice:'Try again.',reach:'Xbox Live to authorise the sign-in'},
@@ -118,12 +148,18 @@ function clean(value,limit=48){
 // explanation, a refusal without one, a service in trouble, and no answer at all. An
 // answer with a cause the player can act on also carries that cause's own instruction;
 // every other answer returns a cause only and takes the step's advice.
-function reason({status,code,xerr,unreadable,step}={}){
+//
+// `fresh` says the refusal belongs to a sign-in the player has just made, which has no
+// saved session behind it, so an `invalid_grant` there is a refused code and not an
+// expired one. It used to be decided by the step's own name, because only the device-code
+// poll could produce it; now the fresh route is the browser sign-in's exchange and the
+// saved route is `refresh`, and both are the `code-completion` step.
+function reason({status,code,xerr,unreadable,step,fresh=false}={}){
  if(Number.isInteger(xerr))return XERR[xerr]||{detail:'Xbox Live refused this sign-in'};
  const provider=clean(code);
- // A refused refresh grant is a saved sign-in that has expired; the same answer on the
- // device-code step is not, because a fresh sign-in has nothing saved behind it.
- if(provider==='invalid_grant'&&step!=='device-code')return {detail:'your saved sign-in has expired'};
+ // A refused refresh grant is a saved sign-in that has expired; the same answer on a
+ // fresh sign-in is not, because a fresh sign-in has nothing saved behind it.
+ if(provider==='invalid_grant'&&!fresh)return {detail:'your saved sign-in has expired'};
  if(Number.isInteger(status)&&status>=500)return {detail:'the sign-in service is having trouble right now'};
  if(unreadable)return {detail:'the sign-in service refused it without saying why'};
  if(provider||Number.isInteger(status))return {detail:'the sign-in service refused it'};
@@ -208,15 +244,25 @@ function provenForXboxLive(access){
 }
 
 class MicrosoftAuth{
- constructor({clientId=DEFAULT_CLIENT_ID,request=fetch,wait=delay,log=null,logPath=null,version='',maxLogBytes}={}){
-  this.clientId=clientId;this.request=request;this.wait=wait;
+ // `openExternal` is how the player's own browser is opened at Microsoft's sign-in page. It
+ // is passed in rather than reached for, because this module must stay runnable outside
+ // Electron (it is what the suite drives with a real socket and a stubbed authority), and
+ // because opening a browser is the one part of the flow that belongs to the application.
+ // `loopbackTimeoutMs` bounds the wait for the answer and exists so a test can watch a real
+ // timeout without waiting five minutes for one.
+ constructor({clientId=DEFAULT_CLIENT_ID,request=fetch,wait=delay,log=null,logPath=null,version='',maxLogBytes,openExternal=null,loopbackTimeoutMs=LOOPBACK_TIMEOUT_MS}={}){
+  this.clientId=clientId;this.request=request;this.wait=wait;this.openExternal=openExternal;
+  this.loopbackTimeoutMs=Number.isInteger(loopbackTimeoutMs)&&loopbackTimeoutMs>0?loopbackTimeoutMs:LOOPBACK_TIMEOUT_MS;
+  // The Microsoft sign-in page currently waiting for an answer, so the launcher can offer to
+  // open it again without minting a second sign-in (see `reopen`).
+  this.pending=null;
   this.log=log||new SignInLog({file:logPath,version,maxBytes:maxLogBytes});
  }
  record(step,outcome,info={}){if(!step)return;try{this.log.append({step,outcome,...info});}catch{}}
  // One HTTP leg. `step` is what a failure is recorded and worded as; `ignoreCodes` are the
  // answers that are not step outcomes at all (the poll's "not finished yet"), and `log`
  // is off for the two Java legs, whose single line is written by checkAccess instead.
- async json(url,options={},signal,step,{ignoreCodes=null,log=true}={}){
+ async json(url,options={},signal,step,{ignoreCodes=null,log=true,fresh=false}={}){
   let response;
   try{
    response=await this.request(url,{...options,signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});
@@ -237,14 +283,14 @@ class MicrosoftAuth{
    // The provider's own code, and the HTTP status when it gave none: an empty-bodied 401
    // is a status-only failure and is recorded as one rather than as a blank.
    if(log&&!(ignoreCodes&&code&&ignoreCodes.includes(code)))this.record(step,'failed',{status:response.status,code:Number.isInteger(xerr)?'XErr'+xerr:(clean(code)||String(response.status))});
-   const error=new AuthError(step==='minecraft'?minecraftSentence({status:response.status}):sentence(step,reason({status:response.status,code,xerr,unreadable:!readable,step})),clean(code)||String(xerr||response.status),step);
+   const error=new AuthError(step==='minecraft'?minecraftSentence({status:response.status}):sentence(step,reason({status:response.status,code,xerr,unreadable:!readable,step,fresh})),clean(code)||String(xerr||response.status),step);
    error.status=response.status;
    if(Number.isInteger(xerr))error.xerr=xerr;
    throw error;
   }
   if(!readable){
    if(log)this.record(step,'failed',{status:response.status,code:'unreadable'});
-   const error=new AuthError(sentence(step,reason({status:response.status,unreadable:true})),'response',step);
+   const error=new AuthError(sentence(step,reason({status:response.status,unreadable:true,fresh})),'response',step);
    error.status=response.status;
    throw error;
   }
@@ -252,10 +298,11 @@ class MicrosoftAuth{
  }
  form(endpoint,body,signal,step,options){return this.json(AUTHORITY+endpoint,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(body)},signal,step,options);}
  post(url,body,signal,step,options){return this.json(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)},signal,step,options);}
- // The Microsoft token exchange: the device-code poll and the refresh of a saved session
- // are the same step, and both write their one line here.
- async microsoftSession(body,signal,{ignoreCodes=null}={}){
-  const data=await this.form('/token',body,signal,'code-completion',{ignoreCodes});
+ // The Microsoft token exchange: the authorization code a browser sign-in brings back and
+ // the refresh of a saved session are the same step, and both write their one line here.
+ // `fresh` marks the first: its refusal cannot be an expired saved session.
+ async microsoftSession(body,signal,{ignoreCodes=null,fresh=false}={}){
+  const data=await this.form('/token',body,signal,'code-completion',{ignoreCodes,fresh});
   if(!data||typeof data.access_token!=='string'||!data.access_token){
    this.record('code-completion','failed',{status:200,code:'response'});
    throw new AuthError(sentence('code-completion','Microsoft answered without a session'),'response','code-completion');
@@ -263,34 +310,201 @@ class MicrosoftAuth{
   this.record('code-completion','ok',{status:200,code:'ok'});
   return data;
  }
+ // ---- A sign-in, from the player's own browser -----------------------------------
+ // One sequence, whether the player asked for it from the sign-in dialog or the launcher
+ // fell back to it because the stored session was dead (doc/launcher-states.md,
+ // "`reauth_required`: one sentence, one fallback, never a loop"). Nothing is copied, nothing
+ // is typed into the launcher:
+ //
+ //   1. a loopback listener is opened on 127.0.0.1, on an ephemeral port, before anything
+ //      else happens (desktop/loopback.cjs says what it accepts);
+ //   2. one `state` and one PKCE S256 pair are minted in memory;
+ //   3. the app registration is asked, once, whether it will accept this launcher's callback
+ //      address — because Microsoft answers an unregistered redirect URI with its own error
+ //      page in the browser and never calls back at all, which from here looks exactly like
+ //      a player who closed the tab (see `registration`);
+ //   4. the browser is opened at Microsoft's sign-in page;
+ //   5. the first callback carrying this sign-in's own `state` completes it, and the listener
+ //      is closed in the same breath;
+ //   6. the code is exchanged with the verifier, and everything downstream is the unchanging
+ //      Xbox Live → XSTS → Minecraft path.
+ //
+ // A cancelled, timed-out, refused or closed-by-the-player sign-in ends here as a rejection
+ // with nothing half-done: `finally` closes the socket, no token was minted, no session was
+ // written, and `pending` is cleared, so the player is exactly as signed in as before.
  async signIn(notify,signal,onStage){
   onStage?.('microsoft-opening');
-  const code=await this.form('/devicecode',{client_id:this.clientId,scope:SCOPE},signal,'device-code');
-  if(!code.device_code||!code.user_code||!code.verification_uri){
-   this.record('device-code','failed',{status:200,code:'response'});
-   throw new AuthError(sentence('device-code','Microsoft answered without a sign-in code'),'response','device-code');
-  }
-  this.record('device-code','ok',{status:200,code:'ok'});
-  // Only the short-lived user code reaches the UI; never device_code or tokens.
-  notify({code:code.user_code,url:code.verification_uri,expiresAt:Date.now()+code.expires_in*1000});
+  const answer=await this.authorizationCode(signal);
+  // What the UI is told is one fact: the sign-in page is open in the browser and the launcher
+  // is waiting. There is no code, no page address and nothing to copy — the hand-off Owen
+  // asked to be rid of was this call's payload, and it is gone.
+  notify({browser:true});
   onStage?.('microsoft-waiting');
-  const deadline=Date.now()+Math.min(code.expires_in,1800)*1000;
-  let interval=Math.max(1,code.interval||5)*1000;
-  while(Date.now()<deadline){
-   await this.wait(interval,undefined,{signal});
-   try{
-    const msa=await this.microsoftSession({grant_type:'urn:ietf:params:oauth:grant-type:device_code',client_id:this.clientId,device_code:code.device_code},signal,{ignoreCodes:['authorization_pending','slow_down']});
-    onStage?.('microsoft-verifying');
-    return await this.exchange(msa,undefined,signal,onStage);
-   }catch(error){
-    if(error.code==='authorization_pending')continue;
-    if(error.code==='slow_down'){interval+=5000;continue;}
-    if(error.code==='expired_token')throw new AuthError(sentence('code-completion','the sign-in code expired before it was used'),'expired_token','code-completion');
-    if(error.code==='authorization_declined')throw new AuthError(sentence('code-completion','the sign-in was cancelled in Microsoft'),'authorization_declined','code-completion');
-    throw error;
+  let granted;
+  try{
+   granted=await answer.wait(signal);
+  }catch(error){
+   if(error?.name==='TimeoutError'){
+    this.record('code-completion','failed',{code:'expired_token'});
+    throw new AuthError(sentence('code-completion',TIMEOUT_CAUSE),'expired_token','code-completion');
    }
+   // Anything else is already a named refusal from the listener or from Microsoft's own
+   // answer, and is rethrown as it is rather than relabelled as a connection failure.
+   throw error;
   }
-  throw new AuthError(sentence('code-completion','the sign-in code expired before it was used'),'expired_token','code-completion');
+  onStage?.('microsoft-verifying');
+  const msa=await this.microsoftSession({grant_type:'authorization_code',client_id:this.clientId,code:granted.code,redirect_uri:answer.redirectUri,code_verifier:answer.verifier,scope:SCOPE},signal,{fresh:true});
+  return await this.exchange(msa,undefined,signal,onStage);
+ }
+ // Steps 1 to 4 of the sequence above, and nothing else: this answers with the two things the
+ // wait needs (the listener and the verifier) or throws. It is the whole of `pending`, so a
+ // caller that holds it can offer the player the page again.
+ async authorizationCode(signal){
+  if(typeof this.openExternal!=='function'){
+   this.record('browser-sign-in','failed',{code:'no-browser'});
+   throw new AuthError(sentence('browser-sign-in','this launcher could not open a web browser'),'no-browser','browser-sign-in');
+  }
+  const redirect=new LoopbackRedirect({timeoutMs:this.loopbackTimeoutMs});
+  try{
+   await redirect.listen();
+  }catch{
+   this.record('browser-sign-in','failed',{code:'listener'});
+   throw new AuthError(reachedSentence('browser-sign-in'),'network','browser-sign-in');
+  }
+  const {verifier,challenge}=pkcePair();
+  const state=stateToken();
+  redirect.state=state;
+  const redirectUri=redirect.redirectUri;
+  const url=this.authorizeURL({redirectUri,state,challenge});
+  const pending={redirect,redirectUri,verifier,state,url};
+  try{
+   await this.registration(url,redirectUri,signal);
+   this.record('browser-sign-in','ok',{status:200,code:'ok'});
+   try{
+    await this.openExternal(url.href);
+   }catch{
+    if(signal?.aborted)throw abortFromSignal();
+    this.record('browser-sign-in','failed',{code:'no-browser'});
+    throw new AuthError(sentence('browser-sign-in','the web browser could not be opened'),'no-browser','browser-sign-in');
+   }
+  }catch(error){
+   pending.redirect.close();
+   throw error;
+  }
+  this.pending=pending;
+  return {
+   redirectUri,verifier,
+   wait:async inner=>{
+    try{
+     const answer=await pending.redirect.wait(inner);
+     // Microsoft's own refusal (the player pressed Cancel on its page) is the cancel sentence
+     // this launcher has always used for it; anything else it can report is the exchange's
+     // refusal, worded by the step.
+     if(answer.error){
+      const code=clean(answer.error);
+      this.record('code-completion','failed',{code:code||'-'});
+      if(code==='access_denied')throw new AuthError(sentence('code-completion','the sign-in was cancelled in Microsoft'),'authorization_declined','code-completion');
+      throw new AuthError(sentence('code-completion',reason({code,step:'code-completion',fresh:true})),code||'refused','code-completion');
+     }
+     if(!answer.code){
+      this.record('code-completion','failed',{code:'response'});
+      throw new AuthError(sentence('code-completion','Microsoft answered without a sign-in code'),'response','code-completion');
+     }
+     return answer;
+    }finally{
+     pending.redirect.close();
+     if(this.pending===pending)this.pending=null;
+    }
+   }
+  };
+ }
+ // The address the player's browser is sent to. Every parameter is fixed here, and the
+ // redirect URI is the loopback one this listener is actually holding.
+ authorizeURL({redirectUri,state,challenge}){
+  const query=new URLSearchParams({
+   client_id:this.clientId,
+   response_type:'code',
+   redirect_uri:redirectUri,
+   // One resource and the refresh token's successor, exactly as the exchange asks (see
+   // SCOPE and OFFLINE_ACCESS above): the sign-in's consent is what decides whether a
+   // refresh token comes back, so offline_access has to be in THIS request.
+   scope:SCOPE,
+   state,
+   code_challenge:challenge,
+   code_challenge_method:'S256',
+   // The account chooser on every sign-in: a launcher that silently reuses whichever
+   // Microsoft account the browser last held would sign the player in as someone else.
+   prompt:'select_account'
+  });
+  return new URL(AUTHORITY+'/authorize?'+query.toString());
+ }
+ // ---- Is this launcher allowed to come back at all? ------------------------------
+ // A loopback redirect URI has to exist on the Azure app registration, and when it does not,
+ // Microsoft does not tell the launcher: it draws its own error page and never calls back,
+ // so the failure arrives as a wait that ends in a timeout, indistinguishable from a player
+ // who closed the tab. That is exactly the generic failure this launcher must not report.
+ //
+ // So the authorize endpoint is asked first, with `prompt=none` and no session, which is a
+ // question with only two shapes of answer:
+ //   * a redirect back to OUR callback carrying `error=login_required` — which proves the
+ //     redirect URI is registered (it is the address Microsoft just chose to answer to);
+ //   * a page instead of a redirect — Microsoft will not answer to that address, and the
+ //     registration is what has to change.
+ // The page's own AADSTS code decides which sentence the player gets: 50011 is the reply-URL
+ // mismatch, which is a URI to add, and 700016 is a client id the authority does not know,
+ // which is a different fix. Both are logged; neither reaches the sentence as a code.
+ // Any answer this cannot read is `unknown` and the sign-in goes ahead: a probe must never
+ // be the thing that refuses a sign-in it did not understand.
+ async registration(url,redirectUri,signal){
+  const probe=new URL(url.href);
+  probe.searchParams.set('prompt','none');
+  probe.searchParams.set('state',stateToken());
+  let response;
+  try{
+   response=await this.request(probe.href,{method:'GET',redirect:'manual',cache:'no-store',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});
+  }catch(error){
+   if(error?.name==='AbortError'||signal?.aborted)throw abortFromSignal();
+   return 'unknown';
+  }
+  if(!response)return 'unknown';
+  const location=typeof response.headers?.get==='function'?String(response.headers.get('location')||''):'';
+  if(response.status>=300&&response.status<400&&location.startsWith(redirectUri))return 'registered';
+  if(Number.isInteger(response.status)&&response.status>=500)return 'trouble';
+  let body='';
+  try{body=String(await response.text()).slice(0,REGISTRATION_PAGE_LIMIT);}catch{return 'unknown';}
+  if(body.includes('AADSTS50011'))return this.refuseRegistration('reply-url','AADSTS50011');
+  if(/AADSTS700016|AADSTS70001\b/.test(body))return this.refuseRegistration('client','AADSTS700016');
+  // A JSON refusal from the authorize endpoint is an ordinary start-step refusal, worded and
+  // logged exactly as one.
+  let parsed=null;
+  try{parsed=JSON.parse(body);}catch{}
+  if(parsed&&typeof parsed.error==='string'){
+   const code=clean(parsed.error)||String(response.status);
+   this.record('browser-sign-in','failed',{status:response.status,code});
+   throw new AuthError(sentence('browser-sign-in',reason({status:response.status,code:parsed.error,step:'browser-sign-in',fresh:true})),code,'browser-sign-in');
+  }
+  // A refused page that names no code this launcher knows is still a refused page.
+  if(response.status>=400)return this.refuseRegistration('refused',String(response.status),response.status);
+  return 'unknown';
+ }
+ // The one failure that has to name its own fix: the exact redirect URI to add to the
+ // Microsoft app registration. It is the registered shape (localhost, no port), because that
+ // is the value Microsoft matches against — not the ported address this run happens to hold.
+ refuseRegistration(kind,code,status=200){
+  this.record('browser-sign-in','failed',{status:Number.isInteger(status)?status:200,code});
+  const cause=kind==='reply-url'?{detail:'the Microsoft app registration does not allow the launcher’s return address',advice:'Add '+REGISTERED_REDIRECT+' as a redirect URI on the Microsoft app registration, then start sign-in again.'}
+   :kind==='client'?{detail:'the Microsoft app registration this launcher is using does not exist for these accounts',advice:'Set EASTER_MICROSOFT_CLIENT_ID to this launcher’s own application id, then start sign-in again.'}
+   :{detail:'the sign-in service refused it',advice:'Try again.'};
+  throw new AuthError(sentence('browser-sign-in',cause),kind==='reply-url'?'redirect_uri_unregistered':kind==='client'?'client_unregistered':'refused','browser-sign-in');
+ }
+ // The page the player is already looking at again, without minting a second sign-in: the
+ // same state, the same PKCE challenge, the same listener. Nothing is re-minted, so a page
+ // opened twice can only ever complete once, and a stale window cannot start a second flow.
+ async reopen(){
+  const pending=this.pending;
+  if(!pending)return false;
+  await this.openExternal(pending.url.href);
+  return true;
  }
  // The saved-session route, and the one that enrols the account on every sign-in: the same
  // six steps as a fresh device code, from the refresh flow rather than from a poll.
@@ -433,4 +647,4 @@ class MicrosoftAuth{
   }
  }
 }
-module.exports={MicrosoftAuth,AuthError,SignInLog,DEFAULT_CLIENT_ID};
+module.exports={MicrosoftAuth,AuthError,SignInLog,DEFAULT_CLIENT_ID,AUTHORITY,REGISTERED_REDIRECT};

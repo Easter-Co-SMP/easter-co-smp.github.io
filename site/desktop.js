@@ -311,10 +311,15 @@
  <div class="desktop-save-row"><button type="submit" data-save-settings>Save settings</button><output class="desktop-settings-result" role="status"></output></div></form>
  <div class="desktop-utilities"><button class="text-link" type="button" data-open-folder>Open client folder ↗</button><small class="desktop-version"></small></div>`;
  const signin=document.createElement('dialog');signin.id='desktop-signin';signin.setAttribute('aria-labelledby','desktop-signin-title');
- signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close sign-in">×</button><h2 id="desktop-signin-title">Sign in with Microsoft</h2>
+ // The player copies nothing and types nothing into this launcher: Microsoft's own sign-in
+// page opens in their browser and answers the launcher directly (desktop/auth.cjs). What is
+// left in this dialog is the waiting line, why the sign-in started when main said so, the
+// action that puts the page back in front of a player who closed it, and the app's name on
+// Microsoft's own consent screen — which is what the last line explains.
+signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close sign-in">×</button><h2 id="desktop-signin-title">Sign in with Microsoft</h2>
  <p class="desktop-auth-wait" role="status">Connecting to Microsoft…</p><section class="desktop-device" hidden>
- <p class="desktop-device-instruction" id="desktop-device-instruction">Enter this code on the Microsoft sign-in page.</p><strong class="desktop-code"></strong>
- <button type="button" class="launcher-button desktop-device-action" data-open-microsoft>Open the Microsoft page</button><p class="desktop-provider"></p></section>
+ <p class="desktop-device-instruction" id="desktop-device-instruction"></p>
+ <button type="button" class="launcher-button desktop-device-action" data-open-microsoft>Open the Microsoft sign-in page again</button><p class="desktop-provider"></p></section>
  <p class="desktop-auth-error" role="alert" hidden></p><p class="desktop-auth-notice" role="status" hidden></p><button type="button" class="text-link" data-cancel>Cancel sign-in</button>`;
  document.body.append(signin);
  const startup=document.createElement('dialog');startup.id='desktop-update';startup.setAttribute('aria-labelledby','desktop-update-title');
@@ -545,11 +550,11 @@
   if(home==='held'){clearFailureNodes();failureHome='held';return;}
   paintFailure(failure,home);
  }
- // A sign-in that is actually running owns the dialog. The device code and the browser action
- // are what the player is waiting for, so a sentence from the state channel is never painted
- // over them: a live flow wins, and a failure that really ends it arrives through the call that
+ // A sign-in that is actually running owns the dialog. The sign-in page in the player's
+ // browser is what they are waiting for, so a sentence from the state channel is never painted
+ // over it: a live flow wins, and a failure that really ends it arrives through the call that
  // rejected. This is what keeps an old failure from looking like an instant one.
- const signInFlowLive=()=>Boolean(signInPending||(current&&current.device&&!cancelledSignIn));
+ const signInFlowLive=()=>Boolean(signInPending||(current&&current.signInPage&&!cancelledSignIn));
  const report=error=>showFailure(error?.message||String(error));
  const cancelSignIn=()=>{
   if(signInPending&&['company-signing-in','company-waking','account-working'].includes(current?.activity?.stage))return;
@@ -835,16 +840,16 @@
   accessPanel.querySelector('[data-recheck-access]').hidden=access==='unknown';
   for(const button of accessPanel.querySelectorAll('button'))button.disabled=Boolean(current.accessChecking||current.accountWorking)||signInPending;
   // The sign-in dialog is a hero-owned operation, so a surface-scoped read running beside it
-  // (a username check, a verified-email read) never retitles it or hides its device code.
+  // (a username check, a verified-email read) never retitles it or hides its waiting state.
   if(signInPending&&current.activity&&heroScoped(current.activity))localActivity=current.activity;
   const activity=current.activity||localActivity;
   const title=signInPending&&activity&&!['microsoft-opening','microsoft-waiting'].includes(activity.stage)?'Finishing sign-in…':'Sign in with Microsoft';
   if(auth('h2').textContent!==title)auth('h2').textContent=title;
-  const deviceVisible=current.device&&(!activity||['microsoft-opening','microsoft-waiting'].includes(activity.stage));
-  const device=deviceVisible?current.device:null,wasWaiting=auth('.desktop-device').hidden;
+  const pageVisible=current.signInPage&&(!activity||['microsoft-opening','microsoft-waiting'].includes(activity.stage));
+  const page=pageVisible?current.signInPage:null,wasWaiting=auth('.desktop-device').hidden;
   // While Microsoft's email answer is on screen the dialog is already where it belongs and
   // has nothing left to wait for, so it neither repeats the waiting line nor closes itself.
-  auth('.desktop-device').hidden=!device;
+  auth('.desktop-device').hidden=!page;
   const authActivity=signInPending&&!emailNoticeHeld?activity||{stage:'microsoft-opening',message:'Opening Microsoft sign-in…'}:null;
   authWait?.set(authActivity);if(!authWait)auth('.desktop-auth-wait').hidden=!authActivity;
   const authWorking=Boolean(authActivity)&&!['microsoft-opening','microsoft-waiting'].includes(authActivity.stage);
@@ -855,23 +860,23 @@
   auth('.dialog-close').hidden=companyMutation;
   auth('[data-open-microsoft]').setAttribute('aria-busy',String(Boolean(authActivity)));
 
-  if(device&&!cancelledSignIn){
+  if(page&&!cancelledSignIn){
    if(panel.open)panel.close();
    if(!signin.open)signin.showModal();
-   // The instruction under the code is main's own sentence (the state's `message`), so a sign-in
-   // the launcher started for a reason — a stored session the account service would not renew —
-   // says why in that one place, and no view invents words for it.
+   // The line under the waiting sentence is main's own (`message`), so a sign-in the launcher
+   // started for a reason — a stored session the account service would not renew — says why in
+   // that one place, and no view invents words for it. The page's own name on Microsoft's
+   // consent screen is explained by the last line, which is the only thing anyone has to
+   // recognise there: the address bar. Nothing here is copied out of the window.
    const instruction=auth('.desktop-device-instruction');
-   const instructionText=typeof current.message==='string'&&current.message?current.message:'Enter this code on the Microsoft sign-in page.';
+   const instructionText=typeof current.message==='string'?current.message:'';
    if(instruction.textContent!==instructionText)instruction.textContent=instructionText;
-   // Progress broadcasts share this render path with sign-in. Replacing even
-   // identical text destroys the browser's selection before the player can copy.
-   const code=auth('.desktop-code'),provider=auth('.desktop-provider');
-   if(code.textContent!==device.code)code.textContent=device.code;
+   instruction.hidden=!instructionText;
+   const provider=auth('.desktop-provider');
    const providerText='Microsoft lists this app as '+(current.authName||'the launcher')+'.';
    if(provider.textContent!==providerText)provider.textContent=providerText;
    if(wasWaiting)auth('[data-open-microsoft]').focus();
-  }else if(!device&&!signInPending&&!emailNoticeHeld&&signin.open)signin.close();
+  }else if(!page&&!signInPending&&!emailNoticeHeld&&signin.open)signin.close();
   // Settings is the hero's secondary action, and it is offered only at the Play Now
   // stage. Before that the hero shows the download action instead.
   if(settingsButton){
@@ -941,7 +946,7 @@
  }
 
  // ---- Wiring ----------------------------------------------------------------
- // Sign-in opens the dialog for its device code and closes it again when the flow is
+ // Sign-in opens the dialog for the browser page it is waiting on and closes it when the flow is
  // over: a finished login must not leave the settings dialog sitting on screen.
  const closeSignIn=()=>{if(signin.open)signin.close();};
  const signIn=(options={})=>{clearFailure();void companyUI.then(ui=>ui.open(options)).catch(report);};

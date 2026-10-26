@@ -73,7 +73,15 @@ const clientId=process.env.EASTER_MICROSOFT_CLIENT_ID||DEFAULT_CLIENT_ID;
 // The sign-in log doc/launcher-states.md describes: one redacted line per step, in the
 // per-user directory beside the settings and the vaults, so a failure the owner reports
 // can be read back as which leg failed rather than guessed at. Nothing else writes it.
-const auth=new MicrosoftAuth({clientId,logPath:path.join(configRoot(),'signin.log'),version:APP_VERSION});
+// The one thing the sign-in cannot do without the application: open the player's own
+// browser. Only Microsoft's own sign-in origin is ever handed to the system browser, so a
+// value that arrived from anywhere else cannot make the launcher open an arbitrary address.
+const MICROSOFT_SIGNIN_ORIGIN='https://login.microsoftonline.com';
+const auth=new MicrosoftAuth({clientId,logPath:path.join(configRoot(),'signin.log'),version:APP_VERSION,openExternal:url=>{
+ const parsed=new URL(String(url));
+ if(parsed.origin!==MICROSOFT_SIGNIN_ORIGIN)throw Error('That is not a Microsoft sign-in address.');
+ return shell.openExternal(parsed.href);
+}});
 const accounts=new AccountClient({baseUrl:apiOrigin(),client:'launcher/'+APP_VERSION});
 // No server field: the one address the launcher uses is config.cjs serverAddress(), a
 // fixed production target, and a settings file that still carries an older `server` value
@@ -83,7 +91,10 @@ const defaultSettings={memoryMB:Math.min(4096,Math.max(2048,Math.floor(os.totalm
 // are the live pipeline's; everything else is derived from the installed client,
 // the account session and the saved settings on every broadcast, so no view has to
 // guess. canPlay is computed here and nowhere else.
-let state={message:'Download the game to get started.',error:null,device:null,progress:null,profile:null,remembered:false,account:null,activity:null};
+// `signInPage` says one thing: Microsoft's sign-in page is open in the player's browser and
+// this launcher is waiting for the answer. It is a flag and not a payload — the code the
+// player used to copy is gone with the flow that printed it (desktop/auth.cjs, signIn).
+let state={message:'Download the game to get started.',error:null,signInPage:null,progress:null,profile:null,remembered:false,account:null,activity:null};
 // Activity is independent of installation progress. Only launcher-owned stage text
 // crosses IPC; callbacks belonging to a finished/replaced operation are ignored.
 const ACTIVITY_MESSAGES=Object.freeze({
@@ -331,7 +342,7 @@ function notify(patch={}){
 }
 // Nothing is transferring after this: the bar falls back to PLAY NOW or the
 // sign-in action through `actions`, and the phase returns to the resting value.
-function settle(message,extra={}){phase=null;progress=null;control=null;notify({message,device:controller?state.device:null,...extra});}
+function settle(message,extra={}){phase=null;progress=null;control=null;notify({message,signInPage:controller?state.signInPage:null,...extra});}
 // The sentence a running game has always had. It is said twice now — when Play starts the game
 // and when a restarted launcher comes back into one — and a second copy would be a second
 // author of the same words (doc/launcher-states.md, "The launcher comes back into the game it
@@ -346,7 +357,7 @@ const GAME_CLOSED='Minecraft closed. Ready to play.';
 // ordinary one (Play, Download, or the client being ready) and the in-game one, which is what a
 // launcher that came back to a game it did not start must publish instead of Play.
 function settleResting(){
- if(game)return notify({phase:'running',message:GAME_RUNNING,device:null,progress:null});
+ if(game)return notify({phase:'running',message:GAME_RUNNING,signInPage:null,progress:null});
  return settle(client.installed?'Client ready.':'Download the game to get started.');
 }
 async function refreshClient(){client=await clientStatus(gameRoot());await install.loadDeployment(gameRoot());await readQuality();}
@@ -1112,11 +1123,11 @@ async function exclusively(action){
   // for it carrying the account service's sentence itself. Settling that sentence on the
   // state channel as well painted it in the page notice for a single frame before the
   // dialog took it over, which reads as a flicker rather than as an answer. The operation
-  // still settles — the device code goes with it, because the sign-in it belonged to is
+  // still settles — the open sign-in page goes with it, because the sign-in it belonged to is
   // replaced by the dialog's own question — and no sentence travels, so the call that
   // failed is the only thing that reports it.
-  if(error.code==='identity_conflict')settle(null,{device:null,error:null});
-  else if(error.name!=='CancelledError')settle(message,{device:null,error:error.name==='AbortError'?null:message});
+  if(error.code==='identity_conflict')settle(null,{signInPage:null,error:null});
+  else if(error.name!=='CancelledError')settle(message,{signInPage:null,error:error.name==='AbortError'?null:message});
   // The typed code decides what the dialog does next (a taken username sends the player
   // back to step 1), so it survives the rethrow as a safe error message does.
   throw Object.assign(Error(message),{code:error.code});
@@ -1137,7 +1148,7 @@ async function withControl(action){
   if(error&&error.name==='CancelledError'){
    await refreshClient();
    control=null;phase=null;progress=null;
-   notify({message:'Download cancelled. Nothing already installed was changed.',device:controller?state.device:null});
+   notify({message:'Download cancelled. Nothing already installed was changed.',signInPage:controller?state.signInPage:null});
    return null;
   }
   throw error;
@@ -1197,8 +1208,10 @@ async function setGraphics(enabled){
   return {...installInfo(),graphics:graphicsState(),graphicsMessage:result.graphicsMessage||null};
  });
 }
-// The interactive Microsoft flow itself: one device code, one browser action, one enrolment.
-// It is one sequence of steps whether the player asked for it from the sign-in dialog or the
+// The interactive Microsoft flow itself: one browser page, one answer, one enrolment. The
+// player copies nothing: the launcher opens Microsoft's sign-in page in their own browser and
+// waits for the code Microsoft sends back to it (desktop/auth.cjs, desktop/loopback.cjs). It
+// is one sequence of steps whether the player asked for it from the sign-in dialog or the
 // launcher fell back to it because the stored session was dead (doc/launcher-states.md,
 // "`reauth_required`: one sentence, one fallback, never a loop"), so both callers share it and
 // only the dialog's caller adds the operation wrapper around it.
@@ -1206,13 +1219,14 @@ async function interactiveMicrosoft(options={}){
  controller=new AbortController();
  const activity=beginActivity('microsoft-opening');
  // `reason` is how a sign-in the launcher started says why it is on screen: it leads the one
- // sentence under the device code, and it is the main process's own copy, so no view words it.
- const instruction=(typeof options.reason==='string'&&options.reason?options.reason+' ':'')+'Enter this code on Microsoft’s sign-in page.';
- notify({message:'Opening Microsoft sign-in…',device:null,...(control?{}:{progress:null})});
+ // sentence under the waiting line, and it is the main process's own copy, so no view words it.
+ // There is no code here to copy because there is no code to copy: the page is in the browser.
+ const instruction=(typeof options.reason==='string'&&options.reason?options.reason+' ':'')+'The Microsoft sign-in page is open in your browser.';
+ notify({message:'Opening Microsoft sign-in…',signInPage:null,...(control?{}:{progress:null})});
  try{
-  const signed=await auth.signIn(device=>{activity.update('microsoft-waiting');notify({device,message:instruction});},controller.signal,activity.update);
+  const signed=await auth.signIn(()=>{activity.update('microsoft-waiting');notify({signInPage:true,message:instruction});},controller.signal,activity.update);
   const enrolled=await enrolAccount({candidate:signed,lockCompany:Boolean(company)||options.link===true,throwOnError:true,onStage:activity.update});
-  notify({device:null,message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
+  notify({signInPage:null,message:session.profile?'Signed in as '+session.profile.name+'.':'Microsoft sign-in complete.'});
   // The store's snapshot for this account, asked for after the sign-in has settled and off its
   // path (doc/launcher-store.md, "Opening the store instantly"): a player who has just signed in
   // has no snapshot of their own yet, and this is what makes their first press of Store instant.
@@ -1548,7 +1562,7 @@ async function launchSession(){
  if(minted?.outcome==='reauth'){
   // One honest sentence, then the interactive flow — once. If the fresh sign-in does not end
   // in a session this press stops there: a second prompt for the same press would be a loop.
-  settle(ACCOUNT_MESSAGES.reauth_required,{device:null});
+  settle(ACCOUNT_MESSAGES.reauth_required,{signInPage:null});
   await interactiveMicrosoft({link:true,reason:ACCOUNT_MESSAGES.reauth_required});
   if(!companyReady()){settle('Create your Easter Company password to finish setup.');return {settled:true};}
   if(identity.access(session)!=='owned'||!session.profile){settle('Minecraft Java Edition access is required to play.');return {settled:true};}
@@ -1557,7 +1571,7 @@ async function launchSession(){
  if(minted?.outcome==='account'){
   // The Easter Company session is not live any more. That is the account's own news, and the
   // account's own sentence: signing in to Microsoft would not fix it.
-  settle(ACCOUNT_MESSAGES.invalid_session,{device:null,error:ACCOUNT_MESSAGES.invalid_session});
+  settle(ACCOUNT_MESSAGES.invalid_session,{signInPage:null,error:ACCOUNT_MESSAGES.invalid_session});
   return {settled:true};
  }
  if(minted?.outcome==='busy'){
@@ -1565,7 +1579,7 @@ async function launchSession(){
   // fine, so there is nothing to approve and nothing to sign in to: Play stays off for this press
   // and the sentence says what the launcher can actually see.
   const sentence=String(minted.error?.message||ACCOUNT_MESSAGES.rate_limited);
-  settle(sentence,{device:null,error:sentence});
+  settle(sentence,{signInPage:null,error:sentence});
   return {settled:true};
  }
  // No session is available on this machine or from the account service. Today's sentence,
@@ -1586,7 +1600,7 @@ async function launchThrough(){
  // account work runs, and a press that cannot launch never wakes anything it will not join.
  const prepared=await ensureClient();
  const waiting=beginGameWake();
- notify({phase:'launching',message:'Checking your Minecraft session…',device:null,progress:null});
+ notify({phase:'launching',message:'Checking your Minecraft session…',signInPage:null,progress:null});
  const obtained=await launchSession();
  if(!obtained?.session)return obtained;
  const sessionForLaunch=obtained.session;
@@ -1757,7 +1771,7 @@ function registerIPC(){
   // pipeline or clears its progress when authentication fails or is cancelled.
   if(control){
    try{return await login({link:options?.link===true});}
-   catch(error){const message=safeError(error);notify({message,error:error.name==='AbortError'?null:message,device:null});throw error;}
+   catch(error){const message=safeError(error);notify({message,error:error.name==='AbortError'?null:message,signInPage:null});throw error;}
   }
   return exclusively(()=>login({link:options?.link===true}));
  });
@@ -2025,7 +2039,7 @@ function foldUsername(value){
   return control?run():exclusively(run);
  });
  handle('cancel-sign-in',()=>controller?.abort());
- handle('sign-out',async()=>{if(working||controller||accountWorking)throw Error('Wait for the current operation to finish.');const id=identity.id(session);session=null;savedAccounts=savedAccounts.filter(entry=>identity.id(entry)!==id);await forgetCompany();await saveSession();notify({remembered:false,device:null,message:'Logged out.'});});
+ handle('sign-out',async()=>{if(working||controller||accountWorking)throw Error('Wait for the current operation to finish.');const id=identity.id(session);session=null;savedAccounts=savedAccounts.filter(entry=>identity.id(entry)!==id);await forgetCompany();await saveSession();notify({remembered:false,signInPage:null,message:'Logged out.'});});
  // Re-issues the account session from the Mojang token the launcher already has.
  handle('account-refresh',()=>exclusively(async()=>{if(!session)throw Error('Sign in first.');await enrolAccount({throwOnError:true});return publicAccount(company);}));
  // Company account only: the Microsoft session on this device is kept.
@@ -2112,7 +2126,13 @@ function foldUsername(value){
  // writes to is the saved client location, never a renderer-supplied one.
  handle('set-graphics',enabled=>setGraphics(enabled));
  handle('open-folder',async()=>{const root=gameRoot();await fs.mkdir(root,{recursive:true});const error=await shell.openPath(root);if(error)throw Error('Could not open the client folder.');});
- handle('open-microsoft',()=>shell.openExternal('https://www.microsoft.com/link'));
+ // The page the launcher already opened, opened again: the same sign-in, the same listener,
+ // the same state and the same PKCE challenge. A player who closed the tab gets the page back
+ // instead of a second sign-in, and a stale window can only ever complete the one flow.
+ handle('open-microsoft',async()=>{
+  if(!await auth.reopen())throw Error('There is no Microsoft sign-in waiting to be opened.');
+  return {opened:true};
+ });
 }
 const CSP="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'self'; form-action 'none'";
 async function resource(request){
