@@ -58,10 +58,21 @@ const XBOX_SCOPE='XboxLive.signin';
 const OFFLINE_ACCESS='offline_access';
 const XBOX_REQUEST_SCOPE=XBOX_SCOPE+' '+OFFLINE_ACCESS;
 const GRAPH_REQUEST_SCOPE=GRAPH_SCOPE+' '+OFFLINE_ACCESS;
-// Same public client configuration as /opt/minecraft/launch/mc-auth.py.
-// Microsoft displays Prism Launcher for this inherited registration.
-// Set EASTER_MICROSOFT_CLIENT_ID when Easter Company has its own approved registration.
-const DEFAULT_CLIENT_ID='c36a9fb6-4f2a-41ff-90bd-ae7cc92031eb';
+// EASTER COMPANY'S OWN AZURE REGISTRATION, live since 2026-10-26 and the default from now on.
+// A public client (no secret anywhere), registered for PERSONAL MICROSOFT ACCOUNTS ONLY, which
+// is what the `/consumers` authority above serves. Microsoft displays "Easter Company" on its
+// own consent screen, so the launcher's own line under the waiting state is true by
+// construction and no longer has to guess which registration it is talking to.
+//
+// IT NEEDS ONE REDIRECT URI ON IT: `http://localhost/callback`. The launcher asks for
+// `http://localhost:<ephemeral port>/callback` — see desktop/loopback.cjs, *Localhost
+// exceptions*: Microsoft ignores the PORT of a localhost redirect URI when it matches one, but
+// not the path. `http://localhost` ALONE DOES NOT COVER IT, because the path differs; both are
+// worth registering, and only `/callback` is what this code asks for.
+//
+// EASTER_MICROSOFT_CLIENT_ID still overrides it, for pointing a build at another registration
+// without changing what ships.
+const DEFAULT_CLIENT_ID='c3fc8a5e-4540-4691-aecc-14ebbb17b94e';
 // The most requests the registration check will ever make, and the only hosts it will follow
 // one to: the consumers authority hands the question to its own consumer sign-in host, and
 // nothing else is ever asked.
@@ -248,6 +259,44 @@ function provenForXboxLive(access){
  return [claims.scp,claims.scope].some(scope=>typeof scope==='string'&&scope.split(/\s+/).includes(XBOX_SCOPE));
 }
 
+// ---- When Microsoft will not answer to this launcher's address --------------------
+// MEASURED 2026-10-26, twice, against the real consumers authority, because the answer decides
+// whether a sign-in can be checked before the player signs in at all:
+//
+//   * the authorize request itself always answers 302 to login.live.com/oauth20_authorize.srf,
+//     for every redirect URI and for every client id. That first hop proves NOTHING;
+//   * what login.live.com returns DOES distinguish. With `http://localhost:<port>/callback` the
+//     page is Microsoft's real sign-in page ("Microsoft account requires JavaScript to sign
+//     in…"); with `http://localhost:<port>/deliberately-wrong` it is "invalid_request: The
+//     provided value for the input parameter 'redirect_uri' is not valid." — the same refusal
+//     the modern path gives as AADSTS50011.
+//
+// So the check below is deliberately ASYMMETRIC, which is the only safe shape here: it refuses
+// on a page that says in so many words that the redirect URI is not valid, and it treats every
+// other answer — the sign-in page, a redirect back to the launcher, an outage, a network
+// failure, anything it does not recognise — as "no refusal proven" and lets the sign-in go
+// ahead. A clean page is NOT proof that the address is registered and this file never claims it
+// is: the browser is opened either way. What the check buys is the owner whose address is wrong
+// learning it in a second, with the exact URI to compare, instead of signing in and then
+// watching a wait that never completes.
+const REDIRECT_REFUSED=/redirect_uri[^.]{0,40}is not valid|AADSTS50011|AADSTS90023|AADSTS700054/i;
+// The most requests the check makes, and the only hosts it will follow one to.
+const REDIRECT_CHECK_HOPS=2;
+const REDIRECT_CHECK_HOSTS=Object.freeze(['login.microsoftonline.com','login.live.com']);
+// How much of a page it will read before deciding.
+const REDIRECT_CHECK_LIMIT=65536;
+// What Microsoft said, never what is shown: a page body is provider text, so it is only ever
+// matched against the pattern above to CLASSIFY a failure. Nothing from it is logged (the log
+// whitelists its own fields), put in a sentence or stored.
+function redirectProblem(...values){
+ return values.some(value=>typeof value==='string'&&REDIRECT_REFUSED.test(value));
+}
+// The instruction that carries both addresses, in one place so the pre-check, the callback, the
+// exchange and the timeout cannot drift into saying different things about one problem. The
+// asked address carries this run's ephemeral port — which is the point of naming it.
+function redirectAdvice(asked,lead=''){
+ return lead+(lead?'add ':'Add ')+REGISTERED_REDIRECT+' as a redirect URI on the Microsoft app registration — this sign-in asked for '+asked+' — then start sign-in again.';
+}
 class MicrosoftAuth{
  // `openExternal` is how the player's own browser is opened at Microsoft's sign-in page. It
  // is passed in rather than reached for, because this module must stay runnable outside
@@ -264,6 +313,13 @@ class MicrosoftAuth{
   this.log=log||new SignInLog({file:logPath,version,maxBytes:maxLogBytes});
  }
  record(step,outcome,info={}){if(!step)return;try{this.log.append({step,outcome,...info});}catch{}}
+ // The one failure that has to name its own fix: Microsoft would not answer to this launcher's
+ // callback address, so the sentence carries the exact address this run asked for beside the
+ // registered form to compare it with. The provider's own words are never quoted into it.
+ refuseRedirect(asked){
+  this.record('code-completion','failed',{code:'redirect_uri_mismatch'});
+  throw new AuthError(sentence('code-completion',{detail:'Microsoft did not accept the launcher’s return address',advice:redirectAdvice(asked)}),'redirect_uri_mismatch','code-completion');
+ }
  // One HTTP leg. `step` is what a failure is recorded and worded as; `ignoreCodes` are the
  // answers that are not step outcomes at all (the poll's "not finished yet"), and `log`
  // is off for the two Java legs, whose single line is written by checkAccess instead.
@@ -291,6 +347,10 @@ class MicrosoftAuth{
    const error=new AuthError(step==='minecraft'?minecraftSentence({status:response.status}):sentence(step,reason({status:response.status,code,xerr,unreadable:!readable,step,fresh})),clean(code)||String(xerr||response.status),step);
    error.status=response.status;
    if(Number.isInteger(xerr))error.xerr=xerr;
+   // The provider's own explanation, carried on the error object ONLY so a caller can CLASSIFY
+   // the failure — a redirect URI Microsoft will not answer to is recognisable only from it
+   // (see redirectProblem). It is never logged, never put in a sentence and never stored.
+   if(typeof body.error_description==='string')error.description=body.error_description.slice(0,512);
    throw error;
   }
   if(!readable){
@@ -324,10 +384,9 @@ class MicrosoftAuth{
  //   1. a loopback listener is opened on 127.0.0.1, on an ephemeral port, before anything
  //      else happens (desktop/loopback.cjs says what it accepts);
  //   2. one `state` and one PKCE S256 pair are minted in memory;
- //   3. the app registration is asked, once, whether it will accept this launcher's callback
- //      address — because Microsoft answers an unregistered redirect URI with its own error
- //      page in the browser and never calls back at all, which from here looks exactly like
- //      a player who closed the tab (see `registration`);
+ //   3. one refusal-only check of the redirect URI, which can only ever stop a sign-in that
+ //      Microsoft has already said it will not answer (see checkRedirectAccepted). It is not a
+ //      proof of registration and is not treated as one;
  //   4. the browser is opened at Microsoft's sign-in page;
  //   5. the first callback carrying this sign-in's own `state` completes it, and the listener
  //      is closed in the same breath;
@@ -355,14 +414,23 @@ class MicrosoftAuth{
   }catch(error){
    if(error?.name==='TimeoutError'){
     this.record('code-completion','failed',{code:'expired_token'});
-    throw new AuthError(sentence('code-completion',TIMEOUT_CAUSE),'expired_token','code-completion');
+    throw new AuthError(sentence('code-completion',{detail:'the Microsoft sign-in page was not completed',advice:redirectAdvice(answer.redirectUri,'Start sign-in again. If the browser showed a Microsoft error page instead of a sign-in page, ')}),'expired_token','code-completion');
    }
    // Anything else is already a named refusal from the listener or from Microsoft's own
    // answer, and is rethrown as it is rather than relabelled as a connection failure.
    throw error;
   }
   onStage?.('microsoft-verifying');
-  const msa=await this.microsoftSession({grant_type:'authorization_code',client_id:this.clientId,code:granted.code,redirect_uri:answer.redirectUri,code_verifier:answer.verifier,scope:SCOPE},signal,{fresh:true});
+  let msa;
+  try{
+   msa=await this.microsoftSession({grant_type:'authorization_code',client_id:this.clientId,code:granted.code,redirect_uri:answer.redirectUri,code_verifier:answer.verifier,scope:SCOPE},signal,{fresh:true});
+  }catch(error){
+   // The exchange is where Microsoft actually says a redirect URI is wrong when it says
+   // anything at all — and the answer that reaches a player must carry the address this run
+   // asked for, not "the sign-in service refused it".
+   if(redirectProblem(error?.description,error?.code))this.refuseRedirect(answer.redirectUri);
+   throw error;
+  }
   return await this.exchange(msa,undefined,signal,onStage);
  }
  // Steps 1 to 4 of the sequence above, and nothing else: this answers with the two things the
@@ -387,7 +455,7 @@ class MicrosoftAuth{
   const url=this.authorizeURL({redirectUri,state,challenge});
   const pending={redirect,redirectUri,verifier,state,url};
   try{
-   await this.registration(url,redirectUri,signal);
+   await this.checkRedirectAccepted(url,redirectUri,signal);
    this.record('browser-sign-in','ok',{status:200,code:'ok'});
    try{
     onOpen?.();
@@ -414,6 +482,9 @@ class MicrosoftAuth{
       const code=clean(answer.error);
       this.record('code-completion','failed',{code:code||'-'});
       if(code==='access_denied')throw new AuthError(sentence('code-completion','the sign-in was cancelled in Microsoft'),'authorization_declined','code-completion');
+      // Microsoft can name the redirect URI in the answer it sends back, and that is the one
+      // place it can be compared with what the portal holds, so it is quoted as our own.
+      if(redirectProblem(answer.error,answer.errorDescription))this.refuseRedirect(redirectUri);
       throw new AuthError(sentence('code-completion',reason({code,step:'code-completion',fresh:true})),code||'refused','code-completion');
      }
      if(!answer.code){
@@ -448,90 +519,54 @@ class MicrosoftAuth{
   });
   return new URL(AUTHORITY+'/authorize?'+query.toString());
  }
- // ---- Is this launcher allowed to come back at all? ------------------------------
- // A loopback redirect URI has to exist on the Azure app registration, and when it does not,
- // Microsoft does not tell the launcher: it draws its own error page and never calls back,
- // so the failure arrives as a wait that ends in a timeout, indistinguishable from a player
- // who closed the tab. That is exactly the generic failure this launcher must not report.
- //
- // So the authorize endpoint is asked first, with `prompt=none` and no session, which is a
- // question with only two shapes of answer:
- //   * a redirect back to OUR callback carrying `error=login_required` — which proves the
- //     redirect URI is registered (it is the address Microsoft just chose to answer to);
- //   * a page instead of a redirect — Microsoft will not answer to that address, and the
- //     registration is what has to change.
- // The page's own AADSTS code decides which sentence the player gets: 50011 is the reply-URL
- // mismatch, which is a URI to add, and 700016 is a client id the authority does not know,
- // which is a different fix. Both are logged; neither reaches the sentence as a code.
- //
- // TWO HOPS, AND NO MORE, BECAUSE THAT IS WHAT THE AUTHORITY DOES. Measured on 2026-10-26
- // against `login.microsoftonline.com/consumers`: that endpoint does not answer the question
- // itself, it proxies the whole request to `login.live.com/oauth20_authorize.srf`, and only
- // there does the answer arrive — a page whose text is "invalid_request: The provided value for
- // the input parameter 'redirect_uri' is not valid ..." when the address is not registered, or
- // a redirect back to the address when it is. So a second hop is read, and ONLY to Microsoft's
- // own sign-in hosts, and only while the answer is not already our own callback. Every request
- // here is made with `redirect:'manual'`, so the probe never follows a redirect into the
- // listener: following one would hand the launcher a `login_required` answer and end a real
- // sign-in before the player had seen it.
- // Any answer this cannot read is `unknown` and the sign-in goes ahead: a probe must never be
- // the thing that refuses a sign-in it did not understand.
- async registration(url,redirectUri,signal){
-  const probe=new URL(url.href);
-  probe.searchParams.set('prompt','none');
-  probe.searchParams.set('state',stateToken());
-  let target=probe.href;
-  let response=null;
-  for(let hop=0;hop<REGISTRATION_HOPS;hop+=1){
+ // ---- When Microsoft will not answer to this launcher's address --------------------
+ // MEASURED 2026-10-26, and it decides the shape of this whole section: with a live registration
+ // the consumers authority answers a REAL SIGN-IN PAGE for the authorize request whether or not
+ // the redirect URI on it is one the app holds. A deliberately wrong redirect URI was answered
+ // with a sign-in page rather than AADSTS50011, so a mismatch is reported LATER in the journey —
+ // in the browser, as an error page after the player has signed in, or at the token exchange —
+ // and NOT before it. Two consequences, both deliberate:
+ //   * there is no pre-sign-in request this launcher can make that would prove the
+ //     registration, so it makes none: a probe would be an extra round trip whose only
+ //     remaining power would be to refuse a sign-in it had misread;
+ //   * the failure is worded where the authority actually says something — the callback, the
+ //     exchange, or the wait that never comes back — and it names THE EXACT ADDRESS THIS RUN
+ //     ASKED FOR, so an owner can put it beside whatever the portal holds. See
+ //     REDIRECT_PROBLEM, redirectAdvice and refuseRedirect.
+ // The refusal-only pre-check and nothing else: it throws when Microsoft says the redirect URI
+ // is not valid, and returns for every other answer (REDIRECT_REFUSED is where that is
+ // measured). It never follows a redirect into the listener — every request here is made with
+ // `redirect:'manual'`, because following one would hand the launcher a `login_required` answer
+ // and end a real sign-in before the player had seen it.
+ async checkRedirectAccepted(url,redirectUri,signal){
+  let target=url.href;
+  for(let hop=0;hop<REDIRECT_CHECK_HOPS;hop+=1){
+   let response;
    try{
     response=await this.request(target,{method:'GET',redirect:'manual',cache:'no-store',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});
    }catch(error){
     if(error?.name==='AbortError'||signal?.aborted)throw abortFromSignal();
-    return 'unknown';
+    return;
    }
-   if(!response)return 'unknown';
-   const forwarded=typeof response.headers?.get==='function'?String(response.headers.get('location')||''):'';
+   if(!response)return;
+   const location=typeof response.headers?.get==='function'?String(response.headers.get('location')||''):'';
    const redirecting=Number.isInteger(response.status)&&response.status>=300&&response.status<400;
-   // Anything that is not a redirect is an answer, and is read below.
-   if(!redirecting)break;
-   // The authority's own hand-off to its consumer sign-in host: read what that answers, once.
-   if(forwarded.startsWith(redirectUri))return 'registered';
-   let host='';
-   try{host=new URL(forwarded).hostname;}catch{break;}
-   if(hop===REGISTRATION_HOPS-1||!REGISTRATION_HOSTS.includes(host))break;
-   target=forwarded;
+   if(redirecting){
+    // Back to the launcher is an answer that has already been accepted; anywhere else is
+    // followed only when it is Microsoft's own sign-in host.
+    if(location.startsWith(redirectUri))return;
+    let host='';
+    try{host=new URL(location).hostname;}catch{return;}
+    if(hop===REDIRECT_CHECK_HOPS-1||!REDIRECT_CHECK_HOSTS.includes(host))return;
+    target=location;
+    continue;
+   }
+   // A page. Only one that says the redirect URI is not valid is a refusal.
+   let body='';
+   try{body=String(await response.text()).slice(0,REDIRECT_CHECK_LIMIT);}catch{return;}
+   if(redirectProblem(body))this.refuseRedirect(redirectUri);
+   return;
   }
-  if(!response)return 'unknown';
-  if(Number.isInteger(response.status)&&response.status>=500)return 'trouble';
-  let body='';
-  try{body=String(await response.text()).slice(0,REGISTRATION_PAGE_LIMIT);}catch{return 'unknown';}
-  if(body.includes('AADSTS50011'))return this.refuseRegistration('reply-url','AADSTS50011');
-  // The consumer authority's own wording for the same refusal, measured above: no AADSTS
-  // number, so it is recognised by its sentence and logged under its own error name.
-  if(/redirect_uri/i.test(body)&&/not valid/i.test(body))return this.refuseRegistration('reply-url','invalid_request');
-  if(/AADSTS700016|AADSTS70001\b/.test(body))return this.refuseRegistration('client','AADSTS700016');
-  // A JSON refusal from the authorize endpoint is an ordinary start-step refusal, worded and
-  // logged exactly as one.
-  let parsed=null;
-  try{parsed=JSON.parse(body);}catch{}
-  if(parsed&&typeof parsed.error==='string'){
-   const code=clean(parsed.error)||String(response.status);
-   this.record('browser-sign-in','failed',{status:response.status,code});
-   throw new AuthError(sentence('browser-sign-in',reason({status:response.status,code:parsed.error,step:'browser-sign-in',fresh:true})),code,'browser-sign-in');
-  }
-  // A refused page that names no code this launcher knows is still a refused page.
-  if(response.status>=400)return this.refuseRegistration('refused',String(response.status),response.status);
-  return 'unknown';
- }
- // The one failure that has to name its own fix: the exact redirect URI to add to the
- // Microsoft app registration. It is the registered shape (localhost, no port), because that
- // is the value Microsoft matches against — not the ported address this run happens to hold.
- refuseRegistration(kind,code,status=200){
-  this.record('browser-sign-in','failed',{status:Number.isInteger(status)?status:200,code});
-  const cause=kind==='reply-url'?{detail:'the Microsoft app registration does not allow the launcher’s return address',advice:'Add '+REGISTERED_REDIRECT+' as a redirect URI on the Microsoft app registration, then start sign-in again.'}
-   :kind==='client'?{detail:'the Microsoft app registration this launcher is using does not exist for these accounts',advice:'Set EASTER_MICROSOFT_CLIENT_ID to this launcher’s own application id, then start sign-in again.'}
-   :{detail:'the sign-in service refused it',advice:'Try again.'};
-  throw new AuthError(sentence('browser-sign-in',cause),kind==='reply-url'?'redirect_uri_unregistered':kind==='client'?'client_unregistered':'refused','browser-sign-in');
  }
  // The page the player is already looking at again, without minting a second sign-in: the
  // same state, the same PKCE challenge, the same listener. Nothing is re-minted, so a page

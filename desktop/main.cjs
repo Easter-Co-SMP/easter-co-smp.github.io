@@ -70,6 +70,13 @@ const accountsFile=()=>path.join(configRoot(),'accounts.enc');
 const vaultFile=()=>path.join(configRoot(),'account.enc');
 const companyFile=()=>path.join(configRoot(),companyVaultName());
 const clientId=process.env.EASTER_MICROSOFT_CLIENT_ID||DEFAULT_CLIENT_ID;
+// What Microsoft calls this application on its own consent screen, as one sentence under the
+// waiting state ("Microsoft lists this app as Easter Company."). It used to be a branch on
+// whether the launcher was using the inherited registration or its own; Easter Company's own
+// registration is the default now (desktop/auth.cjs, DEFAULT_CLIENT_ID), so there is nothing
+// left to branch on. EASTER_MICROSOFT_CLIENT_ID can still point a build at another
+// registration for testing, and this line names the one that ships.
+const AUTH_NAME='Easter Company';
 // The sign-in log doc/launcher-states.md describes: one redacted line per step, in the
 // per-user directory beside the settings and the vaults, so a failure the owner reports
 // can be read back as which leg failed rather than guessed at. Nothing else writes it.
@@ -1763,7 +1770,7 @@ function registerIPC(){
   // Settings asks this whenever it opens, and the answer carries the two shortcut
   // entries as they are on this computer right now rather than as last saved.
   await refreshShortcuts();
-  return {...state,shortcuts:shortcutState,profile:launchProfile(),account:publicAccount(company),minecraftSession:publishedMinecraftSession(),sessionCached:sessionCacheShowing(),minecraftHead:headState(),sessionExpiresAt:company?.expiresAt||null,settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),game:gameState(),launcherUpdate,authName:clientId===DEFAULT_CLIENT_ID?'Prism Launcher':'Easter Company'};
+  return {...state,shortcuts:shortcutState,profile:launchProfile(),account:publicAccount(company),minecraftSession:publishedMinecraftSession(),sessionCached:sessionCacheShowing(),minecraftHead:headState(),sessionExpiresAt:company?.expiresAt||null,settings,totalMemoryMB:Math.floor(os.totalmem()/1024/1024),version:APP_VERSION,hardware:hardwareState(),graphics:graphicsState(),game:gameState(),launcherUpdate,authName:AUTH_NAME};
  });
  handle('sign-in',async(options={})=>{
   if(controller||accountWorking)throw Error('Account sign-in is already running.');

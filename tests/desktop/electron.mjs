@@ -107,7 +107,7 @@ try{
   await app.evaluate(async()=>{
    for(let n=0;n<40;n++){global.easterTestDownloadProgress();await new Promise(resolve=>setTimeout(resolve,10));}
   });
-  const selected='Microsoft lists this app as Prism Launcher.';
+  const selected='Microsoft lists this app as Easter Company.';
   assert.equal(await page.evaluate(()=>window.getSelection().toString()),selected,'progress preserves the selected sentence');
   assert.equal(await provider.evaluate(element=>element.firstChild===window.__selectedDeviceText),true,'the sentence keeps its text node');
   assert.equal(await signin.isVisible(),true,'the same sign-in dialog remains open');

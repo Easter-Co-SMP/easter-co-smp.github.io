@@ -1,9 +1,11 @@
 'use strict';
 // Microsoft's sign-in endpoints, modelled well enough that the launcher's own flow runs
-// against them for real: the authorize page (both the registration probe and the address a
-// browser is opened at), the code exchange with its PKCE check, and the refresh grants. What
-// arrives at the launcher's callback is delivered over a real HTTP connection by `browser()`
-// below, so the loopback socket is exercised rather than mocked.
+// against them for real: the address a browser is opened at, the exchange of the code it brings
+// back with that code's PKCE check, and the refresh grants. What arrives at the launcher's
+// callback is delivered over a real HTTP connection by `browser()` below, so the loopback
+// socket is exercised rather than mocked. Nothing here is asked about the redirect URI in
+// advance, because the launcher makes no such request: measured 2026-10-26, the authority
+// answers a real sign-in page whether or not the redirect URI is on the app.
 //
 // The two behaviours that decide whether the refresh token the launcher hands over is worth
 // anything are modelled exactly:
@@ -27,12 +29,6 @@
 //   'proven'   — the code-exchange answer already carries an Xbox Live audience, so that
 //                exchange is skipped and the Graph leg is the only other grant.
 // The hand-over rules hold in both, which is why both are exercised.
-//
-// `registration` is the one thing about the Azure app registration this fixture can pretend
-// to know: `'registered'` (the default) answers the launcher's probe with the redirect it
-// just asked for; `'unregistered'` answers with the page Microsoft shows instead when the
-// redirect URI is not on the app — the case that has to fail with a sentence naming the URI
-// rather than with a timeout.
 const {createHash}=require('node:crypto');
 const json=(data,status=200)=>({ok:status<400,status,json:async()=>data});
 const claim=claims=>['eyJhbGciOiJub25lIn0',Buffer.from(JSON.stringify(claims)).toString('base64url'),'sig'].join('.');
@@ -46,9 +42,8 @@ const CLIENT_AUDIENCE_TOKEN=jti=>claim({aud:'client-application',jti});
 // the world across two launches of the same install: the token a first launch handed over
 // must still be honoured by the process the second launch talks to. `persist(next)` is
 // called with the new state after every change.
-function createMicrosoft({mode='unproven',registration='registered',uhs='123456789',state=null,persist=null}={}){
+function createMicrosoft({mode='unproven',uhs='123456789',state=null,persist=null}={}){
  if(mode!=='unproven'&&mode!=='proven')throw Error('unknown Microsoft fixture mode: '+mode);
- if(registration!=='registered'&&registration!=='unregistered')throw Error('unknown Microsoft fixture registration: '+registration);
  const live=new Set(state?.live||[]);
  const issued=Array.isArray(state?.issued)?[...state.issued]:[...live];
  let counter=Number(state?.counter||0);
@@ -77,23 +72,6 @@ function createMicrosoft({mode='unproven',registration='registered',uhs='1234567
   const scope=body.get('scope')||'';
   const offline=scope.split(/\s+/).includes('offline_access');
   calls.push({url,grant:body.get('grant_type'),scope,sent:body.get('refresh_token')||null});
-  // Microsoft's authorize page only: Xbox Live's XSTS endpoint ends in /authorize as well.
-  if(url.includes('/oauth2/v2.0/authorize?')){
-   const query=new URL(url).searchParams;
-   const redirectUri=query.get('redirect_uri')||'';
-   // The launcher's registration probe, and the only answer that decides whether it opens a
-   // browser: a redirect back to its own callback proves the address is on the app; a page
-   // instead of a redirect is the app refusing to answer to it at all.
-   if(query.get('prompt')==='none'){
-    if(registration==='unregistered')return {ok:false,status:200,json:async()=>({}),text:async()=>'<html><body>AADSTS50011: The redirect URI specified in the request does not match the redirect URIs configured for the application.</body></html>',headers:{get:()=>null}};
-    const back=redirectUri+'?error=login_required&error_description=AADSTS50058&state='+encodeURIComponent(query.get('state')||'');
-    return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:name=>(String(name).toLowerCase()==='location'?back:null)}};
-   }
-   // The launcher never fetches this itself: the player's browser does, and in a test
-   // `browser()` below is that browser. Reaching here means something requested the page
-   // rather than opening it, which is not a flow this fixture offers.
-   throw Error('the authorize page is opened by a browser, not requested: '+url);
-  }
   if(url.endsWith('/token')){
    if(body.get('grant_type')==='authorization_code'){
     // A fresh sign-in. This is the one place the browser's answer is spent, so it is the one
@@ -122,7 +100,7 @@ function createMicrosoft({mode='unproven',registration='registered',uhs='1234567
   throw Error('unexpected Microsoft fixture request: '+url);
  };
  return {
-  request,calls,uhs,registration,
+  request,calls,uhs,
   // The player's browser, for a test: it reads the address the launcher opened, has Microsoft
   // issue a code for it, and delivers that code to the launcher's own loopback listener over a
   // real HTTP connection — which is the only way a callback can arrive.

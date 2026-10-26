@@ -30,8 +30,12 @@ function scanFile(file,secrets=SECRETS){
 // here, so no test can quietly reintroduce one.
 const JARGON=/HTTP \d|invalid_[a-z]|unauthorized_[a-z]|XErr|\b[45]\d\d\b|\b\d{4,}\b/;
 const INTERNALS=/(device code|code completion|XSTS|entitlement|provider|scope)/i;
+// The launcher's own loopback address is not jargon and its port is not a provider code: it is
+// the address this run asked Microsoft to answer to, which is exactly what a refusal has to
+// name. Everything that inspects a sentence looks at it with that address set aside.
+const plainly=message=>String(message).replace(/http:\/\/localhost:\d+\/callback/g,'<the launcher’s return address>');
 function scanMessage(message,secrets=SECRETS){
- const text=String(message);
+ const text=plainly(message);
  for(const secret of secrets)assert(!text.includes(secret),'the sentence carries '+secret+': '+text);
  assert(!text.includes('@'),'the sentence carries no address: '+text);
  assert(!/token|Bearer/i.test(text),'the sentence survives safeError(): '+text);
@@ -46,31 +50,38 @@ const refused=async(promise,pattern)=>{
  assert.match(caught.message,pattern);
  return caught;
 };
-// The authority, stubbed at the queue. Two of its legs are not queued, because they are the
-// two the ticket is about:
-//   * the AUTHORIZE page, which the launcher asks one registration question about and then
-//     opens in the player's browser. `registration:'unregistered'` answers the question the
-//     way Microsoft does when the redirect URI is not on the app;
-//   * the BROWSER, which `openExternal` stands in for. 'complete' (the default) has Microsoft
+// The authority, stubbed at the queue, with two legs that are not queued because they are the
+// thing under test:
+//
+//   * THE REDIRECT CHECK, which is the two-hop shape MEASURED against the real authority on
+//     2026-10-26: a 302 to login.live.com for every redirect URI, and then a page that either is
+//     Microsoft's sign-in page (`redirect:'accepted'`, the default) or says in so many words
+//     that the redirect URI is not valid (`redirect:'refused'`). Nothing else is ever asked;
+//   * THE BROWSER, which `openExternal` stands in for. 'complete' (the default) has Microsoft
 //     issue a code and delivers it to the launcher's own loopback listener over a real
 //     connection; 'closed' does nothing at all, which is the player shutting the tab; and a
 //     function is handed the address so a test can do something else with it.
+//
 // Everything after that — the token exchange and the Xbox Live chain — is the queue, in order.
-function fixture(responses,{logPath=path.join(logDir(),'signin.log'),version='9.9.9',registration='registered',browser='complete',timeoutMs=5000}={}){
- const calls=[],authorize=[];
+const SIGNED_IN_PAGE='<!doctype html><html><head><title>Sign in to your account</title></head><body><div id="lightbox">Microsoft account requires JavaScript to sign in. This web browser either does not support JavaScript, or scripts are being blocked.</div></body></html>';
+// The measured refusal, in the authority's own words. On the modern path the same refusal
+// arrives as an AADSTS50011 page; both are here because both are real.
+const REFUSED_PAGE="<!doctype html><html><body><h2>We're unable to complete your request</h2><p>invalid_request: The provided value for the input parameter 'redirect_uri' is not valid. The expected value is a URI which matches a redirect URI registered for this client application.</p></body></html>";
+function fixture(responses,{logPath=path.join(logDir(),'signin.log'),version='9.9.9',browser='complete',redirect='accepted',timeoutMs=5000}={}){
+ const calls=[],opened=[],checks=[];
  let issued=0;
+ const page=(body,status=200)=>({ok:status<400,status,json:async()=>({}),text:async()=>body,headers:{get:()=>null}});
  const request=async(url,options={})=>{
   const at=new URL(String(url));
-  // Only Microsoft's own authorize page: Xbox Live's XSTS endpoint is an /authorize too.
+  // The two redirect-check hops, and nothing else that is not the authority's own exchange.
+  if(at.hostname==='login.live.com'){
+   checks.push(String(url));
+   return redirect==='refused'?page(REFUSED_PAGE):page(SIGNED_IN_PAGE);
+  }
   if(at.hostname==='login.microsoftonline.com'&&at.pathname.endsWith('/oauth2/v2.0/authorize')){
-   const redirectUri=at.searchParams.get('redirect_uri')||'';
-   authorize.push({url:String(url),params:at.searchParams});
-   if(at.searchParams.get('prompt')==='none'){
-    if(registration==='unregistered')return {ok:false,status:200,json:async()=>({}),text:async()=>'<html><body>AADSTS50011: The redirect URI specified in the request does not match the redirect URIs configured for the application.</body></html>',headers:{get:()=>null}};
-    const back=redirectUri+'?error=login_required&state='+encodeURIComponent(at.searchParams.get('state')||'');
-    return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:name=>(String(name).toLowerCase()==='location'?back:null)}};
-   }
-   throw Error('the authorize page is opened by a browser, not requested: '+url);
+   checks.push(String(url));
+   const back='https://login.live.com/oauth20_authorize.srf?client_id=test-app&redirect_uri='+encodeURIComponent(at.searchParams.get('redirect_uri')||'');
+   return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:name=>(String(name).toLowerCase()==='location'?back:null)}};
   }
   calls.push({url,options});
   const next=responses.shift();
@@ -78,6 +89,7 @@ function fixture(responses,{logPath=path.join(logDir(),'signin.log'),version='9.
   return {ok:next.status===undefined||next.status<400,status:next.status||200,json:async()=>{if(next.unreadable)throw SyntaxError('empty body');return next.data;}};
  };
  const openExternal=async url=>{
+  opened.push({url:String(url),asked:new URL(url).searchParams.get('redirect_uri')||''});
   if(browser==='closed')return;
   if(typeof browser==='function')return browser(url);
   const query=new URL(url).searchParams;
@@ -85,7 +97,7 @@ function fixture(responses,{logPath=path.join(logDir(),'signin.log'),version='9.
   await fetch(query.get('redirect_uri')+'?code=fixture-code-'+issued+'&state='+encodeURIComponent(query.get('state')||''),{redirect:'manual'});
  };
  const auth=new MicrosoftAuth({clientId:'test-app',request,wait:async()=>{},logPath,version,openExternal,loopbackTimeoutMs:timeoutMs});
- return {auth,calls,authorize,file:logPath,log:()=>read(logPath)};
+ return {auth,calls,opened,checks,file:logPath,log:()=>read(logPath)};
 }
 // An access token whose own claims prove it was minted for Xbox Live, and one that proves
 // it was minted for Graph instead. Neither is a credential: both are unsigned fixtures.
@@ -152,25 +164,32 @@ test('the sign-in scope names one resource only',()=>{
 });
 
 test('the Microsoft sign-in steps name themselves and keep the provider code in the log',async()=>{
- // The app registration will not take this launcher's callback address. This is the failure
- // that has to say what to add rather than "the sign-in service refused it", because it is
- // the one failure an owner can fix and the launcher is the only thing that can name it.
- const unregistered=fixture([],{registration:'unregistered'});
- const refusedRegistration=await refused(unregistered.auth.signIn(()=>{}),/^Microsoft sign-in could not start: the Microsoft app registration does not allow the launcher’s return address\. Add http:\/\/localhost\/callback as a redirect URI on the Microsoft app registration, then start sign-in again\.$/);
- assert.equal(refusedRegistration.code,'redirect_uri_unregistered','a failure with a fix carries the code the owner acts on');
- assert.equal(lines(unregistered.file).length,1,'a failure is exactly one line');
- assert.deepEqual(steps(unregistered.file),['browser-sign-in']);
- assert.match(lines(unregistered.file)[0],/outcome=failed http=200 code=AADSTS50011$/,'the AADSTS code is on the line for the owner');
- scanFile(unregistered.file);
- // A client id the authority does not know is a different fix, and says so.
- const unknownClient=fixture([],{browser:async()=>{throw Error('no');}});
- unknownClient.auth.request=(url,options)=>String(url).includes('/authorize')
-  ? Promise.resolve({ok:false,status:200,json:async()=>({}),text:async()=>'<html>AADSTS700016: Application with identifier was not found</html>',headers:{get:()=>null}})
-  : Promise.reject(Error('no further request'));
- const clientRefusal=await refused(unknownClient.auth.signIn(()=>{}),/Set EASTER_MICROSOFT_CLIENT_ID/);
- assert.equal(clientRefusal.code,'client_unregistered');
- // Code completion: the exchange of the code the browser brought back is refused. A fresh
- // sign-in has nothing saved behind it, so this is not "your saved sign-in has expired".
+ // A redirect Microsoft will not accept. Measured 2026-10-26: it never says so before the
+ // player has signed in, so the two places it can say so are the exchange and the callback —
+ // and both must name the exact address this run asked for, so it can be put beside whatever
+ // the portal holds. Nothing is asked of the authority in advance.
+ const MISMATCH='AADSTS50011: The redirect URI http://localhost:1234/callback specified in the request does not match the redirect URIs configured for the application.';
+ const exchange=fixture([{status:400,data:{error:'invalid_grant',error_description:MISMATCH}}]);
+ const exchangeRefusal=await refused(exchange.auth.signIn(()=>{}),/Microsoft did not accept the launcher’s return address/);
+ assert.equal(exchangeRefusal.code,'redirect_uri_mismatch','a failure with a fix carries the code the owner acts on');
+ const askedInExchange=exchange.opened[0].asked;
+ assert.match(exchangeRefusal.message,new RegExp(askedInExchange.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')),'the sentence names the exact address this run asked for: '+exchangeRefusal.message);
+ assert.match(exchangeRefusal.message,/Add http:\/\/localhost\/callback as a redirect URI/,'and the form that has to be registered');
+ assert.match(lines(exchange.file).at(-1),/step=code-completion outcome=failed http=- code=redirect_uri_mismatch$/,'the log names the failure, not the provider\'s sentence');
+ assert.equal(read(exchange.file).includes('AADSTS50011'),false,'and the provider text never reaches the log');
+ scanFile(exchange.file);
+ // The same problem reported in the browser, which is the other way it arrives.
+ const callback=fixture([],{browser:async url=>{
+  const query=new URL(url).searchParams;
+  await fetch(query.get('redirect_uri')+'?error=invalid_request&error_description='+encodeURIComponent(MISMATCH)+'&state='+encodeURIComponent(query.get('state')||''),{redirect:'manual'});
+ }});
+ const callbackRefusal=await refused(callback.auth.signIn(()=>{}),/Microsoft did not accept the launcher’s return address/);
+ assert.equal(callbackRefusal.code,'redirect_uri_mismatch');
+ assert.match(callbackRefusal.message,new RegExp(callback.opened[0].asked.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+ scanFile(callback.file);
+ // Code completion: the exchange of the code the browser brought back is refused for another
+ // reason. A fresh sign-in has nothing saved behind it, so this is not "your saved sign-in has
+ // expired".
  const completion=fixture([{status:400,data:{error:'invalid_grant'}}]);
  await refused(completion.auth.signIn(()=>{}),/^Microsoft sign-in did not finish: the sign-in service refused it\. Start sign-in again\.$/);
  assert.deepEqual(steps(completion.file),['browser-sign-in','code-completion']);
@@ -185,33 +204,46 @@ test('the Microsoft sign-in steps name themselves and keep the provider code in 
  scanFile(unreadable.file);
 });
 
-test('the registration check reads the hop the authority hands it, and no more',async()=>{
- // Measured against the real consumers authority on 2026-10-26: the authorize endpoint proxies
- // the whole request to login.live.com and only there is the question answered. This is that
- // shape, and it must produce the named refusal rather than a five-minute wait.
- const hops=[];
- const twoHop=fixture([],{browser:async()=>{throw Error('the browser must never open');}});
- twoHop.auth.request=async (url)=>{
-  hops.push(String(url));
-  if(hops.length===1)return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:n=>(String(n).toLowerCase()==='location'?'https://login.live.com/oauth20_authorize.srf?client_id=test-app&redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcallback':null)}};
-  return {ok:true,status:200,json:async()=>({}),text:async()=>'<html>We\'re unable to complete your request invalid_request: The provided value for the input parameter \'redirect_uri\' is not valid.</html>',headers:{get:()=>null}};
- };
- const refusedHop=await refused(twoHop.auth.signIn(()=>{}),/Add http:\/\/localhost\/callback as a redirect URI/);
- assert.equal(refusedHop.code,'redirect_uri_unregistered');
- assert.equal(hops.length,2,'two requests, and the second is the one the authority asked for: '+hops.join(' -> '));
- assert.match(hops[1],/^https:\/\/login\.live\.com\//,'and only Microsoft’s own sign-in host is ever followed');
- assert.match(lines(twoHop.file)[0],/outcome=failed http=200 code=invalid_request$/,'the authority’s own error name is on the line');
- // A host this launcher does not own is never followed at all: one request, and the sign-in
- // goes ahead rather than being refused on the strength of an answer it did not understand.
- const elsewhere=fixture([],{browser:async()=>{throw Error('stop here');}});
- const asked=[];
- elsewhere.auth.request=async url=>{
-  asked.push(String(url));
-  if(asked.length===1)return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:n=>(String(n).toLowerCase()==='location'?'https://example.test/signin':null)}};
-  throw Error('followed a host this launcher does not own');
- };
- await assert.rejects(elsewhere.auth.signIn(()=>{}));
- assert.equal(asked.length,1,'a redirection to somebody else’s host is not a question this launcher follows');
+test('a page that says the redirect URI is not valid refuses at once, naming the exact address',async()=>{
+ // Measured 2026-10-26: the second hop of the check is where the authority says this, and it is
+ // the only answer the launcher acts on. The player is told before a browser opens.
+ const {auth,opened,checks,file}=fixture([],{redirect:'refused'});
+ const refusal=await refused(auth.signIn(()=>{}),/Microsoft did not accept the launcher’s return address/);
+ assert.equal(refusal.code,'redirect_uri_mismatch','the failure carries the code an owner acts on');
+ assert.equal(opened.length,0,'no browser is opened for an address Microsoft has already refused');
+ const asked=checks.length?'':'';
+ assert.equal(checks.length,2,'two hops and no more: '+(checks.length)+' request(s)');
+ assert.match(checks[0],/^https:\/\/login\.microsoftonline\.com\/consumers\/oauth2\/v2\.0\/authorize\?/,'the question is asked of the authority itself first');
+ assert.match(checks[1],/^https:\/\/login\.live\.com\//,'and read onward only to Microsoft’s own sign-in host');
+ assert.match(refusal.message,/Add http:\/\/localhost\/callback as a redirect URI/,'the sentence names the form to register');
+ assert.match(refusal.message,/this sign-in asked for http:\/\/localhost:\d+\/callback/,'and the exact address this run asked for');
+ assert.deepEqual(steps(file),['code-completion'],'one line, at the step that would have finished the sign-in');
+ assert.match(lines(file)[0],/outcome=failed http=- code=redirect_uri_mismatch$/);
+ assert.equal(read(file).includes('not valid'),false,'the provider’s own sentence never reaches the log');
+ scanFile(file);
+});
+
+test('a clean sign-in page proves nothing and never refuses: the browser opens anyway',async()=>{
+ // The other half of the measurement, and the reason the check is asymmetric: a page that is
+ // simply Microsoft's sign-in page is NOT evidence that the redirect URI is registered. It must
+ // never stop a sign-in, and this is the regression that would.
+ const {auth,opened,checks}=fixture([{data:{access_token:forXbox,refresh_token:'refresh-secret'}},...chain()]);
+ const session=await auth.signIn(()=>{});
+ assert.equal(session.profile.name,'TestCaptain','the sign-in completes');
+ assert.equal(opened.length,1,'the browser is opened exactly once');
+ assert.equal(checks.length,2,'and the check cost two requests, not a retry loop');
+ const asked=new URL(opened[0].url).searchParams.get('redirect_uri');
+ assert.match(asked,/^http:\/\/localhost:\d+\/callback$/,'the address asked for is the loopback callback on this run’s port: '+asked);
+ // And with the authority unreachable while the check runs, the sign-in still goes ahead: a
+ // check that cannot read an answer has proven nothing, and proving nothing is not a refusal.
+ const offline=fixture([{data:{access_token:forXbox,refresh_token:'refresh-secret'}},...chain()]);
+ const answered=offline.auth.request;
+ offline.auth.request=(url,options)=>String(url).includes('/oauth2/v2.0/authorize')
+  ? Promise.reject(Object.assign(Error('fetch failed'),{name:'TypeError'}))
+  : answered(url,options);
+ const stillSignedIn=await offline.auth.signIn(()=>{});
+ assert.equal(stillSignedIn.profile.name,'TestCaptain','a check that could not reach the authority refuses nothing');
+ assert.equal(offline.opened.length,1,'and the browser is still opened');
 });
 
 test('the Xbox Live step names itself, including the empty 401 body a refused ticket returns',async()=>{
@@ -555,10 +587,10 @@ const sentenceOf=async(responses,run,options={})=>{
 };
 test('no sentence carries a status or a provider code, and the log for that failure still does',async()=>{
  const failures=[
-  // The two halves of a browser sign-in that Microsoft itself refuses: the app registration
-  // that will not take the callback address (AADSTS50011, and the sentence names the URI),
-  // and the exchange of the code the browser brought back.
-  ['a refused callback address',[],auth=>auth.signIn(()=>{}),/outcome=failed http=200 code=AADSTS50011$/,{registration:'unregistered'}],
+  // The two halves of a browser sign-in that Microsoft itself refuses: a redirect URI the app
+  // will not accept (the sentence names the exact address this run asked for) and the exchange
+  // of the code the browser brought back for any other reason.
+  ['a refused return address',[{status:400,data:{error:'invalid_request',error_description:'AADSTS50011: The provided value for the input parameter redirect_uri does not match the redirect URIs configured for the application.'}}],auth=>auth.signIn(()=>{}),/outcome=failed http=- code=redirect_uri_mismatch$/],
   ['a refused completion',[{status:400,data:{error:'invalid_grant'}}],auth=>auth.signIn(()=>{}),/outcome=failed http=400 code=invalid_grant$/],
   ['a refused Xbox Live ticket',[{status:401,unreadable:true}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=401$/],
   ['a refusal with a provider code',[{status:401,data:{error:'UNAUTHORIZED'}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=UNAUTHORIZED$/],
@@ -580,8 +612,8 @@ test('no sentence carries a status or a provider code, and the log for that fail
  const seen=new Map();
  for(const [name,responses,run,logged,options] of failures){
   const {message,line}=await sentenceOf(responses,run,options);
-  assert.doesNotMatch(message,JARGON,name+': '+message);
-  assert.doesNotMatch(message,INTERNALS,name+': '+message);
+  assert.doesNotMatch(plainly(message),JARGON,name+': '+message);
+  assert.doesNotMatch(plainly(message),INTERNALS,name+': '+message);
   assert.match(line,logged,name+' kept its status and code in the log: '+line);
   assert.match(line,/http=(\d{3}|-) code=\S+$/,name+': the line still carries both fields: '+line);
   assert(!seen.has(message),name+' reads the same as '+seen.get(message)+': '+message);

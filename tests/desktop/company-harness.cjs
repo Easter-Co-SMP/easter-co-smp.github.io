@@ -5,9 +5,10 @@ const json=(data,status=200)=>({ok:status<400,status,json:async()=>data});
 auth.MicrosoftAuth=class extends Original{
  constructor(options){super({...options,request:async url=>{
   const uhs=process.env.EASTER_IDENTITY_FIXTURE_SEED+global.companyUser;
-  // The registration question the launcher asks before it opens a browser, answered the way
-  // Microsoft answers when the redirect URI is on the app.
-  if(url.includes('/oauth2/v2.0/authorize?'))return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:n=>(String(n).toLowerCase()==='location'?new URL(url).searchParams.get('redirect_uri')+'?error=login_required&state='+encodeURIComponent(new URL(url).searchParams.get('state')||''):null)}};
+  // The redirect check (desktop/auth.cjs, checkRedirectAccepted): the measured answer for a
+  // registered loopback address is Microsoft's own sign-in page, which proves nothing and must
+  // never stop a sign-in.
+  if(url.includes('/oauth2/v2.0/authorize?')||String(url).startsWith('https://login.live.com/'))return {ok:true,status:200,json:async()=>({}),text:async()=>'<html>Microsoft account requires JavaScript to sign in.</html>',headers:{get:()=>null}};
   // The access token is derived from the identity, because the backend now stores a
   // Microsoft-verified email as a second login key and the fixture derives that address
   // from this token: one fixed token for every identity would give two synthetic players
