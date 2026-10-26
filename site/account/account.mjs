@@ -53,7 +53,7 @@ const alertBox=document.getElementById('account-error');
 const waitHost=document.getElementById('account-wait');
 const bridge=webAccount;
 // Which whole answer is on screen, so a repaint caused by a busy flag does not rebuild it.
-let shown=null,providerRead=0,options=null;
+let shown=null,shownName=null,providerRead=0,options=null;
 // The page's heading is the dialog's heading: one sentence, written in one file.
 const heading=document.querySelector('.account-heading');
 if(heading)heading.textContent=SIGN_IN_TITLE;
@@ -307,14 +307,22 @@ function stripAddress(){
 // `startupReady:false` is the seam saying a saved session exists that this load cannot paint yet,
 // and it is the one state this page may not turn into a sign-in: see reading(). The region says so
 // with `aria-busy`, the same attribute the nav's control uses for the same fact.
+//
+// A signed-in answer is redrawn when the name it draws changes, because /me reconciles the document
+// this load painted from the tab's storage: a name changed on another surface would otherwise stay
+// the cached one until the next page load. The waiting answers are redrawn only when the state
+// itself changes, so a busy emit never rebuilds a panel someone is typing into.
 function paint(next=bridge.getState()){
  const key=next.account?'in':next.startupReady===false?'waiting':'out';
+ const drawnName=next.account?next.account.name||'':null;
  root.setAttribute('aria-busy',String(key==='waiting'));
- if(key!==shown){
-  if(key==='in')signedIn(next.account);
-  else if(key==='waiting')reading();
-  else if(shown!=='unavailable')signedOut();
- }
+ if(key===shown&&!(key==='in'&&drawnName!==shownName))return;
+ shownName=drawnName;
+ if(next.account){shown='in';signedIn(next.account);return;}
+ if(key==='waiting'){shown='waiting';reading();return;}
+ if(shown==='unavailable')return;
+ shown='out';
+ signedOut();
 }
 
 // The dispatch is last on purpose: every answer this page can draw is declared above it, so the

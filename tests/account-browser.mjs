@@ -39,7 +39,8 @@ const PROVIDER_LABELS=PROVIDER_ORDER.map(providerLabel);
 // The steps whose document loads are counted and printed, in journey order. `before` is what the
 // same step cost on main (f386139), measured with this same counter: the dialog used to send the
 // browser to /account/?provider=microsoft and let that page start the flow, which was one whole
-// document load that answered nothing.
+// document load that answered nothing. `base` names the commit a row's `before` was measured on
+// when it is not f386139, so a number never travels under the wrong commit.
 const BUDGET=[
  {step:'nav Sign in -> dialog',before:1,after:1},
  {step:'dialog start refused by the service',before:1,after:0},
@@ -49,6 +50,12 @@ const BUDGET=[
  {step:'a refused exchange, re-rendered in place',before:1,after:1},
  {step:'a direct username/password sign-in, re-rendered in place',before:null,after:0},
  {step:'a provider sign-in, re-rendered in place',before:0,after:0},
+ // The three cold loads below are paints, not navigations: each is the one document load the page
+ // was reached by, and the account appearing (or a 401 arriving) repaints in place. Measured on
+ // e4c1ade with this same counter: the same one load, in the state that lied.
+ {step:'a cold load with a cached document, /me held',before:1,base:'e4c1ade',after:1},
+ {step:'a cold load with no document, /me held',before:1,base:'e4c1ade',after:1},
+ {step:'a cold load whose /me answers 401',before:1,base:'e4c1ade',after:1},
 ];
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
 let checks=0;
@@ -93,6 +100,10 @@ try{
   // `hold` slows one answer down so the busy state can be read while it is on screen rather than
   // guessed at afterwards.
   let exchange='ok',hold=0,startRefusal=null,password='ok';
+  // The cold-load journeys at the end decide when /me answers and what it says: a hold is a promise
+  // the route waits on, so the window a saved session cannot be painted in is measured on the route
+  // (where the player's 18-22 s Aurora resume is) rather than raced after the load.
+  let meHold=null,meStatus=200;
   page.on('pageerror',error=>errors.push(error.message));
   watcher(page,loads);
   await context.route(API_ORIGIN+'/**',async route=>{
@@ -120,7 +131,11 @@ try{
     if(password==='refused'){status=401;value={error:'invalid_credentials'};}
     else value=signed(ACCOUNT);
    }
-   else if(path==='/v2/accounts/me')value={account:ACCOUNT};
+   else if(path==='/v2/accounts/me'){
+    if(meHold)await meHold;
+    if(meStatus!==200){status=meStatus;value={error:'invalid_session'};}
+    else value={account:ACCOUNT};
+   }
    else if(path==='/v2/accounts/logout')value={};
    else throw Error('Unexpected API request '+path);
    await route.fulfill({status,contentType:'application/json',body:JSON.stringify(value)});
@@ -406,6 +421,157 @@ try{
   const panelBox=await page.locator('#account-panel').evaluate(node=>{const rect=node.getBoundingClientRect();return {width:Math.round(rect.width),height:Math.round(rect.height),right:Math.round(rect.right)};});
   assert(panelBox.right<=width,'the panel stays inside the viewport at '+width+': '+JSON.stringify(panelBox));
 
+  // 16. THE COLD LOAD ON THIS PAGE: which answer its FIRST frame is.
+  //
+  //     The nav stopped lying about a saved session it had not read yet (site/web.js, paintFace and
+  //     paint); this page kept painting its options panel signed-out in the same window, because its
+  //     boot read `if(bridge.getState().account)paint()` and ignored `startupReady`. Reproduced at
+  //     1440 on e4c1ade with /me held on the route: the first painted frame drew the whole options
+  //     panel - Microsoft, Google, Steam, Discord, the username and password fields, Sign in - all of
+  //     them reachable, while the nav beside it was already aria-busy and disabled, and pressing any
+  //     of them was refused by the seam itself.
+  //
+  //     The contract is the nav's now: `startupReady:false` means "a saved session exists and this
+  //     load cannot paint it yet", so the page offers no sign-in, paints the mark the nav paints,
+  //     says aria-busy on its own answer region, adds no spinner (an ordinary cold load is not a
+  //     sign-in in flight), and shows the account the moment the read answers. Each cold load is
+  //     counted: it is a paint, not a navigation, so no repaint here may cost a document load.
+  //
+  //     The no-document journey comes first because it IS the defect: if this page ever offers a
+  //     sign-in it cannot honour again, that is the assertion that has to fail.
+  const SESSION_KEY='easter-company-web-session-v1';
+  const KEPT_TOKEN='fixture-company-session-not-a-real-credential';
+  // One sanitizeAccount accepts, or the cache is no cache at all and this journey would measure the
+  // fallback instead of the fix: `microsoftLinked:true` needs its 64-hex microsoftSubject.
+  const cachedAccount={...ACCOUNT,displayName:'Cached Fixture'};
+  const bootPage=await context.newPage(),bootLoads=[];
+  bootPage.on('pageerror',error=>errors.push(error.message));
+  watcher(bootPage,bootLoads);
+  // Every animation frame's view of the page's answer, from the frame that has one: "what the first
+  // frame says" is measured rather than assumed, and a state that only exists while the read is in
+  // flight is reached by holding the read on the route, never by sleeping after the load.
+  await bootPage.addInitScript(()=>{
+   window.__accountFrames=[];
+   const look=()=>{
+    const panel=document.getElementById('account-panel'),root=document.getElementById('account-root');
+    if(panel&&root&&window.__accountFrames.length<1200){
+     const options=root.querySelector('.company-signin');
+     window.__accountFrames.push({t:Math.round(performance.now()),children:root.childElementCount,
+      identity:(root.querySelector('.account-identity strong')||{}).textContent||null,
+      options:Boolean(options),
+      buttons:options?[...options.querySelectorAll('button')].map(button=>button.textContent.trim()):[],
+      mark:Boolean(root.querySelector('.account-boot-mark')),
+      ariaBusy:root.getAttribute('aria-busy'),dataBusy:panel.dataset.busy,
+      spinner:Boolean(document.querySelector('#account-wait .wait-feedback-mark'))});
+    }
+    requestAnimationFrame(look);
+   };
+   requestAnimationFrame(look);
+  });
+  const bootStep=async(name,run)=>{const before=bootLoads.length;const value=await run();const count=bootLoads.length-before;const urls=bootLoads.slice(before);counted[name]={count,urls};return {count,urls,value};};
+  const bootNoOverflow=async label=>assert.equal(await bootPage.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'horizontal overflow at '+width+' during '+label);
+  // Seed through the tab's own storage before the cold load, and never carry a previous journey's
+  // held read or refusal into the next one.
+  const seedSession=async value=>{
+   meHold=null;meStatus=200;
+   await bootPage.goto(origin);
+   await bootPage.evaluate(([key,stored])=>sessionStorage.setItem(key,JSON.stringify(stored)),[SESSION_KEY,value]);
+  };
+  const coldLoad=async()=>{
+   await bootPage.goto(origin+'/account/',{waitUntil:'commit'});
+   await bootPage.waitForFunction(()=>window.__accountFrames.length>2);
+  };
+  const bootAnswer=()=>bootPage.evaluate(()=>{
+   const root=document.getElementById('account-root'),panel=document.getElementById('account-panel');
+   return {identity:(root.querySelector('.account-identity strong')||{}).textContent||null,
+    options:Boolean(root.querySelector('.company-signin')),mark:Boolean(root.querySelector('.account-boot-mark')),
+    ariaBusy:root.getAttribute('aria-busy'),dataBusy:panel.dataset.busy,
+    heading:Boolean(document.querySelector('.account-heading')?.getClientRects().length)};
+  });
+  const meRequests=()=>calls.filter(call=>call.path==='/v2/accounts/me').length;
+  // An answer the page should arrive at on its own, as a verdict rather than an uncaught timeout: a
+  // regression that never paints it fails on the sentence below, not thirty seconds later.
+  const settlesTo=async name=>{
+   try{await bootPage.waitForFunction(wanted=>document.querySelector('.account-identity strong')?.textContent===wanted,name,{timeout:8000});return await bootAnswer();}
+   catch{return bootAnswer();}
+  };
+
+  // (b) A saved session with NO cached document - the one load after a storage-shape change, and the
+  // window the page used to fill with a sign-in it would refuse: no sign-in offered, nothing painted
+  // as signed-out, and the account appearing when /me answers.
+  await seedSession({token:KEPT_TOKEN,expiresAt:Date.now()+3600000});
+  let releaseWaiting=()=>{};
+  meHold=new Promise(resolve=>{releaseWaiting=resolve;});
+  const loadsBeforeWaitingCold=bootLoads.length;
+  const noDocumentCold=await bootStep('a cold load with no document, /me held',coldLoad);
+  const waitingFrames=await bootPage.evaluate(()=>window.__accountFrames);
+  const waiting=waitingFrames[waitingFrames.length-1];
+  assert(waitingFrames.every(frame=>frame.options===false&&frame.buttons.length===0),'no sign-in is offered for as long as the read is in flight (at '+width+'): '+JSON.stringify(waitingFrames.map(frame=>frame.buttons)));
+  assert.equal(waiting.mark,true,'the page paints the Easter Company mark, as the nav does');
+  assert.equal(waiting.ariaBusy,'true','and its answer region says why it is inert');
+  assert.equal(waiting.spinner,false,'it adds no spinner: an ordinary cold load is not a sign-in in flight');
+  assert.equal(waiting.dataBusy,'false','and the sign-in busy state is not what this is');
+  assert.equal(waiting.identity,null,'nothing is claimed about an account this load has not read');
+  assert.equal((await bootAnswer()).heading,true,'the page still says what it is while it waits');
+  assert.equal(await bootPage.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).count(),0,'a sign-in a click would refuse is never offered');
+  const reachable=await bootPage.locator('#account-root').evaluate(root=>[...root.querySelectorAll('button,input,a[href],[tabindex]')].filter(node=>node.getClientRects().length>0).length);
+  assert.equal(reachable,0,'and nothing inside the answer can be pressed or tabbed to');
+  await bootPage.evaluate(()=>document.getElementById('account-root').click());
+  assert.equal(new URL(bootPage.url()).pathname,'/account/','a click on the waiting page navigates nowhere');
+  await bootNoOverflow('the boot mark');
+  releaseWaiting();meHold=null;
+  const settled=await settlesTo(ACCOUNT.displayName);
+  assert.equal(settled.identity,ACCOUNT.displayName,'the account appears when the read answers');
+  assert.equal(settled.options,false,'and it replaces the mark rather than arriving beside a panel');
+  assert.equal(settled.mark,false,'the boot mark goes with the state it stood for');
+  assert.equal(settled.ariaBusy,'false','the region is no longer waiting');
+  assert.equal(noDocumentCold.count,1,'the cold load is the one document load it arrived on: '+JSON.stringify(noDocumentCold.urls));
+  assert.equal(bootLoads.length-loadsBeforeWaitingCold,1,'and the account appearing cost no navigation: '+JSON.stringify(bootLoads.slice(loadsBeforeWaitingCold)));
+
+  // (a) A saved session WITH its cached document, and /me held: the page is the account on its first
+  // painted frame, offers no sign-in, and reconciles when the read answers.
+  await seedSession({token:KEPT_TOKEN,expiresAt:Date.now()+3600000,account:cachedAccount});
+  let releaseCached=()=>{};
+  meHold=new Promise(resolve=>{releaseCached=resolve;});
+  const readsBeforeCold=meRequests(),loadsBeforeCachedCold=bootLoads.length;
+  const cachedCold=await bootStep('a cold load with a cached document, /me held',coldLoad);
+  const cachedFrames=await bootPage.evaluate(()=>window.__accountFrames);
+  const firstPainted=cachedFrames.find(frame=>frame.children>0);
+  assert.equal(meRequests(),readsBeforeCold+1,'the boot read is in flight, not answered');
+  assert.equal(firstPainted.identity,'Cached Fixture','the first painted frame is the account, never a sign-in (at '+width+')');
+  assert.equal(firstPainted.options,false,'and no sign-in is offered from it');
+  assert.equal(firstPainted.mark,false,'the boot mark is not what a cached document paints');
+  assert.equal(firstPainted.ariaBusy,'false','nothing is being read to paint this');
+  assert(cachedFrames.every(frame=>frame.options===false),'no frame offers a sign-in while the cached account is on screen');
+  assert.equal(await bootPage.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).count(),0,'no sign-in is offered while the account is on screen');
+  await bootPage.locator('.account-identity').waitFor();
+  await bootNoOverflow('the cached-document boot');
+  releaseCached();meHold=null;
+  const reconciled=await settlesTo(ACCOUNT.displayName);
+  assert.equal(reconciled.identity,ACCOUNT.displayName,'and /me reconciles the account when it answers');
+  assert.equal(reconciled.ariaBusy,'false');
+  assert.equal(cachedCold.count,1,'the cold load is the one document load it arrived on: '+JSON.stringify(cachedCold.urls));
+  assert.equal(bootLoads.length-loadsBeforeCachedCold,1,'and the account being painted and reconciled cost no navigation: '+JSON.stringify(bootLoads.slice(loadsBeforeCachedCold)));
+
+  // (c) A 401 from /me signs out: the page returns to the sign-in that is now honest to offer, and
+  // the stored document goes with the token.
+  await seedSession({token:KEPT_TOKEN,expiresAt:Date.now()+3600000,account:cachedAccount});
+  // After the seed, because seeding clears a previous journey's refusal to answer.
+  meStatus=401;
+  const rejectedCold=await bootStep('a cold load whose /me answers 401',async()=>{
+   await coldLoad();
+   await bootPage.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
+  });
+  const rejected=await bootAnswer();
+  assert.equal(rejected.options,true,'a 401 returns the page to its sign-in options');
+  assert.equal(rejected.identity,null,'with no account claimed');
+  assert.equal(rejected.ariaBusy,'false','and nothing left waiting');
+  assert.equal(await bootPage.evaluate(key=>sessionStorage.getItem(key),SESSION_KEY),null,'a 401 drops the cached document with the token');
+  assert.equal(rejectedCold.count,1,'the 401 is answered in place, on the one document load: '+JSON.stringify(rejectedCold.urls));
+  meStatus=200;
+  assert.deepEqual(errors,[]);
+
+
   // The counted table, printed before it is asserted: a change is visible in the log even when
   // nothing fails.
   console.log('document loads at '+width+':');
@@ -414,7 +580,7 @@ try{
    if(!countedRow)continue;
    // `before: null` is a step the page could not do at all on f386139: the direct Company sign-in
    // was the option Owen found missing, so there is no number to compare it with.
-   console.log('  '+row.step+': '+countedRow.count+' ('+(row.before===null?'no such option on f386139':'was '+row.before+' on f386139')+')'+(countedRow.urls.length?' - '+countedRow.urls.map(url=>url.replace(origin,'')).join(' , '):''));
+   console.log('  '+row.step+': '+countedRow.count+' ('+(row.before===null?'no such option on f386139':'was '+row.before+' on '+(row.base||'f386139'))+')'+(countedRow.urls.length?' - '+countedRow.urls.map(url=>url.replace(origin,'')).join(' , '):''));
   }
   for(const row of BUDGET){
    const countedRow=counted[row.step];
