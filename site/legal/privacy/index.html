@@ -25,7 +25,6 @@
       <li><a href="#what-we-collect">What we collect</a></li>
       <li><a href="#your-device">What stays on your own device</a></li>
       <li><a href="#cookies">Cookies, analytics and tracking</a></li>
-      <li><a href="#payments">Paying in the store</a></li>
       <li><a href="#why">Why we use it, and on what legal basis</a></li>
       <li><a href="#providers">Signing in with Microsoft, Google, Steam or Discord</a></li>
       <li><a href="#google">Google user data</a></li>
@@ -109,7 +108,7 @@
       <p>The website and launcher keep the following data on your device:</p>
       <ul>
         <li><strong>Launcher settings</strong> — install location, memory, launch behaviour, graphics choices, and your saved account sessions. Account sessions are stored only in your operating system's encrypted store (Electron <code>safeStorage</code>); if the operating system cannot encrypt them, the launcher refuses to save them rather than writing them in plain text.</li>
-        <li><strong>Website account session</strong> — your session token and expiry are kept in this tab's session storage so sign-in survives navigation and reloads. This is browser storage, not the launcher's operating-system encryption. Signing out removes the stored session. Account profiles and orders are read from the account service and are not saved in browser storage. If session storage is unavailable, navigation may require signing in again.</li>
+        <li><strong>Website account session</strong> — your session token and expiry are kept in this tab's session storage so sign-in survives navigation and reloads. This is browser storage, not the launcher's operating-system encryption. Signing out removes the stored session. Account profiles are read from the account service and are not saved in browser storage. If session storage is unavailable, navigation may require signing in again.</li>
         <li><strong>Website preferences</strong> — the map's layer switches and the launcher progress bar's minimised state, kept in your browser's local storage.</li>
         <li><strong>Your map drawings</strong> — anything you draw on the map is stored in your browser's IndexedDB on your own device. It is never uploaded, never exported and never published.</li>
       </ul>
@@ -118,17 +117,11 @@
 
     <section id="cookies">
       <h2>5. Cookies, analytics and tracking</h2>
-      <p>We set no cookies, and we use no analytics, no advertising identifiers, no fingerprinting and no third-party embeds on this website or in the launcher, with the one exception described below: the payment page you reach only if you choose to buy something in the store. Your browser also keeps the signed-in session described in section 4. It sends that session to our account service when you use account or store features. Settings and drawings stay on your device. Because no cookie or device storage is used for tracking, there is nothing for you to consent to and no cookie banner on this site.</p>
-    </section>
-
-    <section id="payments">
-      <h2>6. Paying in the store</h2>
-      <p>Nothing in the store loads anything from a payment provider until you press Buy. If you do, the website navigates to Stripe Checkout, while the launcher opens a separate payment window. Stripe (Stripe Payments UK Ltd) takes the payment for us. Everything you type on that page — card number, expiry, security code, and any billing details — goes straight to Stripe and never reaches us or the launcher: we do not receive it, store it or see it. Stripe tells us only that a payment succeeded, the amount, the currency and the reference for the purchase.</p>
-      <p>On its own page Stripe uses cookies and similar technology under its own privacy notice, not ours. Opening checkout does not complete a purchase. You can leave without submitting payment. Your order history reports the status recorded by our account service. Stripe’s privacy notice is at <a href="https://stripe.com/privacy">stripe.com/privacy</a>.</p>
+      <p>We set no cookies, and we use no analytics, no advertising identifiers, no fingerprinting and no third-party embeds on this website or in the launcher. Your browser also keeps the signed-in session described in section 4. It sends that session to our account service when you use account features. Settings and drawings stay on your device. Because no cookie or device storage is used for tracking, there is nothing for you to consent to and no cookie banner on this site.</p>
     </section>
 
     <section id="why">
-      <h2>7. Why we use it, and on what legal basis</h2>
+      <h2>6. Why we use it, and on what legal basis</h2>
       <table class="legal-table">
         <caption>Purposes and legal bases under the UK GDPR</caption>
         <thead><tr><th scope="col">What we use</th><th scope="col">Why</th><th scope="col">Legal basis</th></tr></thead>
@@ -145,11 +138,11 @@
     </section>
 
     <section id="providers">
-      <h2>8. Signing in with Microsoft, Google, Steam or Discord</h2>
+      <h2>7. Signing in with Microsoft, Google, Steam or Discord</h2>
       <p>You can sign in with Microsoft/Xbox, Google, Steam or Discord. The identity check happens on our server, not in your launcher.</p>
       <ul>
         <li><strong>Microsoft/Xbox</strong> — we verify your identity and, where Xbox profile access is available, import your Xbox gamertag and gamer picture. Minecraft Java Edition requires a linked Microsoft account with verified Java access; signing in with Google, Steam or Discord alone does not grant Minecraft access.</li>
-        <li><strong>Google</strong> — we request only <code>openid</code>, <code>profile</code> and <code>email</code>. See section 8.</li>
+        <li><strong>Google</strong> — we request only <code>openid</code>, <code>profile</code> and <code>email</code>. See section 7.</li>
         <li><strong>Discord</strong> — we request only <code>identify</code> and <code>email</code>.</li>
         <li><strong>Steam</strong> — we verify your Steam identity through Steam's OpenID endpoint. Public profile metadata is fetched only if it is available; we do not receive your Steam password.</li>
       </ul>
@@ -158,7 +151,7 @@
     </section>
 
     <section id="google">
-      <h2>9. Google user data</h2>
+      <h2>8. Google user data</h2>
       <p>If you choose <strong>Sign in with Google</strong>, we ask Google only for your basic account information:</p>
       <ul>
         <li><strong>openid</strong> — the stable identifier that tells us which Google account this is;</li>
@@ -171,7 +164,7 @@
     </section>
 
     <section id="sharing">
-      <h2>10. Who we share it with</h2>
+      <h2>9. Who we share it with</h2>
       <p>We do not sell personal data, we do not share it for advertising, and we do not sell or share personal information to data brokers. We share data only with the service providers we need to run Easter Co. SMP, and only so far as they need it:</p>
       <table class="legal-table">
         <caption>Service providers and why they see data</caption>
@@ -188,13 +181,13 @@
     </section>
 
     <section id="transfers">
-      <h2>11. Where your data is processed</h2>
+      <h2>10. Where your data is processed</h2>
       <p>Our account service and its database run on Amazon Web Services in the <strong>United States (us-east-2, Ohio)</strong>. GitHub, Microsoft, Mojang, Modrinth, Google, Valve and Discord may process data in other countries under their own safeguards.</p>
       <p>Where personal data leaves the UK, we rely on the safeguards those providers publish for international transfers, including the UK International Data Transfer Addendum and standard contractual clauses. You can ask us for more detail about the safeguard that applies to a particular transfer.</p>
     </section>
 
     <section id="retention">
-      <h2>12. How long we keep it</h2>
+      <h2>11. How long we keep it</h2>
       <table class="legal-table">
         <caption>Retention periods</caption>
         <thead><tr><th scope="col">Data</th><th scope="col">Kept for</th></tr></thead>
@@ -214,7 +207,7 @@
     </section>
 
     <section id="rights">
-      <h2>13. Your rights</h2>
+      <h2>12. Your rights</h2>
       <p>Under the UK GDPR you have the right to:</p>
       <ul>
         <li><strong>be informed</strong> — this policy;</li>
@@ -231,7 +224,7 @@
     </section>
 
     <section id="security">
-      <h2>14. How we protect it</h2>
+      <h2>13. How we protect it</h2>
       <ul>
         <li>Passwords are stored only as salted scrypt verifiers; session tokens only as hashes.</li>
         <li>The Microsoft session we hold is sealed with AES-256-GCM, with the account identifier bound as encryption context and the key held outside the database. Revocation erases it.</li>
@@ -246,19 +239,19 @@
     </section>
 
     <section id="children">
-      <h2>15. Children and age limits</h2>
+      <h2>14. Children and age limits</h2>
       <p>Easter Co. SMP is intended for people aged <strong>13 and over</strong>, which matches the minimum age for a Minecraft account. We do not knowingly collect personal data from anyone under 13. If you are under 13, please do not create an account, sign in or play.</p>
       <p>If you are under 18, you should have a parent or guardian's agreement before creating an account or using the server.</p>
       <p>If you are a parent or guardian and you believe a child under 13 has given us personal data, email <a href="mailto:legal@easter.company">legal@easter.company</a> and we will delete the account and its data.</p>
     </section>
 
     <section id="changes">
-      <h2>16. Changes to this policy</h2>
+      <h2>15. Changes to this policy</h2>
       <p>We may update this policy as the service changes. The "Last updated" date at the top always says which version applies. If a change materially affects what we collect or how we use it, we will announce it on the website and in the launcher before it takes effect, and where the law requires it we will ask for your consent first.</p>
     </section>
 
     <section id="contact">
-      <h2>17. How to contact us</h2>
+      <h2>16. How to contact us</h2>
       <p>Easter LTD — privacy and data protection<br>
       Email: <a href="mailto:contact@easter.company">contact@easter.company</a></p>
       <p>If you are unhappy with our answer you can complain to the <a href="https://ico.org.uk/make-a-complaint/" target="_blank" rel="noopener">Information Commissioner's Office</a>, or to the supervisory authority in the country where you live or work.</p>
