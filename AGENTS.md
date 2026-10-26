@@ -92,9 +92,12 @@ timeout, a 64 KiB body ceiling, schema validation and a 30-minute cache is the s
 (`desktop/discovery.cjs`, `doc/launcher-discovery.md`).
 A launcher release must carry the current site/, because the packaged app bundles site/ into
 its own app.asar; scripts/verify_app_bundle.py gates that before publishing.
-Authentication matches /opt/minecraft/launch/mc-auth.py, including its inherited Prism
-public-client registration. EASTER_MICROSOFT_CLIENT_ID overrides it. Never borrow existing
-users' saved tokens. Save sessions only with OS-backed safeStorage; basic_text is refused.
+Authentication follows the consumers → Xbox Live → XSTS → Minecraft chain that
+/opt/minecraft/launch/mc-auth.py follows, but on Easter Company's own public-client registration
+(personal Microsoft accounts only, `http://localhost/callback` as its redirect URI, no secret in
+the app) rather than that script's inherited one. EASTER_MICROSOFT_CLIENT_ID overrides it. Never
+borrow existing users' saved tokens. Save sessions only with OS-backed safeStorage; basic_text is
+refused.
 Use a dedicated app-owned Minecraft directory as the default, offer the player a different
 installation location, and keep checksum-verified upstream downloads. Never write into an existing
 .minecraft, another launcher's files, the server or the world.
