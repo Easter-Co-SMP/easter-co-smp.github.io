@@ -42,3 +42,25 @@ The background ships as a JPEG at quality 84 rather than the PNG it was generate
 306 KB as a JPEG. `site/styles.css` blurs it 3px at the size the page draws it, and
 through that blur the two files measure 48.8 dB apart — identical to the eye. The
 generated PNG stays in the history (`git log -- site/assets/harbour.*`).
+
+## Illustrated website chapters (2026-10-26)
+
+Four new promotional illustrations accompany the public homepage: a working harbour
+and sailing home, Navy law and bounty hunting, a Nether expedition, and an Ender
+Dragon encounter. Generated with the built-in image tool (`stylized-concept`),
+using the complete prompts preserved in `doc/homepage-art-prompts.json`. Existing
+crest and background artwork are unchanged. The source brief is Owen's gameplay
+dump of 2026-10-26; these images illustrate the experience, not the saved terrain.
+
+Final assets: `site/assets/world-harbour.webp`, `world-law.webp`,
+`world-nether.webp`, and `world-end.webp` (all in `site/assets/`). Each is
+1536 × 1024, encoded as WebP quality 86, metadata stripped, and lazy-loaded with
+reserved dimensions. Total transferred artwork is approximately 1.24 MiB.
+The chapters live inside `.home-below`, which desktop.js removes for the launcher's
+separate home. No launcher version bump is needed for the public homepage change.
+
+Owen's artwork refinements remove all repeated banners and masthead flags from
+the law scene, dress the three Navy officers in British redcoat-like scarlet
+uniforms, and replace the End scene's background island archipelago with one
+continuous main arena and a restrained ring of obsidian pillars. Each edit's
+exact prompt is preserved alongside the original generation brief.

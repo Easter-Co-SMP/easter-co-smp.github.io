@@ -5,7 +5,7 @@
   <meta name="description" content="The Ultimate MC Experience. Rebuilt from Matcha Flavoured: a rich early game, cooking, baking, brewing, tougher survival, and raid boss style challenges. Better together.">
   <meta property="og:title" content="Easter Co. SMP — The Ultimate MC Experience"><meta property="og:description" content="Griefing is encouraged. Justice pays better. Find your crew, cause chaos, or hunt it."><meta property="og:image" content="https://easter-co-smp.github.io/assets/crest.jpg">
   <title>Easter Co. SMP — The Ultimate MC Experience</title><link rel="icon" href="assets/favicon.ico" sizes="16x16 32x32 48x48 64x64 128x128 256x256"><link rel="icon" href="assets/favicon.png" type="image/png" sizes="64x64"><link rel="apple-touch-icon" href="assets/apple-touch-icon.png"><link rel="stylesheet" href="styles.css"><link rel="preload" as="image" href="assets/harbour.jpg">
-<link rel="stylesheet" href="desktop.css"><link rel="stylesheet" href="web.css"></head>
+<link rel="stylesheet" href="world-journal.css"><link rel="stylesheet" href="desktop.css"><link rel="stylesheet" href="web.css"></head>
 <body class="home">
   <header class="site-header"><a class="site-wordmark" href="./" aria-label="Easter Co. SMP home"><img class="wordmark-mark" src="assets/ec-logo.svg" alt="" width="26" height="26" decoding="async">Easter Co.<span>SMP</span></a><nav aria-label="Main navigation"><a href="./" aria-current="page">Home</a><button type="button" popovertarget="launcher-downloads">Download <svg class="download-chevron-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><a href="./map/">Map</a><a href="./wiki/">Wiki</a><a class="store-entry" href="./store/">Store</a></nav></header>
   <div class="arrival-mist" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -25,21 +25,36 @@
         <p class="map-caption">Custom Easter Company launcher &amp; Minecraft client.</p>
       </div>
     </div>
-    <div class="home-below">
-      <div class="home-description"><p>Built on <a href="https://modrinth.com/datapack/matcha-flavoured" target="_blank" rel="noopener">Matcha Flavoured</a> with custom ships, navy patrols and a bounty system. Survival gets harder as you progress, with bosses designed for groups.</p><p>Cooking, baking and brewing give you ways to contribute from the start. Gather supplies, prepare food and potions, or join a crew for harder encounters.</p><strong class="crew-tagline">Play casually, build a crew, or take on the raids.</strong></div>
-      <div class="home-aside"><div class="raid-note"><p class="eyebrow">The endgame</p><div class="raid-count">20+ <span>players</span></div><p>Weekly Ender Dragon raids.<br>Group encounters for coordinated crews.</p><p>Defeat bosses for world buffs. Bosses respawn or reset each week, ready for another run.</p></div><div class="home-actions">
-        <a class="wiki-link" href="wiki/"><span>Easter Co. SMP Wiki</span><span aria-hidden="true">↗</span></a>
-      </div></div>
+    <div class="home-below world-journal">
+      <header class="journal-heading">
+        <p class="eyebrow">Life beyond the shoreline</p>
+        <h2>A place to start.<br><em>A world to make your own.</em></h2>
+        <p>Find your feet in a bustling port. Take your home to sea. Build a reputation worth defending—or a bounty worth chasing.</p>
+        <nav class="journal-nav" aria-label="Explore server life"><a href="#sailing">The Overworld</a><a href="#law">Law &amp; anarchy</a><a href="#nether">The Nether</a><a href="#end">The End</a></nav>
+      </header>
+
+      <section class="journal-chapter sailing-chapter" id="sailing" aria-labelledby="sailing-title">
+        <figure class="chapter-art"><img src="assets/world-harbour.webp" width="1536" height="1024" alt="A great wooden sailing ship and a smaller cargo boat in a warm, bustling block-built harbour" loading="lazy" decoding="async"><figcaption>01 / The Overworld <span>Make yourself at home.</span></figcaption></figure>
+        <div class="chapter-copy"><p class="eyebrow">A small boat. A bigger horizon.</p><h2 id="sailing-title">Your next home<br><em>could have sails.</em></h2><p>Continents, islands, inland seas and sprawling oceans give every voyage somewhere to go. Sail improved small boats, carry more in a cargo boat, or bring a crew of ten or more aboard a massive warship or floating home.</p>
+        <div class="chapter-pair"><div><h3>Start in good company.</h3><p>Spawn Island is your first port: shops, bankers, priests and naval officers, with a player hub for trading and meeting a crew. Players without wanted status enjoy PvP protection at spawn. Nearby land stays protected from building and mining, but PvP protection ends when you leave the spawn area.</p></div><div><h3>Every crew needs more than swords.</h3><p>Cook, bake, brew or gather supplies. New players can make themselves useful from day one, while veterans prepare for harder journeys. There is room to settle in and play casually, too.</p></div></div>
+        <a class="journal-link" href="map/">Chart your next voyage <span aria-hidden="true">↗</span></a></div>
+      </section>
+
+      <section class="journal-chapter law-chapter" id="law" aria-labelledby="law-title">
+        <div class="law-visual"><figure class="chapter-art"><img src="assets/world-law.webp" width="1536" height="1024" alt="Navy officers confront a pirate at a lantern-lit quay while a bounty hunter watches from the shadows" loading="lazy" decoding="async"><figcaption>02 / Law &amp; anarchy <span>Your reputation travels.</span></figcaption></figure>
+        <div class="law-intro"><p class="eyebrow">Almost anarchy. Real consequences.</p><h2 id="law-title">Fly your colours.<br><em>Answer for your choices.</em></h2></div></div><div class="chapter-copy"><p>Griefing is allowed. In Navy-controlled regions, the law answers back: theft, murder, griefing, TNT and opening Nether portals bring bounties. Beyond the Navy’s reach, the wild lands are pure anarchy. Check faction influence on the website or launcher map before choosing where to settle.</p>
+        <dl class="journal-roles"><div><dt>Navy Conscript</dt><dd>Spread the Empire’s influence. Bring order and stability to the world.</dd></div><div><dt>Pirate Raider</dt><dd>Make your bounty your score. Build a notorious crew and a name worth fearing.</dd></div><div><dt>Bounty Hunter</dt><dd>Track down wanted players. Any passing stranger could be after the reward on your head.</dd></div></dl>
+        <details class="crime-details"><summary>What does a life of crime cost?</summary><div><p>A crime marks you as a criminal for a time. You lose clean-record daily pay and Navy protection, and shopkeepers usually refuse to trade. A high enough bounty makes you a pirate.</p><p>Die with a bounty and your wallet pays it first. Anything you cannot cover becomes debt, repaid through time spent logged in inside prison. Your bank cannot bail you out from a cell—but friends can pay at the prison to get you released.</p></div></details></div>
+      </section>
+
+      <div class="expedition-heading"><p class="eyebrow">Pack supplies. Bring friends.</p><h2>Further from home.<br><em>Closer to the edge.</em></h2><p>The next dimensions turn survival into a group expedition. Food, potions and a crew you trust matter more than ever.</p></div>
+      <div class="expedition-grid">
+        <section class="expedition" id="nether" aria-labelledby="nether-title"><figure class="chapter-art"><img src="assets/world-nether.webp" width="1536" height="1024" alt="A small party crosses a basalt bridge over a vast lava sea in the Nether" loading="lazy" decoding="async"><figcaption>03 / The Nether <span>Go prepared.</span></figcaption></figure><div class="chapter-copy"><p class="eyebrow">An expedition into the fire</p><h2 id="nether-title">Hell wants<br><em>the whole party.</em></h2><dl class="encounter-stats"><div><dt>4×</dt><dd>enemy health</dd></div><div><dt>Up to 5×</dt><dd>enemy damage</dd></div></dl><p>The Nether is built for a raid, not a quick supply run. Travel with friends and prepare for enemies that hit far harder and survive far longer.</p><p class="chapter-warning">Opening a Nether portal is a crime in Navy-controlled regions. Travel beyond their reach before you light one.</p><a class="journal-link" href="wiki/#/law-and-bounties">Know the law <span aria-hidden="true">↗</span></a></div></section>
+        <section class="expedition" id="end" aria-labelledby="end-title"><figure class="chapter-art"><img src="assets/world-end.webp" width="1536" height="1024" alt="A coordinated party faces an enormous Ender Dragon above obsidian pillars in a violet-lit void" loading="lazy" decoding="async"><figcaption>04 / The End <span>Win a quieter world.</span></figcaption></figure><div class="chapter-copy"><p class="eyebrow">One dragon. A world at stake.</p><h2 id="end-title">End its reign.<br><em>Change everyone’s week.</em></h2><dl class="encounter-stats"><div><dt>8×</dt><dd>Dragon health</dd></div><div><dt>10+</dt><dd>players recommended</dd></div></dl><p>A tougher Ender Dragon with a more complex attack pattern awaits. Bring at least three very strong players, or a recommended ten or more for an average group.</p><p>Defeat it and hostile surface mob spawning in the Overworld stops until the next reset. The End regenerates with a new seed each week, opening another chance at its treasures.</p><p class="chapter-warning">Weekly reset: Wednesday, around 04:00 EST.</p></div></section>
+      </div>
+      <div class="journal-close"><div><p class="eyebrow">Learn the ropes</p><h2>Your first voyage starts here.</h2><p>Explore the rules, ships and survival guides in the shared wiki.</p></div><a class="journal-link" href="wiki/">Open the Wiki <span aria-hidden="true">↗</span></a></div>
+      <p class="journal-credit">Built on <a href="https://modrinth.com/datapack/matcha-flavoured" target="_blank" rel="noopener">Matcha Flavoured</a>, with custom Easter Co. ships, patrols and bounties. Artwork illustrates the experience; explore the actual world on the <a href="map/">map</a>.</p>
     </div>
-    <section class="home-story" aria-labelledby="story-title">
-      <div class="story-intro"><p class="eyebrow">Law, order &amp; a little anarchy</p><h2 id="story-title">Griefing is encouraged.<br><em>Justice pays better.</em></h2><p>Griefing is allowed. In Navy-controlled regions, crimes bring bounties and patrols. Sail as a pirate, serve in the Navy, or collect bounties as a hunter.</p></div>
-      <dl class="player-paths">
-        <div><dt><span class="path-dot navy"></span>Navy Conscript</dt><dd>Spread the Empire’s influence. Bring order and stability to the world.</dd></div>
-        <div><dt><span class="path-dot pirate"></span>Pirate Raider</dt><dd>Join a notorious crew, sail the high seas, and make a name worth fearing.</dd></div>
-        <div><dt><span class="path-dot hunter"></span>Bounty Hunter</dt><dd>Go it alone. Track down those very pirates—and make justice your business.</dd></div>
-      </dl>
-    </section>
-    <div class="home-notes"><span>All skill levels</span><i aria-hidden="true"></i><span>Navy, piracy &amp; bounties</span><i aria-hidden="true"></i><span id="home-world-date">Daily world snapshots</span></div>
   </main>
   <footer class="home-footer"><span>© <span id="copyright-year">2026</span> Easter LTD</span><span class="legal-links"><a href="legal/privacy/">Privacy</a><span aria-hidden="true">·</span><a href="legal/terms/">Terms</a></span><span>Numquam Succumbe</span></footer>
   <script src="home.js" defer></script>
