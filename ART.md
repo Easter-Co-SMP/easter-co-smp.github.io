@@ -64,3 +64,13 @@ the law scene, dress the three Navy officers in British redcoat-like scarlet
 uniforms, and replace the End scene's background island archipelago with one
 continuous main arena and a restrained ring of obsidian pillars. Each edit's
 exact prompt is preserved alongside the original generation brief.
+
+## Crafting and personal survival chapters
+
+Two additional illustrations use the built-in image tool, stylized-concept mode.
+`site/assets/world-crafting.webp` depicts a small coastal workshop and the gradual
+move from kiln to metalworking. `site/assets/world-survival.webp` shows companions
+sharing food and maintaining equipment at camp. Both preserve full 1536 × 1024
+compositions, use quality-86 WebP and lazy loading, and avoid banners and repetitive
+scenery. Exact briefs are in `doc/crafting-survival-art-prompts.json`. These are
+promotional illustrations, not screenshots or exact workstation models.
