@@ -185,6 +185,35 @@ test('the Microsoft sign-in steps name themselves and keep the provider code in 
  scanFile(unreadable.file);
 });
 
+test('the registration check reads the hop the authority hands it, and no more',async()=>{
+ // Measured against the real consumers authority on 2026-10-26: the authorize endpoint proxies
+ // the whole request to login.live.com and only there is the question answered. This is that
+ // shape, and it must produce the named refusal rather than a five-minute wait.
+ const hops=[];
+ const twoHop=fixture([],{browser:async()=>{throw Error('the browser must never open');}});
+ twoHop.auth.request=async (url)=>{
+  hops.push(String(url));
+  if(hops.length===1)return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:n=>(String(n).toLowerCase()==='location'?'https://login.live.com/oauth20_authorize.srf?client_id=test-app&redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fcallback':null)}};
+  return {ok:true,status:200,json:async()=>({}),text:async()=>'<html>We\'re unable to complete your request invalid_request: The provided value for the input parameter \'redirect_uri\' is not valid.</html>',headers:{get:()=>null}};
+ };
+ const refusedHop=await refused(twoHop.auth.signIn(()=>{}),/Add http:\/\/localhost\/callback as a redirect URI/);
+ assert.equal(refusedHop.code,'redirect_uri_unregistered');
+ assert.equal(hops.length,2,'two requests, and the second is the one the authority asked for: '+hops.join(' -> '));
+ assert.match(hops[1],/^https:\/\/login\.live\.com\//,'and only Microsoft’s own sign-in host is ever followed');
+ assert.match(lines(twoHop.file)[0],/outcome=failed http=200 code=invalid_request$/,'the authority’s own error name is on the line');
+ // A host this launcher does not own is never followed at all: one request, and the sign-in
+ // goes ahead rather than being refused on the strength of an answer it did not understand.
+ const elsewhere=fixture([],{browser:async()=>{throw Error('stop here');}});
+ const asked=[];
+ elsewhere.auth.request=async url=>{
+  asked.push(String(url));
+  if(asked.length===1)return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:n=>(String(n).toLowerCase()==='location'?'https://example.test/signin':null)}};
+  throw Error('followed a host this launcher does not own');
+ };
+ await assert.rejects(elsewhere.auth.signIn(()=>{}));
+ assert.equal(asked.length,1,'a redirection to somebody else’s host is not a question this launcher follows');
+});
+
 test('the Xbox Live step names itself, including the empty 401 body a refused ticket returns',async()=>{
  const {auth,file}=fixture([{status:401,unreadable:true}]);
  await refused(auth.exchange({access_token:forXbox}),/^Xbox Live did not accept the Microsoft sign-in: the sign-in service refused it without saying why\. Try again\.$/);
