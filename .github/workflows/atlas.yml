@@ -12,21 +12,22 @@ name: Atlas pipeline
 #
 # The pipeline code lives in scripts/atlas and is documented in doc/atlas-pipeline.md.
 on:
-  # THE HOURLY SCHEDULE IS OFF until the AWS half can publish anything. Measured 2026-10-26:
-  # every tick failed, and not because of this repository — `publish/latest.json` has never
-  # existed, because the bucket is empty, because the AWS half has never run. Two causes, both
-  # outside this repo: its `easter-atlas-hourly` EventBridge rule is DISABLED while the stack
-  # that declares it says enabled (disabled out of band 2026-10-22), and the host facts it was
-  # configured with describe Easter-Server, the machine the map used to be rendered on
-  # (`/opt/minecraft/...`, `minecraft.service`), not the production host
-  # (`/root/easter-host-runtime/doc/RUNTIME.md`: `easter-minecraft.service`,
-  # `/srv/easter/runtime/server`). A schedule pointed at a pipeline that cannot publish is a
-  # red tick every hour that says nothing new.
-  #
-  # RESTORE THE SCHEDULE, as the line below, in the same commit that proves a published bundle:
-  #     - cron: '17 * * * *'
-  # at a minute that is not :00, the busiest minute on GitHub's scheduler; the AWS half decides
-  # whether a capture is needed, so most runs find the pointer unchanged and commit nothing.
+  schedule:
+    # Hourly, at a minute that is not :00: the busiest minute on GitHub's scheduler. The AWS
+    # half decides whether a capture is needed; this run usually finds the pointer unchanged.
+    #
+    # It was OFF between 2026-10-26 and the publication that followed the same evening, on
+    # purpose: the AWS half had never run, so `publish/latest.json` did not exist and every tick
+    # failed the same way. Two things were wrong there and neither was in this repository - its
+    # EventBridge rule was disabled out of band, and its host facts described Easter-Server
+    # rather than the production host - and the first successful bundle (68 tiles, capture
+    # 2026-10-26T21:04:04Z, committed as 5a787eb) is what earned this line back.
+    #
+    # A missing bundle is no longer an error here: S3 answers 404 NoSuchKey for a key that does
+    # not exist, which is "nothing published yet" and exits 0 saying so. That distinction is a
+    # grant, not a guess - `CloudFrontTellsAnAbsentBundleFromADeniedOne` in the map stack - and
+    # before it, "nothing yet" and "this distribution may not read the bucket" were both 403.
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       dry_run:

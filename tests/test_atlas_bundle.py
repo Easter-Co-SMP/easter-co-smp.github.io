@@ -164,7 +164,10 @@ class BundleTests(unittest.TestCase):
         summary = cli.run(settings, api=github, log=self.logs.append, fetcher=fetch)
         reuse = [line for line in self.logs if "nothing to publish" in line]
         self.assertEqual(len(reuse), 1, f"expected exactly one reuse line, got {self.logs}")
-        self.assertIn("snapshot_day 2026-10-19", reuse[0])
+        # The line names both days: the one the site already serves, and the bundle's.
+        self.assertIn("2026-10-19", reuse[0])
+        published = json.loads((self.repo / "site/data/world.json").read_text())["snapshot_day"]
+        self.assertIn(f"snapshot_day {published}", reuse[0])
         self.assertEqual(github.commits, [], "the reuse path committed something")
         self.assertEqual((self.repo / "site/data/world.json").read_bytes(), before)
         self.assertEqual(summary.map_action, "reused")
@@ -327,3 +330,75 @@ class BundleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAnAbsentBundleIsNotAFailure(unittest.TestCase):
+    """2026-10-26: an empty bucket reported as a broken endpoint, hourly, for hours.
+
+    The two answers are distinguishable because the map stack grants the distribution
+    `s3:ListBucket` on `publish/*`, so a key that does not exist answers 404 NoSuchKey rather
+    than 403 AccessDenied (measured through the live distribution: 403 before the grant, 404
+    after). These tests pin both halves, because a workflow that fails on the absence of a
+    bundle trains everyone to ignore it - and one that treats a 403 as absence would hide a
+    broken grant forever.
+    """
+
+    def setUp(self):
+        temporary = tempfile.mkdtemp(prefix="atlas-site-absent-")
+        self.addCleanup(shutil.rmtree, temporary, True)
+        self.root = Path(temporary)
+        self.repo = self.root / "repo"
+        (self.repo / "site").mkdir(parents=True)
+        shutil.copytree(site_data() / "data", self.repo / "site/data")
+        shutil.copytree(site_data() / "downloads", self.repo / "site/downloads")
+        self.logs = []
+
+    def _server_answering(self, status):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802 - the base class's name
+                self.send_response(status)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *_args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return f"http://127.0.0.1:{server.server_port}/publish/latest.json"
+
+    def _settings(self, url):
+        return Settings(publish_url=url, repository="owner/repo", github_token="test-token",
+                        repo_root=self.repo, timeout_seconds=20)
+
+    def test_a_404_is_nothing_published_yet_and_not_a_fetch_failure(self):
+        settings = self._settings(self._server_answering(404))
+        with self.assertRaises(bundle.NothingPublishedYet):
+            bundle.read(settings, log=self.logs.append)
+
+    def test_a_403_is_still_a_failure(self):
+        settings = self._settings(self._server_answering(403))
+        with self.assertRaises(bundle.BundleError) as caught:
+            bundle.read(settings, log=self.logs.append)
+        error = caught.exception
+        self.assertNotIsInstance(error, bundle.NothingPublishedYet)
+        self.assertIn("403", str(error))
+
+    def test_the_run_says_nothing_to_do_and_records_no_failure(self):
+        settings = self._settings(self._server_answering(404))
+        summary = cli.run(settings, log=self.logs.append)
+        self.assertEqual(summary.failures, [])
+        self.assertFalse(summary.fetched)
+        self.assertEqual(summary.map_action, "")
+        self.assertEqual(summary.client_action, "")
+        self.assertTrue(any("no bundle has been published yet" in line for line in self.logs),
+                        self.logs)
+
+    def test_nothing_is_committed_and_the_tree_is_untouched(self):
+        settings = self._settings(self._server_answering(404))
+        before = (self.repo / "site/data/world.json").read_bytes()
+        summary = cli.run(settings, log=self.logs.append)
+        self.assertEqual((summary.map_action, summary.client_action), ("", ""))
+        self.assertEqual((self.repo / "site/data/world.json").read_bytes(), before)

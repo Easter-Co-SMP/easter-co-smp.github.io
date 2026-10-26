@@ -36,6 +36,18 @@ class BundleError(RuntimeError):
     """The bundle cannot be fetched or trusted; nothing is committed."""
 
 
+class NothingPublishedYet(BundleError):
+    """The bucket holds no `publish/latest.json` at all: a first run, not a failure.
+
+    An absent key is only distinguishable from a denied one because S3 is allowed to say so:
+    `CloudFrontTellsAnAbsentBundleFromADeniedOne` in the map stack grants the distribution
+    `s3:ListBucket` on `publish/*`, which is what turns "no such key" into a 404 instead of a
+    403. Measured 2026-10-26: before that grant this workflow spent hours reporting a broken
+    endpoint, every hour, while the bucket was simply empty. A 403 is still a failure, and so
+    is every other answer: this class exists for 404 only.
+    """
+
+
 @dataclass
 class MapHalf:
     document: dict          # the world document, as published
@@ -85,6 +97,12 @@ def _get(url, timeout, limit=64 * 1024 * 1024):
                     raise BundleError(f"{url} is larger than {limit} bytes; refusing it")
                 chunks.append(block)
     except urllib.error.HTTPError as error:
+        if error.code == 404:
+            # The error holds a socket until it is closed, and this one is an answer, not a
+            # fault to carry a traceback from: the message already says which URL and status.
+            error.close()
+            raise NothingPublishedYet(f"GET {url} -> HTTP 404: no bundle has been published "
+                                      "yet") from error
         raise BundleError(f"GET {url} -> HTTP {error.code}") from error
     except urllib.error.URLError as error:
         raise BundleError(f"GET {url} -> {error.reason}") from error

@@ -56,6 +56,11 @@ def run(settings, *, api=None, log=print, halves=("client", "map"), dry_run=Fals
     fetcher = fetcher or bundle.read
     try:
         fetched = fetcher(settings, log=log)
+    except bundle.NothingPublishedYet as error:
+        # Not a failure: the pipeline has not published anything yet. Said in one line, with
+        # nothing committed and nothing recorded as broken.
+        log(f"atlas: nothing to do -- no bundle has been published yet ({error})")
+        return summary
     except bundle.BundleError as error:
         summary.failures.append(f"fetch: {error}")
         log(f"atlas: FAILED to fetch the bundle: {error}")
