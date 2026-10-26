@@ -47,6 +47,7 @@ const BUDGET=[
  {step:'Microsoft -> /account/ callback with a code',before:1,after:1},
  {step:'/account/ "Sign in with Microsoft" -> Microsoft',before:1,after:1},
  {step:'a refused exchange, re-rendered in place',before:1,after:1},
+ {step:'a direct username/password sign-in, re-rendered in place',before:null,after:0},
  {step:'a provider sign-in, re-rendered in place',before:0,after:0},
 ];
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
@@ -91,7 +92,7 @@ try{
   // start says, so one journey can be signed in, refused and replayed without a second server.
   // `hold` slows one answer down so the busy state can be read while it is on screen rather than
   // guessed at afterwards.
-  let exchange='ok',hold=0,startRefusal=null;
+  let exchange='ok',hold=0,startRefusal=null,password='ok';
   page.on('pageerror',error=>errors.push(error.message));
   watcher(page,loads);
   await context.route(API_ORIGIN+'/**',async route=>{
@@ -112,6 +113,13 @@ try{
    else if(path==='/v2/accounts/providers')value={providers:['microsoft','steam','google']};
    else if(path==='/v2/accounts/providers/start')value={flow:'f'.repeat(43),url:'https://steamcommunity.com/openid/login?fixture=1',expiresIn:600};
    else if(path==='/v2/accounts/providers/finish')value=signed(ACCOUNT);
+   else if(path==='/v2/accounts/password/login'){
+    // The direct Company sign-in this page shares with the dialog. The refusal is the service's
+    // own 401, which the seam turns into its own sentence; this suite asserts the page shows it
+    // rather than pinning the words, which belong to site/account-client.mjs.
+    if(password==='refused'){status=401;value={error:'invalid_credentials'};}
+    else value=signed(ACCOUNT);
+   }
    else if(path==='/v2/accounts/me')value={account:ACCOUNT};
    else if(path==='/v2/accounts/logout')value={};
    else throw Error('Unexpected API request '+path);
@@ -267,7 +275,34 @@ try{
   await page.getByRole('button',{name:'Sign out',exact:true}).click();
   await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
 
-  // 8. A cancelled sign-in is the authority's own shape: error plus description, no code, and no
+  // 8. The direct Company sign-in, on this page: the option Owen found missing. It is the same
+  //    form the dialog draws, it runs in place - no document load at all - and it is a busy state
+  //    while it runs. A refusal ends on this page with the password field cleared.
+  await page.locator('#account-root input[name=identifier]').fill('fixture_player');
+  await page.locator('#account-root input[name=password]').fill('fixture-passphrase');
+  hold=400;
+  const direct=await step('a direct username/password sign-in, re-rendered in place',async()=>{
+   await page.locator('#account-root button[type=submit]').click();
+   await assertBusy(page,{width,label:'the direct sign-in',sentence:BUSY_SIGN_IN});
+   await page.locator('.account-identity').waitFor();
+  });
+  assert.equal(direct.count,0,'the direct sign-in costs no document load: '+JSON.stringify(direct.urls));
+  assert.match(await page.locator('.account-identity').innerText(),/^Signed in as/);
+  hold=0;
+  await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
+  password='refused';
+  await page.locator('#account-root input[name=identifier]').fill('fixture_player');
+  await page.locator('#account-root input[name=password]').fill('not-the-passphrase');
+  await page.locator('#account-root button[type=submit]').click();
+  await page.locator('.account-error').waitFor();
+  assert.equal(await page.locator('#account-panel').getAttribute('data-busy'),'false','a refusal is not a busy state');
+  assert.equal(await page.locator('#account-root input[name=password]').inputValue(),'','the password is not left on screen after a refusal');
+  assert.equal(await page.locator('#account-root input[name=identifier]').inputValue(),'fixture_player','and what was typed as the identifier is kept');
+  assert.equal(await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).isVisible(),true,'the options are drawn beside the refusal');
+  password='ok';
+
+  // 9. A cancelled sign-in is the authority's own shape: error plus description, no code, and no
   //    exchange is attempted. Nothing was in flight, so the options are readable beside it.
   const before=exchangeCalls().length;
   await page.goto(origin+'/account/?error=access_denied&error_description='+encodeURIComponent('AADSTS50011: the player cancelled the sign-in.'));
@@ -336,7 +371,7 @@ try{
 
   // 14. Nothing on this path may ask for a Minecraft session, and no Microsoft token is stored.
   const routes=new Set(calls.map(call=>call.path));
-  for(const path of routes)assert(['/v2/oauth/microsoft/start','/v2/oauth/microsoft/exchange','/v2/accounts/providers','/v2/accounts/providers/start','/v2/accounts/providers/finish','/v2/accounts/me','/v2/accounts/logout'].includes(path),'unexpected API route '+path);
+  for(const path of routes)assert(['/v2/oauth/microsoft/start','/v2/oauth/microsoft/exchange','/v2/accounts/providers','/v2/accounts/providers/start','/v2/accounts/providers/finish','/v2/accounts/password/login','/v2/accounts/me','/v2/accounts/logout'].includes(path),'unexpected API route '+path);
   // What the tab keeps is one Company session - a token and an expiry - and nothing else: no
   // Microsoft token, no subject, no callback code, and not the account document.
   const stored=await page.evaluate(()=>Object.entries({...sessionStorage}));
@@ -350,7 +385,14 @@ try{
   // 15. The three widths keep their layout: nothing overflows, and every option keeps a
   //     thumb-sized target. Measured rather than looked at, because these are numbers a reviewer
   //     can re-run.
+  // The signed-out page is what these three widths are about, and it is asked for explicitly: a
+  // saved session is restored by the seam a moment after the first paint, so a check that raced
+  // that could measure either answer.
+  await page.evaluate(()=>sessionStorage.clear());
   await page.goto(origin+'/account/');
+  await page.locator('#account-root .company-signin').waitFor();
+  await page.waitForFunction(()=>document.getElementById('account-panel')?.dataset.busy==='false');
+  assert.equal(await page.locator('.account-identity').count(),0,'the signed-out options are what these widths measure');
   await page.getByRole('button',{name:'Sign in with Steam',exact:true}).waitFor();
   await noOverflow('the final sign-in choices');
   const controlHeights=await page.locator('#account-root .company-signin button, #account-root .company-signin input').evaluateAll(nodes=>nodes.map(node=>({label:(node.textContent||node.name||'').trim(),height:Math.round(node.getBoundingClientRect().height)})));
@@ -364,7 +406,9 @@ try{
   for(const row of BUDGET){
    const countedRow=counted[row.step];
    if(!countedRow)continue;
-   console.log('  '+row.step+': '+countedRow.count+' (was '+row.before+' on f386139)'+(countedRow.urls.length?' - '+countedRow.urls.map(url=>url.replace(origin,'')).join(' , '):''));
+   // `before: null` is a step the page could not do at all on f386139: the direct Company sign-in
+   // was the option Owen found missing, so there is no number to compare it with.
+   console.log('  '+row.step+': '+countedRow.count+' ('+(row.before===null?'no such option on f386139':'was '+row.before+' on f386139')+')'+(countedRow.urls.length?' - '+countedRow.urls.map(url=>url.replace(origin,'')).join(' , '):''));
   }
   for(const row of BUDGET){
    const countedRow=counted[row.step];
