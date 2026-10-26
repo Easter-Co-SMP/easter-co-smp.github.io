@@ -103,6 +103,19 @@ Existing store-browser.mjs retains the launcher flows and now expects the public
 store route instead of the superseded browser redirect. Independent frontend review
 is required before production, in addition to these checks.
 
+The same journey drives the account control's face in every state that matters -
+signed out, signing in, signed in with a picture, signed in with none, and a
+picture the browser cannot decode - and asserts the control measures the same
+before and after the avatar paints, that the nav stays one row, and that the
+account is still the control's accessible name. The face follows the launcher's
+precedence (site/desktop.js, "The player's face") with one step missing on
+purpose: the Minecraft head by `minecraftUuid` is unreachable from a page,
+because sessionserver.mojang.com answers without Access-Control-Allow-Origin and
+a page's fetch of it fails before any JSON exists. Reaching it needs a field in
+the account document or a CORS-enabled route; it is not a job for a new
+third-party image host. Until then the tile is the avatar for an account with no
+picture, which is also what the wipe in doc/FRESH_SLATE.md leaves behind.
+
 ## Verification result and review
 
 The 2026-10-26 branch pass completed 141 existing Python tests (one skipped),

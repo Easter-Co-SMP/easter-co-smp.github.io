@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+// The account control's face has its own journey below; the fixture skin module already owns the
+// only image this suite needs to be exact about.
+import {pictureDataURL} from './skin-fixture.mjs';
 const origin=process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18104';
 const api='https://jyjshd22z3.execute-api.us-east-2.amazonaws.com';
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
@@ -11,7 +14,7 @@ try{
  for(const width of [1440,834,390,320]){
   const context=await browser.newContext({viewport:{width,height:1000},reducedMotion:'reduce'});
   const page=await context.newPage(),errors=[],requests=[];
-  let account={...baseAccount},paid=false,providerSignup=false,finishCalls=0,checkoutCalls=0;
+  let account={...baseAccount},paid=false,providerSignup=false,finishCalls=0,checkoutCalls=0,loginHold=null;
   page.on('pageerror',error=>errors.push(error.message));
   await context.route(api+'/**',async route=>{
    const request=route.request(),path=new URL(request.url()).pathname,body=request.postDataJSON?.();
@@ -20,7 +23,7 @@ try{
    if(path.endsWith('/providers'))value={providers:['microsoft','steam','discord']};
    else if(path.endsWith('/providers/start')){assert.match(body.verifier,/^[-_A-Za-z0-9]{43}$/);value={flow:'f'.repeat(43),url:'https://steamcommunity.com/openid/login?fixture=1',expiresIn:600};}
    else if(path.endsWith('/providers/finish')){finishCalls++;account={...baseAccount,username:null,passwordRequired:true};value=signed(account);}
-   else if(path.endsWith('/password/login')){if(body.password==='wrong'){status=401;value={error:'invalid_credentials'};}else value=signed(account);}
+   else if(path.endsWith('/password/login')){if(body.password==='wrong'){status=401;value={error:'invalid_credentials'};}else{if(loginHold)await loginHold;value=signed(account);}}
    else if(path.endsWith('/username/available'))value={available:body.username!=='taken',reason:'taken'};
    else if(path.endsWith('/password')){account={...account,username:body.username||account.username,passwordRequired:false};value=signed(account);}
    else if(path.endsWith('/me'))value={account};
@@ -35,6 +38,11 @@ try{
   });
   await context.route('https://steamcommunity.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture provider</title><p>Fixture provider complete</p>'}));
   await context.route('https://checkout.stripe.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture checkout</title><p>Fixture only</p>'}));
+  // A picture reaches the control only as the data: URI the account document already carries:
+  // publicAccount in site/account-client.mjs keeps a data:image/png;base64 picture and drops every
+  // other form, so showing a face costs the page no request to any host. A picture that fails is
+  // still reachable - it is a data URI this browser cannot decode - and that is state 6 below.
+  const pictureURL=pictureDataURL(),damagedPictureURL='data:image/png;base64,AAAA';
   await page.goto(origin);
   await page.getByRole('button',{name:'Sign in or create an Easter Company account'}).click();
   await page.locator('#desktop-company-signin input[name=identifier]').fill('fixture_player');
@@ -45,7 +53,9 @@ try{
   await page.locator('#desktop-company-signin input[name=password]').fill('fixture-passphrase');
   await page.locator('#desktop-company-signin button[type=submit]').click();
   await page.getByRole('button',{name:'Account options'}).waitFor();
-  assert.equal(await page.locator('.web-account-nav').textContent(),'fixture_player');
+  // The control's own text now holds the avatar slot as well; the account's name is the span
+  // inside it, and that is the visible label the assertion has always been about.
+  assert.equal(await page.locator('.web-account-nav .web-account-name').textContent(),'fixture_player');
   assert.equal(await page.locator('.hero-copy h1').count(),1);
   assert.equal(await page.locator('[data-download-primary]').count(),1);
   assert.equal(await page.evaluate(()=>Boolean(window.easterDesktop)),false);
@@ -86,13 +96,186 @@ try{
   await page.locator('#desktop-company-password button[type=submit]').click();
   await page.locator('#desktop-company-password').waitFor({state:'hidden'});
   assert.equal(finishCalls,1);
-  assert.equal(await page.locator('.web-account-nav').textContent(),'new_fixture');
+  assert.equal(await page.locator('.web-account-nav .web-account-name').textContent(),'new_fixture');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.screenshot({path:'/tmp/web-accounts-'+width+'.png',fullPage:true});
   assert.deepEqual(errors,[]);
   assert(requests.every(r=>!new URL(api+r.path).search));
   console.log('PASS web login, profile, store, checkout return distrust, logout, provider signup, no overflow at '+width);
-  checks++;await context.close();
+  checks++;
+
+  // ---- The account control's face, in the states that matter -------------------------------
+  // Owen, 2026-10-26, signed in on the live site: "there's no user image in the `oceaster` user
+  // element". The face follows the account document and nothing else - the picture the account
+  // already carries, else the tile - because the launcher's other source, the Minecraft head by
+  // `minecraftUuid`, is not reachable from a page: sessionserver.mojang.com answers with no
+  // Access-Control-Allow-Origin, so the page's own fetch of it fails before any JSON exists. What
+  // is proved here is the precedence, the placeholder, and that no state moves the control. The
+  // wipe in flight keeps username, password and roles and drops every provider link, so the tile
+  // is the state a player meets first: it is measured like a first-class state, not an error path.
+  const facePage=await context.newPage();
+  facePage.on('pageerror',error=>errors.push(error.message));
+  // Nothing the face shows may cost a request to another host. With a data: URI picture this
+  // listener sees the preview origin and the API fixture and nothing else.
+  const faceRequests=[];
+  facePage.on('request',request=>faceRequests.push(request.url()));
+  const snapshot=()=>facePage.evaluate(()=>{
+   const nav=document.querySelector('.site-header nav'),button=document.querySelector('.web-account-nav');
+   const rect=element=>element.getBoundingClientRect(),children=[...nav.children].map(rect);
+   const face=document.querySelector('.web-account-face'),picture=document.querySelector('.web-account-picture');
+   return {
+    button:{width:+rect(button).width.toFixed(2),height:+rect(button).height.toFixed(2)},
+    nav:{width:+rect(nav).width.toFixed(2),height:+rect(nav).height.toFixed(2)},
+    // One row means no child's box reaches past the nav's own: the wrap test, which assumes
+    // nothing about which child is tallest.
+    oneRow:Math.max(...children.map(box=>box.bottom))-Math.min(...children.map(box=>box.top))<=rect(nav).height+1,
+    face:{hidden:face.hidden,width:+rect(face).width.toFixed(2),height:+rect(face).height.toFixed(2)},
+    letter:document.querySelector('.web-account-initial').textContent,
+    painted:face.classList.contains('has-picture'),
+    mark:face.classList.contains('web-account-face-mark'),
+    picture:{hidden:picture.hidden,natural:picture.naturalWidth,position:getComputedStyle(picture).position},
+    text:document.querySelector('.web-account-name').textContent,
+    nameShown:document.querySelector('.web-account-name').getClientRects().length>0,
+    nameTruncated:document.querySelector('.web-account-name').scrollWidth>document.querySelector('.web-account-name').clientWidth+1,
+    label:button.getAttribute('aria-label'),disabled:button.disabled,
+    overflow:document.documentElement.scrollWidth>innerWidth
+   };
+  });
+  const signIn=async()=>{
+   await facePage.getByRole('button',{name:'Sign in or create an Easter Company account'}).click();
+   await facePage.locator('#desktop-company-signin input[name=identifier]').fill('oceaster');
+   await facePage.locator('#desktop-company-signin input[name=password]').fill('fixture-passphrase');
+   await facePage.locator('#desktop-company-signin button[type=submit]').click();
+  };
+  const signOut=async()=>{
+   await facePage.getByRole('button',{name:'Account options'}).click();
+   await facePage.locator('#web-account-menu button').filter({hasText:'Sign out'}).click();
+   await facePage.getByRole('button',{name:'Sign in or create an Easter Company account'}).waitFor();
+  };
+  const box=state=>({width:state.button.width,height:state.button.height});
+  account={...baseAccount,username:'oceaster',picture:pictureURL};
+  await facePage.goto(origin);
+  // The earliest box the control ever has with a picture in it: the mutation that sets the
+  // image's src is recorded with the button's box at that same tick, before the decoder has
+  // painted anything. That makes "before the avatar paints" a measurement, not a race.
+  await facePage.evaluate(()=>{
+   window.__faceMarks=[];
+   const button=document.querySelector('.web-account-nav');
+   new MutationObserver(()=>{
+    const picture=document.querySelector('.web-account-picture');
+    if(!picture||!picture.getAttribute('src'))return;
+    const box=button.getBoundingClientRect();
+    window.__faceMarks.push({width:+box.width.toFixed(2),height:+box.height.toFixed(2),decoded:picture.complete});
+   }).observe(button,{subtree:true,attributes:true,attributeFilter:['src']});
+  });
+  // 1. Signed out: no avatar at all, and the nav still says Sign in.
+  const signedOut=await snapshot();
+  assert.equal(signedOut.face.hidden,true,'signed out shows no avatar');
+  assert.equal(await facePage.locator('.web-account-face').isVisible(),false);
+  assert.equal(signedOut.text,'Sign in');
+  assert.equal(signedOut.nameShown,true,'the signed-out control says Sign in at every width, never an empty pill');
+  assert.equal(signedOut.label,'Sign in or create an Easter Company account');
+  // 2. Signing in: the control is disabled and carries no avatar until there is an account to show.
+  let openLogin=()=>{};
+  loginHold=new Promise(resolve=>{openLogin=resolve;});
+  await signIn();
+  await facePage.waitForFunction(()=>document.querySelector('.web-account-nav').disabled);
+  const signingIn=await snapshot();
+  assert.equal(signingIn.disabled,true,'the control is disabled while a sign-in is in flight');
+  assert.equal(signingIn.face.hidden,true,'no avatar before there is an account to show');
+  assert.equal(signingIn.text,'Sign in');
+  openLogin();loginHold=null;
+  await facePage.getByRole('button',{name:'Account options'}).waitFor();
+  await facePage.locator('.web-account-face.has-picture').waitFor();
+  // 3. Signed in with a picture: the account's own picture is the avatar, and it is in the slot.
+  const painted=await snapshot();
+  assert.equal(painted.face.hidden,false,'a signed-in account always has the slot');
+  // The width the report came from shows the whole name beside the face; below that the control
+  // becomes the face alone rather than a word clipped to one letter.
+  if(width>=390)assert.equal(painted.nameTruncated&&painted.nameShown,false,'the account name is not clipped at '+width);
+  else assert.equal(painted.nameShown,false,'too little room for a face and a name, so the control is the face');
+  assert.equal(painted.painted,true,'the account picture is what the control shows');
+  assert.equal(painted.picture.natural,64,'and it is the picture itself, decoded');
+  assert.equal(painted.text,'oceaster');
+  assert.equal(painted.label,'Account options');
+  assert.equal(await facePage.getByRole('button',{name:'Account options'}).count(),1,'the accessible name is still the account');
+  assert.equal(painted.picture.position,'absolute','the image is out of the control layout, so a paint cannot move it');
+  // 4. Measured at the tick the image arrived, before it was decoded, and again once it was: the
+  // same control, the same box, the same row.
+  const marks=await facePage.evaluate(()=>window.__faceMarks);
+  assert(marks.length>=1,'the picture reached the control');
+  const beforePaint=marks[0];
+  assert.deepEqual({width:beforePaint.width,height:beforePaint.height},box(painted),'the control is the same size before the avatar paints as after');
+  // 5. Signed in with no picture at all: the tile is the avatar. This is the state the wipe leaves.
+  await signOut();
+  account={...baseAccount,username:'oceaster',picture:null};
+  await signIn();
+  await facePage.getByRole('button',{name:'Account options'}).waitFor();
+  const noPicture=await snapshot();
+  assert.equal(noPicture.painted,false);
+  assert.equal(noPicture.picture.hidden,true,'with no picture nothing is asked for');
+  assert.equal(noPicture.letter,'O','the placeholder is the initial tile, not a blank slot');
+  assert.deepEqual(box(noPicture),box(painted),'no picture leaves the same box');
+  // The tile is the launcher's own (site/desktop.js, "The player's face"): teal #536b66 with the
+  // first letter in cream #eedbb2. Same face on both surfaces, and never a blank slot.
+  const tile=await facePage.evaluate(()=>{
+   const face=document.querySelector('.web-account-face'),style=getComputedStyle(face);
+   return {background:style.backgroundColor,colour:style.color};
+  });
+  assert.deepEqual(tile,{background:'rgb(83, 107, 102)',colour:'rgb(238, 219, 178)'},'the placeholder is the teal letter tile');
+  // 6. A picture that fails: the tile replaces it, no broken image, no size change, same name.
+  await signOut();
+  account={...baseAccount,username:'oceaster',picture:damagedPictureURL};
+  await signIn();
+  await facePage.getByRole('button',{name:'Account options'}).waitFor();
+  await facePage.waitForFunction(()=>{
+   const picture=document.querySelector('.web-account-picture');
+   return Boolean(picture&&picture.getAttribute('src')&&picture.complete&&picture.hidden);
+  }); // the src was set and the browser finished with it: a decode that failed, not a pending one
+  const failed=await snapshot();
+  assert.equal(failed.painted,false,'a failed picture never claims the slot');
+  assert.equal(failed.picture.hidden,true,'no broken image is left in the control');
+  assert.equal(failed.letter,'O','the tile takes the failed picture over');
+  assert.deepEqual(box(failed),box(painted),'a failed picture leaves the same box');
+  assert.equal(failed.label,'Account options');
+  assert.equal(await facePage.getByRole('button',{name:'Account options'}).count(),1);
+  // 7. An account with no name of its own yet - the moment between a provider sign-in and a first
+  // username - is the Easter Company mark, never an empty box. It is last because that state's
+  // control opens the setup dialog rather than the menu, so it is not signed out again here.
+  await signOut();
+  account={...baseAccount,username:null,minecraftName:null,displayName:null,passwordRequired:true,picture:null};
+  await signIn();
+  await facePage.getByRole('button',{name:'Finish account setup'}).waitFor();
+  const nameless=await snapshot();
+  assert.equal(nameless.text,'Finish setup');
+  assert.equal(nameless.letter,'','no letter is invented from a placeholder name');
+  assert.equal(nameless.mark,true,'the mark stands in while there is no name to letter');
+  // The label is longer than a username ("Finish setup"), so the control is wider here by design:
+  // what the face may never change is the height, and the slot is the same 20px disc.
+  assert.equal(box(nameless).height,box(painted).height,'the face never changes the control height');
+  const mark=await facePage.evaluate(()=>{
+   const style=getComputedStyle(document.querySelector('.web-account-face'));
+   return {image:style.backgroundImage,colour:style.backgroundColor};
+  });
+  assert.match(mark.image,/ec-logo\.svg/,'the mark is the Easter Company mark, not a blank slot');
+  assert.equal(mark.colour,'rgb(83, 107, 102)','on the same teal tile');
+  // The row stays one row, and 390 is the width the report came from.
+  assert.equal(nameless.oneRow,true,'the nav does not wrap at '+width);
+  assert.equal(failed.overflow,false,'the page does not scroll sideways at '+width);
+  // The slot is one fixed 20x20 disc in every state that has an account.
+  for(const state of [painted,noPicture,failed,nameless])assert.deepEqual(state.face,{hidden:false,width:16,height:16},'one fixed slot');
+  // No third-party host is asked for a face: the picture is a data: URI and nothing else is read.
+  assert.deepEqual(faceRequests.filter(url=>!url.startsWith(origin)&&!url.startsWith(api)),[],'the avatar costs no request to a third party');
+  await facePage.screenshot({path:'/tmp/web-account-avatar-'+width+'.png'});
+  assert.deepEqual(errors,[]);
+  const size=state=>state.button.width+'x'+state.button.height;
+  console.log('PASS account avatar at '+width+': signed out (no face, '+size(signedOut)+'), '
+   +'signing in ('+size(signingIn)+', disabled, no face), '
+   +'picture (as the image arrived '+beforePaint.width+'x'+beforePaint.height+', once painted '+size(painted)+'), '
+   +'no picture ('+size(noPicture)+'), failed load ('+size(failed)+'), no name ('+size(nameless)+', the mark); '
+   +'one row, name '+painted.label+', no third-party request');
+  checks++;
+  await context.close();
  }
 }finally{await browser.close();}
 console.log(checks+' responsive journeys passed; all credentials and purchases were fixtures.');

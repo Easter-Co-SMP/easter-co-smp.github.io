@@ -12,7 +12,36 @@ if(webAccount){
   const nav=document.querySelector('.site-header nav');
   if(nav){
    if(!nav.querySelector('a[href$="store/"]')){const link=document.createElement('a');link.href=new URL('store/',base).href;link.textContent='Store';link.className='store-entry';nav.append(link);}
-   const account=document.createElement('button');account.type='button';account.className='web-account-nav';account.textContent='Sign in';account.disabled=true;nav.append(account);
+   // ---- The account control's face ----------------------------------------------
+   // Owen, 2026-10-26, on the live site signed in: "there's no user image in the `oceaster` user
+   // element". The launcher has always drawn one (site/desktop.js, "The player's face") and this
+   // is the same precedence for the browser. The first choice is the account's own `picture`,
+   // which reaches this control only as a data:image/png;base64 URI - the cloud validates every
+   // picture into that form and publicAccount in site/account-client.mjs keeps that form and
+   // drops any other - so the page shows a face it already held and asks nobody for one. The
+   // second choice, the Minecraft head by `minecraftUuid`, is NOT reachable from a page: the
+   // launcher reads it through sessionserver.mojang.com, whose answer carries no
+   // Access-Control-Allow-Origin, so a browser fetch from this origin fails as a CORS error
+   // before any JSON exists (measured in Chromium at this origin, 2026-10-26: "TypeError: Failed
+   // to fetch" from sessionserver while textures.minecraft.net itself answered - the
+   // uuid-to-texture lookup is the half that is blocked). Reaching it needs a field in the
+   // account document or a CORS-enabled route, which is not this change's decision to make. So
+   // the third choice is deliberate rather than a stopgap: the launcher's own last resort - the
+   // teal tile, #536b66, with the first letter of the name in cream #eedbb2 - so one player sees
+   // one face on both surfaces. That is a primary state, not an edge case: the account wipe in
+   // flight keeps username, password and roles and drops every provider link, so accounts arrive
+   // here with no picture and no uuid.
+   const account=document.createElement('button');account.type='button';account.className='web-account-nav';account.disabled=true;
+   // Fixed-size slot, absolutely positioned image inside it: whether the picture is absent,
+   // loading, painted or failed, the control's box cannot move.
+   const face=document.createElement('span');face.className='web-account-face';face.setAttribute('aria-hidden','true');face.hidden=true;
+   const initial=document.createElement('span');initial.className='web-account-initial';
+   // An empty alt plus the aria-hidden slot keep the control's name the account and never a
+   // filename; the visible name stays the button's own text so nothing about it changes.
+   const portrait=document.createElement('img');portrait.className='web-account-picture';portrait.alt='';portrait.decoding='async';portrait.hidden=true;
+   face.append(initial,portrait);
+   const name=document.createElement('span');name.className='web-account-name';name.textContent='Sign in';
+   account.append(face,name);nav.append(account);
    const menu=document.createElement('div');menu.id='web-account-menu';menu.className='desktop-profile-menu';menu.setAttribute('popover','auto');menu.setAttribute('aria-label','Account options');document.body.append(menu);
    const notice=document.createElement('p');notice.className='web-account-notice';notice.setAttribute('role','alert');notice.hidden=true;menu.append(notice);
    let current=webAccount.getState(),profile=null,linked=null;
@@ -48,9 +77,42 @@ if(webAccount){
     menu.style.top=(account.getBoundingClientRect().bottom+8)+'px';menu.style.right=Math.max(12,innerWidth-account.getBoundingClientRect().right)+'px';
     menu.showPopover();menu.querySelector('button')?.focus();
    };
+   // The face follows the account and only the account: while a sign-in is in flight there is no
+   // account to show, so the slot is hidden and the control is exactly the text it always was.
+   let facePicture=null;
+   const firstLetter=value=>{
+    const letter=[...String(value||'').trim()][0];
+    return letter?letter.toUpperCase():'';
+   };
+   const setInitial=letter=>{initial.textContent=letter;face.classList.toggle('web-account-face-mark',!letter);};
+   const showPicture=src=>{
+    if(src===facePicture)return;
+    facePicture=src;
+    face.classList.remove('has-picture');
+    if(!src){portrait.hidden=true;portrait.removeAttribute('src');return;}
+    portrait.src=src;portrait.hidden=false;
+   };
+   // A picture that never arrives leaves the tile showing, at the same size, under the same name:
+   // a face is never a reason to fail at anything, which is also the launcher's rule.
+   portrait.onload=()=>face.classList.add('has-picture');
+   portrait.onerror=()=>{portrait.hidden=true;face.classList.remove('has-picture');};
+   const paintFace=next=>{
+    const user=next.account;
+    face.hidden=!user;
+    // The narrowest header gives the face the control and takes the name away; signed out there is
+    // no face, so the name must stay - the control is never an empty box.
+    account.classList.toggle('web-account-with-face',Boolean(user));
+    if(!user){setInitial('');showPicture(null);return;}
+    // The letter is the player's own name, never a placeholder sentence: publicAccount falls back
+    // to the words "Company member", and a C for that would be a letter that means nothing. No
+    // name at all - the moment between a provider sign-in and a first username - is the mark.
+    setInitial(firstLetter(user.username)||firstLetter(user.minecraftName));
+    showPicture(typeof user.picture==='string'?user.picture:'');
+   };
    const paint=next=>{
     current=next;auth.render(next);profile?.syncLock();linked?.syncLock();
-    account.textContent=next.account?.passwordRequired?'Finish setup':next.account?.username||'Sign in';
+    name.textContent=next.account?.passwordRequired?'Finish setup':next.account?.username||'Sign in';
+    paintFace(next);
     account.setAttribute('aria-label',next.account?.passwordRequired?'Finish account setup':next.account?'Account options':'Sign in or create an Easter Company account');
     account.setAttribute('aria-expanded',String(menu.matches(':popover-open')));
     account.disabled=next.accountWorking===true;

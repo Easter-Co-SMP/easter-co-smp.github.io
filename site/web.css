@@ -3,7 +3,22 @@
 .web-mode{--app-panel:#11252d;--app-border:#ffffff24;--app-muted:#a8b9b4;--app-gold:#e4c486}
 .web-mode [hidden]{display:none!important}
 .web-mode :is(button,a,input,summary):focus-visible{outline:2px solid var(--app-gold);outline-offset:3px}
-.web-mode .site-header nav .web-account-nav{max-width:140px;overflow:hidden;text-overflow:ellipsis;display:block;border:1px solid #e4c48650;background:transparent;color:var(--gold);cursor:pointer}
+/* The account control's face: one fixed slot holding the account's picture or the tile that
+   stands in for it, so the control measures the same whether an image is absent, loading,
+   painted or failed. The tile is the launcher's own last resort (site/desktop.js, "The
+   player's face") - #536b66 with cream #eedbb2 - so one player sees one face on both
+   surfaces. With no name to take a letter from, the Easter Company mark stands in: still
+   deliberate, never an empty box. */
+/* The padding stays the shared one on purpose: signed out, the control is exactly the pill it was
+   before this change, and the face is what makes the signed-in pill 40px - the height the Download
+   button beside it already has, inside a 72px header. */
+.web-mode .site-header nav .web-account-nav{display:inline-flex;align-items:center;gap:7px;max-width:140px;overflow:hidden;border:1px solid #e4c48650;background:transparent;color:var(--gold);cursor:pointer}
+.web-mode .web-account-face{position:relative;flex:none;display:grid;place-items:center;width:16px;height:16px;border-radius:50%;overflow:hidden;background:#536b66;color:#eedbb2;font-size:10px;font-weight:700;line-height:1;text-transform:uppercase}
+.web-mode .web-account-face-mark{background:#536b66 url(assets/ec-logo.svg) center/76% no-repeat}
+.web-mode .web-account-face.has-picture .web-account-initial{visibility:hidden}
+.web-mode .web-account-face.has-picture.web-account-face-mark{background-image:none}
+.web-mode .web-account-picture{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.web-mode .web-account-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .web-mode .desktop-company-dialog .dialog-close{display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;right:14px;top:14px;border-radius:6px}
 .web-mode .desktop-company-dialog input:focus-visible{outline:2px solid var(--app-gold);outline-offset:2px}
 .web-mode .desktop-company-dialog button{cursor:pointer}
@@ -17,5 +32,11 @@
 }
 @media(max-width:600px){
  .web-mode .site-header nav>a,.web-mode .site-header nav>button{padding:11px 6px;font-size:10px;min-height:44px}
- .web-mode .site-header nav .web-account-nav{max-width:76px}
+ .web-mode .site-header nav .web-account-nav{max-width:92px}
+}
+/* Below 360px there is room for the face or for the name, not both: five destinations and this
+   control have 288px to share. The control becomes the face alone - one whole mark, not a word
+   clipped to a letter - and its accessible name and its menu are unchanged. */
+@media(max-width:360px){
+ .web-mode .site-header nav .web-account-nav.web-account-with-face .web-account-name{display:none}
 }
