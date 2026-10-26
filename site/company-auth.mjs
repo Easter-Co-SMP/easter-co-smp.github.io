@@ -1,4 +1,11 @@
 import {createWaitFeedback} from './wait-feedback.mjs';
+// The sign-in options are not written out here. This dialog and the account page draw the same
+// panel from site/signin-options.mjs - the Microsoft button, the provider buttons in one order,
+// the note that says what a provider is for, and the direct username/password form - so the two
+// surfaces cannot drift apart (Owen, 2026-10-26: the account page "does not show the same content
+// as the sign-in modal, but it should"). Only the steps of a flow stay in this file: username
+// setup, password setup and the verified emails.
+import {SIGN_IN_TITLE,SIGN_IN,SIGN_IN_WAIT,PROVIDER_WAIT,createSignInOptions,providerName} from './signin-options.mjs';
 // Company credentials cross only the isolated preload and are cleared on close.
 // First-time setup runs in a fixed order: the player chooses a username in step 1 and
 // the username is claimed together with the first password in step 2, so the password
@@ -15,26 +22,35 @@ import {createWaitFeedback} from './wait-feedback.mjs';
 // the password in My Profile - and this module no longer carries the provider-chooser path
 // that used to imply one. The password step that remains creates a password a new account
 // has never had; changing one afterwards belongs to My Profile (site/company-profile.mjs).
-const PROVIDER_NAMES={microsoft:'Microsoft',xbox:'Xbox',discord:'Discord',steam:'Steam',google:'Google',email:'Email'};
-const providerName=value=>{
- const key=String(value||'').trim().toLowerCase();
- return PROVIDER_NAMES[key]||(key?key[0].toUpperCase()+key.slice(1):'Verified');
-};
 // The password rule the account service enforces (8 to 128 characters). It is exported because
 // the section that changes a password on My Profile (site/company-profile.mjs) applies the same
 // rule, and one literal is how they cannot drift apart.
 export const PASSWORD_POLICY={min:8,max:128,help:'Use 8–128 characters. A long passphrase works well.'};
 const NO_EMAILS='No verified email is recorded for this account. Sign in with a linked provider or with your username.';
 const NO_LOGIN_EMAIL='No login email is selected. Sign in with a linked provider or with your username.';
-export function createCompanyAuth({desktop,signInMicrosoft,onInlineError=null}){
- let providerAvailabilityState=null,providerPending=false;
+// `startsOnPage` is what a surface does with the Microsoft button. The website starts the flow on
+// the page the player is already on, so this dialog has to stay up and report the start itself
+// (site/web.js passes it); the launcher opens its own sign-in window and reports there, and passes
+// nothing, so its path is exactly what it was.
+export function createCompanyAuth({desktop,signInMicrosoft,onInlineError=null,startsOnPage=false}){
+ let providerPending=false;
  const providerCancellable=()=>providerPending&&!['company-signing-in','company-waking','account-working'].includes(state.activity?.stage);
  let state={},busy=false,dismissed=null,pendingUsername=null,advancing=false;
  const chooser=document.createElement('dialog'),username=document.createElement('dialog'),password=document.createElement('dialog'),emails=document.createElement('dialog');
  for(const dialog of [chooser,username,password])dialog.className='desktop-company-dialog';
  chooser.id='desktop-company-signin';username.id='desktop-company-username';password.id='desktop-company-password';
  chooser.setAttribute('aria-labelledby','company-signin-title');username.setAttribute('aria-labelledby','company-username-title');password.setAttribute('aria-labelledby','company-password-title');
- chooser.innerHTML='<button class="dialog-close" type="button" aria-label="Close account sign-in">×</button><h2 id="company-signin-title">Easter Company account</h2><button type="button" class="company-microsoft">Sign in with Microsoft</button><p class="company-provider-note">Please sign up using an existing online account provider, and then create an Easter Company account username &amp; password.</p><form><label>Username or Email<input name="identifier" autocomplete="username" maxlength="254" required spellcheck="false"></label><label>Password<input type="password" name="password" autocomplete="current-password" maxlength="128" required></label><div class="company-error" role="alert" hidden></div><button type="submit" class="company-submit">Sign in</button><p class="company-no-reset">If you have forgotten your password there is no reset: sign in with a linked account, then change the password in My Profile.</p></form>';
+ // The chooser is this dialog's own frame - one close control and one heading - and everything
+ // inside it is the shared options panel, so this surface and the account page carry the same
+ // options, in the same order, in the same words (site/signin-options.mjs).
+ chooser.innerHTML='<button class="dialog-close" type="button" aria-label="Close account sign-in">×</button><h2 id="company-signin-title"></h2>';
+ chooser.querySelector('h2').textContent=SIGN_IN_TITLE;
+ const options=createSignInOptions({
+  onMicrosoft:()=>void microsoft(),
+  onProvider:provider=>void chooseProvider(provider),
+  onSubmit:(identifier,secret)=>void signInWithPassword(identifier,secret),
+ });
+ chooser.append(options.node);
  username.innerHTML='<button class="dialog-close" type="button" aria-label="Close username setup">×</button><h2 id="company-username-title">Choose your Easter Company username</h2><p class="company-step">Step 1 of 2</p><form><label>Username<input name="username" autocomplete="username" maxlength="20" required spellcheck="false" aria-describedby="company-username-help"></label><p id="company-username-help">This is the name you sign in with, and it cannot be changed later. Use 3–20 characters: letters, numbers, underscores or dashes. Capitals are saved as lowercase.</p><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Continue</button></form>';
  password.innerHTML='<button class="dialog-close" type="button" aria-label="Close password setup">×</button><h2 id="company-password-title">Create your Easter Company password</h2><p class="company-step">Step 2 of 2</p><p class="company-username"></p><p class="company-intro">Use your username or email and password to sign in directly next time.</p><form><label>New password<input name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" required aria-describedby="company-password-help"></label><p id="company-password-help">Use 8–128 characters. A long passphrase works well.</p><label>Confirm password<input name="confirm" type="password" minlength="8" maxlength="128" autocomplete="new-password" required></label><label class="company-show"><input type="checkbox" name="show">Show passwords</label><p class="company-error" role="alert" hidden></p><button type="submit" class="company-submit">Save password</button></form>';
  // The verified emails section. The list renders whatever the account service reports, so
@@ -96,7 +112,13 @@ export function createCompanyAuth({desktop,signInMicrosoft,onInlineError=null}){
   node.hidden=!shown.length;
   if(shown.length&&dialog.open)reveal(dialog,node);
  };
- const lock=value=>{busy=value;if(value&&!localWait){const dialog=[chooser,username,password,emails].find(item=>item.open);if(dialog)waitFor(dialog,dialog===username?'Checking your username…':dialog===password?'Saving your password…':dialog===emails?'Saving your email selection…':'Signing in to Easter Company…');}if(!value&&localWait)endWait(localWait.dialog);for(const dialog of [chooser,username,password,emails]){for(const button of dialog.querySelectorAll('.company-submit,.company-microsoft,.company-provider'))button.setAttribute('aria-busy',String(value&&dialog.open));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}if(!value&&providerAvailabilityState)for(const button of chooser.querySelectorAll('[data-provider]'))button.disabled=!providerAvailabilityState.includes(button.dataset.provider);chooser.querySelector('.company-submit').textContent=value?'Signing in…':'Sign in';username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';emails.querySelector('.company-submit').textContent=value?'Saving…':'Save selection';};
+ // The wait sentence for a sign-in is the shared one (site/signin-options.mjs), because the
+ // account page's busy state says the same thing for the same action.
+ const lock=value=>{busy=value;if(value&&!localWait){const dialog=[chooser,username,password,emails].find(item=>item.open);if(dialog)waitFor(dialog,dialog===username?'Checking your username…':dialog===password?'Saving your password…':dialog===emails?'Saving your email selection…':SIGN_IN_WAIT);}if(!value&&localWait)endWait(localWait.dialog);for(const dialog of [chooser,username,password,emails]){for(const button of dialog.querySelectorAll('.company-submit,.company-microsoft,.company-provider'))button.setAttribute('aria-busy',String(value&&dialog.open));for(const input of dialog.querySelectorAll('input,button'))input.disabled=value;}
+  // The options panel owns its own controls - including which providers the service reports as
+  // configured - so it is asked last and its answer is the one that stands.
+  options.lock(value);
+  username.querySelector('.company-submit').textContent=value?'Checking…':'Continue';password.querySelector('.company-submit').textContent=value?'Saving…':'Save password';emails.querySelector('.company-submit').textContent=value?'Saving…':'Save selection';};
  // A username the server rejects is a plain sentence beside the field, never a hint
  // about any other account: taken and policy are the only two answers there are.
  const usernamePolicy='Use 3 to 20 characters: letters, numbers, underscores or dashes. Capitals become lowercase.';
@@ -277,7 +299,6 @@ export function createCompanyAuth({desktop,signInMicrosoft,onInlineError=null}){
  async function microsoft(){
   if(busy)return;
   const useSaved=state.microsoftAccount&&typeof desktop.continueMicrosoft==='function';
-  closing(chooser);
   // The saved Microsoft session is a shortcut, never a dead end. Every failure of it falls
   // through to the fresh interactive sign-in that opens Microsoft's page in the browser
   // action, with exactly one stop: an identity conflict means the player must choose the
@@ -286,6 +307,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onInlineError=null}){
   // shortcut failing rather than the sign-in, so the player still gets the browser sign-in
   // the interactive flow gives everyone, with nothing to copy.
   if(useSaved){
+   closing(chooser);
    chooser.showModal();waitFor(chooser,'Connecting your saved Microsoft account…');lock(true);
    let answer;try{answer=await continueSaved();}finally{lock(false);closing(chooser);render(state);}
    if(!answer||answer.ok!==false)return;
@@ -299,42 +321,52 @@ export function createCompanyAuth({desktop,signInMicrosoft,onInlineError=null}){
     await closesSettled();
     conflict(answer.error);return;
    }
+   await signInMicrosoft({link:Boolean(chooseOptions.link)});
+   return;
   }
-  await signInMicrosoft({link:Boolean(chooseOptions.link)});
+  // The surface that starts the flow on this page keeps this dialog and reports the start here,
+  // because the service can be waking and the player must not be left looking at a dialog that
+  // appears to have done nothing. A surface that opens its own sign-in window (the launcher)
+  // closes this one first, exactly as it did before.
+  if(!startsOnPage){closing(chooser);await signInMicrosoft({link:Boolean(chooseOptions.link)});return;}
+  waitFor(chooser,SIGN_IN_WAIT);lock(true);
+  let answer=null;
+  try{answer=await signInMicrosoft({link:Boolean(chooseOptions.link)});}
+  catch(cause){answer={ok:false,error:cause&&cause.message};}
+  finally{endWait(chooser);lock(false);}
+  // A start that never reached Microsoft is a refusal about this page, and it is read here
+  // rather than on a page the player has not been sent to.
+  if(answer&&answer.ok===false){if(!chooser.open)chooser.showModal();error(chooser,answer.error||SIGN_IN.failed);}
  }
- chooser.querySelector('.company-microsoft').onclick=()=>void microsoft();
- const providerButtons=[];
- for(const provider of ['google','steam','discord']){
-  const button=document.createElement('button');button.type='button';button.className='company-provider';button.dataset.provider=provider;button.textContent='Sign in with '+providerName(provider);
-  chooser.querySelector('.company-provider-note').before(button);providerButtons.push(button);
-  button.onclick=async()=>{
-   if(busy)return;error(chooser,'');providerPending=true;let completed=false;waitFor(chooser,'Complete sign-in in your browser…');lock(true);chooser.querySelector('.dialog-close').disabled=false;
-   try{
-    const outcome=await desktop.signInProvider(provider,Boolean(state.account));
-    if(outcome?.ok===false)error(chooser,outcome.error||'Sign-in could not finish.');
-    else{chooser.close();completed=true;}
-   }catch(cause){error(chooser,cause.message||'Sign-in could not finish.');}
-   finally{providerPending=false;lock(false);render(state);}
-  };
+ async function chooseProvider(provider){
+  if(busy)return;
+  error(chooser,'');providerPending=true;
+  waitFor(chooser,PROVIDER_WAIT);lock(true);chooser.querySelector('.dialog-close').disabled=false;
+  try{
+   const outcome=await desktop.signInProvider(provider,Boolean(state.account));
+   if(outcome?.ok===false)error(chooser,outcome.error||SIGN_IN.providerFailed);
+   else chooser.close();
+  }catch(cause){error(chooser,(cause&&cause.message)||SIGN_IN.providerFailed);}
+  finally{providerPending=false;lock(false);render(state);}
  }
  async function providerAvailability(){
   if(typeof desktop.accountProviders!=='function')return;
-  try{const found=await desktop.accountProviders();providerAvailabilityState=found.providers||[];for(const button of providerButtons){const available=found.providers?.includes(button.dataset.provider);button.disabled=busy||!available;button.title=available?'':'This provider is not configured.';}}
-  catch{providerAvailabilityState=[];for(const button of providerButtons){button.disabled=true;button.title='Provider availability could not be checked.';}}
+  try{const found=await desktop.accountProviders();options.setProviders(found.providers||[]);}
+  catch{options.providersUnreadable();}
  }
- chooser.querySelector('form').onsubmit=async event=>{
-  event.preventDefault();if(busy)return;
-  const form=event.currentTarget,identifier=form.elements.identifier.value.trim(),secret=form.elements.password.value;
-  if(!identifier){error(chooser,'Enter your username or email.');return;}
+ // The direct Company sign-in: a username or email and a password, in this dialog and on the
+ // account page alike. One handler shape for both surfaces, so they answer with the same words.
+ async function signInWithPassword(identifier,secret){
+  if(busy)return;
   error(chooser,'');lock(true);
   try{
    const outcome=await desktop.loginCompany(identifier,secret);
-   if(outcome&&outcome.ok===false)error(chooser,outcome.error||'Sign-in could not finish. Try again.');
+   if(outcome&&outcome.ok===false)error(chooser,outcome.error||SIGN_IN.failed);
    else chooser.close();
   }
-  catch(cause){error(chooser,cause.message||'Sign-in could not finish. Try again.');}
-  finally{lock(false);if(chooser.open)form.elements.password.value='';render(state);}
- };
+  catch(cause){error(chooser,(cause&&cause.message)||SIGN_IN.failed);}
+  finally{lock(false);if(chooser.open)options.clearPassword();render(state);}
+ }
  // Step 1: choose the username. The availability answer is asked for here, before the
  // player is asked for a password, so a taken name is not discovered at the end.
  function openUsername(message='',value=''){

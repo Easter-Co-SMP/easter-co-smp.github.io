@@ -16,19 +16,27 @@ if(webAccount){
    const menu=document.createElement('div');menu.id='web-account-menu';menu.className='desktop-profile-menu';menu.setAttribute('popover','auto');menu.setAttribute('aria-label','Account options');document.body.append(menu);
    const notice=document.createElement('p');notice.className='web-account-notice';notice.setAttribute('role','alert');notice.hidden=true;menu.append(notice);
    let current=webAccount.getState(),profile=null,linked=null;
-   // Microsoft signs in on its own page. site/account/ starts the browser flow, is the address
-   // Microsoft sends the browser back to, and is where a Company session for a Microsoft account
-   // is made; doc/BROWSER_SIGN_IN.md in the cloud repository is the contract. Both entry points
-   // below go there rather than answering with a sentence about the launcher, which stopped
-   // being true when that page shipped. Linking stays a launcher action: the exchange is a
-   // sign-in, and it has no link mode for an account that is already signed in.
+   // Microsoft signs in on its own page. site/account/ is the address Microsoft sends the browser
+   // back to, and is where a Company session for a Microsoft account is made; doc/BROWSER_SIGN_IN.md
+   // in the cloud repository is the contract. Pressing the button in this dialog therefore starts
+   // the flow here and sends the browser straight to Microsoft. It used to send it to
+   // /account/?provider=microsoft first: one whole page load that answered nothing, and one the
+   // Back button re-entered and re-started (Owen, 2026-10-26, after signing in for real: "too many
+   // full page loads"). The address Microsoft is handed is the registered redirect either way, and
+   // the answer is exchanged on /account/ whether the flow started there or here.
+   //
+   // Linking stays a launcher action: the exchange is a sign-in, and it has no link mode for an
+   // account that is already signed in.
    const signInMicrosoft=async options=>{
     if(options?.link)return {ok:false,error:'Connect Microsoft in the launcher.'};
-    const destination=new URL('account/',base);destination.search='provider=microsoft';
-    location.assign(destination.href);
-    return {ok:true};
+    // The seam refuses a second flow while one is in flight, and on success the browser has
+    // already been sent to Microsoft by the time this answers.
+    const result=await webAccount.startMicrosoftSignIn();
+    return result&&result.ok===false?{ok:false,error:result.error}:{ok:true};
    };
-   const auth=createCompanyAuth({desktop:webAccount,signInMicrosoft});
+   // `startsOnPage` tells the dialog that pressing Microsoft begins the flow on the page the
+   // player is on, so the dialog stays up and reports the start instead of closing first.
+   const auth=createCompanyAuth({desktop:webAccount,signInMicrosoft,startsOnPage:true});
    const action=(label,fn)=>{const button=document.createElement('button');button.type='button';button.textContent=label;button.onclick=()=>{menu.hidePopover();void fn();};menu.append(button);};
    const options={desktop:webAccount,getState:()=>current,isAccountLocked:()=>current.accountWorking===true,cancelSignIn:()=>webAccount.cancelSignIn()};
    action('My Profile',async()=>{const {openMyProfile}=await import('./company-profile.mjs');profile=await openMyProfile({...options,openEmails:()=>auth.emails()});});

@@ -119,12 +119,18 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
   // sign-in uses. No Minecraft session is asked for anywhere on this path - the exchange stores
   // no provider token, so Play stays in the launcher - and this page therefore holds no
   // Microsoft token, of either kind, to lose.
+  //
+  // STARTING IS NOT BOUND TO THE CALLBACK'S ADDRESS. The nav's dialog starts the flow on whatever
+  // page the player is on and sends the browser straight to Microsoft, which is one page load
+  // rather than two (Owen, 2026-10-26, after signing in for real: "too many full page loads").
+  // What the Azure registration pins is the address the answer comes back to, and that is
+  // checked where it can be: the answer below must name the registered redirect literal (start()
+  // in site/account/microsoft-signin.mjs), and completeMicrosoftSignIn refuses a callback anywhere
+  // but that path. A mirror of site/ still signs nobody in - site/account/account.mjs offers no
+  // sign-in at all off the registered path - and nothing here may navigate anywhere but the
+  // Microsoft authority.
   startMicrosoftSignIn:()=>run(async()=>{
    await ready;
-   // The redirect is a contract with the Azure registration, so a flow is refused rather than
-   // started from an address that is not the one Microsoft has: sending the authority a URI
-   // nobody registered fails after the player has already signed in.
-   if(!atRedirect(where))throw new AccountError('not_configured',NOT_CONFIGURED);
    if(session)throw new AccountError('invalid_request','Sign out before using another account.');
    const flow=await microsoftBrowser.start();
    // A full-page navigation, not a popup: Microsoft's sign-in page refuses to be framed, and

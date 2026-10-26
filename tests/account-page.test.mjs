@@ -80,13 +80,26 @@ test('start posts no token, navigates to the authorize address, and sends the br
  assert.equal(result.value.state,STATE);
 });
 
-test('a flow is refused before it is asked for when the page is not at the registered path',async()=>{
+test('a start from any page of the site sends the browser to the authorize address and nowhere else',async()=>{
+ // The nav's dialog starts the flow on whatever page the player is on, so Microsoft is one
+ // document load away rather than two (Owen, 2026-10-26: "too many full page loads"). What the
+ // Azure registration pins is the address the answer comes back to, and that is checked on the
+ // answer - the redirect literal below - and on the callback's own address, in the next test.
  const {bridge,stub,visits}=bridgeFor({answer:path=>path.endsWith('/microsoft/start')?startAnswer():null,where:elsewhere});
  const result=await bridge.startMicrosoftSignIn();
+ assert.equal(result.ok,true,result.error);
+ assert.deepEqual(visits,[AUTHORIZE],'the one navigation is to Microsoft');
+ assert.deepEqual(stub.paths(),['/v2/oauth/microsoft/start']);
+ assert.deepEqual(stub.calls[0].body,{});
+});
+
+test('a callback is refused anywhere but the registered path, before it is sent',async()=>{
+ const {bridge,stub,visits}=bridgeFor({answer:path=>path.endsWith('/microsoft/exchange')?[200,signedAccount()]:null,where:elsewhere});
+ const result=await bridge.completeMicrosoftSignIn('?code='+encodeURIComponent(CODE)+'&state='+STATE);
  assert.equal(result.ok,false);
  assert.equal(result.code,'not_configured');
  assert.equal(result.error,'Browser Microsoft sign-in is not configured yet.');
- assert.equal(stub.calls.length,0,'no start may be asked for from an address Microsoft does not know');
+ assert.equal(stub.calls.length,0,'no exchange may be asked for from an address Microsoft does not answer at');
  assert.deepEqual(visits,[]);
 });
 
@@ -243,12 +256,42 @@ test('the website no longer says Microsoft sign-in is launcher-only, or hides it
  // button is visible on the website now, and pressing it opens the flow rather than an excuse.
  assert(!web.includes('available in the launcher'),'the launcher-only note is gone');
  assert(!web.includes('.company-microsoft'),'the hidden-button hack is gone');
- assert(web.includes("new URL('account/',base)"),'the chooser sends the player to the account page');
+ // And it opens the flow on the page the player is already on, rather than sending the browser
+ // through a second address first: one click, one navigation, and that navigation is Microsoft.
+ assert(web.includes('webAccount.startMicrosoftSignIn()'),'the chooser starts the flow here');
+ assert(!web.includes("destination.search='provider=microsoft'"),'and no longer sends the browser through /account/?provider=microsoft');
+ assert(!web.includes('location.assign(destination.href)'),'there is no other navigation left in the chooser');
+ assert(web.includes('startsOnPage:true'),'and the dialog reports the start while it is in flight');
  // The account page is where the flow lives, and it carries the address it belongs to.
  const page=await readFile(new URL('../site/account/account.mjs',import.meta.url),'utf8');
  assert(page.includes("import {webAccount} from '../web-account.mjs'"),'the page uses the existing browser seam');
  assert(!/easterDesktop\s*=/.test(page),'the page never forges the launcher bridge');
  assert(!page.includes('/v2/game/session'),'the page never asks for a Minecraft session');
+});
+
+test('the dialog and the account page draw their sign-in options from one module',async()=>{
+ // Owen, 2026-10-26, after signing in for real: the account page "does not show the same content
+ // as the sign-in modal, but it should (missing direct sign in options)". The answer is one
+ // renderer and one copy table, so this gate is about authorship rather than about looks: any of
+ // these sentences appearing in a surface again means a second author has appeared.
+ const shared=await readFile(new URL('../site/signin-options.mjs',import.meta.url),'utf8');
+ const dialog=await readFile(new URL('../site/company-auth.mjs',import.meta.url),'utf8');
+ const page=await readFile(new URL('../site/account/account.mjs',import.meta.url),'utf8');
+ assert(dialog.includes("from './signin-options.mjs'"),'the dialog draws the shared options');
+ assert(page.includes("from '../signin-options.mjs'"),'the account page draws the shared options');
+ assert(dialog.includes('createSignInOptions('),'the dialog builds them from the shared renderer');
+ assert(page.includes('createSignInOptions('),'and so does the account page');
+ for(const sentence of ['Sign in with Microsoft','Please sign up using an existing online account provider','there is no reset','Username or Email','Signing in to Easter Company…','Complete sign-in in your browser…','This provider is not configured.']){
+  assert(shared.includes(sentence),'the shared module owns this sentence: '+sentence);
+  assert(!dialog.includes(sentence),'the dialog does not spell it again: '+sentence);
+  assert(!page.includes(sentence),'the account page does not spell it again: '+sentence);
+ }
+ // The provider buttons, in one order, drawn by both surfaces.
+ const {PROVIDER_ORDER,providerLabel}=await import('../site/signin-options.mjs');
+ assert.deepEqual(PROVIDER_ORDER,['google','steam','discord']);
+ assert.equal(providerLabel('steam'),'Sign in with Steam');
+ assert(!dialog.includes("for(const provider of ['google','steam','discord'])"),'neither surface keeps a second provider list');
+ assert(!page.includes('PROVIDER_NAMES'),'nor a second table of provider names');
 });
 
 test('a waking account service is waited out on its own declared answer, and nothing else is retried',async()=>{
