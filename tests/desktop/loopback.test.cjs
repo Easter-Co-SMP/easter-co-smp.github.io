@@ -15,7 +15,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const net=require('node:net'),os=require('node:os');
 const {createHash}=require('node:crypto');
-const {LoopbackRedirect,pkcePair,stateToken,sameState,LOOPBACK_HOST,CALLBACK_PATH,REGISTERED_REDIRECT,LOOPBACK_TIMEOUT_MS}=require('../../desktop/loopback.cjs');
+const {LoopbackRedirect,pkcePair,stateToken,sameState,LOOPBACK_HOST,CALLBACK_PATH,REGISTERED_REDIRECT,REGISTERED_ORIGIN,LOOPBACK_TIMEOUT_MS}=require('../../desktop/loopback.cjs');
 
 // One request, as a browser or a local process would send it.
 const httpGet=async url=>{
@@ -206,12 +206,22 @@ test('a state is 256 bits, a fresh one every time, and compared in constant time
  function onlyState(){return ''+first;}
 });
 
-test('the registered address is the one Microsoft matches, without a port',()=>{
- // Microsoft ignores the port of a localhost redirect URI when it matches one, which is the
- // only reason an ephemeral port can be used at all; 127.0.0.1 is NOT port-exempt, so the
- // value an owner has to register is this one and it is quoted in the failure that names it.
+test('the registered address is the one Microsoft matches, and it is never 127.0.0.1',async()=>{
+ // Microsoft ignores the port of a localhost redirect URI when it matches one (RFC 8252 §7.2),
+ // which is the only reason an ephemeral port can be used at all. The exemption is for the
+ // localhost literal: 127.0.0.1 would be matched literally, port and all, and is refused — even
+ // though it is the same machine as the socket. So the two are deliberately different, and this
+ // asserts both halves of that in one place.
  assert.equal(REGISTERED_REDIRECT,'http://localhost/callback');
- assert.match(REGISTERED_REDIRECT,/^http:\/\/[^:]+(\/|$)/,'no port in the registered form');
+ assert.match(REGISTERED_REDIRECT,/^http:\/\/[^:]+\/callback$/,'no port in the registered form, and the path this code asks for');
+ const redirect=await opened();
+ try{
+  assert.equal(redirect.host,'127.0.0.1','the socket is bound to the loopback ADDRESS');
+  assert.match(redirect.redirectUri,/^http:\/\/localhost:\d+\/callback$/,'and the URI it hands Microsoft says localhost: '+redirect.redirectUri);
+  assert.equal(redirect.redirectUri.includes('127.0.0.1'),false,'the registered literal is never emitted');
+  assert.equal(redirect.redirectUri.startsWith(REGISTERED_ORIGIN),true);
+  assert.equal(new URL(redirect.redirectUri).pathname,CALLBACK_PATH,'the path is the one registered: '+CALLBACK_PATH);
+ }finally{redirect.close();}
 });
 
 test('the whole wait is bounded by a named timeout, not a bare number',()=>{

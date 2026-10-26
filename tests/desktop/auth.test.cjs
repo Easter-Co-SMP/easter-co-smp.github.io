@@ -143,6 +143,28 @@ test('a full sign-in writes one line per step and carries nothing secret into ei
  scanFile(file);
 });
 
+test('the redirect URI says localhost on this run’s port, and no request carries a secret',async()=>{
+ // The registration holds two loopback redirects — `http://localhost/callback` and
+ // `http://localhost` — and only the localhost literal: 127.0.0.1 is NOT registered and would be
+ // refused at the token endpoint even though it is the same machine as the socket. The socket
+ // binding is asserted in tests/desktop/loopback.test.cjs; this is the other half of that split,
+ // on the wire.
+ const {auth,opened,calls}=fixture([{data:{access_token:forXbox,refresh_token:'refresh-secret'}},...chain()]);
+ await auth.signIn(()=>{});
+ const authorize=new URL(opened[0].url);
+ const asked=authorize.searchParams.get('redirect_uri');
+ assert.match(asked,/^http:\/\/localhost:\d+\/callback$/,'the launcher emits localhost, the /callback path and an ephemeral port: '+asked);
+ assert.equal(asked,calls[0].options.body.get('redirect_uri'),'and the exchange echoes that address byte for byte');
+ // A public client: there is no secret in this flow, and a path that expected one would be a
+ // different registration. Nothing here may name 127.0.0.1 either.
+ const scanned=[opened[0].url,...calls.map(call=>call.url+' '+(call.options&&call.options.body?String(call.options.body):''))];
+ for(const text of scanned){
+  assert.equal(/client_secret|clientsecret/i.test(text),false,'no request carries a secret: '+text.slice(0,140));
+  assert.equal(text.includes('127.0.0.1'),false,'no request names 127.0.0.1: '+text.slice(0,140));
+ }
+ assert.equal(calls[0].options.body.has('client_secret'),false,'the exchange is a public client’s, with no secret field at all');
+});
+
 test('the sign-in scope names one resource only',()=>{
  // The 1.0.22-1.0.25 regression: Microsoft Graph rode along in the sign-in scope,
  // Microsoft accepted the request, and the token exchange was then refused with
