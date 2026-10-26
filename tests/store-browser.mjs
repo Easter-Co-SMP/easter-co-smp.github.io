@@ -781,7 +781,12 @@ try {
       javaScriptEnabled: false,
     });
     try {
-      for (const path of ["/", "/map/", "/wiki/", "/account/"]) {
+      // The legal pages are the coordinator's copy and are never edited from here; they are in
+      // this list because site/web.js used to inject a Store entry into any nav that lacked one,
+      // and their static nav never carried one — so on 62be555 a browser showed a Store entry on
+      // /legal/terms/ and /legal/privacy/ that no page markup contained (measured: one link into
+      // /store/ on each, class="store-entry", at 1440).
+      for (const path of ["/", "/map/", "/wiki/", "/account/", "/legal/terms/", "/legal/privacy/"]) {
         await noScript.goto(origin + path, { waitUntil: "load" });
         assert.equal(
           await noScript.locator('.site-header nav a[href*="store/"]').count(),
@@ -804,8 +809,10 @@ try {
       "undefined",
       "a plain browser page has no desktop bridge",
     );
-    // Every page of the site, not only the home page: not one link anywhere reaches /store/.
-    for (const path of ["/", "/map/", "/wiki/", "/account/"]) {
+    // Every page of the site, not only the home page — the legal pages included, where the
+    // injected entry used to be the only one on an otherwise link-free nav: not one link anywhere
+    // reaches /store/.
+    for (const path of ["/", "/map/", "/wiki/", "/account/", "/legal/terms/", "/legal/privacy/"]) {
       await plain.page.goto(origin + path, { waitUntil: "networkidle" });
       assert.equal(
         await plain.page.locator('.site-header nav a[href*="store/"]').count(),
@@ -1269,6 +1276,11 @@ try {
       "site/map/index.html",
       "site/wiki/index.html",
       "site/store/index.html",
+      // The two legal pages belong to the coordinator, who took their store prose on 2026-10-27
+      // (main, fe9bb0b). They are read here, never edited: this asserts only that neither carries
+      // a route into /store/, which is the property the whole site owes the reviewer.
+      "site/legal/terms/index.html",
+      "site/legal/privacy/index.html",
     ]) {
       const markup = await readFile(new URL("../" + file, import.meta.url), "utf8");
       assert.doesNotMatch(markup, /href="[^"]*store\/"/, `${file} carries no link into the store`);
