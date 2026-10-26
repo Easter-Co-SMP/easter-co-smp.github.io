@@ -46,16 +46,46 @@ const refused=async(promise,pattern)=>{
  assert.match(caught.message,pattern);
  return caught;
 };
-function fixture(responses,{logPath=path.join(logDir(),'signin.log'),version='9.9.9'}={}){
- const calls=[];
- const request=async(url,options)=>{
+// The authority, stubbed at the queue. Two of its legs are not queued, because they are the
+// two the ticket is about:
+//   * the AUTHORIZE page, which the launcher asks one registration question about and then
+//     opens in the player's browser. `registration:'unregistered'` answers the question the
+//     way Microsoft does when the redirect URI is not on the app;
+//   * the BROWSER, which `openExternal` stands in for. 'complete' (the default) has Microsoft
+//     issue a code and delivers it to the launcher's own loopback listener over a real
+//     connection; 'closed' does nothing at all, which is the player shutting the tab; and a
+//     function is handed the address so a test can do something else with it.
+// Everything after that — the token exchange and the Xbox Live chain — is the queue, in order.
+function fixture(responses,{logPath=path.join(logDir(),'signin.log'),version='9.9.9',registration='registered',browser='complete',timeoutMs=5000}={}){
+ const calls=[],authorize=[];
+ let issued=0;
+ const request=async(url,options={})=>{
+  const at=new URL(String(url));
+  // Only Microsoft's own authorize page: Xbox Live's XSTS endpoint is an /authorize too.
+  if(at.hostname==='login.microsoftonline.com'&&at.pathname.endsWith('/oauth2/v2.0/authorize')){
+   const redirectUri=at.searchParams.get('redirect_uri')||'';
+   authorize.push({url:String(url),params:at.searchParams});
+   if(at.searchParams.get('prompt')==='none'){
+    if(registration==='unregistered')return {ok:false,status:200,json:async()=>({}),text:async()=>'<html><body>AADSTS50011: The redirect URI specified in the request does not match the redirect URIs configured for the application.</body></html>',headers:{get:()=>null}};
+    const back=redirectUri+'?error=login_required&state='+encodeURIComponent(at.searchParams.get('state')||'');
+    return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:name=>(String(name).toLowerCase()==='location'?back:null)}};
+   }
+   throw Error('the authorize page is opened by a browser, not requested: '+url);
+  }
   calls.push({url,options});
   const next=responses.shift();
   assert(next,'unexpected auth request: '+url);
   return {ok:next.status===undefined||next.status<400,status:next.status||200,json:async()=>{if(next.unreadable)throw SyntaxError('empty body');return next.data;}};
  };
- const auth=new MicrosoftAuth({clientId:'test-app',request,wait:async()=>{},logPath,version});
- return {auth,calls,file:logPath,log:()=>read(logPath)};
+ const openExternal=async url=>{
+  if(browser==='closed')return;
+  if(typeof browser==='function')return browser(url);
+  const query=new URL(url).searchParams;
+  issued+=1;
+  await fetch(query.get('redirect_uri')+'?code=fixture-code-'+issued+'&state='+encodeURIComponent(query.get('state')||''),{redirect:'manual'});
+ };
+ const auth=new MicrosoftAuth({clientId:'test-app',request,wait:async()=>{},logPath,version,openExternal,loopbackTimeoutMs:timeoutMs});
+ return {auth,calls,authorize,file:logPath,log:()=>read(logPath)};
 }
 // An access token whose own claims prove it was minted for Xbox Live, and one that proves
 // it was minted for Graph instead. Neither is a credential: both are unsigned fixtures.
@@ -70,10 +100,7 @@ const chain=()=>[xboxToken(),xstsToken(),minecraftToken(),licence(),{data:profil
 
 // ---- The six steps --------------------------------------------------------------
 test('a full sign-in writes one line per step and carries nothing secret into either',async()=>{
- const {auth,calls,file,log}=fixture([
-  {data:{device_code:'device-secret',user_code:'TEST-CODE',verification_uri:'https://microsoft.com/link',expires_in:900,interval:1}},
-  {status:400,data:{error:'authorization_pending'}},
-  {status:400,data:{error:'slow_down'}},
+ const {auth,calls,authorize,file,log}=fixture([
   {data:{access_token:forXbox,refresh_token:'refresh-secret'}},
   ...chain()
  ]);
@@ -81,36 +108,42 @@ test('a full sign-in writes one line per step and carries nothing secret into ei
  const session=await auth.signIn(value=>messages.push(value));
  assert.equal(session.profile.name,'TestCaptain');
  assert.equal(session.accessToken,'minecraft-secret');
- assert.deepEqual(steps(file),['device-code','code-completion','xbox-live','xsts','minecraft','java-profile']);
+ assert.deepEqual(steps(file),['browser-sign-in','code-completion','xbox-live','xsts','minecraft','java-profile']);
  assert.equal(failed(file).length,0);
  // Every field the log promises is there, on every line, and the version travels with it.
  for(const line of lines(file)){
   assert.match(line,/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z v9\.9\.9 step=[a-z-]+ outcome=(ok|failed) http=(\d{3}|-) code=(\S+)$/,line);
  }
  assert(read(file).endsWith('\n')&&!read(file).includes('\r'),'LF endings, one line each');
- // One resource per request: the device-code scope must never name Microsoft Graph, or
+ // One resource per request: the sign-in's scope must never name Microsoft Graph, or
  // Microsoft refuses the exchange with invalid_scope after the player has already
  // approved the sign-in. The Graph token is asked for separately, later.
  assert.equal(calls[0].options.body.get('scope'),'XboxLive.signin offline_access');
  assert(!/graph\.microsoft\.com/i.test(calls[0].options.body.get('scope')));
- // The waiting answers are not step outcomes: they wrote no line at all.
- assert(!read(file).includes('authorization_pending')&&!read(file).includes('slow_down'));
- // The short-lived user code is the only value that reaches the UI.
- assert.equal(messages[0].code,'TEST-CODE');
- assert(!JSON.stringify(messages).includes('device-secret'));
+ // THE HAND-OFF IS GONE. What the UI is told is one flag and nothing else: no code to copy,
+ // no address, no expiry. This is the assertion that keeps the deleted step deleted — a
+ // payload that grew a `code` back would put the copy back on the screen.
+ assert.deepEqual(messages,[{browser:true}],'the sign-in tells the UI the page is open, and nothing more');
+ for(const secret of SECRETS)assert(!JSON.stringify(messages).includes(secret),'nothing secret reaches the UI in the hand-off');
+ // The code the browser brought back is spent on the exchange and is not kept anywhere.
+ assert.equal(calls[0].options.body.get('grant_type'),'authorization_code');
+ assert.match(String(calls[0].options.body.get('code_verifier')),/^[-_A-Za-z0-9]{43,128}$/,'the exchange carries the PKCE verifier');
  scanFile(file);
 });
 
-test('the device-code scope names one resource only',()=>{
- // The 1.0.22-1.0.25 regression: Microsoft Graph rode along in the device-code scope,
- // Microsoft accepted the device code, and the token exchange was then refused with
+test('the sign-in scope names one resource only',()=>{
+ // The 1.0.22-1.0.25 regression: Microsoft Graph rode along in the sign-in scope,
+ // Microsoft accepted the request, and the token exchange was then refused with
  // invalid_scope - the player was told the sign-in service refused it after Microsoft had
  // already said yes. One resource per request; the Graph token is separate and optional.
  const source=fs.readFileSync(path.join(__dirname,'../../desktop/auth.cjs'),'utf8');
  const found=source.match(/const SCOPE='([^']+)'/);
- assert.ok(found,'the device-code scope is a literal');
+ assert.ok(found,'the sign-in scope is a literal');
  assert.equal(found[1],'XboxLive.signin offline_access');
- assert.ok(!/graph\.microsoft\.com/i.test(found[1]),'the device-code scope may not name Graph');
+ assert.ok(!/graph\.microsoft\.com/i.test(found[1]),'the sign-in scope may not name Graph');
+ // And the authorize request carries that same scope, because the consent is what decides
+ // whether the exchange brings a refresh token back at all.
+ assert.match(source,/scope:SCOPE,/,'the authorize address asks for it');
  assert.match(source,/const GRAPH_SCOPE='https:\/\/graph\.microsoft\.com\/User\.Read'/);
  // And the Graph token is fetched on its own path, which tolerates every failure.
  assert.match(source,/async graphAccessToken\(refreshToken,signal\)\{/);
@@ -119,27 +152,36 @@ test('the device-code scope names one resource only',()=>{
 });
 
 test('the Microsoft sign-in steps name themselves and keep the provider code in the log',async()=>{
- // Device code.
- const startRefused=fixture([{status:400,data:{error:'invalid_scope'}}]);
- await refused(startRefused.auth.signIn(()=>{}),/^Microsoft sign-in could not start: the sign-in service refused it\. Try again\.$/);
- assert.equal(lines(startRefused.file).length,1,'a failure is exactly one line');
- assert.deepEqual(steps(startRefused.file),['device-code']);
- assert.match(lines(startRefused.file)[0],/outcome=failed http=400 code=invalid_scope$/);
- scanFile(startRefused.file);
- // Code completion: the poll answer that is not one of the two "keep waiting" answers.
- const completion=fixture([
-  {data:{device_code:'device-secret',user_code:'TEST-CODE',verification_uri:'https://microsoft.com/link',expires_in:900,interval:1}},
-  {status:400,data:{error:'invalid_grant'}}
- ]);
- await refused(completion.auth.signIn(()=>{}),/Microsoft sign-in did not finish: your saved sign-in has expired\. Start sign-in again\./);
- assert.deepEqual(steps(completion.file),['device-code','code-completion']);
+ // The app registration will not take this launcher's callback address. This is the failure
+ // that has to say what to add rather than "the sign-in service refused it", because it is
+ // the one failure an owner can fix and the launcher is the only thing that can name it.
+ const unregistered=fixture([],{registration:'unregistered'});
+ const refusedRegistration=await refused(unregistered.auth.signIn(()=>{}),/^Microsoft sign-in could not start: the Microsoft app registration does not allow the launcher’s return address\. Add http:\/\/localhost\/callback as a redirect URI on the Microsoft app registration, then start sign-in again\.$/);
+ assert.equal(refusedRegistration.code,'redirect_uri_unregistered','a failure with a fix carries the code the owner acts on');
+ assert.equal(lines(unregistered.file).length,1,'a failure is exactly one line');
+ assert.deepEqual(steps(unregistered.file),['browser-sign-in']);
+ assert.match(lines(unregistered.file)[0],/outcome=failed http=200 code=AADSTS50011$/,'the AADSTS code is on the line for the owner');
+ scanFile(unregistered.file);
+ // A client id the authority does not know is a different fix, and says so.
+ const unknownClient=fixture([],{browser:async()=>{throw Error('no');}});
+ unknownClient.auth.request=(url,options)=>String(url).includes('/authorize')
+  ? Promise.resolve({ok:false,status:200,json:async()=>({}),text:async()=>'<html>AADSTS700016: Application with identifier was not found</html>',headers:{get:()=>null}})
+  : Promise.reject(Error('no further request'));
+ const clientRefusal=await refused(unknownClient.auth.signIn(()=>{}),/Set EASTER_MICROSOFT_CLIENT_ID/);
+ assert.equal(clientRefusal.code,'client_unregistered');
+ // Code completion: the exchange of the code the browser brought back is refused. A fresh
+ // sign-in has nothing saved behind it, so this is not "your saved sign-in has expired".
+ const completion=fixture([{status:400,data:{error:'invalid_grant'}}]);
+ await refused(completion.auth.signIn(()=>{}),/^Microsoft sign-in did not finish: the sign-in service refused it\. Start sign-in again\.$/);
+ assert.deepEqual(steps(completion.file),['browser-sign-in','code-completion']);
  assert.equal(failed(completion.file).length,1);
+ assert.match(lines(completion.file)[1],/outcome=failed http=400 code=invalid_grant$/);
  scanFile(completion.file);
  // An unreadable body still names the step, and says the service would not explain itself;
  // the status it no longer shows is on the line.
- const unreadable=fixture([{status:400,unreadable:true}]);
- await refused(unreadable.auth.signIn(()=>{}),/Microsoft sign-in could not start: the sign-in service refused it without saying why\. Try again\./);
- assert.match(lines(unreadable.file)[0],/outcome=failed http=400 code=400$/);
+ const unreadable=fixture([{status:200,unreadable:true}]);
+ await refused(unreadable.auth.signIn(()=>{}),/Microsoft sign-in did not finish: the sign-in service refused it without saying why\. Start sign-in again\./);
+ assert.match(lines(unreadable.file)[1],/outcome=failed http=200 code=unreadable$/);
  scanFile(unreadable.file);
 });
 
@@ -324,25 +366,42 @@ test('a successful chain is still owned, missing or profile-required, never inve
  assert.equal((await pass.auth.exchange({access_token:forXbox})).minecraftAccess,'owned');
 });
 
-test('declined and expired codes stay actionable and are not an error notification elsewhere',async()=>{
- for(const [code,expected] of [['authorization_declined',/the sign-in was cancelled in Microsoft/],['expired_token',/the sign-in code expired before it was used/]]){
-  const {auth,file}=fixture([
-   {data:{device_code:'device-secret',user_code:'TEST-CODE',verification_uri:'https://microsoft.com/link',expires_in:600}},
-   {status:400,data:{error:code}}
-  ]);
-  await refused(auth.signIn(()=>{}),expected);
-  assert.equal(failed(file).length,1);
-  scanFile(file);
- }
+test('a refusal on Microsoft’s own page and a page that never came back are told apart',async()=>{
+ // The player pressed Cancel on Microsoft's page: Microsoft says so, with this sign-in's state,
+ // and it is the cancellation sentence this launcher has always used for it.
+ const declined=fixture([],{browser:async url=>{
+  const query=new URL(url).searchParams;
+  await fetch(query.get('redirect_uri')+'?error=access_denied&state='+encodeURIComponent(query.get('state')||''),{redirect:'manual'});
+ }});
+ const cancelled=await refused(declined.auth.signIn(()=>{}),/the sign-in was cancelled in Microsoft/);
+ assert.equal(cancelled.code,'authorization_declined');
+ assert.equal(failed(declined.file).length,1);
+ scanFile(declined.file);
+ // The browser was closed, or Microsoft refused the page and never called back: the wait runs
+ // out. The sentence names what to do about it, including the registration to check, because
+ // from here those two look identical.
+ const closed=fixture([],{browser:'closed',timeoutMs:60});
+ const expired=await refused(closed.auth.signIn(()=>{}),/the Microsoft sign-in page was not completed/);
+ assert.equal(expired.code,'expired_token');
+ assert.match(expired.message,/add http:\/\/localhost\/callback as a redirect URI/,'the timeout names the registration to check');
+ assert.equal(failed(closed.file).length,1);
+ assert.match(lines(closed.file).at(-1),/step=code-completion outcome=failed http=- code=expired_token$/);
+ scanFile(closed.file);
+ // Not a half-state: nothing was exchanged, so no token exists and no session was made.
+ assert.equal(closed.calls.length,0,'a sign-in that never came back asked Microsoft for nothing');
 });
 
-test('cancellation interrupts waiting without writing a failure',async()=>{
+test('cancellation interrupts the wait without writing a failure, and closes the socket',async()=>{
  const controller=new AbortController();
- const {auth,calls,file}=fixture([{data:{device_code:'device-secret',user_code:'TEST-CODE',verification_uri:'https://microsoft.com/link',expires_in:600}}]);
- auth.wait=async(_ms,_value,{signal})=>{signal.throwIfAborted();};
- await assert.rejects(auth.signIn(()=>controller.abort(),controller.signal),{name:'AbortError'});
- assert.equal(calls.length,1);
- assert.deepEqual(steps(file),['device-code'],'the step that succeeded is recorded');
+ const {auth,calls,file}=fixture([],{browser:'closed',timeoutMs:30000});
+ const opened=[];
+ // The player presses Cancel: the abort arrives while the launcher is waiting on its socket.
+ const failing=reason=>{opened.push(reason);};
+ const run=auth.signIn(failing,controller.signal);
+ setTimeout(()=>controller.abort(),20);
+ await assert.rejects(run,{name:'AbortError'});
+ assert.equal(calls.length,0,'no token was asked for after a cancel');
+ assert.deepEqual(steps(file),['browser-sign-in'],'the step that succeeded is recorded');
  assert.equal(failed(file).length,0,'cancellation is not a step failure');
  scanFile(file);
 });
@@ -408,7 +467,7 @@ test('the generic sentence is kept for a step the launcher does not know, and on
  assert.equal(read(unknown.file),'','an unknown step writes no step line');
  // No known step falls back to it: six steps, six different sentences.
  const sentences=new Set();
- for(const [step,response] of [['device-code',{status:400,data:{}}],['code-completion',{status:400,data:{}}],['xbox-live',{status:400,data:{}}],['xsts',{status:400,data:{}}],['minecraft',{status:400,data:{}}],['java-profile',{status:400,data:{}}]]){
+ for(const [step,response] of [['browser-sign-in',{status:400,data:{}}],['code-completion',{status:400,data:{}}],['xbox-live',{status:400,data:{}}],['xsts',{status:400,data:{}}],['minecraft',{status:400,data:{}}],['java-profile',{status:400,data:{}}]]){
   const {auth}=fixture([response]);
   const error=await refused(auth.json('https://example.test/'+step,{},undefined,step),/./);
   assert.notEqual(error.message,'Sign-in could not finish. Please try again.');
@@ -430,7 +489,7 @@ test('a network failure names the step it happened at, and every step reads the 
  // All six steps share that shape, name their own step, and stay distinct from each other.
  const sentences=new Map();
  for(const [step,reached] of [
-  ['device-code',/could not reach Microsoft to ask for a sign-in code\./],
+  ['browser-sign-in',/could not reach the Microsoft sign-in page\./],
   ['code-completion',/could not reach Microsoft to finish the sign-in\./],
   ['xbox-live',/could not reach Xbox Live\./],
   ['xsts',/could not reach Xbox Live to authorise the sign-in\./],
@@ -458,18 +517,20 @@ test('a network failure names the step it happened at, and every step reads the 
 // Every failure the launcher can word, for the same reason: the sentence is what a player
 // sees and the line is what the owner reads. The status and the provider's code are moved,
 // never lost.
-const sentenceOf=async(responses,run)=>{
- const {auth,file}=fixture(responses.map(response=>({...response})));
+const sentenceOf=async(responses,run,options={})=>{
+ const {auth,file}=fixture(responses.map(response=>({...response})),options);
  let caught;
  await assert.rejects(run(auth),error=>{caught=error;return true;});
  scanMessage(caught.message);
  return {message:caught.message,line:lines(file).at(-1)||''};
 };
 test('no sentence carries a status or a provider code, and the log for that failure still does',async()=>{
- const device={data:{device_code:'device-secret',user_code:'TEST-CODE',verification_uri:'https://microsoft.com/link',expires_in:900,interval:1}};
  const failures=[
-  ['a refused device code',[{status:400,data:{error:'invalid_scope'}}],auth=>auth.signIn(()=>{}),/outcome=failed http=400 code=invalid_scope$/],
-  ['a refused completion',[device,{status:400,data:{error:'invalid_grant'}}],auth=>auth.signIn(()=>{}),/outcome=failed http=400 code=invalid_grant$/],
+  // The two halves of a browser sign-in that Microsoft itself refuses: the app registration
+  // that will not take the callback address (AADSTS50011, and the sentence names the URI),
+  // and the exchange of the code the browser brought back.
+  ['a refused callback address',[],auth=>auth.signIn(()=>{}),/outcome=failed http=200 code=AADSTS50011$/,{registration:'unregistered'}],
+  ['a refused completion',[{status:400,data:{error:'invalid_grant'}}],auth=>auth.signIn(()=>{}),/outcome=failed http=400 code=invalid_grant$/],
   ['a refused Xbox Live ticket',[{status:401,unreadable:true}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=401$/],
   ['a refusal with a provider code',[{status:401,data:{error:'UNAUTHORIZED'}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=UNAUTHORIZED$/],
   ['a Microsoft Family refusal',[xboxToken(),{status:401,data:{XErr:2148916238}}],auth=>auth.exchange({access_token:forXbox}),/outcome=failed http=401 code=XErr2148916238$/],
@@ -488,8 +549,8 @@ test('no sentence carries a status or a provider code, and the log for that fail
   ['a refused Xbox Live scope',[{status:400,data:{error:'invalid_grant'}}],auth=>auth.exchange({access_token:forGraph,refresh_token:'refresh-secret'}),/outcome=failed http=400 code=invalid_grant$/]
  ];
  const seen=new Map();
- for(const [name,responses,run,logged] of failures){
-  const {message,line}=await sentenceOf(responses,run);
+ for(const [name,responses,run,logged,options] of failures){
+  const {message,line}=await sentenceOf(responses,run,options);
   assert.doesNotMatch(message,JARGON,name+': '+message);
   assert.doesNotMatch(message,INTERNALS,name+': '+message);
   assert.match(line,logged,name+' kept its status and code in the log: '+line);
@@ -624,15 +685,12 @@ test('state.error is announced once and no later broadcast can repaint it',async
 });
 
 
-test('sign-in stages stay waiting through pending polls and expose no provider payload',async()=>{
+test('the stages a browser sign-in announces are the same four, and carry no provider payload',async()=>{
  const {auth}=fixture([
-  {data:{device_code:'device-secret',user_code:'TEST-CODE',verification_uri:'https://microsoft.com/link',expires_in:900,interval:1}},
-  {status:400,data:{error:'authorization_pending'}},
-  {status:400,data:{error:'slow_down'}},
   {data:{access_token:forXbox,refresh_token:'refresh-secret'}},...chain()
  ]);
  const stages=[];await auth.signIn(()=>{},undefined,stage=>stages.push(stage));
- assert.deepEqual(stages,['microsoft-opening','microsoft-waiting','microsoft-verifying','java-checking']);
+ assert.deepEqual(stages,['microsoft-opening','microsoft-waiting','microsoft-verifying','java-checking'],'the stages the launcher paints are unchanged by the flow that feeds them');
  for(const secret of SECRETS)assert(!JSON.stringify(stages).includes(secret));
 });
 

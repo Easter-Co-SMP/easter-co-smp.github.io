@@ -77,7 +77,8 @@ function createMicrosoft({mode='unproven',registration='registered',uhs='1234567
   const scope=body.get('scope')||'';
   const offline=scope.split(/\s+/).includes('offline_access');
   calls.push({url,grant:body.get('grant_type'),scope,sent:body.get('refresh_token')||null});
-  if(url.includes('/authorize?')){
+  // Microsoft's authorize page only: Xbox Live's XSTS endpoint ends in /authorize as well.
+  if(url.includes('/oauth2/v2.0/authorize?')){
    const query=new URL(url).searchParams;
    const redirectUri=query.get('redirect_uri')||'';
    // The launcher's registration probe, and the only answer that decides whether it opens a
