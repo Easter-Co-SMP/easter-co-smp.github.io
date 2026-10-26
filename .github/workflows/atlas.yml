@@ -12,10 +12,21 @@ name: Atlas pipeline
 #
 # The pipeline code lives in scripts/atlas and is documented in doc/atlas-pipeline.md.
 on:
-  schedule:
-    # Hourly, at a minute that is not :00: the busiest minute on GitHub's scheduler. The AWS
-    # half decides whether a capture is needed; this run usually finds the pointer unchanged.
-    - cron: '17 * * * *'
+  # THE HOURLY SCHEDULE IS OFF until the AWS half can publish anything. Measured 2026-10-26:
+  # every tick failed, and not because of this repository — `publish/latest.json` has never
+  # existed, because the bucket is empty, because the AWS half has never run. Two causes, both
+  # outside this repo: its `easter-atlas-hourly` EventBridge rule is DISABLED while the stack
+  # that declares it says enabled (disabled out of band 2026-10-22), and the host facts it was
+  # configured with describe Easter-Server, the machine the map used to be rendered on
+  # (`/opt/minecraft/...`, `minecraft.service`), not the production host
+  # (`/root/easter-host-runtime/doc/RUNTIME.md`: `easter-minecraft.service`,
+  # `/srv/easter/runtime/server`). A schedule pointed at a pipeline that cannot publish is a
+  # red tick every hour that says nothing new.
+  #
+  # RESTORE THE SCHEDULE, as the line below, in the same commit that proves a published bundle:
+  #     - cron: '17 * * * *'
+  # at a minute that is not :00, the busiest minute on GitHub's scheduler; the AWS half decides
+  # whether a capture is needed, so most runs find the pointer unchanged and commit nothing.
   workflow_dispatch:
     inputs:
       dry_run:

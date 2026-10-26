@@ -15,9 +15,11 @@ The direction is forced, not chosen: **GitHub OIDC is denied in this AWS account
 2026-10-22 — `iam:GetOpenIDConnectProvider`, `iam:ListOpenIDConnectProviders` and
 `iam:CreateOpenIDConnectProvider` are each refused by organisation SCP `o-yk9cqpb570` /
 `p-vt1ibhxo`), so a workflow here cannot assume a role and must not hold AWS keys. AWS writes
-bytes it is allowed to write; this workflow reads them, because the `publish/` prefix is public
-and holds nothing the site does not already show. The raw world stays in the bucket's private
-`world/` prefix.
+bytes it is allowed to write; this workflow reads them over plain HTTPS, through one CloudFront
+distribution whose bucket policy grants `s3:GetObject` on `publish/*` to `cloudfront.amazonaws.com`
+and to nobody else — the account refuses a public bucket policy, so the prefix is reachable
+rather than public (cloud `doc/ATLAS_PIPELINE.md`, "It used to be a **public** prefix"). The raw
+world stays in the bucket's private `world/` prefix.
 
 ## What this half does, and does not
 
