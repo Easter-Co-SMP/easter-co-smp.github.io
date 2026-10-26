@@ -264,6 +264,18 @@
   outline: 2px solid var(--account-gold);
   outline-offset: 3px;
 }
+/* THE BOOT STATE (site/account/account.mjs, reading): a saved session this load cannot paint yet.
+   The page shows the Easter Company mark - the same mark the nav's control paints while it cannot
+   name an account (site/web.css, .web-account-face-mark) - and nothing to press. No words and no
+   spinner: an ordinary cold load is not a sign-in in flight, and the account replaces this the
+   moment the seam can answer it. */
+.account-boot-mark {
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin: 6px auto 2px;
+  background: url(../assets/ec-logo.svg) center / contain no-repeat;
+}
 .account-identity {
   margin: 0;
   font-size: 13px;

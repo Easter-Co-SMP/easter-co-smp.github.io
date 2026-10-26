@@ -148,6 +148,32 @@ function signedIn(account){
  root.replaceChildren(identity,element('p','account-note',PLAY_NOTE),out);
 }
 
+// THE THIRD ANSWER, and it is the nav's rather than this page's invention.
+//
+// `startupReady:false` means one thing at the seam (site/web-account.mjs, `booting`): a saved
+// session exists that this load cannot paint yet - the one load after a storage-shape change, when
+// the tab holds a token but no account document - so the account is being read and nothing is
+// known about it. The nav answered that with the Easter Company mark, no name, disabled and
+// `aria-busy` (site/web.js, paint) because the sign-in it used to offer was refused by the seam
+// itself (`startMicrosoftSignIn`'s `await ready` then `if(session)`). This page answered it with
+// the sign-in options, which is the same lie in a bigger panel: measured at 1440 on e4c1ade with
+// `/me` held, the first painted frame drew the whole options panel while the nav beside it was
+// already `aria-busy` and disabled.
+//
+// So the third answer is that same mark and that same `aria-busy`, and nothing else: no words the
+// nav does not have, no second busy spinner (an ordinary cold load is not a sign-in in flight),
+// and nothing to press - a control that would only be refused is worse than no control. The
+// account is drawn the moment the seam can answer, because paint() reads the seam again on every
+// broadcast.
+function reading(){
+ shown='waiting';
+ options=null;
+ clearProblem();
+ const mark=element('span','account-boot-mark');
+ mark.setAttribute('aria-hidden','true');
+ root.replaceChildren(mark);
+}
+
 // The signed-out answer is the shared panel, one node, whether or not the service has answered
 // about the other providers yet: the Microsoft button and the direct Company sign-in never wait
 // on a question about Google, Steam or Discord.
@@ -263,7 +289,10 @@ async function boot(){
   await startMicrosoft();
   return;
  }
- if(bridge.getState().account)paint();
+ // Nothing left to decide: the boot's first paint already read the seam, and every change the seam
+ // makes - the read settling, a 401 dropping the session, a sign-in finishing - arrives through
+ // the subscription at the bottom of this file. Asking again here is how the page came to paint a
+ // signed-out panel over a saved session it had not read yet.
 }
 
 // The address this page answers for, with nothing after it: the redirect literal is a contract
@@ -274,10 +303,16 @@ function stripAddress(){
 
 // The account seam's own state decides which whole answer is on screen. A flow in flight is the
 // exception: while one runs none of these answers is on screen at all - the busy state is.
+//
+// `startupReady:false` is the seam saying a saved session exists that this load cannot paint yet,
+// and it is the one state this page may not turn into a sign-in: see reading(). The region says so
+// with `aria-busy`, the same attribute the nav's control uses for the same fact.
 function paint(next=bridge.getState()){
- const key=next.account?'in':'out';
+ const key=next.account?'in':next.startupReady===false?'waiting':'out';
+ root.setAttribute('aria-busy',String(key==='waiting'));
  if(key!==shown){
   if(key==='in')signedIn(next.account);
+  else if(key==='waiting')reading();
   else if(shown!=='unavailable')signedOut();
  }
 }
