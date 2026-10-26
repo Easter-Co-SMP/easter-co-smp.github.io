@@ -1120,16 +1120,17 @@ signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close s
  }
  if(homeCopy)void import('./launcher-discovery.mjs').then(({mountDiscovery})=>mountDiscovery(homeCopy.parentElement,desktop));
  // The store is a page of its own at ./store/, reached by navigation exactly as Map and Wiki
- // are. Every page carries that Store link in its own static markup, because each page's route
- // to the store is relative and this shared script cannot compute one for all four; the link is
- // hidden in the website by site/desktop.css and shown only under `desktop-mode`, which is what
- // makes the store a launcher surface and nothing on the website (Owen, 2026-10-23: *"hide all
- // store elements when not inside of launcher"*). This append is therefore dead on all four
- // pages and kept as the one place a page without the link would still get it; matching on the
- // link rather than on a class is what keeps the header to exactly one Store entry.
+ // are. No page carries that Store link in its own static markup any more: the website has no
+ // store at all while the app registration is reviewed (Owen, 2026-10-27), so the launcher is the
+ // only surface that offers the entry and this is where it is added. The href is resolved against
+ // the site root - the wordmark's own href, which points at the root from every page - because
+ // this one script is shared by pages at /, /map/, /wiki/, /account/ and /store/, and a bare
+ // './store/' would be /map/store/ on the map page. Matching on the link rather than on a class is
+ // what keeps the header to exactly one Store entry.
  const storeNav=document.querySelector('.site-header nav');
  if(storeNav&&!storeNav.querySelector('a[href="./store/"],a[href$="/store/"]')){
-  const storeEntry=document.createElement('a');storeEntry.className='desktop-store-entry';storeEntry.href='./store/';storeEntry.textContent='Store';
+  const storeRoot=document.querySelector('.site-wordmark')?.href||document.baseURI;
+  const storeEntry=document.createElement('a');storeEntry.className='desktop-store-entry';storeEntry.href=new URL('store/',storeRoot).href;storeEntry.textContent='Store';
   storeNav.append(storeEntry);
  }
  // The header is account-only: no client settings button is ever placed there.

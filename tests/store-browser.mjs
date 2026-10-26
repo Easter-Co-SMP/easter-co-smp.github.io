@@ -210,13 +210,13 @@ try {
     );
     assert.equal(
       await page.locator('.site-header nav a[aria-current="page"]').getAttribute("href"),
-      "../store/",
-      "the shared nav marks Store as the current page",
+      origin + "/store/",
+      "the launcher's own nav entry marks Store as the current page on the store page",
     );
     assert.equal(
       await page.locator('.site-header nav a[href$="store/"]').count(),
       1,
-      "the nav lists Store once",
+      "the nav lists Store once, and the launcher's appended entry is the only one",
     );
     assert.equal(
       await page.locator("script:not([src])").count(),
@@ -771,25 +771,30 @@ try {
     assert.equal(await store.locator("input").count(), 0);
     console.log("A preload without the store commands offers no buying control");
   }
-  // THE STORE IS A LAUNCHER SURFACE, NOT A WEBSITE DESTINATION (desktop.css, and the previous
-  // commit's rule). Asserted with no JavaScript first: that is the case with nothing to hide it.
+  // THE STORE IS A LAUNCHER SURFACE, NOT A WEBSITE DESTINATION (doc/launcher-store.md, and Owen's
+  // instruction of 2026-10-27 while the Easter Company app registration is reviewed by Minecraft:
+  // "let's not remove, but disable the store on the website ... leave it inside the launcher
+  // though"). Asserted with no JavaScript first: that is the case with nothing to hide it.
   {
     const noScript = await browser.newPage({
       viewport: { width: 1440, height: 1000 },
       javaScriptEnabled: false,
     });
     try {
-      await noScript.goto(origin + "/", { waitUntil: "load" });
-      const staticEntry = noScript.locator(".site-header nav a.store-entry");
-      assert.equal(
-        await staticEntry.count(),
-        1,
-        "the home markup still carries the Store link, so the launcher has a route on every page",
-      );
-      assert.equal(await staticEntry.isVisible(), true);
+      for (const path of ["/", "/map/", "/wiki/", "/account/"]) {
+        await noScript.goto(origin + path, { waitUntil: "load" });
+        assert.equal(
+          await noScript.locator('.site-header nav a[href*="store/"]').count(),
+          0,
+          `${path} carries no Store entry in its own markup`,
+        );
+      }
+      // The public store URL with no scripting at all: the page's own noscript refresh lands the
+      // visitor on the home page rather than on a shop or a shutter.
       await noScript.goto(origin + "/store/", { waitUntil: "load" });
-      assert.equal(await noScript.locator(".store-main").isVisible(), true);
-      assert.equal(await noScript.locator(".store-product").count(), 0);
+      await noScript.waitForURL(origin + "/");
+      assert.equal(new URL(noScript.url()).pathname, "/", "/store/ lands on the homepage with no scripting");
+      assert.equal(await noScript.locator(".store-main").count(), 0, "and paints nothing of the store");
     } finally {
       await noScript.close();
     }
@@ -799,37 +804,97 @@ try {
       "undefined",
       "a plain browser page has no desktop bridge",
     );
-    assert.equal(
-      await plain.page.locator('.site-header nav a[href*="store/"]:visible').count(),
-      1,
-      "the home nav shows the shared Store entry in a browser",
-    );
+    // Every page of the site, not only the home page: not one link anywhere reaches /store/.
+    for (const path of ["/", "/map/", "/wiki/", "/account/"]) {
+      await plain.page.goto(origin + path, { waitUntil: "networkidle" });
+      assert.equal(
+        await plain.page.locator('.site-header nav a[href*="store/"]').count(),
+        0,
+        `${path} shows no Store entry in a browser`,
+      );
+      assert.deepEqual(
+        await plain.page.evaluate(() =>
+          [...document.querySelectorAll("a")].map((a) => a.href).filter((href) => href.includes("/store/")),
+        ),
+        [],
+        `no link anywhere on ${path} reaches /store/`,
+      );
+    }
+    // THE PUBLIC STORE URL LANDS ON THE HOME PAGE, and nothing asks the account service anything
+    // about a store: the call count is the assertion, not the intention.
+    const storeCalls = [];
+    plain.page.on("request", (request) => {
+      const path = new URL(request.url()).pathname;
+      if (/\/store\/(catalogue|orders|checkout)$/.test(path)) storeCalls.push(path);
+    });
     await plain.page.goto(origin + "/store/", { waitUntil: "networkidle" });
-    await plain.page.getByText("Sign in to buy.", {exact:true}).waitFor();
-    assert.equal(await plain.page.locator(".store-main").count(), 1);
+    assert.equal(new URL(plain.page.url()).pathname, "/", "/store/ lands on the homepage in a browser");
+    assert.equal(
+      await plain.page.locator(".store-main").count(),
+      0,
+      "and the page it lands on carries nothing of the store",
+    );
+    assert.equal(
+      await plain.page.locator(".store-product,.store-price,.store-order-record").count(),
+      0,
+      "no catalogue, no price and no order row anywhere on it",
+    );
+    assert.deepEqual(storeCalls, [], "a direct /store/ load makes no store API call");
+    assert.deepEqual(
+      plain.external.filter((url) => /\/store\//.test(new URL(url).pathname)),
+      [],
+      "and no request to any store route leaves the page",
+    );
+    console.log(
+      `  /store/ on the web: ${storeCalls.length} store API calls and ${plain.external.length} off-site request(s) in total (${plain.external.map((url) => new URL(url).pathname).join(", ") || "none"})`,
+    );
     assert.deepEqual(plain.errors, [], "no page error redirecting a browser home");
-    console.log("Shared store passed: browser catalogue asks for sign-in without a native bridge");
+    console.log(
+      "Off the website passed: no page links into /store/, the public store URL lands on the home page with no store API call, and the store page paints nothing on the way",
+    );
   }
-  // The launcher's nav entry is a link to the page, not a modal behind a button.
+  // The launcher's nav entry is a link to the page, not a modal behind a button. It is the
+  // launcher's own entry - site/desktop.js appends it on any page that has no link into the store,
+  // which is now every page of the site - and it must resolve to the store from EVERY page, not
+  // only from the site root.
   {
     const { page, errors } = await openPage({
       init: installBridge,
       arg: { products: PRODUCTS, orders: [] },
       url: origin,
     });
-    await page.locator(".site-header nav a.store-entry").waitFor();
+    const entry = page.locator(".site-header nav a.desktop-store-entry");
+    await entry.waitFor();
+    assert.equal(
+      await entry.getAttribute("href"),
+      origin + "/store/",
+      "the launcher's own entry points at the store from the home page",
+    );
     assert.equal(
       await page.getByRole("button", { name: "Store", exact: true }).count(),
       0,
       "no Store button that opens a dialog",
     );
-    await page.locator(".site-header nav a.store-entry").click();
+    // A shared script appends that entry on every page, so its href is resolved against the site
+    // root: a page-relative './store/' would be /map/store/ and a dead link.
+    for (const path of ["/map/", "/wiki/", "/account/"]) {
+      await page.goto(origin + path, { waitUntil: "networkidle" });
+      const here = page.locator(".site-header nav a.desktop-store-entry");
+      await here.waitFor();
+      assert.equal(
+        await here.getAttribute("href"),
+        origin + "/store/",
+        `the launcher's Store entry reaches the store from ${path}`,
+      );
+    }
+    await page.goto(origin, { waitUntil: "networkidle" });
+    await page.locator(".site-header nav a.desktop-store-entry").click();
     await page.waitForURL(origin + "/store/");
     await page.locator(".store-product").first().waitFor();
     assert.equal(await page.locator('.site-header nav a[href*="store/"]').count(), 1);
     assert.equal(await page.locator("dialog[open]").count(), 0);
     assert.deepEqual(errors, []);
-    console.log("Launcher nav entry navigates to the store page");
+    console.log("Launcher nav entry navigates to the store page, and reaches it from every page");
   }
   // SOL'S SKIP LINK AND THE KEYBOARD. The link is the page's first Tab stop, it is off screen
   // until it is focused, and pressing it puts the reader inside the store without turning itself
@@ -1193,54 +1258,51 @@ try {
     assert.equal(lively.ring.duration, "0.9s");
     console.log("Reduced motion passed: the busy ring turns, and stops when the reader asks it to");
   }
-  // THE TWO STANDING RULES A DESIGN PASS HAS ALREADY DROPPED ONCE (commit 5e5a2fc): the class that
-  // keeps the Store link out of the public site, and the mount gate that keeps the store off it.
-  // Both are asserted where they live, so a later visual pass over a stale base fails here.
+  // THE TWO STANDING RULES A DESIGN PASS HAS ALREADY DROPPED ONCE (commit 5e5a2fc), in the shape
+  // Owen's instruction of 2026-10-27 gives them: no page carries a route into the store, and the
+  // mount gate keeps the store off the website altogether. Both are asserted where they live, so a
+  // later visual pass over a stale base fails here.
   {
-    const markup = await readFile(new URL("../site/store/index.html", import.meta.url), "utf8");
+    for (const file of [
+      "site/index.html",
+      "site/account/index.html",
+      "site/map/index.html",
+      "site/wiki/index.html",
+      "site/store/index.html",
+    ]) {
+      const markup = await readFile(new URL("../" + file, import.meta.url), "utf8");
+      assert.doesNotMatch(markup, /href="[^"]*store\/"/, `${file} carries no link into the store`);
+      assert.doesNotMatch(markup, /class="store-entry"/, `${file} carries no Store entry`);
+    }
+    const storeMarkup = await readFile(new URL("../site/store/index.html", import.meta.url), "utf8");
     assert.match(
-      markup,
-      /<a class="store-entry" href="\.\.\/store\/"/,
-      'site/store/index.html keeps class="store-entry" on its Store link',
-    );
-    assert.match(
-      markup,
+      storeMarkup,
       /<a class="store-skip" href="#store-root">Skip to store<\/a>/,
       "the skip link is in the static markup, so it exists before any script runs",
+    );
+    assert.match(
+      storeMarkup,
+      /<noscript><meta http-equiv="refresh" content="0; url=\.\.\/"><\/noscript>/,
+      "a browser with no scripting is sent to the site root rather than left on a store page",
     );
     const source = await readFile(new URL("../site/store/store.mjs", import.meta.url), "utf8");
     assert.match(
       source,
-      /globalThis\.easterDesktop \|\| webAccount/,
-      "the mount selects the native or browser account transport",
+      /const bridge = globalThis\.easterDesktop\?\.mode === "desktop" \? globalThis\.easterDesktop : null;/,
+      "the mount takes its transport only when the launcher is present",
+    );
+    assert.match(
+      source,
+      /location\.replace\(new URL\("\.\.\/", location\.href\)\)/,
+      "and sends a browser with no launcher to the site root instead of mounting a shop",
     );
     assert.match(
       source,
       /mountStore\(mount, \{bridge\}\)/,
-      "and mounts the shared store with that transport",
+      "the launcher still mounts the shared store with its own transport",
     );
-    const noScript = await browser.newPage({
-      viewport: { width: 1440, height: 1000 },
-      javaScriptEnabled: false,
-    });
-    try {
-      await noScript.goto(origin + "/store/", { waitUntil: "load" });
-      assert.equal(
-        await noScript.locator('.site-header nav a.store-entry[href="../store/"]').count(),
-        1,
-        "the store page's own nav carries the class that hides it outside the launcher",
-      );
-      assert.equal(await noScript.locator(".store-main").isVisible(), true);
-      const skip = await noScript.locator(".store-skip").boundingBox();
-      assert.ok(
-        skip.width <= 1 && skip.height <= 1,
-        "and the skip link stays off screen on a page with no scripting",
-      );
-    } finally {
-      await noScript.close();
-    }
     console.log(
-      'Standing rules passed: class="store-entry" on the Store link, and the mount gate in store.mjs',
+      "Standing rules passed: no page carries a route into /store/, and store.mjs mounts only under the launcher",
     );
   }
 } finally {

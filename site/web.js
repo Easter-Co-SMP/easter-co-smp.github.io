@@ -2,16 +2,19 @@ import {webAccount} from './web-account.mjs';
 import {createCompanyAuth} from './company-auth.mjs';
 if(webAccount){
  document.documentElement.classList.add('web-mode');
- const base=new URL('./',import.meta.url);
- // Stripe's return URL is a routing signal only. Orders are re-read from the API;
- // a visitor forging the fragment cannot create a payment-success claim.
- if(/^#store-paid(?:\/|$)/.test(location.hash)||location.hash==='#store-cancelled'){
-  const destination=new URL('store/',base);destination.hash=location.hash==='#store-cancelled'?'catalogue':'orders';
-  location.replace(destination.href);
- }else{
-  const nav=document.querySelector('.site-header nav');
-  if(nav){
-   if(!nav.querySelector('a[href$="store/"]')){const link=document.createElement('a');link.href=new URL('store/',base).href;link.textContent='Store';link.className='store-entry';nav.append(link);}
+ // THE WEBSITE HAS NO STORE. Owen, 2026-10-27: the Easter Company app registration is going to
+ // Minecraft for API approval and the form reviews this site, so a storefront on it is a
+ // monetisation question we do not want asked during a review - *"let's not remove, but disable
+ // the store on the website ... leave it inside the launcher though"*. Nothing is deleted:
+ // site/store/ is still here, the launcher still mounts it through its own bridge, and
+ // site/account-client.mjs still serves the catalogue and the player's own orders. What went is
+ // the website's every route to it: the Store entry this file injected into the shared nav on
+ // any page that lacked one, and the Stripe return redirect that used to forward
+ // `#store-paid/cs_...` and `#store-cancelled` into site/store/. A browser that opens /store/
+ // is sent to the site root instead, and no page of this site links into it
+ // (site/store/store.mjs, the mount gate; doc/launcher-store.md).
+ const nav=document.querySelector('.site-header nav');
+ if(nav){
    // ---- The account control's face ----------------------------------------------
    // Owen, 2026-10-26, signed in on the live site: "there's no user image in the `oceaster` user
    // element"; and the next day, signed in on both surfaces: "I am logged in on both web and
@@ -199,6 +202,5 @@ if(webAccount){
    menu.addEventListener('toggle',()=>account.setAttribute('aria-expanded',String(menu.matches(':popover-open'))));
    webAccount.subscribe(paint);
    await webAccount.ready;paint(webAccount.getState());
-  }
  }
 }
