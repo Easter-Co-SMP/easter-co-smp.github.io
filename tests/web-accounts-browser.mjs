@@ -17,6 +17,11 @@ try{
   const context=await browser.newContext({viewport:{width,height:1000},reducedMotion:'reduce'});
   const page=await context.newPage(),errors=[],requests=[];
   let account={...baseAccount},paid=false,providerSignup=false,finishCalls=0,checkoutCalls=0,loginHold=null;
+  // The boot journeys below decide when /me answers and what it says. A hold is a promise the route
+  // waits on, so a state that is only reachable while the read is in flight is measured on the route
+  // rather than slept through after the load: the delay is where the player's 18-22 s Aurora resume
+  // is, and a probe that raced it would prove nothing.
+  let meHold=null,meStatus=200;
   page.on('pageerror',error=>errors.push(error.message));
   await context.route(api+'/**',async route=>{
    const request=route.request(),path=new URL(request.url()).pathname,body=request.postDataJSON?.();
@@ -28,7 +33,7 @@ try{
    else if(path.endsWith('/password/login')){if(body.password==='wrong'){status=401;value={error:'invalid_credentials'};}else{if(loginHold)await loginHold;value=signed(account);}}
    else if(path.endsWith('/username/available'))value={available:body.username!=='taken',reason:'taken'};
    else if(path.endsWith('/password')){account={...account,username:body.username||account.username,passwordRequired:false};value=signed(account);}
-   else if(path.endsWith('/me'))value={account};
+   else if(path.endsWith('/me')){if(meHold)await meHold;if(meStatus!==200){status=meStatus;value={error:'invalid_session'};}else value={account};}
    else if(path.endsWith('/emails'))value={emails:[],loginEmail:null};
    else if(path.endsWith('/profile')){account={...account,displayName:body.displayName};value={account};}
    else if(path.endsWith('/store/catalogue'))value={products:[product]};
@@ -139,6 +144,8 @@ try{
     // nothing about which child is tallest.
     oneRow:Math.max(...children.map(box=>box.bottom))-Math.min(...children.map(box=>box.top))<=rect(nav).height+1,
     face:{hidden:face.hidden,width:+rect(face).width.toFixed(2),height:+rect(face).height.toFixed(2)},
+    // The launcher's geometry, measured rather than looked at: a 4px rounded square, never a disc.
+    faceRadius:getComputedStyle(face).borderRadius,
     letter:document.querySelector('.web-account-initial').textContent,
     painted:face.classList.contains('has-picture'),
     mark:face.classList.contains('web-account-face-mark'),
@@ -216,6 +223,16 @@ try{
   assert(marks.length>=1,'the picture reached the control');
   const beforePaint=marks[0];
   assert.deepEqual({width:beforePaint.width,height:beforePaint.height},box(painted),'the control is the same size before the avatar paints as after');
+  // The image fills the rounded square it is in (object-fit:cover inside overflow:hidden), so a
+  // picture is cropped to the slot rather than inset in a disc: what Owen asked for when he said the
+  // launcher's face was the better one.
+  const filled=await facePage.evaluate(()=>{
+   const face=document.querySelector('.web-account-face'),picture=document.querySelector('.web-account-picture');
+   const outer=face.getBoundingClientRect(),inner=picture.getBoundingClientRect();
+   return {overflow:getComputedStyle(face).overflow,width:+inner.width.toFixed(2),height:+inner.height.toFixed(2),slot:{width:+outer.width.toFixed(2),height:+outer.height.toFixed(2)}};
+  });
+  assert.equal(filled.overflow,'hidden','the rounded square crops the image');
+  assert.deepEqual({width:filled.width,height:filled.height},filled.slot,'the face fills the slot edge to edge');
   // 5. Signed in with no picture at all: the tile is the avatar. This is the state the wipe leaves.
   await signOut();
   account={...baseAccount,username:'oceaster',displayName:'OCEaster',picture:null};
@@ -305,6 +322,9 @@ try{
   assert.equal(bothFaces.picture.natural,64,'the picture is what the control shows');
   assert.equal(bothFaces.picture.src,pictureURL,'and it is the picture itself, never the crop');
   assert.equal(bothFaces.picture.rendering,'auto','an uploaded picture keeps the ordinary smoothing');
+  // The head stays nearest-neighbour at the launcher's size too (state 7), where 8x8 texture pixels
+  // become 4x4 blocks of a 32px square rather than blocks of a 16px one.
+  assert.equal(skinOnly.picture.rendering,'pixelated','the cropped head is still drawn nearest-neighbour at '+width);
   assert.equal(await facePage.locator('.web-account-picture.web-account-head').count(),0,'and claims no head rendering');
   assert.deepEqual(box(bothFaces),box(painted),'the picture over a skin leaves the same box');
   // 9. `skin: null` - no Minecraft identity to draw, which after the wipe is every account until it
@@ -382,7 +402,7 @@ try{
   assert.equal(nameless.letter,'','no letter is invented from a placeholder name');
   assert.equal(nameless.mark,true,'the mark stands in while there is no name to letter');
   // The label is longer than a username ("Finish setup"), so the control is wider here by design:
-  // what the face may never change is the height, and the slot is the same 20px disc.
+  // what the face may never change is the height, and the slot is the same rounded square.
   assert.equal(box(nameless).height,box(painted).height,'the face never changes the control height');
   const mark=await facePage.evaluate(()=>{
    const style=getComputedStyle(document.querySelector('.web-account-face'));
@@ -393,8 +413,19 @@ try{
   // The row stays one row, and 390 is the width the report came from.
   assert.equal(nameless.oneRow,true,'the nav does not wrap at '+width);
   assert.equal(failed.overflow,false,'the page does not scroll sideways at '+width);
-  // The slot is one fixed 20x20 disc in every state that has an account.
-  for(const state of [painted,noPicture,failed,skinOnly,bothFaces,noSkin,badSkin,nameless])assert.deepEqual(state.face,{hidden:false,width:16,height:16},'one fixed slot');
+  // The slot is one fixed rounded square in every state that has an account, at the size the
+  // launcher draws it: 32x32 with a 4px radius, and 24x24 below the launcher's own 420px breakpoint
+  // (site/desktop.css). Owen, 2026-10-26: "also on web, the profile image is a small circle not
+  // fully shown like on the launcher, launcher style is better".
+  const faceSize=width<=420?24:32;
+  // The pill keeps the height it had with the 16px disc in it: 40px above the header's own narrow
+  // rule and 44px under it. The face grew by 16px and the pill did not.
+  const pillHeight=width<=600?44:40;
+  for(const state of [painted,noPicture,failed,skinOnly,bothFaces,noSkin,badSkin,nameless]){
+   assert.deepEqual(state.face,{hidden:false,width:faceSize,height:faceSize},'one fixed '+faceSize+'px slot at '+width);
+   assert.equal(state.faceRadius,'4px','the slot is the launcher\'s rounded square, not a disc, at '+width);
+   assert.equal(state.button.height,pillHeight,'the control is still '+pillHeight+'px tall with a '+faceSize+'px face at '+width);
+  }
   // No third-party host is asked for a face, in any of the states above: the picture and the whole
   // skin are data: URIs inside the account document, and the crop is local canvas work.
   assert.deepEqual(faceRequests.filter(url=>!url.startsWith(origin)&&!url.startsWith(api)),[],'the avatar costs no request to a third party');
@@ -408,7 +439,148 @@ try{
    +'skin crop (32px head, '+size(skinOnly)+'), picture over skin ('+size(bothFaces)+'), '
    +'null skin ('+size(noSkin)+'), undecodable skin ('+size(badSkin)+'), no name ('+size(nameless)+', the mark); '
    +'labels '+bothNames.text+' / '+minecraftNameOnly.text+' / '+usernameOnly.text+' then "'+longName.text+'" clipped; '
+   +'face '+faceSize+'x'+faceSize+' in a 4px square, pill '+pillHeight+'px, '
    +'one row, accessible name '+painted.label+', no third-party request');
+  checks++;
+
+  // ---- The cold load: what the control says before /me answers -------------------------------
+  // THE DEFECT AS OWEN MET IT: "Even though I am signed in, I hit ctrl+shift+r and now it says
+  // 'sign in'". The tab kept only {token,expiresAt}, so the first frame had nothing to paint and said
+  // `Sign in` until /me answered - an 18-22 s Aurora resume on a cold start. Reproduced at 1440
+  // against the base commit with /me held: t+1.2s label "Sign in or create an Easter Company
+  // account", the dialog offering `Sign in with Microsoft`, and pressing it refusing with "Sign out
+  // before using another account." while that refusal's own repaint turned the control into the
+  // account - which is why it `fixed itself`. The tab now keeps the whole companySession document
+  // ({token,expiresAt,account}), the shape the launcher's vault keeps, so the control is the account
+  // on its very first frame and /me only reconciles it. The one load that cannot paint - a token with
+  // no document, which is what every tab already open when this ships has - is inert instead of
+  // offering a sign-in it would refuse.
+  const SESSION_KEY='easter-company-web-session-v1';
+  const TOKEN='fixture-session-not-a-real-credential';
+  // The document must be one sanitizeAccount accepts, or the cache is no cache at all and the control
+  // falls back to the very state this journey is about: `microsoftLinked:true` needs a 64-hex
+  // microsoftSubject (site/account-client.mjs, sanitizeAccount).
+  const cachedAccount={...baseAccount,username:'oceaster',displayName:'Captain Fixture',microsoftLinked:true,microsoftSubject:'a'.repeat(64),providers:['microsoft'],primaryProvider:'microsoft',picture:pictureURL};
+  const reconciledAccount={...cachedAccount,displayName:'Reconciled Fixture'};
+  const bootPage=await context.newPage();
+  bootPage.on('pageerror',error=>errors.push(error.message));
+  // Every animation frame's view of the control, from the first frame that has one: "before /me
+  // answers" is measured, not assumed, and a state that only exists while the read is in flight is
+  // reached by holding the read on the route rather than by sleeping after the load.
+  await bootPage.addInitScript(()=>{
+   window.__bootFrames=[];
+   const look=()=>{
+    const button=document.querySelector('.web-account-nav');
+    if(button)window.__bootFrames.push({t:Math.round(performance.now()),text:document.querySelector('.web-account-name').textContent,
+     label:button.getAttribute('aria-label'),disabled:button.disabled,busy:button.getAttribute('aria-busy'),
+     face:!document.querySelector('.web-account-face').hidden,mark:document.querySelector('.web-account-face').classList.contains('web-account-face-mark')});
+    if(window.__bootFrames.length<2400)requestAnimationFrame(look);
+   };
+   requestAnimationFrame(look);
+  });
+  const control=()=>bootPage.evaluate(()=>{
+   const button=document.querySelector('.web-account-nav'),face=document.querySelector('.web-account-face');
+   return {text:document.querySelector('.web-account-name').textContent,label:button.getAttribute('aria-label'),
+    disabled:button.disabled,busy:button.getAttribute('aria-busy'),faceHidden:face.hidden,
+    mark:face.classList.contains('web-account-face-mark'),painted:face.classList.contains('has-picture'),
+    pillHeight:+button.getBoundingClientRect().height.toFixed(2)};
+  });
+  const openOnClick=()=>bootPage.evaluate(()=>({menu:Boolean(document.querySelector('#web-account-menu:popover-open')),dialog:Boolean(document.querySelector('#desktop-company-signin[open]'))}));
+  const meRequests=()=>requests.filter(request=>request.path.endsWith('/me')).length;
+  // Seed through the tab's own storage before the cold load, and never carry a previous journey's
+  // held read into this one.
+  const seedSession=async value=>{
+   meHold=null;meStatus=200;
+   await bootPage.goto(origin);
+   await bootPage.evaluate(([key,stored])=>sessionStorage.setItem(key,JSON.stringify(stored)),[SESSION_KEY,value]);
+  };
+  const coldLoad=async()=>{
+   await bootPage.reload({waitUntil:'commit'});
+   await bootPage.waitForSelector('.web-account-nav',{state:'attached'});
+   await bootPage.waitForFunction(()=>window.__bootFrames.length>2);
+  };
+
+  // (a) A saved session WITH the cached document, and /me held: the control is the account on the
+  // first frame, offers no sign-in, and reconciles when the read answers.
+  account=reconciledAccount;
+  await seedSession({token:TOKEN,expiresAt:Date.now()+3600000,account:cachedAccount});
+  let releaseMe=()=>{};
+  meHold=new Promise(resolve=>{releaseMe=resolve;});
+  const readsBefore=meRequests();
+  await coldLoad();
+  const bootFrames=await bootPage.evaluate(()=>window.__bootFrames.slice(0,3));
+  const cachedBoot=await control();
+  assert.equal(meRequests(),readsBefore+1,'the boot read is in flight, not answered');
+  assert.equal(bootFrames[0].text,cachedAccount.displayName,'the first frame already says the name, never Sign in (at '+width+')');
+  assert.equal(bootFrames[0].label,'Account options','and it is already the account, on that same frame');
+  assert.equal(bootFrames[0].disabled,false,'a cached account is interactive from the first frame');
+  assert.equal(bootFrames[0].face,true,'the face slot is there on that first frame');
+  assert.equal(cachedBoot.text,cachedAccount.displayName);
+  assert.equal(cachedBoot.painted,true,'the cached document paints the face without asking anyone');
+  assert.equal(cachedBoot.mark,false);
+  assert.equal(cachedBoot.busy,'false');
+  assert.equal(cachedBoot.pillHeight,width<=600?44:40,'the face does not grow the pill at '+width);
+  assert.equal(await bootPage.getByRole('button',{name:'Sign in or create an Easter Company account'}).count(),0,'no sign-in is offered while the account is being read');
+  await bootPage.locator('.web-account-nav').click();
+  assert.deepEqual(await openOnClick(),{menu:true,dialog:false},'that click reaches the account menu, the click Owen made reaches no refused sign-in');
+  await bootPage.keyboard.press('Escape');
+  releaseMe();meHold=null;
+  await bootPage.waitForFunction(name=>document.querySelector('.web-account-name').textContent===name,reconciledAccount.displayName);
+  const afterRead=await control();
+  assert.equal(afterRead.text,reconciledAccount.displayName,'and /me reconciles the name when it answers');
+  assert.equal(afterRead.disabled,false);
+  const kept=await bootPage.evaluate(key=>JSON.parse(sessionStorage.getItem(key)),SESSION_KEY);
+  assert.deepEqual(Object.keys(kept).sort(),['account','expiresAt','token'],'the tab keeps the whole companySession document, as the launcher vault does');
+  assert.equal(kept.account.displayName,reconciledAccount.displayName,'and what the read reconciled is what is kept');
+  assert(!JSON.stringify(kept).includes('MicrosoftAccessToken'),'still no Microsoft token of any kind');
+  // (b) A saved session with NO cached document - the one load after this change ships: the control
+  // is non-interactive until /me settles, and it never offers the sign-in a click would refuse.
+  account=cachedAccount;
+  await seedSession({token:TOKEN,expiresAt:Date.now()+3600000});
+  let releaseWaiting=()=>{};
+  meHold=new Promise(resolve=>{releaseWaiting=resolve;});
+  await coldLoad();
+  const waiting=await control();
+  const waitingFrame=(await bootPage.evaluate(()=>window.__bootFrames))[0];
+  assert.equal(waitingFrame.text,'','the first frame invents no name and offers no Sign in');
+  assert.equal(waitingFrame.disabled,true,'the control is non-interactive until the read settles');
+  assert.equal(waiting.text,'','nothing is claimed about an account this load has not read');
+  assert.equal(waiting.label,'Account options');
+  assert.equal(waiting.busy,'true','and it says it is still reading');
+  assert.equal(waiting.disabled,true);
+  assert.equal(waiting.faceHidden,false,'the slot stands in for the account it cannot name yet');
+  assert.equal(waiting.mark,true,'it is the Easter Company mark');
+  assert.equal(waiting.pillHeight,width<=600?44:40);
+  assert.equal(await bootPage.getByRole('button',{name:'Sign in or create an Easter Company account'}).count(),0,'a sign-in that a click would refuse is never offered');
+  assert.equal(await bootPage.locator('.web-account-nav').isDisabled(),true);
+  await bootPage.evaluate(()=>document.querySelector('.web-account-nav').click());
+  assert.deepEqual(await openOnClick(),{menu:false,dialog:false},'so a click there opens nothing at all');
+  releaseWaiting();meHold=null;
+  await bootPage.waitForFunction(name=>document.querySelector('.web-account-name').textContent===name,cachedAccount.displayName);
+  const settledBoot=await control();
+  assert.equal(settledBoot.text,cachedAccount.displayName,'and the account appears when the read answers');
+  assert.equal(settledBoot.disabled,false);
+  assert.equal(settledBoot.busy,'false');
+  assert.equal(settledBoot.painted,true);
+  // (c) A 401 from /me signs out: the cached document goes with the token, and the control returns to
+  // the sign-in that is now honest to offer.
+  account=cachedAccount;
+  await seedSession({token:TOKEN,expiresAt:Date.now()+3600000,account:cachedAccount});
+  // After the seed, because seeding clears a previous journey's refusal to answer.
+  meStatus=401;
+  await coldLoad();
+  await bootPage.getByRole('button',{name:'Sign in or create an Easter Company account'}).waitFor();
+  const signedOutAgain=await control();
+  assert.equal(signedOutAgain.text,'Sign in');
+  assert.equal(signedOutAgain.faceHidden,true,'the face goes with the session');
+  assert.equal(signedOutAgain.disabled,false);
+  assert.equal(await bootPage.evaluate(key=>sessionStorage.getItem(key),SESSION_KEY),null,'a 401 drops the cached document with the token');
+  meStatus=200;
+  await bootPage.screenshot({path:'/tmp/web-account-boot-'+width+'.png'});
+  assert.deepEqual(errors,[]);
+  console.log('PASS cold load at '+width+': cached document first frame "'+bootFrames[0].text+'" (face, no sign-in offered, menu on click) '
+   +'then reconciles to "'+afterRead.text+'"; no document first frame "" (disabled, aria-busy, the mark) then "'+settledBoot.text+'"; '
+   +'401 -> "'+signedOutAgain.text+'" with the document dropped; pill '+cachedBoot.pillHeight+'px');
   checks++;
   await context.close();
  }

@@ -11,17 +11,26 @@
    deliberate, never an empty box. */
 /* The padding stays the shared one on purpose: signed out, the control is exactly the pill it was
    before this change, and the face is what makes the signed-in pill 40px - the height the Download
-   button beside it already has, inside a 72px header. */
+   button beside it already has, inside a 72px header. The face is the launcher's own geometry
+   (site/desktop.css: the account bar's canvas), so the pill's padding gives way to the face rather
+   than the pill growing with it: 32px of face plus a 3px block padding and the 1px border is the
+   same 40px the 16px face used to make. */
 .web-mode .site-header nav .web-account-nav{display:inline-flex;align-items:center;gap:7px;max-width:140px;overflow:hidden;border:1px solid #e4c48650;background:transparent;color:var(--gold);cursor:pointer}
-.web-mode .web-account-face{position:relative;flex:none;display:grid;place-items:center;width:16px;height:16px;border-radius:50%;overflow:hidden;background:#536b66;color:#eedbb2;font-size:10px;font-weight:700;line-height:1;text-transform:uppercase}
+.web-mode .site-header nav .web-account-nav.web-account-with-face{padding-block:3px;height:40px}
+/* 32x32 with the launcher's 4px radius, not a disc: Owen, 2026-10-26, signed in on both surfaces:
+   "also on web, the profile image is a small circle not fully shown like on the launcher, launcher
+   style is better". The letter is sized to the launcher's own tile (site/desktop.js draws it at
+   bold 20px into a 32px square). */
+.web-mode .web-account-face{position:relative;flex:none;display:grid;place-items:center;width:32px;height:32px;border-radius:4px;overflow:hidden;background:#536b66;color:#eedbb2;font-size:20px;font-weight:700;line-height:1;text-transform:uppercase}
 .web-mode .web-account-face-mark{background:#536b66 url(assets/ec-logo.svg) center/76% no-repeat}
 .web-mode .web-account-face.has-picture .web-account-initial{visibility:hidden}
 .web-mode .web-account-face.has-picture.web-account-face-mark{background-image:none}
 .web-mode .web-account-picture{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 /* The head cropped from a Minecraft skin is 8x8 texture pixels stretched to 32 and shown in this
-   16px disc: nearest-neighbour is what keeps it a head rather than a smear, and it is the rule the
+   32px square: nearest-neighbour is what keeps it a head rather than a smear, and it is the rule the
    launcher's own canvas states for the same face (desktop.css, .desktop-account-nav canvas). An
-   uploaded picture is a photograph and keeps the default smoothing. */
+   uploaded picture is a photograph and keeps the default smoothing - it fills the same rounded
+   square, cropped by object-fit rather than by a disc. */
 .web-mode .web-account-picture.web-account-head{image-rendering:pixelated}
 .web-mode .web-account-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .web-mode .desktop-company-dialog .dialog-close{display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;right:14px;top:14px;border-radius:6px}
@@ -38,6 +47,15 @@
 @media(max-width:600px){
  .web-mode .site-header nav>a,.web-mode .site-header nav>button{padding:11px 6px;font-size:10px;min-height:44px}
  .web-mode .site-header nav .web-account-nav{max-width:92px}
+ /* The header's own 44px button height is the pill here, so the face keeps its 32px and the padding
+    takes the balance: the control still measures 44px, as it did with a 16px disc in it. */
+ .web-mode .site-header nav .web-account-nav.web-account-with-face{padding-block:5px}
+}
+/* The launcher's own narrow breakpoint (site/desktop.css: @media(max-width:420px) draws its account
+   bar's canvas 24x24): the face is 24px there too, in the same 4px rounded square, and the pill keeps
+   the 44px the header gives it. */
+@media(max-width:420px){
+ .web-mode .web-account-face{width:24px;height:24px;font-size:15px}
 }
 /* Below 360px there is room for the face or for the name, not both: five destinations and this
    control have 288px to share. The control becomes the face alone - one whole mark, not a word

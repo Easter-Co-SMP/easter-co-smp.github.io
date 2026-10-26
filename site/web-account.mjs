@@ -1,6 +1,15 @@
 import {AccountClient,AccountError,publicAccount,companySession} from './account-client.mjs';
 import * as store from './store-contract.mjs';
 import {createMicrosoftSignIn,readCallback,ACCOUNT_PATH,NOT_CONFIGURED,START_AGAIN} from './account/microsoft-signin.mjs';
+// What this tab keeps: the WHOLE companySession document - {token,expiresAt,account} - not just the
+// token. That is the launcher's own shape (company.enc holds the account document too), and it is
+// why the launcher never flashes a signed-out control on a cold start: it can paint the account
+// before anything is asked of the service. A page that kept only the token had to say `Sign in`
+// until /me answered, which on a cold Aurora resume is 18-22 seconds of a false signed-out control
+// (Owen, 2026-10-26, signed in: `Even though I am signed in, I hit ctrl+shift+r and now it says
+// "sign in"`) - and the sign-in it offered was refused, because the saved session made the seam
+// refuse a second one (startMicrosoftSignIn below). The account here is a projection, never a
+// credential: the token is still the only secret in this storage.
 const SESSION_KEY='easter-company-web-session-v1';
 const PROVIDERS={google:['https://accounts.google.com','/o/oauth2/v2/auth'],discord:['https://discord.com','/oauth2/authorize'],steam:['https://steamcommunity.com','/openid/login']};
 // Where a browser may sign in with Microsoft, and what a callback must look like, are one
@@ -15,17 +24,34 @@ const atRedirect=where=>{
 // game, filesystem, updater or shell operation is available to the website.
 export function createWebAccount({storage,client=new AccountClient({client:'website/1'}),openWindow=(...args)=>window.open(...args),navigate=url=>location.assign(url),changed=()=>{},microsoftBrowser=createMicrosoftSignIn(),where=globalThis.location}={}){
  if(storage===undefined){try{storage=globalThis.sessionStorage;}catch{storage=null;}}
- let session=null,working=false,providerAbort=null,generation=0,expiryTimer=null;
+ let session=null,working=false,providerAbort=null,generation=0,expiryTimer=null,booting=false;
  const listeners=new Set();
- const state=()=>({account:publicAccount(session),accountWorking:working,startupReady:true,activity:null});
+ // `startupReady` is what a view asks before it treats this seam as answered. It is true unless a
+ // saved session exists that this load cannot paint yet - the one load after a storage-shape change
+ // ships, when the tab holds a token but no account document. In that state the account control must
+ // not offer the sign-in a click would refuse, so it says so here instead of guessing.
+ const state=()=>({account:publicAccount(session),accountWorking:working,startupReady:!booting,activity:null});
  const emit=()=>{for(const fn of listeners)fn(state());changed(state());};
  function forget(){generation++;session=null;clearTimeout(expiryTimer);try{storage?.removeItem(SESSION_KEY);}catch{}emit();}
+ // The expiry timer is armed from whatever session is in hand, cached document or fresh answer: a
+ // cached document must never outlive the token it was stored with.
+ function arm(){clearTimeout(expiryTimer);if(session)expiryTimer=setTimeout(forget,Math.min(session.expiresAt-Date.now(),2147483647));}
+ // Written from the session in hand, so every path that changes the account document - a sign-in,
+ // the boot read's reconciliation, a profile edit - keeps the next cold load honest. A storage that
+ // will not take it (quota, denial) costs nothing but the next load's head start: the boot read
+ // still answers.
+ function remember(){try{storage?.setItem(SESSION_KEY,JSON.stringify({token:session.token,expiresAt:session.expiresAt,account:session.account}));}catch{}}
  function save(signed){
   const next=companySession(signed);
   if(next.expiresAt<=Date.now())throw new AccountError('invalid_session','Your Easter Company session expired. Sign in again.');
-  session=next;
-  try{storage?.setItem(SESSION_KEY,JSON.stringify({token:next.token,expiresAt:next.expiresAt}));}catch{}
-  clearTimeout(expiryTimer);expiryTimer=setTimeout(forget,Math.min(next.expiresAt-Date.now(),2147483647));emit();
+  session=next;remember();arm();emit();
+ }
+ // Reading the stored document back is the same validation that produced it, because it is the
+ // player's own data and this page must not trust a hand-edited storage: companySession runs the
+ // stored shape through sanitizeAccount and returns null for anything it refuses. No cache is always
+ // a usable answer; this never throws into the boot.
+ function storedSession(saved){
+  try{return companySession({session:{token:saved.token,expiresAt:saved.expiresAt},account:saved.account});}catch{return null;}
  }
  function token(){
   if(!session||session.expiresAt<=Date.now()){if(session)forget();throw new AccountError('store_signed_out','Sign in to buy.');}
@@ -47,10 +73,21 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
   let saved;try{saved=JSON.parse(storage?.getItem(SESSION_KEY)||'null');}catch{}
   if(!saved)return;
   if(typeof saved.token!=='string'||!saved.token||saved.token.length>8192||!Number.isFinite(saved.expiresAt)||saved.expiresAt<=Date.now()){forget();return;}
+  // PAINT FROM WHAT THIS TAB ALREADY HOLDS, synchronously and before the first await: the stored
+  // document is the account the last page load confirmed, so the control is the account on its very
+  // first frame and /me only reconciles the name, the face and the expiry. A token whose expiry has
+  // passed never reaches here (above), so a cached document cannot outlive its token.
+  const known=storedSession(saved);
+  if(known){session=known;arm();}
+  // With no document to paint there is nothing to show and nothing a click could honour: the boot is
+  // not ready until the read settles. That is the one load after this change ships.
+  else booting=true;
+  emit();
   try{
    const account=await client.me(saved.token);
    save({session:{token:saved.token,expiresAt:saved.expiresAt},account});
   }catch{forget();}
+  finally{booting=false;emit();}
  })();
  const bridge={
   mode:'web',ready,getState:state,subscribe(fn){listeners.add(fn);fn(state());return()=>listeners.delete(fn);},
@@ -60,9 +97,9 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
   accountProviders:async()=>{const found=await client.providers();return {providers:Array.isArray(found.providers)?found.providers.filter(p=>Object.hasOwn(PROVIDERS,p)):[]};},
   profileEmails:()=>read(()=>client.emails(token())),
   selectLoginEmail:email=>run(()=>read(()=>client.selectLoginEmail(token(),email))),
-  updateProfile:displayName=>run(async()=>{const account=await read(()=>client.updateProfile(token(),{displayName}));session={...session,account};emit();}),
+  updateProfile:displayName=>run(async()=>{const account=await read(()=>client.updateProfile(token(),{displayName}));session={...session,account};remember();emit();}),
   setProfilePicture:async remove=>{
-   if(remove)return run(async()=>{const account=await read(()=>client.updateProfile(token(),{picture:null}));session={...session,account};emit();});
+   if(remove)return run(async()=>{const account=await read(()=>client.updateProfile(token(),{picture:null}));session={...session,account};remember();emit();});
    // Native file picking is replaced by the browser's own picker. Decode locally,
    // draw into a bounded canvas and send PNG pixels only, without file metadata.
    const input=document.createElement('input');input.type='file';input.accept='image/png,image/jpeg,image/webp';
@@ -76,7 +113,7 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
     canvas.getContext('2d').drawImage(bitmap,(bitmap.width-side)/2,(bitmap.height-side)/2,side,side,0,0,256,256);bitmap.close();
     const picture=canvas.toDataURL('image/png');
     if(picture.length>349600)throw Error('Choose a simpler picture smaller than 256 KiB.');
-    const account=await read(()=>client.updateProfile(token(),{picture}));session={...session,account};emit();
+    const account=await read(()=>client.updateProfile(token(),{picture}));session={...session,account};remember();emit();
    });
   },
   signInProvider:(provider,link=false)=>{

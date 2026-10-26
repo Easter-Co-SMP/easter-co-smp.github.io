@@ -17,11 +17,17 @@ product, amount, price, copy policy or launcher release is changed here.
   the new window has no opener. The random verifier stays in memory. Cancellation
   and a ten-minute timeout bound polling. COOP severing a WindowProxy is not proof
   that sign-in ended; only the broker answer, cancellation or timeout ends it.
-- Browser sessions live in tab sessionStorage (token and expiry only), not localStorage,
-  cookies, URLs or logs. Restoration validates with /me. No profile/order cache is
-  written. Storage denial falls back to memory. Expiry, logout and invalid sessions
-  clear account state. Account changes invalidate in-flight reads and clear store
-  rows. The launcher continues to use its encrypted native vault independently.
+- Browser sessions live in tab sessionStorage and hold the whole `companySession`
+  document — `{token,expiresAt,account}` — the shape the launcher's encrypted vault
+  keeps, not the token alone. Not localStorage, cookies, URLs or logs. The account in
+  it is the projection `sanitizeAccount` produced and is re-validated through
+  `companySession` on the way back in, so a hand-edited or stale document is no cache
+  at all; a document never outlives its token's expiry, and sign-out, expiry and a 401
+  from `/me` clear it with the token. The token stays the only secret in that storage.
+  Restoration still reads `/me` and reconciles the name, the face and the expiry. No
+  profile/order cache is written. Storage denial falls back to memory. Account changes
+  invalidate in-flight reads and clear store rows. The launcher continues to use its
+  encrypted native vault independently.
 - export_browser_contracts.py exports the launcher's pure validation/retry contracts
   into account-client.mjs and store-contract.mjs. These files ship directly, with
   no browser build step. Run the script after editing the native contract; --check
@@ -89,6 +95,44 @@ descriptive loading spinner" and nothing else.
   nav's Sign in to a signed-in account page is 4 → 3. The two that remain are the
   authorize redirect and Microsoft's return to `/account/`, which are the
   registration itself.
+
+## A cold load paints the account; it does not ask
+
+Owen, signed in on the site: "Even though I am signed in, I hit ctrl+shift+r and now it
+says 'sign in'". Both defects were one storage shape.
+
+- The tab used to keep `{token,expiresAt}` only, so the first frame had no account to
+  paint and said `Sign in` until the boot `GET /v2/accounts/me` answered. That read is
+  what a cold Aurora resume makes slow — 18-22 s — and the window was long enough to
+  act in: measured at 1440 with `/me` held, `t+1.2s` gave label "Sign in or create an
+  Easter Company account" with the dialog offering `Sign in with Microsoft`, and at
+  `t+8s`, when the read answered, the control silently became `OCEaster`.
+- Worse, that sign-in could not be honoured: pressing Microsoft while the read was in
+  flight was refused with "Sign out before using another account."
+  (`site/web-account.mjs`, `startMicrosoftSignIn`'s `await ready` then `if(session)`),
+  and the refusal's own repaint turned the control into the account — which is why it
+  "fixed itself". The refusal is correct and stays; with the cached document there is no
+  window to click in, because the control opens the account menu instead.
+- The launcher never had the flash because its vault holds the account document, not
+  just the token (`company.enc`). The site now keeps the same shape, so `web.js` paints
+  the display name and the face from `getState()` on its first frame and `/me` only
+  reconciles. Measured in the same probe on the fix: **first frame at t+85 ms already
+  reads `OCEaster` with the face**, no sign-in offered; the read then reconciles to the
+  name the service answers.
+- `startupReady` is honest rather than hardcoded `true`. A saved session with no cached
+  document — the one load after this change ships, and any future storage-shape change —
+  reports `startupReady:false` until the read settles, and the control is then
+  **non-interactive, `aria-busy`, and the Easter Company mark with no name** rather than
+  a sign-in a click would refuse. No new player-facing copy: it reuses the mark and the
+  signed-in accessible name.
+- The face is the launcher's geometry, which Owen called the better one ("also on web,
+  the profile image is a small circle not fully shown like on the launcher, launcher
+  style is better"): **32x32 with a 4px radius**, the cropped head still
+  `image-rendering:pixelated`, an uploaded picture filling the rounded square with
+  ordinary smoothing, and **24x24** at the launcher's own narrow breakpoint
+  (`max-width:420px`, site/desktop.css). The pill does not grow with it: the control is
+  40px tall at 1440/834 and 44px at 390/320, the same heights it had with a 16px disc,
+  because the block padding gives way to the face (`site/web.css`).
 
 ## Checks
 

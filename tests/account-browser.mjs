@@ -372,22 +372,28 @@ try{
   // 14. Nothing on this path may ask for a Minecraft session, and no Microsoft token is stored.
   const routes=new Set(calls.map(call=>call.path));
   for(const path of routes)assert(['/v2/oauth/microsoft/start','/v2/oauth/microsoft/exchange','/v2/accounts/providers','/v2/accounts/providers/start','/v2/accounts/providers/finish','/v2/accounts/password/login','/v2/accounts/me','/v2/accounts/logout'].includes(path),'unexpected API route '+path);
-  // What the tab keeps is one Company session - a token and an expiry - and nothing else: no
-  // Microsoft token, no subject, no callback code, and not the account document.
+  // What the tab keeps is one Company session, in the launcher's own shape: the token, the expiry and
+  // the account document the service returned, so the next cold load paints the account on its first
+  // frame instead of saying `Sign in` until /me answers (Owen, 2026-10-26, signed in: "I hit
+  // ctrl+shift+r and now it says 'sign in'"). The account is the projection sanitizeAccount already
+  // produced - a projection, not a credential - and the token is still the only secret here. What is
+  // never kept is asserted next: no Microsoft token, and neither the callback's code nor its state.
   const stored=await page.evaluate(()=>Object.entries({...sessionStorage}));
   assert.equal(stored.length,1);
   assert.equal(stored[0][0],'easter-company-web-session-v1');
-  assert.deepEqual(Object.keys(JSON.parse(stored[0][1])).sort(),['expiresAt','token']);
-  assert(!JSON.stringify(stored).toLowerCase().includes('microsoft'));
-  assert(!JSON.stringify(stored).includes(CALLBACK_CODE));
+  const kept=JSON.parse(stored[0][1]);
+  assert.deepEqual(Object.keys(kept).sort(),['account','expiresAt','token']);
+  assert.equal(kept.token,SESSION_TOKEN);
+  assert.equal(kept.account.displayName,ACCOUNT.displayName,'and it is the account the session belongs to');
+  for(const secret of [CALLBACK_CODE,STATE,'access_token','refresh_token','id_token'])assert(!JSON.stringify(stored).includes(secret),'nothing of Microsoft\'s is kept: '+secret);
   assert.equal(await page.evaluate(()=>JSON.stringify(localStorage).includes('fixture-company-session')),false);
 
   // 15. The three widths keep their layout: nothing overflows, and every option keeps a
   //     thumb-sized target. Measured rather than looked at, because these are numbers a reviewer
   //     can re-run.
-  // The signed-out page is what these three widths are about, and it is asked for explicitly: a
-  // saved session is restored by the seam a moment after the first paint, so a check that raced
-  // that could measure either answer.
+  // The signed-out page is what these three widths are about, and it is asked for explicitly: this
+  // tab is signed in, so it is cleared rather than raced (site/web-account.mjs paints a saved session
+  // on the first frame now, so a check that did not clear would simply measure the account).
   await page.evaluate(()=>sessionStorage.clear());
   await page.goto(origin+'/account/');
   await page.locator('#account-root .company-signin').waitFor();

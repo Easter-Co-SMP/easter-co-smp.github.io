@@ -127,14 +127,24 @@ test('the callback exchange posts exactly the code and the state it received, an
  assert.equal(result.ok,true,result.error);
  assert.deepEqual(stub.paths(),['/v2/oauth/microsoft/exchange']);
  assert.deepEqual(stub.calls[0].body,{code:CODE,state:STATE,client:'website/1'});
- // A Company session, in the seam's own storage, and only a Company session: no Microsoft token
- // and no Minecraft session exist anywhere in what the page kept.
+ // A Company session in the seam's own storage, in the shape the launcher's encrypted vault holds:
+ // the whole companySession document, not the token alone. With only the token a cold load had
+ // nothing to paint and said `Sign in` until /me answered, which on a cold Aurora resume is 18-22
+ // seconds (Owen, 2026-10-26, signed in: "I hit ctrl+shift+r and now it says 'sign in'"). The
+ // account is the projection sanitizeAccount already produced - a projection, not a credential -
+ // and the session token stays the only secret this storage holds.
  const saved=JSON.parse(storage.getItem('easter-company-web-session-v1'));
- assert.deepEqual(Object.keys(saved).sort(),['expiresAt','token']);
+ assert.deepEqual(Object.keys(saved).sort(),['account','expiresAt','token']);
  assert.equal(saved.token,'fixture-company-session');
+ assert.equal(saved.account.displayName,'CaptainFixture','the stored document is the account the session was signed in with');
+ assert.equal(saved.account.id,42);
+ // What the page is never given, and so never keeps: no Microsoft token of either kind, and neither
+ // the callback's code nor its state. The account's own record that it is linked to Microsoft - the
+ // provider name and the hashed subject - is the account document's, and the page already shows it.
  assert.equal(bridge.getState().account.name,'CaptainFixture');
  assert.equal(bridge.getState().account.minecraftName,'CaptainFixture');
- assert(!JSON.stringify([...storage.values]).includes('microsoft'),'no Microsoft token or subject is stored');
+ const everything=JSON.stringify([...storage.values]);
+ for(const secret of ['access_token','refresh_token','id_token',CODE,STATE])assert(!everything.includes(secret),'nothing of Microsoft\'s is stored: '+secret);
  await bridge.signOut();
 });
 

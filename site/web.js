@@ -84,6 +84,8 @@ if(webAccount){
    };
    // The face follows the account and only the account: while a sign-in is in flight there is no
    // account to show, so the slot is hidden and the control is exactly the text it always was.
+   // The one other state is a boot that cannot paint yet (site/web-account.mjs: a saved session with
+   // no stored document), and there the slot holds the Easter Company mark with no name beside it.
    let facePicture=null,faceGeneration=0;
    const firstLetter=value=>{
     const letter=[...String(value||'').trim()][0];
@@ -154,13 +156,17 @@ if(webAccount){
    const GENERIC_NAME='Company member';
    const paintFace=next=>{
     const user=next.account;
+    // A saved session this load cannot paint yet: the account exists and nothing else about it is
+    // known, so the slot is the Easter Company mark and the control carries no name. It is never the
+    // tile's letter, because no name has been read to take a letter from.
+    const waiting=!user&&next.startupReady===false;
     // A crop still in flight belongs to the account this paint is replacing, and it must never
     // arrive on top of the next account's face: one counter, read once, decides that.
     const generation=++faceGeneration;
-    face.hidden=!user;
+    face.hidden=!user&&!waiting;
     // The narrowest header gives the face the control and takes the name away; signed out there is
     // no face, so the name must stay - the control is never an empty box.
-    account.classList.toggle('web-account-with-face',Boolean(user));
+    account.classList.toggle('web-account-with-face',Boolean(user)||waiting);
     if(!user){setInitial('');showPicture(null);return;}
     const called=typeof user.name==='string'&&user.name!==GENERIC_NAME?user.name:'';
     // The letter is the display name's first character, then the Minecraft name's, then the
@@ -172,16 +178,23 @@ if(webAccount){
    };
    const paint=next=>{
     current=next;auth.render(next);profile?.syncLock();linked?.syncLock();
+    // A saved session that has not been read yet is the third state of this control, and it is the
+    // one Owen met on a cold refresh: it says neither `Sign in`, which the seam would refuse to honour
+    // ("Sign out before using another account.", site/web-account.mjs), nor a name it does not have.
+    // It is the Easter Company mark, disabled, until /me settles. No new words: the accessible name is
+    // the one the signed-in control uses, and the control says why it is inert with aria-busy.
+    const waiting=!next.account&&next.startupReady===false;
     // The name the player is called, not the handle they type - the launcher's own rule (site/desktop.js,
     // accountName, after Owen's same report there on 2026-10-19): publicAccount gives the display
     // name, then the Minecraft name, then the username. Owen, 2026-10-26, on this site: the nav showed
     // `oceaster` where the launcher shows `OCEaster`.
-    name.textContent=next.account?next.account.passwordRequired?'Finish setup':next.account.name||GENERIC_NAME:'Sign in';
+    name.textContent=next.account?next.account.passwordRequired?'Finish setup':next.account.name||GENERIC_NAME:waiting?'':'Sign in';
     paintFace(next);
-    account.setAttribute('aria-label',next.account?.passwordRequired?'Finish account setup':next.account?'Account options':'Sign in or create an Easter Company account');
+    account.setAttribute('aria-label',waiting?'Account options':next.account?.passwordRequired?'Finish account setup':next.account?'Account options':'Sign in or create an Easter Company account');
+    account.setAttribute('aria-busy',String(waiting));
     account.setAttribute('aria-expanded',String(menu.matches(':popover-open')));
-    account.disabled=next.accountWorking===true;
-    if(!next.account){menu.hidePopover();document.querySelector('#company-profile')?.close();document.querySelector('#company-linked-accounts')?.close();}
+    account.disabled=next.accountWorking===true||waiting;
+    if(!next.account&&!waiting){menu.hidePopover();document.querySelector('#company-profile')?.close();document.querySelector('#company-linked-accounts')?.close();}
    };
    menu.addEventListener('toggle',()=>account.setAttribute('aria-expanded',String(menu.matches(':popover-open'))));
    webAccount.subscribe(paint);
