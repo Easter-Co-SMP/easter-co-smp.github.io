@@ -201,7 +201,7 @@ class LoopbackRedirect{
    let timer=null,onAbort=null;
    const done=()=>{
     if(timer)clearTimeout(timer);
-    if(onAbort)signal.removeEventListener('abort',onAbort);
+    if(signal&&onAbort)signal.removeEventListener('abort',onAbort);
    };
    this.settle={
     resolve:value=>{done();resolve(value);},

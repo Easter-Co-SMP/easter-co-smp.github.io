@@ -16,9 +16,13 @@ const {MicrosoftAuth}=require('../../desktop/auth.cjs');
 const {AccountClient}=require('../../desktop/accounts.cjs');
 const {createMicrosoft}=require('./microsoft-fixture.cjs');
 
+// `openExternal` is the player's browser, and it is the fixture's own: the launcher opens a
+// real loopback socket bound to 127.0.0.1, and every sign-in below is completed by a real HTTP
+// request to it carrying the code Microsoft issued for that state and PKCE challenge. The
+// only thing stubbed is Microsoft itself (tests/desktop/microsoft-fixture.cjs).
 const fixture=(options={})=>{
  const microsoft=createMicrosoft({uhs:'123456789',...options});
- const auth=new MicrosoftAuth({clientId:'test-app',request:microsoft.request,wait:async()=>{}});
+ const auth=new MicrosoftAuth({clientId:'test-app',request:microsoft.request,openExternal:microsoft.browser,wait:async()=>{}});
  return {auth,microsoft};
 };
 const notify=()=>{};
