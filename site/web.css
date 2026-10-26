@@ -18,6 +18,11 @@
 .web-mode .web-account-face.has-picture .web-account-initial{visibility:hidden}
 .web-mode .web-account-face.has-picture.web-account-face-mark{background-image:none}
 .web-mode .web-account-picture{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+/* The head cropped from a Minecraft skin is 8x8 texture pixels stretched to 32 and shown in this
+   16px disc: nearest-neighbour is what keeps it a head rather than a smear, and it is the rule the
+   launcher's own canvas states for the same face (desktop.css, .desktop-account-nav canvas). An
+   uploaded picture is a photograph and keeps the default smoothing. */
+.web-mode .web-account-picture.web-account-head{image-rendering:pixelated}
 .web-mode .web-account-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .web-mode .desktop-company-dialog .dialog-close{display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;right:14px;top:14px;border-radius:6px}
 .web-mode .desktop-company-dialog input:focus-visible{outline:2px solid var(--app-gold);outline-offset:2px}

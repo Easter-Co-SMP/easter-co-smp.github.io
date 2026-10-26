@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
 // The account control's face has its own journey below; the fixture skin module already owns the
 // only image this suite needs to be exact about.
-import {pictureDataURL} from './skin-fixture.mjs';
+import {pictureDataURL,skinDataURL,FACE_A,FACE_B,hatted} from './skin-fixture.mjs';
 const origin=process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18104';
 const api='https://jyjshd22z3.execute-api.us-east-2.amazonaws.com';
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
@@ -139,7 +139,7 @@ try{
     letter:document.querySelector('.web-account-initial').textContent,
     painted:face.classList.contains('has-picture'),
     mark:face.classList.contains('web-account-face-mark'),
-    picture:{hidden:picture.hidden,natural:picture.naturalWidth,position:getComputedStyle(picture).position},
+    picture:{hidden:picture.hidden,natural:picture.naturalWidth,position:getComputedStyle(picture).position,src:picture.getAttribute('src'),rendering:getComputedStyle(picture).imageRendering},
     text:document.querySelector('.web-account-name').textContent,
     nameShown:document.querySelector('.web-account-name').getClientRects().length>0,
     nameTruncated:document.querySelector('.web-account-name').scrollWidth>document.querySelector('.web-account-name').clientWidth+1,
@@ -246,7 +246,98 @@ try{
   assert.deepEqual(box(failed),box(painted),'a failed picture leaves the same box');
   assert.equal(failed.label,'Account options');
   assert.equal(await facePage.getByRole('button',{name:'Account options'}).count(),1);
-  // 7. The label's precedence, asserted in the same place as the face: the display name, then the
+  // ---- The head the account document now carries -----------------------------------------
+  // Owen, signed in on both surfaces: "I am logged in on both web and launcher, but web shows the
+  // placeholder profile image while the launcher is showing my minecraft skin based one." The
+  // whole skin texture travels in the account document - a page cannot ask sessionserver for it -
+  // and the control crops the head from it in canvas, with the launcher's own arithmetic. The
+  // fixture skin makes that arithmetic a measurement: the face at 8,8 is a two-colour checkerboard
+  // and the hat at 40,8 is half-transparent blue over the right-hand two thirds of it, so at the
+  // 4x the crop draws, one source pixel is one exact 4x4 block. Sampling the painted image back
+  // through a canvas therefore proves the crop offset, the hat composited over the face, and that
+  // no smoothing blurred either.
+  const headPixels=()=>facePage.evaluate(async()=>{
+   const picture=document.querySelector('.web-account-picture');
+   const image=new Image();image.src=picture.src;await image.decode();
+   const canvas=document.createElement('canvas');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+   const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
+   const at=(x,y)=>Array.from(ctx.getImageData(x,y,1,1).data);
+   return {size:[image.naturalWidth,image.naturalHeight],faceA:at(2,2),faceB:at(6,2),hatOverA:at(17,2),hatOverB:at(13,2)};
+  });
+  // Canvas compositing rounds an 8-bit channel; the fixture's own arithmetic does not, so a
+  // blended block is expected within one part in 128 rather than to the last bit. The hat is a
+  // translucent overlay on an opaque face, so the three colours are what the fixture predicts and
+  // the alpha stays fully opaque - no compositing artefact is being allowed for.
+  const near=(actual,expected,what)=>{
+   for(let channel=0;channel<3;channel++)assert(Math.abs(actual[channel]-expected[channel])<=3,what+': channel '+channel+' read '+actual[channel]+', expected '+expected[channel]);
+   assert.equal(actual[3],255,what+': the composite stays opaque');
+  };
+  // 7. Signed in with a skin and no picture: the face is the CROPPED HEAD, not the texture and not
+  // the tile, and the control is the same box it was with a picture in it.
+  await signOut();
+  const skinURL=skinDataURL();
+  account={...baseAccount,username:'oceaster',displayName:'OCEaster',picture:null,skin:skinURL};
+  await signIn();
+  await facePage.locator('.web-account-face.has-picture').waitFor();
+  const skinOnly=await snapshot();
+  assert.equal(skinOnly.painted,true,'the account skin gives the control a face');
+  assert.equal(skinOnly.picture.natural,32,'and it is the 32px crop, not the whole texture');
+  assert.notEqual(skinOnly.picture.src,skinURL,'the texture itself is not what the slot paints');
+  assert.equal(skinOnly.picture.rendering,'pixelated','the head is drawn nearest-neighbour, as the launcher canvas is');
+  assert.equal(skinOnly.letter,'O','the letter under the face is unchanged');
+  assert.equal(skinOnly.label,'Account options');
+  assert.deepEqual(box(skinOnly),box(painted),'the cropped head leaves the same box');
+  const crop=await headPixels();
+  assert.deepEqual(crop.size,[32,32],'the crop is a 32x32 canvas');
+  assert.deepEqual(crop.faceA,[...FACE_A],'the 8x8 face at 8,8 is drawn, with no smoothing');
+  assert.deepEqual(crop.faceB,[...FACE_B],'its neighbouring pixels stay exact 4x4 blocks');
+  near(crop.hatOverA,hatted(FACE_A),'the hat at 40,8 is composited over the face');
+  near(crop.hatOverB,hatted(FACE_B),'across the right-hand two thirds of it');
+  // 8. Signed in with both: the uploaded picture wins, exactly as it does in the launcher.
+  await signOut();
+  account={...baseAccount,username:'oceaster',displayName:'OCEaster',picture:pictureURL,skin:skinURL};
+  await signIn();
+  await facePage.locator('.web-account-face.has-picture').waitFor();
+  const bothFaces=await snapshot();
+  assert.equal(bothFaces.picture.natural,64,'the picture is what the control shows');
+  assert.equal(bothFaces.picture.src,pictureURL,'and it is the picture itself, never the crop');
+  assert.equal(bothFaces.picture.rendering,'auto','an uploaded picture keeps the ordinary smoothing');
+  assert.equal(await facePage.locator('.web-account-picture.web-account-head').count(),0,'and claims no head rendering');
+  assert.deepEqual(box(bothFaces),box(painted),'the picture over a skin leaves the same box');
+  // 9. `skin: null` - no Minecraft identity to draw, which after the wipe is every account until it
+  // links again: the tile, unchanged, in the launcher's own palette.
+  await signOut();
+  account={...baseAccount,username:'oceaster',displayName:'OCEaster',picture:null,skin:null};
+  await signIn();
+  await facePage.getByRole('button',{name:'Account options'}).waitFor();
+  const noSkin=await snapshot();
+  assert.equal(noSkin.painted,false,'no skin means no face at all');
+  assert.equal(noSkin.picture.hidden,true,'and nothing is asked for');
+  assert.equal(noSkin.picture.natural,0,'the slot holds no image');
+  assert.equal(noSkin.letter,'O','the placeholder is the initial tile');
+  assert.deepEqual(box(noSkin),box(painted),'a null skin leaves the same box');
+  const nullSkinTile=await facePage.evaluate(()=>{
+   const style=getComputedStyle(document.querySelector('.web-account-face'));
+   return {background:style.backgroundColor,colour:style.color};
+  });
+  assert.deepEqual(nullSkinTile,{background:'rgb(83, 107, 102)',colour:'rgb(238, 219, 178)'},'the same teal tile and cream letter the launcher draws');
+  // 10. A skin that is not a decodable PNG: the crop cannot be made, so the tile stands and the
+  // page raises nothing - the answer a picture that will not decode already gets. The settle wait
+  // is bounded on purpose: a failed crop leaves no trace in the DOM by design (it never sets a
+  // source), so the assertion is that the tile still holds once the decode has had its chance.
+  await signOut();
+  account={...baseAccount,username:'oceaster',displayName:'OCEaster',picture:null,skin:'data:image/png;base64,AAAA'};
+  await signIn();
+  await facePage.getByRole('button',{name:'Account options'}).waitFor();
+  await facePage.waitForTimeout(300);
+  const badSkin=await snapshot();
+  assert.equal(badSkin.painted,false,'a skin the browser cannot decode never claims the slot');
+  assert.equal(badSkin.picture.hidden,true,'no broken image is left in the control');
+  assert.equal(badSkin.picture.natural,0,'and no crop was painted');
+  assert.equal(badSkin.letter,'O','the tile is what the player sees instead');
+  assert.deepEqual(box(badSkin),box(painted),'a failed crop leaves the same box');
+  assert.equal(badSkin.label,'Account options');
+  // 11. The label's precedence, asserted in the same place as the face: the display name, then the
   // Minecraft name, then the username - the account document's own order (publicAccount), which is
   // also the order the launcher's bar uses. Owen, 2026-10-26: "Launcher also shows `Display Name`
   // not username, which is correct."
@@ -276,7 +367,7 @@ try{
    assert.equal(longName.nameShown,true,'the name is still shown beside the face at '+width);
    assert.equal(longName.nameTruncated,true,'the long name is clipped inside the control at '+width);
   }
-  // 8. An account with no name of its own yet - the moment between a provider sign-in and a first
+  // 12. An account with no name of its own yet - the moment between a provider sign-in and a first
   // username - is the Easter Company mark, never an empty box. It is last because that state's
   // control opens the setup dialog rather than the menu, so it is not signed out again here.
   await signOut();
@@ -300,8 +391,9 @@ try{
   assert.equal(nameless.oneRow,true,'the nav does not wrap at '+width);
   assert.equal(failed.overflow,false,'the page does not scroll sideways at '+width);
   // The slot is one fixed 20x20 disc in every state that has an account.
-  for(const state of [painted,noPicture,failed,nameless])assert.deepEqual(state.face,{hidden:false,width:16,height:16},'one fixed slot');
-  // No third-party host is asked for a face: the picture is a data: URI and nothing else is read.
+  for(const state of [painted,noPicture,failed,skinOnly,bothFaces,noSkin,badSkin,nameless])assert.deepEqual(state.face,{hidden:false,width:16,height:16},'one fixed slot');
+  // No third-party host is asked for a face, in any of the states above: the picture and the whole
+  // skin are data: URIs inside the account document, and the crop is local canvas work.
   assert.deepEqual(faceRequests.filter(url=>!url.startsWith(origin)&&!url.startsWith(api)),[],'the avatar costs no request to a third party');
   await facePage.screenshot({path:'/tmp/web-account-avatar-'+width+'.png'});
   assert.deepEqual(errors,[]);
@@ -309,7 +401,9 @@ try{
   console.log('PASS account avatar at '+width+': signed out (no face, '+size(signedOut)+'), '
    +'signing in ('+size(signingIn)+', disabled, no face), '
    +'picture (as the image arrived '+beforePaint.width+'x'+beforePaint.height+', once painted '+size(painted)+'), '
-   +'no picture ('+size(noPicture)+'), failed load ('+size(failed)+'), no name ('+size(nameless)+', the mark); '
+   +'no picture ('+size(noPicture)+'), failed load ('+size(failed)+'), '
+   +'skin crop (32px head, '+size(skinOnly)+'), picture over skin ('+size(bothFaces)+'), '
+   +'null skin ('+size(noSkin)+'), undecodable skin ('+size(badSkin)+'), no name ('+size(nameless)+', the mark); '
    +'labels '+bothNames.text+' / '+minecraftNameOnly.text+' / '+usernameOnly.text+' then "'+longName.text+'" clipped; '
    +'one row, accessible name '+painted.label+', no third-party request');
   checks++;

@@ -13,24 +13,29 @@ if(webAccount){
   if(nav){
    if(!nav.querySelector('a[href$="store/"]')){const link=document.createElement('a');link.href=new URL('store/',base).href;link.textContent='Store';link.className='store-entry';nav.append(link);}
    // ---- The account control's face ----------------------------------------------
-   // Owen, 2026-10-26, on the live site signed in: "there's no user image in the `oceaster` user
-   // element". The launcher has always drawn one (site/desktop.js, "The player's face") and this
-   // is the same precedence for the browser. The first choice is the account's own `picture`,
-   // which reaches this control only as a data:image/png;base64 URI - the cloud validates every
-   // picture into that form and publicAccount in site/account-client.mjs keeps that form and
-   // drops any other - so the page shows a face it already held and asks nobody for one. The
-   // second choice, the Minecraft head by `minecraftUuid`, is NOT reachable from a page: the
-   // launcher reads it through sessionserver.mojang.com, whose answer carries no
-   // Access-Control-Allow-Origin, so a browser fetch from this origin fails as a CORS error
-   // before any JSON exists (measured in Chromium at this origin, 2026-10-26: "TypeError: Failed
-   // to fetch" from sessionserver while textures.minecraft.net itself answered - the
-   // uuid-to-texture lookup is the half that is blocked). Reaching it needs a field in the
-   // account document or a CORS-enabled route, which is not this change's decision to make. So
-   // the third choice is deliberate rather than a stopgap: the launcher's own last resort - the
-   // teal tile, #536b66, with the first letter of the name in cream #eedbb2 - so one player sees
-   // one face on both surfaces. That is a primary state, not an edge case: the account wipe in
-   // flight keeps username, password and roles and drops every provider link, so accounts arrive
-   // here with no picture and no uuid.
+   // Owen, 2026-10-26, signed in on the live site: "there's no user image in the `oceaster` user
+   // element"; and the next day, signed in on both surfaces: "I am logged in on both web and
+   // launcher, but web shows the placeholder profile image while the launcher is showing my
+   // minecraft skin based one." So this control draws the launcher's own three-step precedence
+   // (site/desktop.js, "The player's face"), in the same order and ending where it already did:
+   // the account's uploaded `picture`; else the head cropped here from the account's Minecraft
+   // `skin`; else the deliberate teal letter tile.
+   //
+   // Both images reach this control only inside the account document, as data:image/png;base64
+   // URIs - the cloud validates them into that form and publicAccount in
+   // site/account-client.mjs keeps that form and drops any other - so the page shows a face it
+   // already holds and asks nobody for one. That is not a shortcut. The launcher's first source,
+   // sessionserver.mojang.com, answers a page with no Access-Control-Allow-Origin, so a browser's
+   // own uuid-to-texture lookup fails as a CORS error before any JSON exists (measured in
+   // Chromium at this origin, 2026-10-26: "TypeError: Failed to fetch" from sessionserver while
+   // textures.minecraft.net itself answered). The whole texture travels to the page instead, and
+   // the crop happens here.
+   //
+   // The tile is a primary state, not an edge case: the account wipe in flight keeps username,
+   // password and roles and drops every provider link, so accounts arrive here with neither a
+   // picture nor a Minecraft identity, and an account whose skin will not decode lands on the tile
+   // too. That is the launcher's own last resort - #536b66 with the first letter of the name in
+   // cream #eedbb2 - so one player sees one face on both surfaces.
    const account=document.createElement('button');account.type='button';account.className='web-account-nav';account.disabled=true;
    // Fixed-size slot, absolutely positioned image inside it: whether the picture is absent,
    // loading, painted or failed, the control's box cannot move.
@@ -79,13 +84,18 @@ if(webAccount){
    };
    // The face follows the account and only the account: while a sign-in is in flight there is no
    // account to show, so the slot is hidden and the control is exactly the text it always was.
-   let facePicture=null;
+   let facePicture=null,faceGeneration=0;
    const firstLetter=value=>{
     const letter=[...String(value||'').trim()][0];
     return letter?letter.toUpperCase():'';
    };
    const setInitial=letter=>{initial.textContent=letter;face.classList.toggle('web-account-face-mark',!letter);};
-   const showPicture=src=>{
+   const showPicture=(src,pixelated=false)=>{
+    // The cropped head is 32 canvas pixels of an 8x8 texture, and this slot is 16: the same
+    // nearest-neighbour intent the launcher states for its own canvas (site/desktop.css,
+    // image-rendering:pixelated). An uploaded picture keeps the ordinary smoothing a photograph
+    // wants, so this is a class on this one source and not a rule on the image.
+    portrait.classList.toggle('web-account-head',Boolean(src)&&pixelated);
     if(src===facePicture)return;
     facePicture=src;
     face.classList.remove('has-picture');
@@ -96,11 +106,57 @@ if(webAccount){
    // a face is never a reason to fail at anything, which is also the launcher's rule.
    portrait.onload=()=>face.classList.add('has-picture');
    portrait.onerror=()=>{portrait.hidden=true;face.classList.remove('has-picture');};
+   // The head, cropped exactly as the launcher crops it (site/desktop.js:1251-1257): the skin's
+   // 8x8 face at 8,8 and its 8x8 hat overlay at 40,8, each drawn into the same 32x32 canvas with
+   // the hat painted over the face, nearest-neighbour, which is how the game renders a player's
+   // head. A 64x32 skin of the old shape has both of those squares and crops identically. The
+   // result is a data URL, so it travels back through the one image the slot already knows.
+   const HEAD_CROP=32;
+   const cropHead=skin=>new Promise((resolve,reject)=>{
+    const image=new Image();
+    image.onload=()=>{
+     try{
+      const canvas=document.createElement('canvas');canvas.width=HEAD_CROP;canvas.height=HEAD_CROP;
+      const ctx=canvas.getContext('2d');
+      if(!ctx)throw Error('no canvas');
+      ctx.imageSmoothingEnabled=false;
+      ctx.drawImage(image,8,8,8,8,0,0,HEAD_CROP,HEAD_CROP);
+      ctx.drawImage(image,40,8,8,8,0,0,HEAD_CROP,HEAD_CROP);
+      const head=canvas.toDataURL('image/png');
+      // A canvas that hands back nothing is the same answer as an image that would not decode:
+      // no head, and the tile stays.
+      if(!head.startsWith('data:image/png;base64,'))throw Error('no crop');
+      resolve(head);
+     }catch(error){reject(error);}
+    };
+    image.onerror=()=>reject(Error('the skin did not decode'));
+    image.src=skin;
+   });
+   // One skin crops to one head, so the work is done once per skin: the control is painted again
+   // on every account broadcast, and re-decoding the same texture each time would be wasted work
+   // and a second asynchronous paint for nothing. The promise itself is what is remembered, so
+   // two paints while a crop is in flight share it; a skin that cannot be decoded is remembered
+   // as no head at all rather than retried on every broadcast.
+   let headSkin=null,headPending=null;
+   const headFor=skin=>{
+    if(headSkin!==skin){headSkin=skin;headPending=cropHead(skin).catch(()=>'');}
+    return headPending;
+   };
+   const showFace=(user,generation)=>{
+    const picture=typeof user.picture==='string'?user.picture:'';
+    if(picture){showPicture(picture);return;}
+    const skin=typeof user.skin==='string'?user.skin:'';
+    if(!skin){showPicture('');return;}
+    void headFor(skin).then(head=>{if(generation===faceGeneration)showPicture(head,true);});
+   };
    // The words 'Company member' are publicAccount's last resort for an account with no name at all
-   // (site/account-client.mjs:262): it is a sentence, not a name, so it is never lettered.
+   // (site/account-client.mjs:274): it is a sentence, not a name, so it is never lettered.
    const GENERIC_NAME='Company member';
    const paintFace=next=>{
     const user=next.account;
+    // A crop still in flight belongs to the account this paint is replacing, and it must never
+    // arrive on top of the next account's face: one counter, read once, decides that.
+    const generation=++faceGeneration;
     face.hidden=!user;
     // The narrowest header gives the face the control and takes the name away; signed out there is
     // no face, so the name must stay - the control is never an empty box.
@@ -112,7 +168,7 @@ if(webAccount){
     // name at all - the moment between a provider sign-in and a first name - is the mark, because
     // a C for 'Company member' would be a letter that means nothing.
     setInitial(firstLetter(called));
-    showPicture(typeof user.picture==='string'?user.picture:'');
+    showFace(user,generation);
    };
    const paint=next=>{
     current=next;auth.render(next);profile?.syncLock();linked?.syncLock();

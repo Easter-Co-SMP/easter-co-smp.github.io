@@ -110,17 +110,41 @@ same report of 2026-10-19 (site/desktop.js, accountName). Owen, 2026-10-26, on
 this site: the nav showed `oceaster` where the launcher shows `OCEaster`.
 
 The same journey drives the account control's face in every state that matters -
-signed out, signing in, signed in with a picture, signed in with none, and a
-picture the browser cannot decode - and asserts the control measures the same
-before and after the avatar paints, that the nav stays one row, and that the
-account is still the control's accessible name. The face follows the launcher's
-precedence (site/desktop.js, "The player's face") with one step missing on
-purpose: the Minecraft head by `minecraftUuid` is unreachable from a page,
-because sessionserver.mojang.com answers without Access-Control-Allow-Origin and
-a page's fetch of it fails before any JSON exists. Reaching it needs a field in
-the account document or a CORS-enabled route; it is not a job for a new
-third-party image host. Until then the tile is the avatar for an account with no
-picture, which is also what the wipe in doc/FRESH_SLATE.md leaves behind.
+signed out, signing in, signed in with a picture, signed in with a skin and no
+picture, with both, with `skin: null`, with a skin that is not a decodable PNG,
+and with a picture the browser cannot decode - and asserts the control measures
+the same before and after the avatar paints, that the nav stays one row, and that
+the account is still the control's accessible name.
+
+The face is the launcher's own three-step precedence (site/desktop.js, "The
+player's face"), in the same order and ending where it already did: the account's
+uploaded `picture`, else the head cropped in the browser from the account's
+Minecraft `skin`, else the teal letter tile. Owen, 2026-10-26, signed in on both
+surfaces: "I am logged in on both web and launcher, but web shows the placeholder
+profile image while the launcher is showing my minecraft skin based one."
+
+Both of those images reach the page only inside the account document, as
+`data:image/png;base64` URIs, and `publicAccount` keeps that form and drops any
+other - so a face costs the page no request to any host, and the contract is the
+same one the launcher reads. `skin` is the WHOLE texture, never a pre-cropped
+head, because cropping is the renderer's job: `site/web.js` draws the 8x8 face at
+8,8 and the 8x8 hat at 40,8 over it into a 32x32 canvas with
+`imageSmoothingEnabled=false`, which is the arithmetic and the numbers of
+site/desktop.js:1251-1257. The launcher's first source for that texture,
+sessionserver.mojang.com, is still unreachable from a page - it answers without
+Access-Control-Allow-Origin, so a browser's uuid-to-texture lookup fails before
+any JSON exists - which is why the texture travels in the document instead of
+being fetched. A crop that fails for any reason (an image that will not decode, a
+canvas that returns nothing) leaves the tile showing, exactly as a failed picture
+does. The tile is therefore a primary state, not a stopgap: the wipe in
+doc/FRESH_SLATE.md leaves every account with `picture: null` and `skin: null`
+until it links again, and that state is measured like any other.
+
+`site/account-client.mjs` is generated from desktop/accounts.cjs by
+`scripts/export_browser_contracts.py`, so `skin` was added to the whitelist in
+sanitizeAccount and to publicAccount at that source and the browser module
+regenerated; the generated file is never hand-edited, and the freshness check
+below proves it.
 
 ## Verification result and review
 
@@ -135,3 +159,14 @@ in Chromium, checked overflow at all four widths and verified store skip-link fo
 and sign-out clearing private data. They approved design preservation on the branch,
 subject to the corrected profile/privacy wording and the documented production
 blockers. This is not live-service or real-payment sign-off.
+
+The Minecraft-head pass (branch fix/web-face, the face above) ran 146 Python tests
+(one skipped), 408 Node tests, the generated contract freshness check, public asset
+validation and all three browser suites with `site/` on loopback: the eight
+`tests/web-accounts-browser.mjs` journeys at 1440, 834, 390 and 320 - which now
+include the four skin states - plus `tests/account-browser.mjs` and
+`tests/browser.mjs`. The crop is asserted from the painted pixels, not from a
+screenshot: the fixture skin's checkerboard face and half-transparent hat come back
+as exact 4x4 blocks and a composited blend at the offsets the launcher's arithmetic
+puts them. No third-party image host is added, the control's box is measured before
+and after every face paints, and the launcher's own copy of the crop is untouched.
