@@ -53,15 +53,20 @@ The download will include the custom Easter Company launcher and Minecraft clien
 
 Do not display Source, source code bundles, standalone client/server bundle options, or the old direct-mod download section.
 
-The store is a page at site/store/, shared by the website and launcher (Owen,
-2026-10-26). The public website offers sign-in/sign-up and Store navigation while
-retaining its existing download-first hero and visual design. Browser account work
-uses site/web-account.mjs, never a forged easterDesktop bridge or desktop-mode.
-The old launcher-only visibility and redirect rules are superseded.
+The store is a page at site/store/ and, by Owen's instruction of 2026-10-27 while the
+Easter Company app registration is reviewed by Minecraft, it is a launcher surface only:
+no page of the website links into /store/, the public URL lands on the home page, and
+site/store/store.mjs mounts only under `window.easterDesktop` claiming `mode:'desktop'`.
+Nothing is deleted — the page, its views, its tests and its bridge all stay, the launcher
+keeps the store exactly as it was — and it comes back to the website afterwards.
+The website keeps sign-in/sign-up and its download-first hero and visual design. Browser
+account work uses site/web-account.mjs, never a forged easterDesktop bridge or desktop-mode.
 It is named "The Community store" and stays `noindex`. It is the REAL store: five
 products for real USD through Stripe's hosted Checkout page, driven by the account service
 through three commands on `window.easterDesktop` (`storeCatalogue`, `storeCheckout`,
-`storeOrders`) in the launcher; the website uses the same API through its bounded browser transport — the catalogue, the prices and the orders are
+`storeOrders`) in the launcher. The bounded browser transport for the same API is kept in
+site/store/store.mjs, unwired, for the store's return to the website; the catalogue, the
+prices and the orders are
 the server's, and site/ holds no catalogue of its own. Buying is one product at a time from its
 own card: no cart, no quantity, no basket total. Its views are hash routes (#catalogue,
 #item/<key>, #orders); a stale link to a removed route lands on #catalogue. The

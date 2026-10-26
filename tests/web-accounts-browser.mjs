@@ -16,7 +16,7 @@ try{
  for(const width of [1440,834,390,320]){
   const context=await browser.newContext({viewport:{width,height:1000},reducedMotion:'reduce'});
   const page=await context.newPage(),errors=[],requests=[];
-  let account={...baseAccount},paid=false,providerSignup=false,finishCalls=0,checkoutCalls=0,loginHold=null;
+  let account={...baseAccount},paid=false,providerSignup=false,finishCalls=0,checkoutCalls=0,loginHold=null,storeCalls=[];
   // The boot journeys below decide when /me answers and what it says. A hold is a promise the route
   // waits on, so a state that is only reachable while the read is in flight is measured on the route
   // rather than slept through after the load: the delay is where the player's 18-22 s Aurora resume
@@ -36,9 +36,12 @@ try{
    else if(path.endsWith('/me')){if(meHold)await meHold;if(meStatus!==200){status=meStatus;value={error:'invalid_session'};}else value={account};}
    else if(path.endsWith('/emails'))value={emails:[],loginEmail:null};
    else if(path.endsWith('/profile')){account={...account,displayName:body.displayName};value={account};}
-   else if(path.endsWith('/store/catalogue'))value={products:[product]};
-   else if(path.endsWith('/store/orders'))value={orders:paid?[{sessionId:'fixture-order',product:product.key,amountMinor:500,currency:'USD',paid:true,delivered:false,creditPence:0,createdAt:'2026-10-26T12:00:00Z'}]:[]};
-   else if(path.endsWith('/checkout')){checkoutCalls++;assert.deepEqual(body,{product:product.key});value={url:'https://checkout.stripe.com/c/pay/fixture',sessionId:'fixture-order',product:product.key};}
+   // THE WEBSITE HAS NO STORE while the Easter Company app registration is reviewed (Owen,
+   // 2026-10-27). These three routes still answer, because the cloud half does; what is asserted
+   // below is that the website never asks them, so a request to one is recorded and fails the run.
+   else if(path.endsWith('/store/catalogue')){storeCalls.push(path);value={products:[product]};}
+   else if(path.endsWith('/store/orders')){storeCalls.push(path);value={orders:paid?[{sessionId:'fixture-order',product:product.key,amountMinor:500,currency:'USD',paid:true,delivered:false,creditPence:0,createdAt:'2026-10-26T12:00:00Z'}]:[]};}
+   else if(path.endsWith('/checkout')){storeCalls.push(path);checkoutCalls++;assert.deepEqual(body,{product:product.key});value={url:'https://checkout.stripe.com/c/pay/fixture',sessionId:'fixture-order',product:product.key};}
    else if(path.endsWith('/logout'))value={};
    else throw Error('Unexpected API request '+path);
    await route.fulfill({status,contentType:'application/json',body:JSON.stringify(value)});
@@ -76,22 +79,32 @@ try{
   await page.locator('#company-profile button[type=submit]').first().click();
   await page.locator('#company-profile .company-status').filter({hasText:'Saved.'}).waitFor();
   await page.getByRole('button',{name:'Close My Profile'}).click();
-  await page.getByRole('link',{name:'Store',exact:true}).click();
-  await page.getByRole('heading',{name:product.name,exact:true}).waitFor();
-  assert.equal(await page.locator('.store-price').textContent(),'$5.00');
-  await page.getByRole('link',{name:'Orders',exact:true}).click();
-  await page.getByText('No orders yet.',{exact:true}).waitFor();
-  await page.getByRole('link',{name:'Browse',exact:true}).click();
-  await page.getByRole('button',{name:'Buy '+product.name,exact:true}).click();
-  await page.waitForURL('https://checkout.stripe.com/**');
-  assert.equal(checkoutCalls,1);
+  // THE WEBSITE HAS NO STORE, signed in or not (Owen, 2026-10-27, while the app registration is
+  // reviewed: "let's not remove, but disable the store on the website ... leave it inside the
+  // launcher though"). What used to be here was the whole web shop - the Store link, its
+  // catalogue, an Orders view, a Buy press that reached Stripe, and the #store-paid return. The
+  // store itself is untouched and the launcher still sells; the website simply offers no way in.
+  assert.equal(await page.getByRole('link',{name:'Store',exact:true}).count(),0,'the nav offers no Store entry on the website');
+  assert.deepEqual(
+    await page.evaluate(()=>[...document.querySelectorAll('a')].map(a=>a.href).filter(href=>href.includes('/store/'))),
+    [],
+    'and no link anywhere on the page reaches /store/');
+  // The public store URL lands on the home page and asks the account service nothing about a store.
+  await page.goto(origin+'/store/',{waitUntil:'networkidle'});
+  assert.equal(new URL(page.url()).pathname,'/','/store/ on the website lands on the home page');
+  assert.equal(await page.locator('.store-main,.store-product,.store-price,.store-order-record').count(),0,'and paints nothing of the store');
+  // Stripe's return fragment is inert here now: it names a checkout the website cannot show, so it
+  // stays where it is, records no order and claims no success.
   await page.goto(origin+'/#store-paid/forged');
-  await page.waitForURL('**/store/#orders');
-  await page.getByText('No orders yet.',{exact:true}).waitFor();
+  await page.waitForTimeout(150);
+  assert.equal(new URL(page.url()).pathname,'/','the #store-paid fragment no longer routes into the store');
   assert.equal(await page.getByRole('heading',{name:'Payment Successful',exact:true}).count(),0);
+  assert.equal(await page.locator('.store-order-record').count(),0);
+  assert.deepEqual(storeCalls,[],'the website never called a store route: '+storeCalls.join(', '));
+  assert.equal(checkoutCalls,0,'no checkout was started from the website');
   await page.getByRole('button',{name:'Account options'}).click();
   await page.getByRole('button',{name:'Sign out',exact:true}).click();
-  await page.getByText('Sign in to buy.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Sign in or create an Easter Company account'}).waitFor();
   assert.equal(await page.locator('.store-order-record').count(),0);
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null);
   await page.getByRole('button',{name:'Sign in or create an Easter Company account'}).click();
@@ -112,7 +125,7 @@ try{
   await page.screenshot({path:'/tmp/web-accounts-'+width+'.png',fullPage:true});
   assert.deepEqual(errors,[]);
   assert(requests.every(r=>!new URL(api+r.path).search));
-  console.log('PASS web login, profile, store, checkout return distrust, logout, provider signup, no overflow at '+width);
+  console.log('PASS web login, profile, no store on the website and no store request made, inert #store-paid fragment, logout, provider signup, no overflow at '+width);
   checks++;
 
   // ---- The account control's face, in the states that matter -------------------------------

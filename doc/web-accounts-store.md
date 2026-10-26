@@ -1,9 +1,38 @@
 # Website accounts and shared store
 
 Owen requested browser sign-up/sign-in and the same store features as the launcher on
-2026-10-26, preserving the existing website design and download-first hero. This
-supersedes the earlier launcher-only store visibility instruction. No game rule,
+2026-10-26, preserving the existing website design and download-first hero. That
+superseded the earlier launcher-only store visibility instruction; the store then left the
+website again on 2026-10-27 while the app registration is reviewed (below), so read the two
+together. No game rule,
 product, amount, price, copy policy or launcher release is changed here.
+
+## The store leaves the website again, 2026-10-27
+
+Owen, while the Easter Company app registration goes to Minecraft for API approval and the
+form reviews this site: *"let's not remove, but disable the store on the website — having it
+on our website will make things more complicated for approval, we can handle that afterwards.
+Leave it inside the launcher though."* A storefront on the associated website invites
+monetisation questions during a review, so the website now has none:
+
+- no page of the site carries a Store entry or any other link into `/store/`. The five pages
+  lose the inline entry, and `site/web.js` neither injects one nor forwards the Stripe return
+  fragment (`#store-paid/...`, `#store-cancelled`) into the store any more;
+- `/store/` on the public site lands on the home page. `site/store/store.mjs` mounts only under
+  `window.easterDesktop` claiming `mode:'desktop'` (the isolated preload is the only thing that
+  puts one there) and otherwise replaces the address with the site root; `site/store/index.html`
+  carries a `noscript` refresh to the same place, so the URL lands home with no scripting either;
+  and `site/desktop.css` paints nothing of the store outside `desktop-mode`, so nothing of the
+  shop is on screen on the way;
+- a direct `/store/` load makes no store API call at all — `tests/store-browser.mjs` counts
+  them rather than assuming, and the count is zero (its one off-site request is the sign-in
+  provider list every page makes).
+
+Nothing is deleted. The page, its views, its copy, its tests and the bounded browser transport
+in `site/store/store.mjs` all stay, and the launcher's store is exactly what it was: its own nav
+entry — appended by `site/desktop.js`, which now resolves it against the site root, because with
+no inline link left on any page a page-relative `./store/` was `/map/store/` — and its own mount.
+The account work below is unchanged and the store returns to the website afterwards.
 
 ## Implementation
 
@@ -141,13 +170,15 @@ python3 -m unittest discover -s tests -p 'test_*.py', and
 python3 scripts/validate.py site. With site/ served on loopback port 18104:
 node tests/web-accounts-browser.mjs. The latter uses fixture-only credentials,
 provider pages and checkout sessions at 1440/834/390/320 widths. It covers wrong
-password, successful sign-in, profile edits, store navigation and orders, validated
-checkout navigation, forged success fragment distrust, logout and provider signup.
+password, successful sign-in, profile edits, no Store entry and no store request anywhere on
+the site, an inert `#store-paid` fragment, logout and provider signup.
 Its three cold-load journeys hold `/me` on the route — the delay belongs where the
 player's Aurora resume is, not in a sleep after the load — and assert what the control
 says on its FIRST frame, what a click reaches there, and what happens when the read
-answers or answers 401. Existing store-browser.mjs retains the launcher flows and now
-expects the public store route instead of the superseded browser redirect. Independent
+answers or answers 401. store-browser.mjs keeps every launcher flow and asserts the reverse
+of its old web expectation: no page links into `/store/`, the public URL lands on the home
+page with no store API call, and the launcher's own entry still reaches the store from every
+page. Independent
 frontend review is required before production, in addition to these checks.
 
 The control's label is the name a player is called, not the handle they type: the
