@@ -180,10 +180,18 @@ function signedOut(){
 // Every entry point below opens the busy state, asks once, closes it, and draws whatever came
 // back in place. None of them navigates: the only navigation on this page is the one to
 // Microsoft, which is the contract, and a refusal must not cost a document load.
+//
+// `starting` is what makes the start idempotent: boot() opens the busy state before its first
+// paint when the page was handed a flow, so the button that arrives with ?provider=microsoft is
+// already off screen by the time this runs, and nothing else can ask twice.
+let starting=false;
 async function startMicrosoft(){
- if(shown!=='out')return;
+ if(shown!=='out'||starting)return;
+ starting=true;
  begin(SIGN_IN_WAIT);
- const result=await bridge.startMicrosoftSignIn();
+ let result;
+ try{result=await bridge.startMicrosoftSignIn();}
+ finally{starting=false;}
  // On success the browser has left for Microsoft and this page is unloading; anything that
  // lands here is a refusal, including the two this page makes before asking anybody anything.
  end();

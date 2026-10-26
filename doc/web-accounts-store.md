@@ -57,6 +57,39 @@ preflight for the site origin only, and `api/cors.py` adds the header to ordinar
 responses. The live journeys still have to be verified against a deployed service —
 fixture tests do not prove live browser access.
 
+## One sign-in surface, one busy state, counted loads
+
+Owen signed in for real on 2026-10-26 and reported two things: the account page
+"does not show the same content as the sign-in modal, but it should (missing
+direct sign in options)", and a page mid-flow should show "a decorative and
+descriptive loading spinner" and nothing else.
+
+- `site/signin-options.mjs` is the one source of the sign-in options: the
+  Microsoft button, the provider buttons in one order (`google`, `steam`,
+  `discord`), the note that says what a provider is for, the direct Company
+  username/password form, and the two wait sentences. The nav's dialog
+  (`site/company-auth.mjs`, mounted by `site/web.js`) and the account page
+  (`site/account/account.mjs`) both draw its panel, so neither spells an option
+  itself; `tests/account-page.test.mjs` fails if either does again, and
+  `tests/account-browser.mjs` compares the two surfaces' drawn text.
+- While a sign-in, sign-up or link flow the page itself runs is in flight,
+  `#account-panel[data-busy="true"]` shows one spinner (`.wait-feedback-mark`)
+  and one sentence, and the options are `display:none` — out of the tab order,
+  not merely invisible. The page does not use `site/wait-feedback.mjs` for it,
+  because that component adds a second line after ten seconds.
+- The dialog starts the Microsoft flow on the page the player is on, so the
+  authorize redirect is one document load away rather than two, and a refused
+  start is read in the dialog. `completeMicrosoftSignIn` still refuses a
+  callback anywhere but the registered path; what the Azure registration pins is
+  the address the answer comes back to.
+- Document loads per step, measured with `tests/account-browser.mjs`'s counter
+  against `f386139`: dialog → Microsoft 2 → 1, a refused start 1 → 0, a callback
+  with a code 1 → 1, the page's own Microsoft button 1 → 1, a refused exchange
+  1 → 1, a provider sign-in from the page 0 → 0. The whole journey from the
+  nav's Sign in to a signed-in account page is 4 → 3. The two that remain are the
+  authorize redirect and Microsoft's return to `/account/`, which are the
+  registration itself.
+
 ## Checks
 
 Run python3 scripts/export_browser_contracts.py --check, npm test,

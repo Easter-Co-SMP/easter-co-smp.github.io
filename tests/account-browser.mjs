@@ -78,6 +78,7 @@ async function assertBusy(page,{width,label,sentence}){
  // The nav's own Sign in is the other place a second flow could start, and it is disabled for as
  // long as the seam says a request is in progress.
  assert.equal(await page.locator('.web-account-nav').isDisabled(),true,'the nav cannot start a second flow ('+label+')');
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'the busy state does not overflow at '+width+' ('+label+')');
  const mark=await spinner.evaluate(node=>{const style=getComputedStyle(node);return {animation:style.animationName,border:style.borderTopColor,width:node.getBoundingClientRect().width};});
  assert(mark.width>0,'the spinner is laid out, never nothing ('+label+')');
  return mark;
