@@ -115,14 +115,24 @@ try{
  assert.equal(await reducedPage.locator('body').evaluate(el=>el.classList.contains('is-arriving')),false);
  assert.equal(await reducedPage.locator('.skip-arrival').isVisible(),false);
  assert.equal(await reducedPage.locator('.crest-frame').evaluate(el=>getComputedStyle(el).animationName),'none');
- assert.equal(await reducedPage.locator('.wiki-link').getAttribute('href'),'wiki/');await reduced.close();
+ // The homepage's route to the wiki, asserted as the capability and not as markup: the
+ // redesign (PR 17) removed the `.wiki-link` class this used to name, and a gate that binds
+ // to a class or to a sentence turns an intended redesign into a red suite - or, worse,
+ // makes the suite a second author of copy it was never asked to keep. What must not change
+ // is that the homepage offers a link to `wiki/`, so that is what is asserted.
+ assert((await reducedPage.locator('a[href="wiki/"]').count())>=1,'the homepage no longer links to the wiki');await reduced.close();
  await page.locator('.hero-copy').evaluate(async el=>{await Promise.all(el.getAnimations().map(animation=>animation.finished));});
  await page.screenshot({path:'/tmp/easter-public-home-desktop.png',fullPage:true});
  for(const trigger of [page.getByRole('button',{name:'Choose launcher platform',exact:true}),page.getByRole('navigation').getByRole('button',{name:'Download',exact:true})]){
   await trigger.click();await page.locator('#launcher-downloads').waitFor({state:'visible'});
   assert.equal(await page.locator('#launcher-downloads .platform-download').count(),4);
   assert.equal(await page.locator('[data-platform=source]').count(),0);
-  for(const label of ['Windows 10+','Ubuntu','Arch','AppImage'])assert(await page.getByRole('link',{name:label,exact:false}).isVisible());
+  // Scoped to the platform list, and by the attribute the rest of this suite already uses:
+  // an unscoped name lookup matches any link whose accessible name CONTAINS the label, and the
+  // redesign's chapter nav ('Law & anarchy') contains 'arch' - so a substring lookup found two
+  // links and the strict-mode check refused. The attribute is what these links are, so it is
+  // what the assertion reads.
+  for(const platform of ['windows','ubuntu','arch','appimage'])assert(await page.locator(`#launcher-downloads [data-platform=${platform}]`).isVisible());
   await page.keyboard.press('Escape');assert.equal(await page.locator('#launcher-downloads').isVisible(),false);
  }
  const launcherDownloadPromise=page.waitForEvent('download');
