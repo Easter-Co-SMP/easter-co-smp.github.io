@@ -86,8 +86,11 @@ try{
   await page.locator('[data-desktop-play]').click();
   await page.locator('#desktop-install-details').waitFor({state:'hidden'});
   await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
-  const instruction=page.locator('.desktop-device-instruction');
-  await instruction.filter({hasText:'The Microsoft sign-in page is open in your browser.'}).waitFor();
+  await page.locator('#desktop-signin [data-open-microsoft]').waitFor({state:'visible'});
+  // The line the player might select something from is the app's own name on Microsoft's
+  // consent screen — the one piece of text in this dialog that is not the state's `message`,
+  // which a concurrent download's progress legitimately rewrites.
+  const provider=page.locator('.desktop-provider');
   const signin=page.locator('#desktop-signin');
   assert.equal(await signin.isVisible(),true);
   // There is no code to copy any more (Owen, 2026-10-24): the dialog the player used to copy one
@@ -96,7 +99,7 @@ try{
   // The property that selection protected still holds for the sentence in its place: a real
   // text selection and clipboard copy survive repeated download progress broadcast through the
   // actual isolated preload.
-  await instruction.evaluate(element=>{
+  await provider.evaluate(element=>{
    window.__selectedDeviceText=element.firstChild;
    const range=document.createRange();range.selectNodeContents(element);
    const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
@@ -104,15 +107,15 @@ try{
   await app.evaluate(async()=>{
    for(let n=0;n<40;n++){global.easterTestDownloadProgress();await new Promise(resolve=>setTimeout(resolve,10));}
   });
-  const selected='The Microsoft sign-in page is open in your browser.';
+  const selected='Microsoft lists this app as Prism Launcher.';
   assert.equal(await page.evaluate(()=>window.getSelection().toString()),selected,'progress preserves the selected sentence');
-  assert.equal(await page.locator('.desktop-device-instruction').evaluate(element=>element.firstChild===window.__selectedDeviceText),true,'the sentence keeps its text node');
+  assert.equal(await provider.evaluate(element=>element.firstChild===window.__selectedDeviceText),true,'the sentence keeps its text node');
   assert.equal(await signin.isVisible(),true,'the same sign-in dialog remains open');
   await page.keyboard.press('Control+c');
   assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),selected,'the selection can actually be copied');
   await page.evaluate(()=>window.getSelection().removeAllRanges());
   await app.evaluate(()=>global.easterTestFinishDownload());
-  await instruction.filter({hasText:'The Microsoft sign-in page is open in your browser.'}).waitFor();
+  await signin.locator('[data-open-microsoft]').waitFor({state:'visible'});
   assert.equal(await signin.locator('.desktop-status').count(),0,'transfer status must not duplicate the sign-in instruction');
   assert.equal(await signin.locator('[data-open-microsoft]').evaluate(el=>el===document.activeElement),true,'focus goes to the browser action');
   // The action re-opens the sign-in main is already waiting on; it opens no address of its own.
