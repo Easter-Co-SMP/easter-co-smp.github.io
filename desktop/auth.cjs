@@ -73,20 +73,6 @@ const GRAPH_REQUEST_SCOPE=GRAPH_SCOPE+' '+OFFLINE_ACCESS;
 // EASTER_MICROSOFT_CLIENT_ID still overrides it, for pointing a build at another registration
 // without changing what ships.
 const DEFAULT_CLIENT_ID='c3fc8a5e-4540-4691-aecc-14ebbb17b94e';
-// The most requests the registration check will ever make, and the only hosts it will follow
-// one to: the consumers authority hands the question to its own consumer sign-in host, and
-// nothing else is ever asked.
-const REGISTRATION_HOPS=2;
-const REGISTRATION_HOSTS=Object.freeze(['login.microsoftonline.com','login.live.com']);
-// How much of a refused page the registration check will read before deciding. The page is
-// Microsoft's own error page, a few kilobytes; this is only here so an answer that is not
-// one cannot be read forever.
-const REGISTRATION_PAGE_LIMIT=65536;
-// A sign-in that never came back, said so that a player who closed the tab can act on it and
-// an owner whose app registration is missing the callback address can too. The address named
-// is the one that has to be registered, without a port: Microsoft ignores the port of a
-// localhost redirect URI when it matches one (desktop/loopback.cjs).
-const TIMEOUT_CAUSE={detail:'the Microsoft sign-in page was not completed',advice:'Start sign-in again. If the browser showed a Microsoft error page instead of a sign-in page, add '+REGISTERED_REDIRECT+' as a redirect URI on the Microsoft app registration.'};
 function abortFromSignal(){
  const error=Error('The sign-in was cancelled.');
  error.name='AbortError';
@@ -280,11 +266,15 @@ function provenForXboxLive(access){
 // learning it in a second, with the exact URI to compare, instead of signing in and then
 // watching a wait that never completes.
 const REDIRECT_REFUSED=/redirect_uri[^.]{0,40}is not valid|AADSTS50011|AADSTS90023|AADSTS700054/i;
-// The most requests the check makes, and the only hosts it will follow one to.
-const REDIRECT_CHECK_HOPS=2;
-const REDIRECT_CHECK_HOSTS=Object.freeze(['login.microsoftonline.com','login.live.com']);
-// How much of a page it will read before deciding.
-const REDIRECT_CHECK_LIMIT=65536;
+// The most requests the registration check will ever make, and the only hosts it will follow
+// one to: the consumers authority hands the question to its own consumer sign-in host, and
+// nothing else is ever asked. (doc/launcher-states.md, *The browser sign-in the launcher runs*,
+// names these three in its bound table.)
+const REGISTRATION_HOPS=2;
+const REGISTRATION_HOSTS=Object.freeze(['login.microsoftonline.com','login.live.com']);
+// How much of a refused page it will read before deciding. The page is Microsoft's own error
+// page, a few kilobytes; this is only here so an answer that is not one cannot be read forever.
+const REGISTRATION_PAGE_LIMIT=65536;
 // What Microsoft said, never what is shown: a page body is provider text, so it is only ever
 // matched against the pattern above to CLASSIFY a failure. Nothing from it is logged (the log
 // whitelists its own fields), put in a sentence or stored.
@@ -385,7 +375,7 @@ class MicrosoftAuth{
  //      else happens (desktop/loopback.cjs says what it accepts);
  //   2. one `state` and one PKCE S256 pair are minted in memory;
  //   3. one refusal-only check of the redirect URI, which can only ever stop a sign-in that
- //      Microsoft has already said it will not answer (see checkRedirectAccepted). It is not a
+ //      Microsoft has already said it will not answer (see checkRegistration). It is not a
  //      proof of registration and is not treated as one;
  //   4. the browser is opened at Microsoft's sign-in page;
  //   5. the first callback carrying this sign-in's own `state` completes it, and the listener
@@ -455,7 +445,7 @@ class MicrosoftAuth{
   const url=this.authorizeURL({redirectUri,state,challenge});
   const pending={redirect,redirectUri,verifier,state,url};
   try{
-   await this.checkRedirectAccepted(url,redirectUri,signal);
+   await this.checkRegistration(url,redirectUri,signal);
    this.record('browser-sign-in','ok',{status:200,code:'ok'});
    try{
     onOpen?.();
@@ -538,9 +528,9 @@ class MicrosoftAuth{
  // measured). It never follows a redirect into the listener — every request here is made with
  // `redirect:'manual'`, because following one would hand the launcher a `login_required` answer
  // and end a real sign-in before the player had seen it.
- async checkRedirectAccepted(url,redirectUri,signal){
+ async checkRegistration(url,redirectUri,signal){
   let target=url.href;
-  for(let hop=0;hop<REDIRECT_CHECK_HOPS;hop+=1){
+  for(let hop=0;hop<REGISTRATION_HOPS;hop+=1){
    let response;
    try{
     response=await this.request(target,{method:'GET',redirect:'manual',cache:'no-store',signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});
@@ -557,13 +547,13 @@ class MicrosoftAuth{
     if(location.startsWith(redirectUri))return;
     let host='';
     try{host=new URL(location).hostname;}catch{return;}
-    if(hop===REDIRECT_CHECK_HOPS-1||!REDIRECT_CHECK_HOSTS.includes(host))return;
+    if(hop===REGISTRATION_HOPS-1||!REGISTRATION_HOSTS.includes(host))return;
     target=location;
     continue;
    }
    // A page. Only one that says the redirect URI is not valid is a refusal.
    let body='';
-   try{body=String(await response.text()).slice(0,REDIRECT_CHECK_LIMIT);}catch{return;}
+   try{body=String(await response.text()).slice(0,REGISTRATION_PAGE_LIMIT);}catch{return;}
    if(redirectProblem(body))this.refuseRedirect(redirectUri);
    return;
   }

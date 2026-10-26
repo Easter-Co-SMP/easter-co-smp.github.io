@@ -7,7 +7,7 @@ const auth=require('../../desktop/auth.cjs'),Original=auth.MicrosoftAuth;
 const json=(data,status=200)=>({ok:status<400,status,json:async()=>data});
 auth.MicrosoftAuth=class extends Original{
  constructor(options){super({...options,request:async url=>{
-  // The redirect check (desktop/auth.cjs, checkRedirectAccepted): the measured answer for a
+  // The redirect check (desktop/auth.cjs, checkRegistration): the measured answer for a
   // registered loopback address is Microsoft's own sign-in page, which proves nothing and must
   // never stop a sign-in.
   if(url.includes('/oauth2/v2.0/authorize?')||String(url).startsWith('https://login.live.com/'))return {ok:true,status:200,json:async()=>({}),text:async()=>'<html>Microsoft account requires JavaScript to sign in.</html>',headers:{get:()=>null}};
