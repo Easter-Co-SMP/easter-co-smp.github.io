@@ -7,7 +7,7 @@ const auth=require('../../desktop/auth.cjs'),Original=auth.MicrosoftAuth;
 const json=(data,status=200)=>({ok:status<400,status,json:async()=>data});
 auth.MicrosoftAuth=class extends Original{
  constructor(options){super({...options,request:async url=>{
-  if(url.endsWith('/devicecode'))return json({device_code:'fixture-private-device',user_code:'TEST-JAVA',verification_uri:'https://microsoft.com/link',expires_in:600});
+  if(url.includes('/oauth2/v2.0/authorize?'))return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:n=>(String(n).toLowerCase()==='location'?new URL(url).searchParams.get('redirect_uri')+'?error=login_required&state='+encodeURIComponent(new URL(url).searchParams.get('state')||''):null)}};
   if(url.endsWith('/token'))return json({access_token:'fixture-private-ms',refresh_token:'fixture-private-refresh'});
   if(url.includes('/user/authenticate'))return json({Token:'fixture-private-xbox'});
   if(url.includes('/xsts/authorize'))return global.ownershipMode==='auth-failure'?json({XErr:2148916238},401):json({Token:'fixture-private-xsts',DisplayClaims:{xui:[{uhs:'fixture-hash',xid:'1234'}]}});

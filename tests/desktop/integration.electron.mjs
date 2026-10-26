@@ -127,7 +127,7 @@ try {
 
   // 4. Sign in through the stubbed Microsoft flow the harness provides.
   await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
-  await page.locator('.desktop-code').waitFor({state: 'visible'});
+  await page.locator('#desktop-signin').waitFor({state:'visible'});
   assert.equal((await state()).paused,true,'sign-in does not resume the paused transfer');
   assert.deepEqual((await state()).progress,pausedProgress,'sign-in preserves transfer progress');
   await page.getByRole('button',{name:'Cancel sign-in',exact:true}).click();
@@ -138,7 +138,7 @@ try {
   await page.keyboard.press('Escape');
   await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open);
   await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
-  await page.locator('.desktop-code').waitFor({state:'visible'});
+  await page.locator('#desktop-signin').waitFor({state:'visible'});
   // Let the client finish while Microsoft approval is still pending. The code must
   // survive installation completing, and Play must stay gated on the account.
   // Resume the fixture transfer through IPC while the modal remains open.
@@ -147,7 +147,7 @@ try {
   await page.waitForFunction(async()=>(await window.easterDesktop.status()).install.installed);
   assert.equal((await state()).canPlay,false,'a completed client still needs Microsoft approval');
   // Settings is the hero's secondary action; it opens the dialog that carries the
-  // still-pending device code.
+  // still-pending browser sign-in.
   // Settings is offered at the Play Now stage and withheld while a transfer runs, so wait
   // for the transfer to settle rather than assuming it has.
   // This fixture deliberately changes its chunk between requests, so after an install it
@@ -166,10 +166,11 @@ try {
    'Settings is offered exactly when the client is installed and nothing is transferring: '+JSON.stringify(settingsRule));
   // The pending code was asserted while the dialog was open; re-opening it here would race
   // the transfer the fixture keeps starting, so the same fact is read from the state.
-  assert.equal((await state()).device?.code,'TEST-CODE','install completion preserves the pending device code');
+  assert.equal((await state()).signInPage,true,'install completion preserves the pending browser sign-in');
+  assert.equal((await state()).device,undefined,'and carries no code, because there is none to carry');
   await app.evaluate(() => global.easterTestApprove());
   await page.waitForFunction(async () => (await window.easterDesktop.status()).profile !== null, null, {timeout: 30000});
-  note('sign-in: the account connects through the device-code flow');
+  note('sign-in: the account connects through the browser sign-in');
 
   await page.keyboard.press('Escape');
 

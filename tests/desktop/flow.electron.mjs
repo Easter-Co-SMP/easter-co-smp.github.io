@@ -94,8 +94,9 @@ try{
 
  console.log('\n2. signing in without a client');
  await invoke(()=>{window.__signIn=window.easterDesktop.signIn().catch(error=>error.message);});
- const device=await waitFor(state=>Boolean(state.device),'the device code');
- check(device.device.code==='TEST-CODE','the device code arrives in the state');
+ const waiting=await waitFor(state=>Boolean(state.signInPage),'the open sign-in page');
+ check(waiting.device===undefined,'no code is handed to the UI any more: the flow that printed one is gone');
+ check(await page.locator('.desktop-code').count()===0,'and the sign-in dialog renders no code element');
  await app.evaluate(()=>global.easterTestApprove());
  // The sign-in request only settles after the launcher's account step, so the next
  // command waits for it instead of racing the launcher's own operation lock.

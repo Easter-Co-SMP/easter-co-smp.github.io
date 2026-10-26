@@ -100,26 +100,28 @@ try{
  const status=()=>page.evaluate(()=>window.easterDesktop.status());
  const device=()=>page.evaluate(()=>({
   visible:Boolean(document.querySelector('#desktop-signin')?.open)&&document.querySelector('.desktop-device')?.getBoundingClientRect().height>0,
-  code:document.querySelector('.desktop-code')?.textContent||'',
+  // There is no code any more: what the player is waiting on is Microsoft's own page, in their
+  // own browser, and the only thing on screen about it is the action that brings it back.
+  codeNodes:document.querySelectorAll('.desktop-code').length,
+  instruction:(document.querySelector('.desktop-device-instruction')?.textContent||'').trim(),
   open:Boolean(document.querySelector('#desktop-signin')?.open),
   title:document.querySelector('#desktop-signin h2')?.textContent||'',
   wait:(document.querySelector('.desktop-auth-wait')?.innerText||'').trim(),
   box:(()=>{const dialog=document.querySelector('#desktop-signin');if(!dialog?.open)return null;const box=dialog.getBoundingClientRect();return {width:Math.round(box.width),height:Math.round(box.height)};})()
  }));
 
- // 1. The code is on screen while Microsoft's page is still waiting for the player.
+ // 1. The player is waiting on Microsoft's page, and there is nothing to copy.
  await page.locator('.desktop-account-nav').click();
  await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').filter({hasText:'WAIT-CODE'}).waitFor();
+ await page.locator('#desktop-signin').waitFor({state:'visible'});
+ await page.locator('[data-open-microsoft]').waitFor({state:'visible'});
  const before=await device();
- assert.equal(before.visible,true,'the device panel is up while approval is pending');
- assert.equal(before.code,'WAIT-CODE-1','the code the player has to enter is shown');
- assert.equal(await page.getByRole('button',{name:'Open the Microsoft page',exact:true}).isVisible(),true,'and the browser action is beside it');
- // The code stays a real selection, which is what makes it copyable while it is needed.
- await page.evaluate(()=>{const range=document.createRange();range.selectNodeContents(document.querySelector('.desktop-code'));getSelection().removeAllRanges();getSelection().addRange(range);});
- assert.equal(await page.evaluate(()=>String(getSelection())),'WAIT-CODE-1','the pending code is selectable');
- await page.screenshot({path:path.join(images,'1-code-pending.png')});
- note('approval pending: the code and the Microsoft page action are on screen');
+ assert.equal(before.visible,true,'the waiting panel is up while approval is pending');
+ assert.equal(before.codeNodes,0,'there is no code element for a player to copy from');
+ assert.equal(before.instruction,'The Microsoft sign-in page is open in your browser.','the panel says where the sign-in is: '+before.instruction);
+ assert.equal(await page.getByRole('button',{name:'Open the Microsoft sign-in page again',exact:true}).isVisible(),true,'and the browser action is beside it');
+ await page.screenshot({path:path.join(images,'1-browser-pending.png')});
+ note('approval pending: the browser action and its sentence are on screen, with nothing to copy');
 
  // 2. The player finishes on Microsoft's page. The approval is consumed by the real account
  //    call, which the proxy holds open, so what happens next is what Owen did not see.
@@ -128,13 +130,12 @@ try{
  await page.waitForFunction(()=>document.querySelector('.desktop-device')?.getBoundingClientRect().height===0,{timeout:10000});
  const hiddenAt=Date.now();
  const afterApproval=await device();
- assert.equal(afterApproval.visible,false,'the device panel is gone once the approval is consumed');
- assert.equal(await page.getByRole('button',{name:'Open the Microsoft page',exact:true}).isVisible(),false,'"Open the Microsoft page" goes with it');
- assert.equal(afterApproval.code,'WAIT-CODE-1','the code node is kept for a later sign-in rather than rewritten');
- assert.equal(await page.locator('.desktop-code').isVisible(),false,'but the consumed code is not on screen');
+ assert.equal(afterApproval.visible,false,'the waiting panel is gone once the approval is consumed');
+ assert.equal(await page.getByRole('button',{name:'Open the Microsoft sign-in page again',exact:true}).isVisible(),false,'the browser action goes with it');
+ assert.equal(afterApproval.codeNodes,0,'and no code was ever on screen to leave behind');
  assert.equal(afterApproval.open,true,'the dialog stays for the work that is still running');
  assert.equal(afterApproval.title,'Finishing sign-in…','and says what it is doing now');
- assert.match(afterApproval.wait,/Verifying your Microsoft sign-in|Connecting your Easter Company account|account service is waking|Contacting the account service/,'the stage text replaces the code: '+JSON.stringify(afterApproval.wait));
+ assert.match(afterApproval.wait,/Verifying your Microsoft sign-in|Connecting your Easter Company account|account service is waking|Contacting the account service/,'the stage text replaces the waiting state: '+JSON.stringify(afterApproval.wait));
  assert(hiddenAt-approvedAt<1500,'the panel is replaced at once, not after the account answers ('+(hiddenAt-approvedAt)+'ms)');
  await page.screenshot({path:path.join(images,'2-approval-consumed.png')});
  note('approval consumed: the panel is replaced by stage text', (hiddenAt-approvedAt)+'ms');
@@ -160,7 +161,8 @@ try{
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).account!==null,null,{timeout:40000});
  await page.waitForFunction(()=>!document.querySelector('#desktop-signin')?.open,null,{timeout:20000});
  const signed=await status();
- assert.equal(signed.device,null,'the state carries no device code once the sign-in is finished');
+ assert.equal(signed.device,undefined,'the state carries no code at all, before or after the sign-in');
+ assert.equal(signed.signInPage,null,'and nothing says a sign-in page is open once it is finished');
  assert.equal(signed.account.username,null,'the fixture account has no username yet, so it is asked for one');
  assert.equal(signed.account.name,'FixtureCaptain','the account the launcher signed in to is the fixture provider\'s');
  assert.equal(await page.locator('.desktop-account-nav').innerText(),'FixtureCaptain','the header shows the account name the launcher now holds');
@@ -226,13 +228,13 @@ try{
  await signInNav.waitFor();
  await signInNav.click();
  await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').filter({hasText:'WAIT-CODE'}).waitFor();
+ await page.locator('#desktop-signin').waitFor({state:'visible'});
  await app.evaluate(()=>global.easterTestApprove());
  await page.waitForFunction(()=>document.querySelector('.desktop-device')?.getBoundingClientRect().height===0,{timeout:10000});
  await page.waitForFunction(()=>!document.querySelector('#desktop-signin')?.open,null,{timeout:30000});
  const refused=await page.evaluate(()=>({
   error:(document.querySelector('.desktop-auth-error')?.textContent||'').trim()||(document.querySelector('.desktop-page-notice')?.firstChild?.textContent||'').trim(),
-  codeVisible:Boolean(document.querySelector('.desktop-code')?.getClientRects().length),
+  codeVisible:Boolean(document.querySelector('.desktop-code')),
   notice:(document.querySelector('.desktop-page-notice')?.textContent||'').trim()
  }));
  assert.equal(refused.codeVisible,false,'a sign-in that failed after approval leaves no code on screen');

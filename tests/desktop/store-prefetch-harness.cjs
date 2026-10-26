@@ -30,8 +30,8 @@ const uhs='fixture-uhs-0123456789abcdef0123456789abcdef';
 auth.MicrosoftAuth=class extends Original{
  constructor(options){
   super({...options,request:async url=>{
-   if(url.endsWith('/devicecode'))return json({device_code:'fixture-private-device',user_code:'STORE-TEST',verification_uri:'https://microsoft.com/link',expires_in:600});
-   if(url.endsWith('/token'))return json({access_token:'fixture-private-ms-'+uhs,refresh_token:'fixture-private-refresh-'+uhs});
+    if(url.includes('/oauth2/v2.0/authorize?'))return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:n=>(String(n).toLowerCase()==='location'?new URL(url).searchParams.get('redirect_uri')+'?error=login_required&state='+encodeURIComponent(new URL(url).searchParams.get('state')||''):null)}};
+    if(url.endsWith('/token'))return json({access_token:'fixture-private-ms-'+uhs,refresh_token:'fixture-private-refresh-'+uhs});
    if(url.includes('/user/authenticate'))return json({Token:'fixture-xbox:'+uhs,NotAfter:new Date(Date.now()+86400000).toISOString()});
    if(url.includes('/xsts/authorize'))return json({Token:'fixture-private-xsts',DisplayClaims:{xui:[{uhs}]}});
    if(url.includes('/authentication/login_with_xbox'))return json({access_token:'fixture-private-minecraft-token',expires_in:86400});
@@ -46,7 +46,17 @@ auth.MicrosoftAuth=class extends Original{
  }
  async signIn(notify,signal,onStage){
   global.easterStoreSignIns++;
-  return super.signIn(notify,signal,onStage);
+  // The browser is the journey's `easterTestApprove()` press: it answers the address the
+  // launcher opened, over the launcher's own loopback socket.
+  const real=this.openExternal;
+  this.openExternal=async url=>{
+   await new Promise(resolve=>{global.easterTestApprove=resolve;});
+   const query=new URL(url).searchParams;
+   const answer=await fetch(query.get('redirect_uri')+'?code=fixture-code-'+encodeURIComponent(uhs)+'&state='+encodeURIComponent(query.get('state')||''),{redirect:'manual'});
+   if(!answer.ok)throw Error('the fixture browser could not reach the launcher');
+  };
+  try{return await super.signIn(notify,signal,onStage);}
+  finally{this.openExternal=real;}
  }
 };
 // The client is installed and current, so the hero is Play from a cold start and the store's

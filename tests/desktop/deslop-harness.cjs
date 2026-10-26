@@ -8,7 +8,7 @@ auth.MicrosoftAuth=class{
    global.easterTestDeviceReady=()=>{signal.removeEventListener('abort',abort);resolve();};
    signal.addEventListener('abort',abort,{once:true});
   });
-  notify({code:'TEST',url:'https://microsoft.com/link',expiresAt:Date.now()+60000});
+  notify({browser:true});
   await new Promise((resolve,reject)=>{global.easterTestApprove=resolve;signal.addEventListener('abort',()=>reject(new DOMException('Cancelled','AbortError')),{once:true});});
   index++;
   return {...companyFixture.proof(String(index).padStart(32,'0'),'Captain'+index),profile:{id:String(index).padStart(32,'0'),name:'Captain'+index,skinURL:'https://invalid.test/skin',skin:'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAQUlEQVR4nO3QwQkAIAwEwdRpOVZnV6YC8xORzMD9j40AADhYc+xqr/9dJ4AAAggggACNAwAAAAAAAAAAAAAAAN9JOwCowfTmxIQAAAAASUVORK5CYII='},accessToken:'fixture',refreshToken:'fixture',expiresAt:Date.now()+86400000};

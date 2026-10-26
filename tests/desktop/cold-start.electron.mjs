@@ -110,9 +110,9 @@ const launch=async()=>{
   await dialog.getByLabel('Password',{exact:true}).fill('fixture secret passphrase');
   await dialog.getByRole('button',{name:'Sign in',exact:true}).click();
  };
- // The Microsoft flow's own device code, approved from here: this is the sign-in that also
+ // The Microsoft browser sign-in, approved from here: this is the sign-in that also
  // fires the silent server-status read, so it is the one scenario D needs.
- const approve=async()=>{await page.locator('.desktop-code').filter({hasText:'SESSION-TEST'}).waitFor();await app.evaluate(()=>global.easterTestApprove());};
+ const approve=async()=>{await page.locator('#desktop-signin').waitFor({state:'visible'});await app.evaluate(()=>global.easterTestApprove());};
  const close=async()=>{await app.close();assert.deepEqual(errors,[]);};
  return {app,page,hero,status,heroText,passwordSignIn,approve,close,home};
 };

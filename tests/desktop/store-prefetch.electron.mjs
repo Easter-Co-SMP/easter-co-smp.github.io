@@ -142,13 +142,14 @@ const launch = async () => {
 const statusOf = (page) => page.evaluate(() => window.easterDesktop.status());
 const heroOf = (page) => page.locator('[data-desktop-play]').evaluate((node) => ({ action: node.dataset.action, text: node.innerText.replace(/\s+/g, ' ').trim() }));
 const snapshotOf = (page) => page.evaluate(() => window.easterDesktop.storeSnapshot());
-// The hero's own sign-in, through the account chooser the launcher opens: the device code is
-// approved in the main process, and the Company session the service answers with is what the
+// The hero's own sign-in, through the account chooser the launcher opens: the browser sign-in
+// is approved in the main process, and the Company session the service answers with is what the
 // prefetch is then asked against.
 const signIn = async (app, page) => {
   await page.locator('[data-desktop-play][data-action="signin"]').click();
   await page.getByRole('button', { name: 'Sign in with Microsoft', exact: true }).click();
-  await page.locator('.desktop-code').filter({ hasText: 'STORE-TEST' }).waitFor();
+  await page.locator('#desktop-signin').waitFor({ state: 'visible' });
+  await page.getByRole('button', { name: 'Open the Microsoft sign-in page again', exact: true }).waitFor();
   await app.evaluate(() => global.easterTestApprove());
 };
 try {

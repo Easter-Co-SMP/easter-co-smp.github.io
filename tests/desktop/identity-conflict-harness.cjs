@@ -20,7 +20,7 @@ auth.MicrosoftAuth=class{
   // Every interactive sign-in — the first one and the one a fall-through would start —
   // passes through here, so this counter is what tells a stop from a silent second flow.
   global.identityConflictSignIns+=1;
-  notify({code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000});
+  notify({browser:true});
   await new Promise((resolve,reject)=>{
    global.easterTestApprove=resolve;
    signal.addEventListener('abort',()=>reject(new DOMException('Cancelled','AbortError')),{once:true});

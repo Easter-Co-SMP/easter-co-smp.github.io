@@ -15,7 +15,9 @@ fixtureAccounts.prototype.wakeGame=async function(){global.easterTestWakes++;ret
 const auth=require('../../desktop/auth.cjs');
 auth.MicrosoftAuth=class{
  async signIn(notify,signal){
-  notify({code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000});
+  // The real flow tells the UI one thing and nothing else: Microsoft's sign-in page is open in
+  // the player's browser (desktop/auth.cjs, signIn). There is no code here to hand over.
+  notify({browser:true});
   await new Promise((resolve,reject)=>{
    global.easterTestApprove=resolve;
    signal.addEventListener('abort',()=>reject(new DOMException('Cancelled','AbortError')),{once:true});

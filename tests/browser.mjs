@@ -473,7 +473,7 @@ try{
     mode:'desktop',
     status:async()=>renderer.state,
     onState:callback=>{renderer.emit=callback;},
-    // The three answers a real Microsoft sign-in can give: a completed device-code flow (which
+    // The three answers a real Microsoft sign-in can give: a completed browser sign-in (which
     // may carry Microsoft's own note about the account's email address), a refusal, or a flow
     // the test holds open so it can push state while it is still running.
     signIn:async options=>{
@@ -528,7 +528,7 @@ try{
     saveSettings:async values=>{log('saveSettings',values);renderer.state.settings=Object.assign({},renderer.state.settings,values);mirror();return renderer.state.settings;}
    };
   };
-  const launcherState=patch=>Object.assign({version:'1.0.0',totalMemoryMB:16384,remembered:true,profile:null,account:null,device:null,sessionExpiresAt:0,message:'',
+  const launcherState=patch=>Object.assign({version:'1.0.0',totalMemoryMB:16384,remembered:true,profile:null,account:null,signInPage:null,sessionExpiresAt:0,message:'',
    // The settings main really publishes: no server address, because the launcher targets
    // one fixed production server and the player has no say in it.
    settings:{memoryMB:4096,javaPath:''},install:{location:null,defaultLocation:'/home/player/.easter-company/minecraft',installed:false,includeGraphics:true,version:null,updatedAt:null},
@@ -1178,8 +1178,9 @@ try{
    assert.deepEqual(await visibleErrors(),[],'where it dismisses like any other');
    await launcherPage.evaluate(()=>{window.easterRenderer.playError=null;window.easterRenderer.state.error=null;});
 
-   // A sign-in that is still running is never presented as failed. The device code is what the
-   // player is waiting on, so a stale sentence from a broadcast must not be painted over it.
+   // A sign-in that is still running is never presented as failed. The sign-in page in the
+   // player's browser is what they are waiting on, so a stale sentence from a broadcast must
+   // not be painted over it.
    await pushState({phase:'ready',actions:['signin'],canPlay:false,install:INSTALLED,profile:null,account:null,companyReady:false,microsoftConnected:false,error:null});
    await launcherPage.locator('[data-desktop-play][data-action=signin]').click();
    const companyChooser=launcherPage.locator('#desktop-company-signin');
@@ -1188,18 +1189,22 @@ try{
    await companyChooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
    const signInDialog=launcherPage.locator('#desktop-signin');
    await signInDialog.waitFor({state:'visible'});
-   await pushState({device:{code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000}});
-   await launcherPage.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
-   // A stale failure arrives while the flow runs: the code and the browser action stay readable
-   // and nothing is painted over them.
+   await pushState({signInPage:true,message:'The Microsoft sign-in page is open in your browser.'});
+   await launcherPage.getByRole('button',{name:'Open the Microsoft sign-in page again',exact:true}).waitFor();
+   // Nothing in this dialog asks anyone to copy or type anything: there is no code element and
+   // no sentence that says there is one. This is the whole of Owen's ask, and it is asserted
+   // where it can regress — the rendered dialog, not the source.
+   assert.equal(await launcherPage.locator('.desktop-code').count(),0,'there is no code to copy anywhere in the dialog');
+   assert.doesNotMatch(await signInDialog.innerText(),/enter this code|copy/i,'and no sentence asks the player to copy one: '+await signInDialog.innerText());
+   // A stale failure arrives while the flow runs: the page action stays readable and nothing is
+   // painted over it.
    await pushState({error:FAILURE});
    assert.deepEqual(await visibleErrors(),[],'a live sign-in is not presented as failed');
-   assert.equal(await launcherPage.locator('.desktop-code').filter({hasText:'TEST-CODE'}).isVisible(),true,'the device code stays readable');
-   assert.equal(await launcherPage.getByRole('button',{name:'Open the Microsoft page',exact:true}).isVisible(),true,'the sign-in link stays readable');
+   assert.equal(await launcherPage.getByRole('button',{name:'Open the Microsoft sign-in page again',exact:true}).isVisible(),true,'the browser action stays readable');
    await launcherPage.screenshot({path:'/tmp/easter-launcher-signin-live.png'});
-   // The flow then really fails, in main's own order: the settled state clears the device and
+   // The flow then really fails, in main's own order: the settled state clears the page and
    // carries the sentence, and the account call rejects with it. One sentence, one place.
-   await pushState({device:null,error:FAILURE});
+   await pushState({signInPage:null,error:FAILURE});
    await launcherPage.evaluate(message=>window.easterRenderer.signInSettle.reject(Error(message)),FAILURE);
    await launcherPage.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
    assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'a failed sign-in ends with exactly one visible failure');
@@ -1210,9 +1215,8 @@ try{
    await companyChooser.waitFor({state:'visible'});
    await companyChooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
    await signInDialog.waitFor({state:'visible'});
-   await pushState({device:{code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000}});
-   await launcherPage.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
-   await launcherPage.getByRole('button',{name:'Open the Microsoft page',exact:true}).click();
+   await pushState({signInPage:true});
+   await launcherPage.getByRole('button',{name:'Open the Microsoft sign-in page again',exact:true}).click();
    await launcherPage.locator('.desktop-auth-error').filter({hasText:FAILURE}).waitFor();
    assert.deepEqual(await visibleErrors(),['desktop-auth-error'],'a failure raised while the sign-in dialog is open is shown only there');
    // Closed by the player, that sentence moves to the page notice once and is not carried into
@@ -1234,7 +1238,7 @@ try{
    await dialog.waitFor({state:'hidden'});
    assert.deepEqual(await visibleErrors(),[],'a successful sign-in clears the earlier failure, including after Settings closes');
    await launcherPage.evaluate(()=>{window.easterRenderer.openMicrosoftError=null;});
-   await pushState({device:null,error:null});
+   await pushState({signInPage:null,error:null});
    if(await launcherPage.getByRole('button',{name:'Dismiss message'}).count())await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
    assert.deepEqual(await visibleErrors(),[],'the launcher returns to a clean slate');
 
@@ -1310,13 +1314,13 @@ try{
    assert.deepEqual(await visibleErrors(),['desktop-page-notice'],'and the failure takes its one home on the page notice');
    await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
    await launcherPage.evaluate(()=>{window.easterRenderer.signInAnswer=undefined;});
-   await pushState({device:null,error:null});
+   await pushState({signInPage:null,error:null});
    assert.deepEqual(await visibleErrors(),[],'the email-notice check leaves nothing behind');
 
    // The saved-session branch is a shortcut, not a dead end: any failure other than a conflict
-   // falls through to the fresh interactive sign-in that shows the device code.
+   // falls through to the fresh interactive sign-in that waits on the browser.
    for(const [code,refused] of [['network_error',false],['invalid_grant',false],['identity_conflict',true]]){
-    await pushState({phase:'ready',actions:['signin'],canPlay:false,install:INSTALLED,profile:null,account:null,companyReady:false,microsoftConnected:false,microsoftAccount:{name:'Owen'},device:null,error:null});
+    await pushState({phase:'ready',actions:['signin'],canPlay:false,install:INSTALLED,profile:null,account:null,companyReady:false,microsoftConnected:false,microsoftAccount:{name:'Owen'},signInPage:null,error:null});
     const before=(await callsNamed('signIn')).length;
     await launcherPage.evaluate(values=>{window.easterRenderer.continueRefusal={code:values.code,message:values.sentence};window.easterRenderer.signInHold=true;},{code,sentence:CONFLICT_SENTENCE});
     await launcherPage.locator('[data-desktop-play][data-action=signin]').click();
@@ -1347,18 +1351,18 @@ try{
      await signInDialog.waitFor({state:'visible'});
      assert.equal((await callsNamed('signIn')).length,before+1,'a failed saved-session falls through to a fresh sign-in: '+code);
      assert.deepEqual(await visibleErrors(),[],'the fall-through starts with no leftover failure: '+code);
-     await pushState({device:{code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000}});
-     await launcherPage.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
-     assert.deepEqual(await visibleErrors(),[],'the device code is offered with no failure painted over it: '+code);
-     // Main clears the device when the flow ends, so the dialog closes with it.
-     await pushState({device:null});
+     await pushState({signInPage:true});
+     await launcherPage.getByRole('button',{name:'Open the Microsoft sign-in page again',exact:true}).waitFor();
+     assert.deepEqual(await visibleErrors(),[],'the browser sign-in is offered with no failure painted over it: '+code);
+     // Main clears the flag when the flow ends, so the dialog closes with it.
+     await pushState({signInPage:null});
      await launcherPage.evaluate(()=>window.easterRenderer.signInSettle.resolve(undefined));
      await launcherPage.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
     }
     await launcherPage.evaluate(()=>{window.easterRenderer.signInHold=false;window.easterRenderer.signInSettle=null;window.easterRenderer.continueRefusal=null;});
     if(await companyChooser.isVisible())await launcherPage.keyboard.press('Escape');
     if(await signInDialog.isVisible())await launcherPage.keyboard.press('Escape');
-    await pushState({device:null,error:null,microsoftAccount:null});
+    await pushState({signInPage:null,error:null,microsoftAccount:null});
     if(await launcherPage.getByRole('button',{name:'Dismiss message'}).count())await launcherPage.getByRole('button',{name:'Dismiss message'}).click();
    }
    await pushState({phase:'ready',actions:['signin'],canPlay:false,install:INSTALLED,profile:{name:'Owen'},error:null});
@@ -1436,7 +1440,7 @@ try{
    const gameText=async()=>(await gameLine.locator('.desktop-game-line').innerText()).trim();
    const asleep={state:'stopped',ready:false,endpoint:'smp.easter.company:25565',since:null,players:0,detail:null,waking:false,checkedAt:'2026-10-18T00:00:00Z',message:'Server Online, 0 active players',tone:'asleep'};
    const readyAccount={id:'EC-7',username:'testcaptain',name:'TestCaptain',roles:['crew'],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],primaryProvider:'microsoft',picture:null};
-   const playNow={phase:'ready',progress:null,actions:[],canPlay:true,error:null,device:null,companyReady:true,microsoftConnected:true,minecraftAccess:'owned',profile:{name:'TestCaptain',id:'1234567890abcdef',skin:null},account:readyAccount,install:INSTALLED};
+   const playNow={phase:'ready',progress:null,actions:[],canPlay:true,error:null,signInPage:null,companyReady:true,microsoftConnected:true,minecraftAccess:'owned',profile:{name:'TestCaptain',id:'1234567890abcdef',skin:null},account:readyAccount,install:INSTALLED};
    // The sleeping host, with no reason from the service: his second sentence, in full.
    await pushState({...playNow,game:asleep});
    await gameLine.waitFor({state:'visible'});

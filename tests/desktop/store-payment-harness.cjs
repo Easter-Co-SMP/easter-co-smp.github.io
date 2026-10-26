@@ -59,7 +59,7 @@ companyFixture.install();
 const auth=require('../../desktop/auth.cjs');
 auth.MicrosoftAuth=class{
  async signIn(notify,signal){
-  notify({code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000});
+  notify({browser:true});
   await new Promise((resolve,reject)=>{
    global.easterTestApprove=resolve;
    signal.addEventListener('abort',()=>reject(new DOMException('Cancelled','AbortError')),{once:true});

@@ -14,7 +14,7 @@
 //     {ok, value|error, code} result the account actions already use;
 //   * after a conflict the chooser comes back carrying the account service's own sentence
 //     plus what the player needs (nothing changed, and where accounts are switched), no
-//     device-code dialog opens, no second interactive sign-in is asked for, and the signed-in
+//     Microsoft sign-in dialog opens, no second interactive sign-in is asked for, and the signed-in
 //     account id is unchanged;
 //   * the page notice never paints the failure on that path — not even for one frame;
 //   * every other failure of the saved session still falls through to the interactive
@@ -104,7 +104,7 @@ try{
  const hero=kind=>page.locator('[data-desktop-play][data-action="'+kind+'"]');
  const heroAction=()=>page.locator('[data-desktop-play]').evaluate(node=>node.dataset.action);
  const chooser=page.locator('#desktop-company-signin');
- const signInDialog=page.locator('#desktop-signin');
+ const signInDialog=page.locator('#desktop-signin').waitFor({state:'visible'});
  // Every state the renderer is handed, and every time a sentence reaches a visible notice:
  // a failure painted for one frame and then cleared is still recorded here, which is the
  // only way to prove the flash is gone rather than merely short.
@@ -138,7 +138,7 @@ try{
  await hero('signin').click();
  await chooser.waitFor();
  await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
+ await page.locator('#desktop-signin').waitFor({state:'visible'});
  await app.evaluate(()=>global.easterTestApprove());
  const usernameStep=page.locator('#desktop-company-username'),passwordStep=page.locator('#desktop-company-password');
  await usernameStep.waitFor();
@@ -189,9 +189,9 @@ try{
  assert.match(conflictLines.join(' '),/Nothing on your Easter Company account has changed\./,'the dialog says the account is untouched');
  assert.match(conflictLines.join(' '),/Close this window[\s\S]*[Ss]ign out/,'and points at the profile\'s account switcher, which is where switching happens, once this dialog is closed');
  assert.equal(await chooser.isVisible(),true,'the chooser is back on screen');
- assert.equal(await signInDialog.isVisible(),false,'no device-code dialog opens for a conflict');
- const deviceCodeShown=await page.evaluate(()=>{const node=document.querySelector('.desktop-code');return Boolean(node&&node.getClientRects().length&&node.textContent.trim());});
- assert.equal(deviceCodeShown,false,'and no device code is on screen anywhere');
+ assert.equal(await signInDialog.isVisible(),false,'no Microsoft sign-in dialog opens for a conflict');
+ assert.equal(await page.locator('[data-open-microsoft]').count(),0,'and nothing on screen offers the browser sign-in');
+ assert.equal(await page.locator('.desktop-code').count(),0,'and there is no code element left to show at all');
  assert.equal(await signIns(),signInsBefore,'no second interactive sign-in is asked for: the stop is real');
  assert.equal(microsoftCalls().length,microsoftBefore+1,'exactly one enrolment is sent — the shortcut\'s own — and no second one follows it');
  assert.deepEqual(await paints(),[],'the page notice never carries the conflict sentence, not even for one frame');
@@ -268,7 +268,7 @@ try{
  await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await chooser.locator('.company-error').filter({hasText:SERVICE_SENTENCE}).waitFor();
  assert.deepEqual(await chooser.locator('.company-error p').allInnerTexts(),DIALOG_SENTENCE,'the service\'s own 409 reads the same as the launcher\'s own comparison');
- assert.equal(await signInDialog.isVisible(),false,'the service\'s refusal opens no device-code dialog either');
+ assert.equal(await signInDialog.isVisible(),false,'the service\'s refusal opens no Microsoft sign-in dialog either');
  assert.equal(await signIns(),signInsBefore409,'and asks for no second sign-in');
  assert.deepEqual(await paints(),[],'and paints nothing on the page notice');
  assert.equal((await status()).account.id,startingAccountId,'the signed-in account is unchanged after the service\'s refusal');
@@ -276,7 +276,7 @@ try{
  await chooser.waitFor({state:'hidden'});
 
  // 5. The shortcut is still a shortcut. Any other failure of the saved session falls through
- //    to the interactive sign-in with its device code, exactly as before: the conflict is the
+ //    to the interactive browser sign-in, exactly as before: the conflict is the
  //    one stop, not a new dead end.
  mode='provider-down';
  await offerSignIn();
@@ -285,7 +285,7 @@ try{
  await hero('signin').click();
  await chooser.waitFor();
  await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
+ await page.locator('#desktop-signin').waitFor({state:'visible'});
  assert.equal(await signIns(),signInsBeforeFallThrough+1,'a saved session that fails for another reason still opens the interactive sign-in');
  // The temporary provider outage recovers before the fresh proof is submitted.
  // Reauthentication must still carry the active Company binding.
@@ -305,7 +305,7 @@ try{
  assert.equal(await page.locator('.desktop-auth-error').isVisible(),false,'and the sign-in dialog carries none');
 
  assert.deepEqual(errors,[],'the renderer raised no error');
- console.log('Identity conflict PASS: the real preload carries the identity_conflict code in the continue-microsoft result envelope, the chooser comes back with the account service\'s own sentence ("'+SERVICE_SENTENCE+'") then the account-is-unchanged line and the close-this-window-first way out, no device-code dialog opens, no second sign-in is asked for, the signed-in account stays '+startingAccountId+' (the silent switch the reviewer measured is impossible), the page notice is never painted on that path, and every other saved-session failure still falls through to the interactive sign-in.');
+ console.log('Identity conflict PASS: the real preload carries the identity_conflict code in the continue-microsoft result envelope, the chooser comes back with the account service\'s own sentence ("'+SERVICE_SENTENCE+'") then the account-is-unchanged line and the close-this-window-first way out, no Microsoft sign-in dialog opens, no second sign-in is asked for, the signed-in account stays '+startingAccountId+' (the silent switch the reviewer measured is impossible), the page notice is never painted on that path, and every other saved-session failure still falls through to the interactive sign-in.');
 }finally{
  await app.close();
  await new Promise(resolve=>stub.close(resolve));

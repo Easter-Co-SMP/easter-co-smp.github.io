@@ -7,20 +7,28 @@ await page.addInitScript(()=>{
  let notify=()=>{};window.sendState=update=>{Object.assign(state,update);notify({...state});};
  const wait=()=>new Promise((resolve,reject)=>{window.finishSlow=resolve;window.failSlow=reject;});
  window.easterDesktop={mode:'desktop',status:async()=>state,onState:fn=>{notify=fn;},accountProviders:async()=>({providers:[]}),
- signIn:()=>{window.sendState({device:{code:'TEST-CODE',url:'https://microsoft.com/link'},activity:{stage:'microsoft-waiting',message:'Complete sign-in on Microsoft’s page.',startedAt:Date.now()}});return wait();},cancelSignIn:async()=>{},openMicrosoft:async()=>{},loginCompany:wait,checkCompanyUsername:wait,setCompanyPassword:wait,profileEmails:wait,selectLoginEmail:wait,
+ signIn:()=>{window.sendState({signInPage:true,message:'The Microsoft sign-in page is open in your browser.',activity:{stage:'microsoft-waiting',message:'Complete sign-in on Microsoft’s page.',startedAt:Date.now()}});return wait();},cancelSignIn:async()=>{},openMicrosoft:async()=>{},loginCompany:wait,checkCompanyUsername:wait,setCompanyPassword:wait,profileEmails:wait,selectLoginEmail:wait,
  play:wait,saveSettings:async x=>x};
 });
 try{
  await page.clock.install();
  await page.goto(process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18107');await page.keyboard.press('Escape');
  await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').waitFor({state:'visible'});
- await page.evaluate(()=>{const range=document.createRange();range.selectNodeContents(document.querySelector('.desktop-code'));getSelection().removeAllRanges();getSelection().addRange(range);window.codeNode=document.querySelector('.desktop-code').firstChild;});
+ await page.locator('.desktop-device-instruction').filter({hasText:'The Microsoft sign-in page is open in your browser.'}).waitFor();
+ // THERE IS NOTHING TO COPY. The code the player used to select, copy and paste is gone with
+ // the flow that printed it, and this is where that is checked in a real browser.
+ assert.equal(await page.locator('.desktop-code').count(),0,'no copyable code is left in the dialog');
+ // The property the old selection test protected outlives the code: this dialog is repainted
+ // by progress broadcasts during a sign-in, and a repaint must never replace the text node
+ // under the player's selection. The sentence main supplies is that text node now.
+ await page.evaluate(()=>{const range=document.createRange();range.selectNodeContents(document.querySelector('.desktop-device-instruction'));getSelection().removeAllRanges();getSelection().addRange(range);window.textNode=document.querySelector('.desktop-device-instruction').firstChild;});
  for(let i=0;i<30;i++)await page.evaluate(i=>sendState({phase:'downloading',progress:{label:'Downloading client',percent:i,bytesDone:i,bytesTotal:100}}),i);
- assert.equal(await page.evaluate(()=>String(getSelection())),'TEST-CODE');assert.equal(await page.evaluate(()=>window.codeNode===document.querySelector('.desktop-code').firstChild),true);
+ const instruction='The Microsoft sign-in page is open in your browser.';
+ assert.equal(await page.evaluate(()=>String(getSelection())),instruction,'thirty progress broadcasts did not touch the selection');
+ assert.equal(await page.evaluate(()=>window.textNode===document.querySelector('.desktop-device-instruction').firstChild),true,'and the node the selection was made in is still the node in the document');
  await page.keyboard.press('Control+c'); // Real browser selection/copy path, then paste in a fixture field.
  await page.evaluate(()=>{const field=document.createElement('textarea');field.id='copy-probe';document.querySelector('#desktop-signin').append(field);field.focus();});await page.keyboard.press('Control+v');
- assert.equal(await page.locator('#copy-probe').inputValue(),'TEST-CODE');await page.locator('#copy-probe').evaluate(n=>n.remove());
+ assert.equal(await page.locator('#copy-probe').inputValue(),instruction);await page.locator('#copy-probe').evaluate(n=>n.remove());
  for(const width of [1440,800,390,320]){
   await page.setViewportSize({width,height:width<500?740:800});
   await page.screenshot({path:`/tmp/easter-wait-ms-${width}.png`,fullPage:true});
@@ -30,7 +38,7 @@ try{
  await page.locator('.desktop-device').waitFor({state:'hidden'});assert.equal(await page.locator('#desktop-signin [data-cancel]').isVisible(),false);
  assert.match(await page.locator('.desktop-auth-wait').innerText(),/Still working/);await page.keyboard.press('Escape');assert.equal(await page.locator('#desktop-signin').isVisible(),true);
  await page.screenshot({path:'/tmp/easter-wait-company-waking.png'});
- await page.evaluate(()=>{sendState({activity:null,device:null,phase:'ready'});finishSlow({});});await page.locator('#desktop-signin').waitFor({state:'hidden'});
+ await page.evaluate(()=>{sendState({activity:null,signInPage:null,phase:'ready'});finishSlow({});});await page.locator('#desktop-signin').waitFor({state:'hidden'});
  await page.locator('.desktop-account-nav').click();const chooser=page.locator('#desktop-company-signin');await chooser.locator('[name=identifier]').fill('fixture');await chooser.locator('[name=password]').fill('fixture-password');await chooser.locator('.company-submit').click();
  await chooser.locator('.company-wait').waitFor({state:'visible'});assert.match(await chooser.locator('.company-wait').innerText(),/Signing in/);
  const beforeWait=await chooser.locator('.company-submit').boundingBox();

@@ -151,9 +151,9 @@ function clean(value,limit=48){
 //
 // `fresh` says the refusal belongs to a sign-in the player has just made, which has no
 // saved session behind it, so an `invalid_grant` there is a refused code and not an
-// expired one. It used to be decided by the step's own name, because only the device-code
-// poll could produce it; now the fresh route is the browser sign-in's exchange and the
-// saved route is `refresh`, and both are the `code-completion` step.
+// expired one. It used to be decided by the step's own name, because only one route could
+// produce it; now the fresh route is the browser sign-in's exchange and the saved route is
+// `refresh`, and both are the `code-completion` step.
 function reason({status,code,xerr,unreadable,step,fresh=false}={}){
  if(Number.isInteger(xerr))return XERR[xerr]||{detail:'Xbox Live refused this sign-in'};
  const provider=clean(code);
@@ -507,14 +507,14 @@ class MicrosoftAuth{
   return true;
  }
  // The saved-session route, and the one that enrols the account on every sign-in: the same
- // six steps as a fresh device code, from the refresh flow rather than from a poll.
+ // six steps as a fresh browser sign-in, from the refresh flow rather than from a browser.
  async refresh(session,signal,recheck=false,force=false,onStage){
   if(!force&&session.expiresAt>Date.now()+300000)return recheck?this.checkAccess(session,signal,onStage):session;
   onStage?.('microsoft-verifying');
   const msa=await this.microsoftSession({grant_type:'refresh_token',client_id:this.clientId,refresh_token:session.refreshToken,scope:SCOPE},signal);
   return {...await this.exchange(msa,session.refreshToken,signal,onStage),accountId:session.accountId||session.profile?.id||'xbox:'+session.xuid};
  }
- // Xbox Live needs a token minted for its own resource. The device code asks for Xbox Live
+ // Xbox Live needs a token minted for its own resource. The sign-in asks for Xbox Live
  // and Graph in one consent and Microsoft, not the launcher, decides which one an answer is
  // for, so the token is checked by its own claims and — when that is not proof — reissued for
  // `XboxLive.signin` from the same refresh token first. One deterministic path, one log line;

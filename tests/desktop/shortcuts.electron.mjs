@@ -151,7 +151,7 @@ try{
  await page.keyboard.press('Escape');
  await page.locator('[data-desktop-play][data-action=signin]').click();
  await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
+ await page.locator('#desktop-signin').waitFor({state:'visible'});
  await app.evaluate(()=>global.easterTestApprove());
  await page.locator('[data-desktop-play][data-action=play]').waitFor({timeout:30000});
  check(await page.evaluate(()=>window.easterDesktop.status().then(state=>state.canPlay))===true,'the client and the account are in place, so Play is offered');

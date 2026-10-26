@@ -5,7 +5,9 @@ const json=(data,status=200)=>({ok:status<400,status,json:async()=>data});
 auth.MicrosoftAuth=class extends Original{
  constructor(options){super({...options,request:async url=>{
   const uhs=process.env.EASTER_IDENTITY_FIXTURE_SEED+global.companyUser;
-  if(url.endsWith('/devicecode'))return json({device_code:'fixture-private-device',user_code:'COMPANY-TEST',verification_uri:'https://microsoft.com/link',expires_in:600});
+  // The registration question the launcher asks before it opens a browser, answered the way
+  // Microsoft answers when the redirect URI is on the app.
+  if(url.includes('/oauth2/v2.0/authorize?'))return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:n=>(String(n).toLowerCase()==='location'?new URL(url).searchParams.get('redirect_uri')+'?error=login_required&state='+encodeURIComponent(new URL(url).searchParams.get('state')||''):null)}};
   // The access token is derived from the identity, because the backend now stores a
   // Microsoft-verified email as a second login key and the fixture derives that address
   // from this token: one fixed token for every identity would give two synthetic players

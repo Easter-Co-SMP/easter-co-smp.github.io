@@ -45,8 +45,9 @@ for(const name of Object.getOwnPropertyNames(accounts.AccountClient.prototype)){
 const auth=require('../../desktop/auth.cjs');
 let index=0;
 auth.MicrosoftAuth=class{
+ async reopen(){return true;}
  async signIn(notify,signal){
-  notify({code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000});
+  notify({browser:true});
   await new Promise((resolve,reject)=>{
    global.easterTestApprove=resolve;
    signal.addEventListener('abort',()=>reject(new DOMException('Cancelled','AbortError')),{once:true});

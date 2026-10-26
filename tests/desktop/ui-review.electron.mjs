@@ -105,7 +105,7 @@ try{
  await page.locator('[data-desktop-play][data-action=signin]').click();await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
  await page.locator('.desktop-auth-wait').waitFor();
  await app.evaluate(()=>{global.easterTestDeviceReady();global.easterTestDelayDevice=false;});
- await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();await shot('sign-in');
+ await page.locator('#desktop-signin').waitFor({state:'visible'});await shot('sign-in');
  assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'sign-in never displays settings');
  await page.keyboard.press('Escape');
  await page.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
@@ -113,7 +113,7 @@ try{
  assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'cancellation is not an error');
  assert.equal(await page.locator('#desktop-launcher').isVisible(),false,'cancellation does not reveal settings');
  await page.locator('[data-desktop-play][data-action=signin]').click();await page.locator('#desktop-company-signin').getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();
+ await page.locator('#desktop-signin').waitFor({state:'visible'});
  await app.evaluate(()=>global.easterTestApprove());
  await page.locator('[data-desktop-play][data-action=play]').waitFor();
  await page.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
@@ -215,15 +215,15 @@ try{
  assert.deepEqual(await visibleErrorNodes(),[],'the notice dismisses');
  await send(repeated);
  assert.deepEqual(await visibleErrorNodes(),[],'a dismissed failure is not resurrected by the same broadcast');
- // A sign-in that is still running is never presented as failed: the code and the browser action
- // are what the player is waiting for, so a stale sentence is not painted over them.
- await send({...await status(),device:{code:'TEST-LIVE',url:'https://microsoft.com/link',expiresAt:Date.now()+300000},error:'Minecraft sign-in failed: the Xbox Live session was not accepted. Sign in again.'});
- await page.locator('.desktop-code').filter({hasText:'TEST-LIVE'}).waitFor();
- assert.equal(await page.locator('.desktop-code').filter({hasText:'TEST-LIVE'}).isVisible(),true,'the device code stays readable');
- assert.equal(await page.getByRole('button',{name:'Open the Microsoft page',exact:true}).isVisible(),true,'the sign-in page action stays readable');
+ // A sign-in that is still running is never presented as failed: the browser action is what the
+ // player is waiting for, so a stale sentence is not painted over it.
+ await send({...await status(),signInPage:true,message:'The Microsoft sign-in page is open in your browser.',error:'Minecraft sign-in failed: the Xbox Live session was not accepted. Sign in again.'});
+ await page.getByRole('button',{name:'Open the Microsoft sign-in page again',exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:'Open the Microsoft sign-in page again',exact:true}).isVisible(),true,'the browser action stays readable');
+ assert.equal(await page.locator('.desktop-code').count(),0,'and the dialog carries nothing to copy');
  assert.deepEqual(await visibleErrorNodes(),[],'a live sign-in is never painted as failed');
  await shot('sign-in-live-no-stale-failure');
- await send({...await status(),device:null,error:null});
+ await send({...await status(),signInPage:null,error:null});
  await page.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
  await app.evaluate(()=>global.easterTestFailPlay=false);
  await page.evaluate(async()=>{const state=await window.easterDesktop.status();await window.easterDesktop.saveSettings({...state.settings,exitOnLaunch:false});});

@@ -1,8 +1,8 @@
 'use strict';
 // This entry point is excluded from desktop packages. No production test bypass.
 //
-// Only the Microsoft side is stubbed: the device-code flow names its stages and then waits
-// for the test to approve it, exactly as desktop/auth.cjs does when a player finishes on
+// Only the Microsoft side is stubbed: the browser sign-in names its stages and then waits for
+// the test to approve it, exactly as desktop/auth.cjs does when a player finishes on
 // Microsoft's page. Everything after that is the real launcher against the real account
 // service - desktop/main.cjs, desktop/accounts.cjs, the state channel and site/desktop.js -
 // which is the part the post-approval report is about.
@@ -20,9 +20,9 @@ const UHS=process.env.EASTER_WAIT_UHS||'123456789';
 auth.MicrosoftAuth=class{
  async signIn(notify,signal,onStage){
   onStage?.('microsoft-opening');
-  // Only the short-lived user code and its page cross over; no token does, exactly as the
-  // real flow hands them to the dialog.
-  notify({code:'WAIT-CODE-1',url:'https://microsoft.com/link',expiresAt:Date.now()+600000});
+  // One flag crosses over and nothing else: Microsoft's sign-in page is open in the player's
+  // browser. No code, no address, no token.
+  notify({browser:true});
   onStage?.('microsoft-waiting');
   await new Promise((resolve,reject)=>{
    global.easterTestApprove=()=>{onStage?.('microsoft-verifying');resolve();};
@@ -35,6 +35,7 @@ auth.MicrosoftAuth=class{
    accessToken:'fixture-private-token',refreshToken:'fixture-private-refresh',expiresAt:Date.now()+86400000};
  }
  async refresh(session){return session;}
+ async reopen(){return true;}
 };
 // The skin service is not part of this proof, and a launcher must never wait for it. Only
 // remote fetches are refused: the easter:// protocol handler reads the bundled site/ through

@@ -86,12 +86,17 @@ try{
   await page.locator('[data-desktop-play]').click();
   await page.locator('#desktop-install-details').waitFor({state:'hidden'});
   await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
-  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
+  const instruction=page.locator('.desktop-device-instruction');
+  await instruction.filter({hasText:'The Microsoft sign-in page is open in your browser.'}).waitFor();
   const signin=page.locator('#desktop-signin');
   assert.equal(await signin.isVisible(),true);
-  // Keep a real text selection and clipboard copy intact while the main process
-  // broadcasts repeated download progress through the actual isolated preload.
-  await page.locator('.desktop-code').evaluate(element=>{
+  // There is no code to copy any more (Owen, 2026-10-24): the dialog the player used to copy one
+  // out of is gone, and this is the launcher-wide journey where that is checked.
+  assert.equal(await page.locator('.desktop-code').count(),0,'the sign-in dialog offers nothing to copy');
+  // The property that selection protected still holds for the sentence in its place: a real
+  // text selection and clipboard copy survive repeated download progress broadcast through the
+  // actual isolated preload.
+  await instruction.evaluate(element=>{
    window.__selectedDeviceText=element.firstChild;
    const range=document.createRange();range.selectNodeContents(element);
    const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);
@@ -99,39 +104,40 @@ try{
   await app.evaluate(async()=>{
    for(let n=0;n<40;n++){global.easterTestDownloadProgress();await new Promise(resolve=>setTimeout(resolve,10));}
   });
-  assert.equal(await page.evaluate(()=>window.getSelection().toString()),'TEST-CODE','progress preserves the selected code');
-  assert.equal(await page.locator('.desktop-code').evaluate(element=>element.firstChild===window.__selectedDeviceText),true,'the code keeps its text node');
+  const selected='The Microsoft sign-in page is open in your browser.';
+  assert.equal(await page.evaluate(()=>window.getSelection().toString()),selected,'progress preserves the selected sentence');
+  assert.equal(await page.locator('.desktop-device-instruction').evaluate(element=>element.firstChild===window.__selectedDeviceText),true,'the sentence keeps its text node');
   assert.equal(await signin.isVisible(),true,'the same sign-in dialog remains open');
   await page.keyboard.press('Control+c');
-  assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),'TEST-CODE','the selection can actually be copied');
+  assert.equal(await app.evaluate(({clipboard})=>clipboard.readText()),selected,'the selection can actually be copied');
   await page.evaluate(()=>window.getSelection().removeAllRanges());
-  await app.evaluate(()=>global.easterTestDevice({code:'NEW-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000}));
-  await page.locator('.desktop-code').filter({hasText:'NEW-CODE'}).waitFor();
-  assert.equal(await page.locator('.desktop-code').evaluate(element=>element.firstChild!==window.__selectedDeviceText),true,'a newly issued code is not held stale');
-  await app.evaluate(()=>{global.easterTestDevice({code:'TEST-CODE',url:'https://microsoft.com/link',expiresAt:Date.now()+600000});global.easterTestFinishDownload();});
-  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
+  await app.evaluate(()=>global.easterTestFinishDownload());
+  await instruction.filter({hasText:'The Microsoft sign-in page is open in your browser.'}).waitFor();
   assert.equal(await signin.locator('.desktop-status').count(),0,'transfer status must not duplicate the sign-in instruction');
-  assert.equal(await signin.locator('[data-open-microsoft]').evaluate(el=>el===document.activeElement),true,'focus goes to the Microsoft browser action');
-  await app.evaluate(({shell})=>{global.__openedMicrosoft=[];shell.openExternal=async url=>{global.__openedMicrosoft.push(url);};});
+  assert.equal(await signin.locator('[data-open-microsoft]').evaluate(el=>el===document.activeElement),true,'focus goes to the browser action');
+  // The action re-opens the sign-in main is already waiting on; it opens no address of its own.
+  // (Firefox, Enter on a focused button.)
+  await app.evaluate(()=>{global.easterTestReopens=0;});
   await page.keyboard.press('Enter');
-  assert.deepEqual(await app.evaluate(()=>global.__openedMicrosoft),['https://www.microsoft.com/link'],'Enter opens the intended Microsoft page through main');
+  assert.equal(await app.evaluate(()=>global.easterTestReopens),1,'Enter asks main to put the sign-in page back in front of the player');
   assert.equal(await signin.isVisible(),true,'keyboard activation must not be mistaken for a backdrop click');
   for(const width of [800,390,320]){
    await page.setViewportSize({width,height:width===800?600:568});
    const bounds=await signin.boundingBox();
    assert(bounds.x>=0&&bounds.x+bounds.width<=width+1,'sign-in fits '+width+'px');
    assert.equal(await signin.evaluate(el=>el.scrollWidth<=el.clientWidth),true,'sign-in has no horizontal overflow');
-   assert.equal(await signin.getByRole('button',{name:'Open the Microsoft page',exact:true}).isVisible(),true);
-   assert.equal(await signin.locator('.desktop-code').isVisible(),true);
+   assert.equal(await signin.getByRole('button',{name:'Open the Microsoft sign-in page again',exact:true}).isVisible(),true);
+   assert.equal(await signin.locator('.desktop-code').count(),0,'and there is still no code to copy');
    await signin.screenshot({path:'/tmp/signin-reviewed-'+width+'.png'});
   }
   await page.setViewportSize({width:800,height:600});
   assert(!(await page.evaluate(()=>JSON.stringify(document.body.textContent))).includes('fixture-private'));
-  // Stage feedback crosses the real isolated preload without replacing the dialog
-  // or leaking a consumed code. A transfer continues independently underneath it.
+  // Stage feedback crosses the real isolated preload without replacing the dialog, and the
+  // waiting state goes away once the sign-in is being verified. A transfer continues
+  // independently underneath it.
   await app.evaluate(()=>global.easterTestAuthStage('microsoft-verifying'));
   await signin.locator('.desktop-auth-wait').filter({hasText:'Verifying your Microsoft sign-in…'}).waitFor();
-  assert.equal(await signin.locator('.desktop-device').isVisible(),false,'consumed code is hidden during verification');
+  assert.equal(await signin.locator('.desktop-device').isVisible(),false,'the waiting state is hidden during verification');
   assert.equal(await signin.getByRole('button',{name:'Cancel sign-in',exact:true}).isVisible(),true,'verification remains genuinely cancellable');
   const startedAt=(await page.evaluate(()=>window.easterDesktop.status())).activity.startedAt;
   await app.evaluate(()=>global.easterTestAuthStage('company-waking'));
@@ -141,7 +147,7 @@ try{
   await page.keyboard.press('Escape');
   assert.equal(await signin.isVisible(),true,'Escape does not dismiss an active Company mutation');
   await app.evaluate(()=>global.easterTestAuthStage('microsoft-waiting'));
-  await signin.locator('.desktop-code').waitFor({state:'visible'});
+  await signin.locator('[data-open-microsoft]').waitFor({state:'visible'});
   await page.getByRole('button',{name:'Cancel sign-in',exact:true}).click();
   await page.waitForFunction(()=>!document.querySelector('#desktop-signin').open);
   assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'cancelling sign-in is not an error');
@@ -151,9 +157,9 @@ try{
   await page.keyboard.press('Escape');
   await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open);
   await page.locator('[data-desktop-play]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
-  await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
+  await page.locator('#desktop-signin').waitFor({state:'visible'});
   await app.evaluate(()=>global.easterTestApprove());
-  // A completed sign-in closes the dialog it used for the device code. The player must not
+  // A completed sign-in closes the dialog it opened for the browser page. The player must not
   // land in client settings just because the login finished.
   await page.waitForFunction(()=>!document.querySelector('#desktop-launcher')?.open,null,{timeout:25000});
   assert.equal(await page.locator('#desktop-launcher').evaluate(el=>el.open),false,'signing in leaves no dialog open');
@@ -265,5 +271,5 @@ try{
  // may report an installed client whose marker file is absent, and the toggle then refuses
  // honestly instead of writing a choice it cannot honour).
  assert.equal(typeof savedCustom.includeGraphics,'boolean','the settings file records a graphics choice, never a missing field');
- console.log('DESKTOP PASS: no Skip intro control in the desktop DOM (Escape and the 4.6s bound still end the arrival), real Electron, isolated renderer, shared Home/Map, a single download action with the folder choice beside it, a settings-only dialog at the Play Now stage that offers no server address at all, the themed enhanced graphics toggle, native settings persistence, sign-in cancellation, device-code UI, authenticated Play, game lifecycle, no tokens in UI');
+ console.log('DESKTOP PASS: no Skip intro control in the desktop DOM (Escape and the 4.6s bound still end the arrival), real Electron, isolated renderer, shared Home/Map, a single download action with the folder choice beside it, a settings-only dialog at the Play Now stage that offers no server address at all, the themed enhanced graphics toggle, native settings persistence, sign-in cancellation, a browser sign-in with nothing to copy, authenticated Play, game lifecycle, no tokens in UI');
 }finally{await fs.rm(temp,{recursive:true,force:true});}

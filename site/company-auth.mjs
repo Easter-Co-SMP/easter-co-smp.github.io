@@ -279,12 +279,12 @@ export function createCompanyAuth({desktop,signInMicrosoft,onInlineError=null}){
   const useSaved=state.microsoftAccount&&typeof desktop.continueMicrosoft==='function';
   closing(chooser);
   // The saved Microsoft session is a shortcut, never a dead end. Every failure of it falls
-  // through to the fresh interactive sign-in that shows the device code and the browser
+  // through to the fresh interactive sign-in that opens Microsoft's page in the browser
   // action, with exactly one stop: an identity conflict means the player must choose the
   // Microsoft account linked to this Easter Company account, and nobody else can do that.
   // Anything else — an expired, invalid or unreachable saved session included — is the
-  // shortcut failing rather than the sign-in, so the player still gets the device code and
-  // the browser action the interactive flow gives everyone.
+  // shortcut failing rather than the sign-in, so the player still gets the browser sign-in
+  // the interactive flow gives everyone, with nothing to copy.
   if(useSaved){
    chooser.showModal();waitFor(chooser,'Connecting your saved Microsoft account…');lock(true);
    let answer;try{answer=await continueSaved();}finally{lock(false);closing(chooser);render(state);}
@@ -292,7 +292,7 @@ export function createCompanyAuth({desktop,signInMicrosoft,onInlineError=null}){
    if(answer.code==='identity_conflict'){
     // Identity conflict is the one stop: the player has to choose the Microsoft account linked
     // to this Easter Company account, so the chooser comes back carrying that sentence and
-    // nothing else opens. No device code, no second sign-in, and the account stays as it was.
+    // nothing else opens. No sign-in page, no second sign-in, and the account stays as it was.
     // Choosing Microsoft closed the chooser, and its own close handler runs as a task after
     // this answer arrives and clears the error slot with the rest of the reset. So the refusal
     // is painted once that handler has actually run (`closesSettled`), not on a guessed delay.

@@ -22,7 +22,7 @@ const app=await electron.launch({executablePath:path.resolve('node_modules/elect
 try{
  const page=await app.firstWindow();page.setDefaultTimeout(20000);await page.keyboard.press('Escape');
  await page.locator('[data-desktop-play][data-action=download]').click();await page.locator('[data-desktop-play][data-action=signin]').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();await app.evaluate(()=>global.easterTestApprove());await page.locator('[data-desktop-play][data-action=play]').waitFor();
+ await page.locator('#desktop-signin').waitFor({state:'visible'});await app.evaluate(()=>global.easterTestApprove());await page.locator('[data-desktop-play][data-action=play]').waitFor();
  const state=await page.evaluate(()=>window.easterDesktop.status());
  // The exact public shape of the account the renderer receives, and nothing else: no token,
  // no Microsoft subject, no email. Provider sign-in (4341b90) added the three fields at the

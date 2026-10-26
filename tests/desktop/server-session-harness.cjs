@@ -19,7 +19,7 @@ if(process.env.EASTER_VAULT_FIXTURE_KEY){
  safeStorage.encryptString=value=>{const nonce=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',key,nonce);const data=Buffer.concat([cipher.update(value,'utf8'),cipher.final()]);return Buffer.concat([nonce,cipher.getAuthTag(),data]);};
  safeStorage.decryptString=value=>{const decipher=crypto.createDecipheriv('aes-256-gcm',key,value.subarray(0,12));decipher.setAuthTag(value.subarray(12,28));return Buffer.concat([decipher.update(value.subarray(28)),decipher.final()]).toString('utf8');};
 }
-// One Microsoft identity, and one device code the journey approves by hand. The tokens the
+// One Microsoft identity, and one browser sign-in the journey approves by hand. The tokens the
 // launcher's own auth.cjs derives here are fixture strings; nothing reaches Microsoft.
 global.easterSessionSignIns=0;
 const auth=require('../../desktop/auth.cjs'),Original=auth.MicrosoftAuth;
@@ -28,8 +28,8 @@ const uhs='fixture-uhs-0123456789abcdef0123456789abcdef';
 auth.MicrosoftAuth=class extends Original{
  constructor(options){
   super({...options,request:async url=>{
-   if(url.endsWith('/devicecode'))return json({device_code:'fixture-private-device',user_code:'SESSION-TEST',verification_uri:'https://microsoft.com/link',expires_in:600});
-   if(url.endsWith('/token'))return json({access_token:'fixture-private-ms-'+uhs,refresh_token:'fixture-private-refresh-'+uhs});
+    if(url.includes('/oauth2/v2.0/authorize?'))return {ok:false,status:302,json:async()=>({}),text:async()=>'',headers:{get:n=>(String(n).toLowerCase()==='location'?new URL(url).searchParams.get('redirect_uri')+'?error=login_required&state='+encodeURIComponent(new URL(url).searchParams.get('state')||''):null)}};
+    if(url.endsWith('/token'))return json({access_token:'fixture-private-ms-'+uhs,refresh_token:'fixture-private-refresh-'+uhs});
    if(url.includes('/user/authenticate'))return json({Token:'fixture-xbox:'+uhs,NotAfter:new Date(Date.now()+86400000).toISOString()});
    if(url.includes('/xsts/authorize'))return json({Token:'fixture-private-xsts',DisplayClaims:{xui:[{uhs}]}});
    if(url.includes('/authentication/login_with_xbox'))return json({access_token:'fixture-private-minecraft-token',expires_in:86400});
@@ -43,11 +43,21 @@ auth.MicrosoftAuth=class extends Original{
   })});
  }
  async signIn(notify,signal,onStage){
-  // One device code, then the real device-code exchange below it, answered by this fixture's
-  // request stub: the session the launcher builds here is the session it would build against
-  // Microsoft, because the code that builds it is the launcher's own.
+  // One browser sign-in, then the real exchange below it, answered by this fixture's request
+  // stub: the session the launcher builds here is the session it would build against
+  // Microsoft, because the code that builds it is the launcher's own. The browser is the
+  // journey's `easterTestApprove()` press: it answers the address the launcher opened, over the
+  // launcher's own loopback socket, with a code for that address's state.
   global.easterSessionSignIns++;
-  return super.signIn(notify,signal,onStage);
+  const real=this.openExternal;
+  this.openExternal=async url=>{
+   await new Promise(resolve=>{global.easterTestApprove=resolve;});
+   const query=new URL(url).searchParams;
+   const answer=await fetch(query.get('redirect_uri')+'?code=fixture-code-'+encodeURIComponent(uhs)+'&state='+encodeURIComponent(query.get('state')||''),{redirect:'manual'});
+   if(!answer.ok)throw Error('the fixture browser could not reach the launcher');
+  };
+  try{return await super.signIn(notify,signal,onStage);}
+  finally{this.openExternal=real;}
  }
 };
 // The client is installed and current, and the game is a stub that records what it was started

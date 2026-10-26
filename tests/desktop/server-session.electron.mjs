@@ -78,7 +78,7 @@ const launch=async()=>{
  process.stdout.write('[journey] '+home+' ready\n');
  const hero=kind=>page.locator('[data-desktop-play][data-action="'+kind+'"]');
  const status=()=>page.evaluate(()=>window.easterDesktop.status());
- const approve=async()=>{await page.locator('.desktop-code').filter({hasText:'SESSION-TEST'}).waitFor();await app.evaluate(()=>global.easterTestApprove());};
+ const approve=async()=>{await page.locator('#desktop-signin').waitFor({state:'visible'});await app.evaluate(()=>global.easterTestApprove());};
  const passwordSignIn=async()=>{
   await hero('signin').click();
   const dialog=page.locator('#desktop-company-signin');
@@ -200,10 +200,12 @@ try{
  // One sentence, then the interactive sign-in — and not a loop. The sentence is the dialog's own
  // instruction, in main's words: the player reads why they are being asked while the code is in
  // front of them.
- await c.page.locator('.desktop-code').filter({hasText:'SESSION-TEST'}).waitFor();
+ await c.page.locator('#desktop-signin').waitFor({state:'visible'});
+ await c.page.getByRole('button',{name:'Open the Microsoft sign-in page again',exact:true}).waitFor();
  const instruction=(await c.page.locator('.desktop-device-instruction').textContent()).trim();
  assert(instruction.startsWith(REAUTH_SENTENCE),'the sign-in says why: '+instruction);
- assert(instruction.endsWith('Enter this code on Microsoft’s sign-in page.'),'and then what to do: '+instruction);
+ assert(instruction.endsWith('The Microsoft sign-in page is open in your browser.'),'and then what to do: '+instruction);
+ assert.equal(await c.page.locator('.desktop-code').count(),0,'with nothing to copy: the code is gone with the flow that printed it');
  assert.equal(await c.app.evaluate(()=>global.easterSessionSignIns),before+1,'the interactive flow is started once');
  // The service holds a live session again by the time the player has signed in.
  service.mint='ok';

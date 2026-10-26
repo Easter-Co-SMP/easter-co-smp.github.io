@@ -11,7 +11,7 @@ try{
  await page.keyboard.press('Escape');await page.setViewportSize({width:800,height:600});
  const hero=kind=>page.locator('[data-desktop-play][data-action="'+kind+'"]');
  const status=()=>page.evaluate(()=>window.easterDesktop.status());
- const approve=async()=>{await page.locator('.desktop-code').filter({hasText:'COMPANY-TEST'}).waitFor();await app.evaluate(()=>global.companyApprove());};
+ const approve=async()=>{await page.locator('#desktop-signin').waitFor({state:'visible'});await app.evaluate(()=>global.companyApprove());};
  await hero('signin').click();await page.locator('#desktop-company-signin').waitFor();await page.screenshot({path:'/tmp/company-signin.png',animations:'disabled'});
  await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();await approve();
  const usernameStep=page.locator('#desktop-company-username'),setup=page.locator('#desktop-company-password');

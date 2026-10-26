@@ -8,7 +8,7 @@ try{
  const page=await app.firstWindow();page.setDefaultTimeout(20000);await page.keyboard.press('Escape');
  await page.locator('[data-desktop-play][data-action=signin]').click();
  await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();await app.evaluate(()=>global.easterTestApprove());
+ await page.locator('#desktop-signin').waitFor({state:'visible'});await app.evaluate(()=>global.easterTestApprove());
  await page.locator('[data-desktop-play][data-action=play]').waitFor();
  for(const mode of ['unreachable','unknown']){
   await app.evaluate((_,mode)=>{global.easterTestServerState=mode;},mode);

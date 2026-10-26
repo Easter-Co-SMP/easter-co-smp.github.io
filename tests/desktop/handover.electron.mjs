@@ -95,7 +95,7 @@ const launch=async({home,mode,uhs})=>{
  await page.keyboard.press('Escape');
  const hero=kind=>page.locator('[data-desktop-play][data-action="'+kind+'"]');
  const status=()=>page.evaluate(()=>window.easterDesktop.status());
- const approve=async code=>{await page.locator('.desktop-code').filter({hasText:code}).waitFor();await app.evaluate(()=>global.easterHandoverApprove());};
+ const approve=async code=>{await page.locator('#desktop-signin').waitFor({state:'visible'});await app.evaluate(()=>global.easterHandoverApprove());};
  const signIns=()=>app.evaluate(()=>global.easterHandoverSignIns);
  const close=async()=>{await app.close();assert.deepEqual(errors,[]);};
  return {app,page,hero,status,approve,signIns,close};
@@ -168,7 +168,7 @@ try{
  for(const mode of (process.env.EASTER_HANDOVER_MODES||'unproven,proven').split(',')){
   // ---------------------------------------------------------------------------------
   // 1. ONE SIGN-IN, AND THE TOKEN IT HANDS OVER IS ONE MICROSOFT STILL ACCEPTS.
-  //    'unproven' is the shape the brief names: the device-code answer is minted for the
+  //    'unproven' is the shape the brief names: the code-exchange answer is minted for the
   //    client application, so auth.cjs reissues it for XboxLive.signin first. 'proven' is
   //    the other shape Microsoft can answer with, where only the Graph leg spends a token.
   //    Today's launcher hands over a spent token in both.

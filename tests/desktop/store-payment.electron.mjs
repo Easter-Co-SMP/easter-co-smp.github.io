@@ -59,7 +59,7 @@ try {
   await page
     .getByRole('button', { name: 'Sign in with Microsoft', exact: true })
     .click();
-  await page.locator('.desktop-code').filter({ hasText: 'TEST-CODE' }).waitFor();
+  await page.locator('#desktop-signin').waitFor({state:'visible'});
   await app.evaluate(() => global.easterTestApprove());
   await page.waitForFunction(async () => !!((await window.easterDesktop.status()).account));
   await page.getByRole('link', { name: 'Store', exact: true }).click();

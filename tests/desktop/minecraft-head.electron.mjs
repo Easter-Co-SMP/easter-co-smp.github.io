@@ -210,9 +210,9 @@ try{
  const unlinkedTile=await facePixel(page);
  assert.deepEqual(unlinkedTile.slice(0,3),TILE,'the letter tile is what an account with no Minecraft identity gets');
  // The action is the Microsoft sign-in with the link intent, exactly as the linked one is: it
- // opens the device-code flow, which is where a link happens.
+ // opens the browser sign-in, which is where a link happens.
  await page.locator('[data-desktop-play]').click();
- await page.locator('#desktop-signin .desktop-code').filter({hasText:'TEST-CODE'}).waitFor();
+ await page.locator('#desktop-signin').waitFor({state:'visible'});
  await page.locator('#desktop-signin').evaluate(node=>node.close());
  assert.deepEqual(errors,[],'and the unlinked journey raises no page error');
  await page.screenshot({path:'/tmp/minecraft-head-unlinked-tile.png'});

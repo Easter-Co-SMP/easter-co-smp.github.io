@@ -135,7 +135,7 @@ try{
  await fits(chooser,'signin');
  // 2. Microsoft sign-in creates an account with no username, so setup starts at step 1.
  await chooser.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').filter({hasText:'TEST-CODE'}).waitFor();await app.evaluate(()=>global.easterTestApprove());
+ await page.locator('#desktop-signin').waitFor({state:'visible'});await app.evaluate(()=>global.easterTestApprove());
  const usernameStep=page.locator('#desktop-company-username'),passwordStep=page.locator('#desktop-company-password');
  await usernameStep.waitFor();
  assert.equal(await passwordStep.isVisible(),false,'the password step is not offered before the username');

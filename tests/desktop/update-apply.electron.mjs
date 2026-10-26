@@ -111,7 +111,7 @@ try{
  await page.locator('[data-desktop-play][data-action=download]').click();
  await page.locator('[data-desktop-play][data-action=signin]').click();
  await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();
- await page.locator('.desktop-code').filter({hasText:'TEST'}).waitFor();
+ await page.locator('#desktop-signin').waitFor({state:'visible'});
  await app.evaluate(()=>global.easterTestApprove());
  await page.locator('[data-desktop-play][data-action=play]').waitFor();
  await page.locator('[data-desktop-play][data-action=play]').click();
