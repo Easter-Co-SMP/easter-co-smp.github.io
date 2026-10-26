@@ -154,7 +154,12 @@ try{
 
  // The stage the launcher is in comes from the main process, not from a guess in the view.
  const duringHold=await status();
- assert.equal(duringHold.device?.code,'WAIT-CODE-1','main still holds the code it issued');
+ // What replaced "main still holds the code it issued": main still believes the sign-in it
+ // started is the live operation while the account call is held open. There is no code to hold
+ // any more — the state carries a flag, and that flag is the thing that must not have been
+ // cleared early, or the dialog would have let go of a sign-in that is still running.
+ assert.equal(duringHold.signInPage,true,'main still knows the sign-in it started is running');
+ assert.equal(duringHold.device,undefined,'and it holds no code, because there is none to hold');
  assert(['company-signing-in','company-waking','account-working'].includes(duringHold.activity?.stage),'main names the stage the dialog is showing: '+(duringHold.activity?.stage));
 
  // 4. The held answer lands: the sign-in finishes and the dialog closes by itself.

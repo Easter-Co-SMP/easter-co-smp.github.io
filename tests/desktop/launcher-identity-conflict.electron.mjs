@@ -104,7 +104,7 @@ try{
  const hero=kind=>page.locator('[data-desktop-play][data-action="'+kind+'"]');
  const heroAction=()=>page.locator('[data-desktop-play]').evaluate(node=>node.dataset.action);
  const chooser=page.locator('#desktop-company-signin');
- const signInDialog=page.locator('#desktop-signin').waitFor({state:'visible'});
+ const signInDialog=page.locator('#desktop-signin');
  // Every state the renderer is handed, and every time a sentence reaches a visible notice:
  // a failure painted for one frame and then cleared is still recorded here, which is the
  // only way to prove the flash is gone rather than merely short.
@@ -190,7 +190,9 @@ try{
  assert.match(conflictLines.join(' '),/Close this window[\s\S]*[Ss]ign out/,'and points at the profile\'s account switcher, which is where switching happens, once this dialog is closed');
  assert.equal(await chooser.isVisible(),true,'the chooser is back on screen');
  assert.equal(await signInDialog.isVisible(),false,'no Microsoft sign-in dialog opens for a conflict');
- assert.equal(await page.locator('[data-open-microsoft]').count(),0,'and nothing on screen offers the browser sign-in');
+ // The action lives in the dialog's markup from startup, so its presence proves nothing;
+ // what matters is that nothing is offering it on screen.
+ assert.equal(await page.locator('[data-open-microsoft]').isVisible(),false,'and nothing on screen offers the browser sign-in');
  assert.equal(await page.locator('.desktop-code').count(),0,'and there is no code element left to show at all');
  assert.equal(await signIns(),signInsBefore,'no second interactive sign-in is asked for: the stop is real');
  assert.equal(microsoftCalls().length,microsoftBefore+1,'exactly one enrolment is sent — the shortcut\'s own — and no second one follows it');

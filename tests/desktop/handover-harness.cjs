@@ -50,7 +50,20 @@ auth.MicrosoftAuth=class extends Original{
   // Counted, not replaced: the journey's own assertions are about how many Microsoft
   // sign-ins one launch started.
   global.easterHandoverSignIns++;
-  return super.signIn(notify,signal,onStage);
+  // THE BROWSER IS THE JOURNEY'S `easterHandoverApprove` PRESS. This hook used to live in the
+  // `wait` callback above, which only the device-code poll ever called; the browser sign-in
+  // never waits there, so the hook has to be published where the flow now stops for the
+  // player — the moment the browser is handed the address. It answers that address over the
+  // launcher's own loopback socket, with a code Microsoft issued for this sign-in's state and
+  // PKCE challenge, exactly as the fixture's other browser leg does.
+  const real=this.openExternal;
+  this.openExternal=async url=>{
+   await new Promise(resolve=>{global.easterHandoverApprove=resolve;});
+   const answer=await microsoft.browser(url);
+   if(answer.status!==200)throw Error('the fixture browser could not reach the launcher');
+  };
+  try{return await super.signIn(notify,signal,onStage);}
+  finally{this.openExternal=real;}
  }
 };
 const install=require('../../desktop/install.cjs');
