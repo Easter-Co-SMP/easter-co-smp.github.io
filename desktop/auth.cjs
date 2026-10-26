@@ -334,12 +334,16 @@ class MicrosoftAuth{
  // written, and `pending` is cleared, so the player is exactly as signed in as before.
  async signIn(notify,signal,onStage){
   onStage?.('microsoft-opening');
-  const answer=await this.authorizationCode(signal);
-  // What the UI is told is one fact: the sign-in page is open in the browser and the launcher
-  // is waiting. There is no code, no page address and nothing to copy — the hand-off Owen
-  // asked to be rid of was this call's payload, and it is gone.
-  notify({browser:true});
-  onStage?.('microsoft-waiting');
+  // What the UI is told is one fact, at the one moment it becomes true: Microsoft's sign-in page
+  // is open in the player's browser and the launcher is waiting. There is no code, no page
+  // address and nothing to copy — the hand-off Owen asked to be rid of was this call's payload,
+  // and it is gone, so the payload is a flag. It is said BEFORE the browser is handed the
+  // address, which is the instant the player sees it appear, and not after the browser program
+  // has finished being launched.
+  const answer=await this.authorizationCode(signal,()=>{
+   notify({browser:true});
+   onStage?.('microsoft-waiting');
+  });
   let granted;
   try{
    granted=await answer.wait(signal);
@@ -359,7 +363,7 @@ class MicrosoftAuth{
  // Steps 1 to 4 of the sequence above, and nothing else: this answers with the two things the
  // wait needs (the listener and the verifier) or throws. It is the whole of `pending`, so a
  // caller that holds it can offer the player the page again.
- async authorizationCode(signal){
+ async authorizationCode(signal,onOpen){
   if(typeof this.openExternal!=='function'){
    this.record('browser-sign-in','failed',{code:'no-browser'});
    throw new AuthError(sentence('browser-sign-in','this launcher could not open a web browser'),'no-browser','browser-sign-in');
@@ -381,6 +385,7 @@ class MicrosoftAuth{
    await this.registration(url,redirectUri,signal);
    this.record('browser-sign-in','ok',{status:200,code:'ok'});
    try{
+    onOpen?.();
     await this.openExternal(url.href);
    }catch{
     if(signal?.aborted)throw abortFromSignal();
