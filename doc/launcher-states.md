@@ -2922,12 +2922,15 @@ consumer host — is the one answer that stops a sign-in, and it stops it with t
 to compare (`http://localhost/callback`) rather than a generic failure. Everything else is not
 proof of anything and never
 refuses a sign-in: a sign-in page, a redirect back to this launcher, an outage, or an answer
-the check cannot read are all `unknown`, and the browser is opened anyway. The asymmetry is the
+the check cannot read are all *no refusal proven*, and the browser is opened anyway. The asymmetry is the
 point — a probe must never be the thing that refuses a sign-in it did not understand, and a
-clean page is not a licence to claim the address is registered. Measured on 2026-10-26 against
-the client id the launcher then shipped with, the address was not registered: the sign-in
-refused in a second and named `http://localhost/callback`, which is exactly what this check
-exists for instead of five minutes of a player watching a page that never comes back.
+clean page is not a licence to claim the address is registered. Measured 2026-10-26, twice. Against the inherited client id the launcher used to ship, the
+registered path was absent and the sign-in refused in a second, naming
+`http://localhost/callback` — exactly what this check exists for, instead of five minutes of a
+player watching a page that never comes back. Against Easter Company's own registration the
+registered shape `http://localhost:<port>/callback` is accepted (no refusal, the browser opens)
+and an unregistered path is refused by name, so the failure state today is "this address is
+wrong", never "this app is unregistered".
 
 **Why the redirect URI says `localhost` while the socket binds `127.0.0.1`.** The value the
 launcher sends Microsoft is `http://localhost:<port>/callback`, and the value an app
@@ -2949,12 +2952,13 @@ player and for a fixture alike. The name is in the URI; the identity of the sock
 | `LOOPBACK_MAX_CONNECTIONS` | 8 | how many sockets may exist at once; one past this many is destroyed rather than counted |
 | `LOOPBACK_REJECT_LIMIT` | 16 | a flood becomes one failure: past this many refusals the listener answers nothing more and closes, so a local process can deny a sign-in but never hold one open |
 | `REGISTRATION_HOPS` | 2 | the authority proxies once — `login.microsoftonline.com/consumers` hands the registration question to `login.live.com`, and only Microsoft's own sign-in hosts are ever followed, never more than this many |
+| `REGISTRATION_HOSTS` | `login.microsoftonline.com`, `login.live.com` | the only hosts the check will follow a redirect to: a hop that lands anywhere else ends the check as *no refusal proven* rather than making a request the launcher does not own |
+| `REGISTRATION_PAGE_LIMIT` | 64 KiB | how much of a page the check will read before giving up on reading more — a page it cannot finish reading is no refusal proven, never a refusal |
 
 The wait is bounded from the moment the browser is opened, and a cancel ends it exactly as
 cleanly as an answer does: the port is closed on every path out, including a caller that gave
-up. The registration check is bounded apart from the five: one request per hop with its own
-30 s request timeout, `redirect: 'manual'` so it never follows a redirect into the listener,
-and a 64 KiB ceiling on the page it reads.
+up. The registration check is bounded apart from those: one request per hop with its own 30 s
+request timeout, and `redirect: 'manual'` so it never follows a redirect into the listener.
 
 **What the player sees, and what is gone.** No code, no *enter this code*, no copy control and
 no `microsoft.com/link` page: that hand-off was the whole point of the change. The sign-in
