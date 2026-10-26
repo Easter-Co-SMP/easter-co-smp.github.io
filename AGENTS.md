@@ -53,12 +53,15 @@ The download will include the custom Easter Company launcher and Minecraft clien
 
 Do not display Source, source code bundles, standalone client/server bundle options, or the old direct-mod download section.
 
-The store is a page at site/store/, reached only from the launcher's own nav — never a dialog,
-and never advertised on the website, which hides every store element until `desktop-mode`
-arrives. It is named "The Community store" and stays `noindex`. It is the REAL store: five
+The store is a page at site/store/, shared by the website and launcher (Owen,
+2026-10-26). The public website offers sign-in/sign-up and Store navigation while
+retaining its existing download-first hero and visual design. Browser account work
+uses site/web-account.mjs, never a forged easterDesktop bridge or desktop-mode.
+The old launcher-only visibility and redirect rules are superseded.
+It is named "The Community store" and stays `noindex`. It is the REAL store: five
 products for real USD through Stripe's hosted Checkout page, driven by the account service
 through three commands on `window.easterDesktop` (`storeCatalogue`, `storeCheckout`,
-`storeOrders`) and never by a fetch from the page — the catalogue, the prices and the orders are
+`storeOrders`) in the launcher; the website uses the same API through its bounded browser transport — the catalogue, the prices and the orders are
 the server's, and site/ holds no catalogue of its own. Buying is one product at a time from its
 own card: no cart, no quantity, no basket total. Its views are hash routes (#catalogue,
 #item/<key>, #orders); a stale link to a removed route lands on #catalogue. The

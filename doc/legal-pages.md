@@ -132,3 +132,12 @@ consider ICO registration and a data processing record.
   tables are strong at 1440 and become the weakest thing on the page at 390 (cells of
   8 to 9 lines). Stacking them would cost screen-reader table semantics unless role
   attributes go into the HTML, so it is not a CSS-only change.
+
+## Website account and store surfaces (2026-10-26)
+
+The website frontend now uses tab sessionStorage for its account token and expiry;
+profile/order data is read from the service and not persisted. Privacy section 4
+distinguishes this from the launcher's OS-encrypted vault, section 5 explains the
+authenticated requests, and section 6 distinguishes browser navigation to Stripe
+from the launcher's payment window. The public game-server address was removed
+from the introduction. See web-accounts-store.md for production API prerequisites.

@@ -439,7 +439,7 @@ try{
  // The download-first flow is desktop-only. A plain browser must show none of it.
  assert.equal(await page.locator('#launcher-bar').count(),0,'the sticky bar is a launcher affordance');
  assert.equal(await page.locator('[data-desktop-play],[data-desktop-nav],.desktop-account-nav,.desktop-install').count(),0,'no desktop affordance may leak into the public page');
- assert.equal(await page.getByRole('button',{name:/sign in/i}).count(),0,'the public page never offers sign-in');
+ assert.equal(await page.getByRole('button',{name:/sign in/i}).count(),1,'the public page offers Company sign-in without native launcher controls');
  assert(!(await page.locator('body').innerText()).includes('Download the game'),'the public page keeps its own download copy');
  assert.deepEqual(errors,[]);
  console.log('PUBLIC SITE PASS: responsive home, launcher downloads, read-only map, six-entry key with per-category filtering, snapshots with an unknown marker kind refused, pan/zoom/middle/fullscreen, preferences, persistent cached rendering, incremental refresh, failure retention, checksum validation, no private API calls');

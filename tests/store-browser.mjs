@@ -786,9 +786,9 @@ try {
         1,
         "the home markup still carries the Store link, so the launcher has a route on every page",
       );
-      assert.equal(await staticEntry.isVisible(), false);
+      assert.equal(await staticEntry.isVisible(), true);
       await noScript.goto(origin + "/store/", { waitUntil: "load" });
-      assert.equal(await noScript.locator(".store-main").isVisible(), false);
+      assert.equal(await noScript.locator(".store-main").isVisible(), true);
       assert.equal(await noScript.locator(".store-product").count(), 0);
     } finally {
       await noScript.close();
@@ -801,14 +801,14 @@ try {
     );
     assert.equal(
       await plain.page.locator('.site-header nav a[href*="store/"]:visible').count(),
-      0,
-      "the home nav shows no Store entry in a browser",
+      1,
+      "the home nav shows the shared Store entry in a browser",
     );
     await plain.page.goto(origin + "/store/", { waitUntil: "networkidle" });
-    await plain.page.waitForURL(origin + "/");
-    assert.equal(await plain.page.locator(".store-main").count(), 0);
+    await plain.page.getByText("Sign in to buy.", {exact:true}).waitFor();
+    assert.equal(await plain.page.locator(".store-main").count(), 1);
     assert.deepEqual(plain.errors, [], "no page error redirecting a browser home");
-    console.log("Launcher-only passed: hidden without the bridge, and a browser is sent home");
+    console.log("Shared store passed: browser catalogue asks for sign-in without a native bridge");
   }
   // The launcher's nav entry is a link to the page, not a modal behind a button.
   {
@@ -1211,13 +1211,13 @@ try {
     const source = await readFile(new URL("../site/store/store.mjs", import.meta.url), "utf8");
     assert.match(
       source,
-      /bridge\.mode === "desktop"/,
-      "the mount gate still asks the bridge for mode:'desktop'",
+      /globalThis\.easterDesktop \|\| webAccount/,
+      "the mount selects the native or browser account transport",
     );
     assert.match(
       source,
-      /location\.replace\("\.\.\/"\)/,
-      "and still sends every other visitor home",
+      /mountStore\(mount, \{bridge\}\)/,
+      "and mounts the shared store with that transport",
     );
     const noScript = await browser.newPage({
       viewport: { width: 1440, height: 1000 },
@@ -1230,7 +1230,7 @@ try {
         1,
         "the store page's own nav carries the class that hides it outside the launcher",
       );
-      assert.equal(await noScript.locator(".store-main").isVisible(), false);
+      assert.equal(await noScript.locator(".store-main").isVisible(), true);
       const skip = await noScript.locator(".store-skip").boundingBox();
       assert.ok(
         skip.width <= 1 && skip.height <= 1,

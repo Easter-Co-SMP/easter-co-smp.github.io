@@ -83,7 +83,7 @@ export async function openMyProfile({desktop,getState,isAccountLocked,openEmails
    +'<div class="company-picture-actions"><button type="button" data-picture="upload" data-account-change>Choose picture</button><button type="button" data-picture="remove" data-account-change>Remove picture</button></div>'
    +'<h3>Verified emails</h3><p class="company-section-note">The addresses that can sign you in to Easter Company. The list is opened on purpose: it is the only place an address is shown.</p>'
    +'<button type="button" data-open-emails data-account-change>Verified emails</button>'
-   +'<h3>Password</h3><p class="company-section-note" id="company-password-help">'+PASSWORD_POLICY.help+' You do not need your current password: an active sign-in on this launcher is enough.</p>'
+   +'<h3>Password</h3><p class="company-section-note" id="company-password-help">'+PASSWORD_POLICY.help+' You do not need your current password: an active sign-in is enough.</p>'
    // The form asks the browser not to validate it: every refusal is a sentence in this surface,
    // read where the player is looking, rather than a browser bubble that vanishes on the next
    // click (the same 8-to-128 rule is applied in the handler below, and the fields keep their

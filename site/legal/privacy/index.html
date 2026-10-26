@@ -7,15 +7,15 @@
 <title>Privacy Policy — Easter Co. SMP</title>
 <link rel="icon" href="../../assets/favicon.ico" sizes="16x16 32x32 48x48 64x64 128x128 256x256"><link rel="icon" href="../../assets/favicon.png" type="image/png" sizes="64x64"><link rel="apple-touch-icon" href="../../assets/apple-touch-icon.png"><link rel="stylesheet" href="../../styles.css">
 <link rel="stylesheet" href="../../desktop.css"><link rel="stylesheet" href="../legal.css">
-</head>
+<link rel="stylesheet" href="../../web.css"></head>
 <body class="legal">
 <a class="legal-skip" href="#legal-content">Skip to the policy</a>
 <header class="site-header"><a class="site-wordmark" href="../../" aria-label="Easter Co. SMP home"><img class="wordmark-mark" src="../../assets/ec-logo.svg" alt="" width="26" height="26" decoding="async">Easter Co.<span>SMP</span></a><nav aria-label="Main navigation"><a href="../../">Home</a><button type="button" popovertarget="launcher-downloads">Download <svg class="download-chevron-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><a href="../../map/">Map</a><a href="../../wiki/">Wiki</a></nav></header>
 <main class="legal-page" id="legal-content" tabindex="-1">
   <p class="eyebrow">Legal · Easter Co. SMP</p>
   <h1>Privacy Policy</h1>
-  <p class="legal-meta">Effective <time datetime="2026-10-19">19 October 2026</time> · Last updated <time datetime="2026-10-23">23 October 2026</time></p>
-  <p class="legal-intro">This policy explains what Easter LTD does with personal data when you visit <strong>easter-co-smp.github.io</strong>, install or use the <strong>Easter Company launcher</strong>, hold an <strong>Easter Company account</strong>, or play on the <strong>Easter Co. Survival Multiplayer Server (Easter Co. SMP)</strong>, at <span class="legal-nowrap">smp.easter.company:25565</span>.</p>
+  <p class="legal-meta">Effective <time datetime="2026-10-19">19 October 2026</time> · Last updated <time datetime="2026-10-26">26 October 2026</time></p>
+  <p class="legal-intro">This policy explains what Easter LTD does with personal data when you visit <strong>easter-co-smp.github.io</strong>, install or use the <strong>Easter Company launcher</strong>, hold an <strong>Easter Company account</strong>, or play on the <strong>Easter Co. Survival Multiplayer Server (Easter Co. SMP)</strong>.</p>
 
   <nav class="legal-toc" aria-label="Contents">
     <h2>On this page</h2>
@@ -106,9 +106,10 @@
 
     <section id="your-device">
       <h2>4. What stays on your own device</h2>
-      <p>Some data never reaches us at all:</p>
+      <p>The website and launcher keep the following data on your device:</p>
       <ul>
         <li><strong>Launcher settings</strong> — install location, memory, launch behaviour, graphics choices, and your saved account sessions. Account sessions are stored only in your operating system's encrypted store (Electron <code>safeStorage</code>); if the operating system cannot encrypt them, the launcher refuses to save them rather than writing them in plain text.</li>
+        <li><strong>Website account session</strong> — your session token and expiry are kept in this tab's session storage so sign-in survives navigation and reloads. This is browser storage, not the launcher's operating-system encryption. Signing out removes the stored session. Account profiles and orders are read from the account service and are not saved in browser storage. If session storage is unavailable, navigation may require signing in again.</li>
         <li><strong>Website preferences</strong> — the map's layer switches and the launcher progress bar's minimised state, kept in your browser's local storage.</li>
         <li><strong>Your map drawings</strong> — anything you draw on the map is stored in your browser's IndexedDB on your own device. It is never uploaded, never exported and never published.</li>
       </ul>
@@ -117,13 +118,13 @@
 
     <section id="cookies">
       <h2>5. Cookies, analytics and tracking</h2>
-      <p>We set no cookies, and we use no analytics, no advertising identifiers, no fingerprinting and no third-party embeds on this website or in the launcher, with the one exception described below: the payment page you reach only if you choose to buy something in the store. The only information stored in your browser is the local settings and drawings described in section 4, which are never sent to us. Because no cookie or device storage is used for tracking, there is nothing for you to consent to and no cookie banner on this site.</p>
+      <p>We set no cookies, and we use no analytics, no advertising identifiers, no fingerprinting and no third-party embeds on this website or in the launcher, with the one exception described below: the payment page you reach only if you choose to buy something in the store. Your browser also keeps the signed-in session described in section 4. It sends that session to our account service when you use account or store features. Settings and drawings stay on your device. Because no cookie or device storage is used for tracking, there is nothing for you to consent to and no cookie banner on this site.</p>
     </section>
 
     <section id="payments">
       <h2>6. Paying in the store</h2>
-      <p>Nothing in the store loads anything from a payment provider until you press Buy. If you do, the launcher opens a separate window showing a payment page served by Stripe (Stripe Payments UK Ltd), who take the payment for us. Everything you type on that page — card number, expiry, security code, and any billing details — goes straight to Stripe and never reaches us or the launcher: we do not receive it, store it or see it. Stripe tells us only that a payment succeeded, the amount, the currency and the reference for the purchase.</p>
-      <p>On its own page Stripe uses cookies and similar technology under its own privacy notice, not ours. If you would rather not pay, close that window: nothing is bought and we are told nothing. Stripe’s privacy notice is at <a href="https://stripe.com/privacy">stripe.com/privacy</a>.</p>
+      <p>Nothing in the store loads anything from a payment provider until you press Buy. If you do, the website navigates to Stripe Checkout, while the launcher opens a separate payment window. Stripe (Stripe Payments UK Ltd) takes the payment for us. Everything you type on that page — card number, expiry, security code, and any billing details — goes straight to Stripe and never reaches us or the launcher: we do not receive it, store it or see it. Stripe tells us only that a payment succeeded, the amount, the currency and the reference for the purchase.</p>
+      <p>On its own page Stripe uses cookies and similar technology under its own privacy notice, not ours. Opening checkout does not complete a purchase. You can leave without submitting payment. Your order history reports the status recorded by our account service. Stripe’s privacy notice is at <a href="https://stripe.com/privacy">stripe.com/privacy</a>.</p>
     </section>
 
     <section id="why">
@@ -153,7 +154,7 @@
         <li><strong>Steam</strong> — we verify your Steam identity through Steam's OpenID endpoint. Public profile metadata is fetched only if it is available; we do not receive your Steam password.</li>
       </ul>
       <p>For Google and Discord we use the confidential authorisation-code flow, and the code is exchanged on our server against our own registered client and exact callback address. <strong>We never store a provider's access token or refresh token</strong> — only the verified identity and profile data the provider returns. Your provider password is never seen by us.</p>
-      <p>Sign-in happens in your normal system browser, not inside the launcher. No Company password or session token is ever placed in a provider URL.</p>
+      <p>Provider sign-in happens in your normal browser. The website opens a separate sign-in window for configured Google, Steam and Discord providers. Microsoft sign-in is available in the launcher. No Company password or session token is ever placed in a provider URL.</p>
     </section>
 
     <section id="google">
@@ -268,5 +269,5 @@
 </main>
 <footer class="legal-footer"><span>© 2026 Easter LTD · <a href="../privacy/" aria-current="page">Privacy</a> · <a href="../terms/">Terms</a></span><span>Numquam Succumbe</span></footer>
 <script src="../../downloads.js" defer></script><script src="../../desktop.js" defer></script>
-</body>
+<script type="module" src="../../web.js"></script></body>
 </html>

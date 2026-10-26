@@ -1,0 +1,21 @@
+/* Browser account surfaces reuse the launcher's existing dialogs and palette.
+   No desktop-mode class: the website hero remains the download-first hero. */
+.web-mode{--app-panel:#11252d;--app-border:#ffffff24;--app-muted:#a8b9b4;--app-gold:#e4c486}
+.web-mode [hidden]{display:none!important}
+.web-mode :is(button,a,input,summary):focus-visible{outline:2px solid var(--app-gold);outline-offset:3px}
+.web-mode .site-header nav .web-account-nav{max-width:140px;overflow:hidden;text-overflow:ellipsis;display:block;border:1px solid #e4c48650;background:transparent;color:var(--gold);cursor:pointer}
+.web-mode .desktop-company-dialog .dialog-close{display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;right:14px;top:14px;border-radius:6px}
+.web-mode .desktop-company-dialog input:focus-visible{outline:2px solid var(--app-gold);outline-offset:2px}
+.web-mode .desktop-company-dialog button{cursor:pointer}
+.web-mode .desktop-company-dialog button:disabled{cursor:default}
+.web-mode .desktop-profile-menu button{min-height:44px}
+.web-mode .web-account-notice{font-size:12px;color:#f4b6a6}
+@media(max-width:900px){
+ .web-mode .site-header{gap:12px}
+ .web-mode .site-header nav{gap:2px}
+ .web-mode .site-header nav>a,.web-mode .site-header nav>button{padding:11px 10px}
+}
+@media(max-width:600px){
+ .web-mode .site-header nav>a,.web-mode .site-header nav>button{padding:11px 6px;font-size:10px;min-height:44px}
+ .web-mode .site-header nav .web-account-nav{max-width:76px}
+}

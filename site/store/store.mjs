@@ -1,3 +1,4 @@
+import {webAccount} from '../web-account.mjs';
 /*
  * The Community store, rendered into the page at /store/.
  *
@@ -661,36 +662,34 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
   // The snapshot first (if this launcher kept one), then the confirmation of it. `reload` is the
   // live read and nothing else: a page asked to reload must go to the service, not to a file.
   void hydrate();
-  return { root, reload: () => loadCatalogue() };
+  return { root, reload: () => loadCatalogue(), reset: () => {
+    // Invalidate old reads before dropping another account's rows.
+    catalogueRead++; ordersRead++;
+    products = []; orders = [];
+    snapshotProducts = false; snapshotOrders = false;
+    message = null; opened = null; pressing = null;
+    paint();
+    void loadCatalogue();
+    if (view === "orders") void loadOrders();
+  } };
 }
 
 // The store page is the only page with a mount point; importing this module elsewhere (as the
 // browser tests do, with their own bridge) renders nothing.
 //
-// A BROWSER IS NOT A SHOP FLOOR. Owen, 2026-10-23: *"hide all store elements when not inside of
-// launcher"* - the store lives inside the launcher and is discovered there, so a visitor who
-// types or shares this address is sent back to the site instead of being shown a catalogue they
-// have no way to buy from. `mode:'desktop'` is the isolated preload's own claim and the same
-// test site/desktop.js makes to enter desktop mode, so a published URL is not a way in and a URL
-// parameter or stored preference cannot forge one. The CSS in desktop.css hides every
-// store-shaped element until `desktop-mode` arrives, which covers the case where this module
-// never runs at all (scripting off), and the redirect covers the visitor who lands here.
+// Both modes use the same store views. Only the transport differs.
 const mount = document.getElementById("store-root");
-const bridge = globalThis.easterDesktop;
+const bridge = globalThis.easterDesktop || webAccount;
 if (mount) {
-  if (bridge && bridge.mode === "desktop") {
-    mountStore(mount);
-    // The page's skip link is Sol's. It has to land inside the store rather than in the address
-    // bar: #store-root is not one of this page's routes, so letting the fragment through would
-    // send the reader to the catalogue and scroll the page to the top on the way. The link
-    // focuses the region a route change focuses, and leaves the route alone. (Without a bridge the
-    // page is redirected home before any of this matters.)
-    const skip = document.querySelector(".store-skip"),
-      region = mount.querySelector(".store-content");
-    if (skip && region)
-      skip.addEventListener("click", (event) => {
-        event.preventDefault();
-        region.focus();
-      });
-  } else location.replace("../");
+  const view = mountStore(mount, {bridge});
+  const skip = document.querySelector(".store-skip"), region = mount.querySelector(".store-content");
+  if (skip && region) skip.addEventListener("click", event => {event.preventDefault();region.focus();});
+  if (webAccount) {
+    await webAccount.ready;
+    let account = webAccount.getState().account?.id || null;
+    webAccount.subscribe(state => {
+      const next = state.account?.id || null;
+      if (next !== account) {account = next;view.reset?.();}
+    });
+  }
 }

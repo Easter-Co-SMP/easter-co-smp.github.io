@@ -82,7 +82,7 @@ into the Pages deployment.
 ## Shared website and desktop launcher
 
 Run `npm ci`, then `npm start`. The same site/ UI runs in the browser and in Electron;
-only the isolated preload enables desktop mode. The browser shows platform downloads;
+only the isolated preload enables desktop mode. The browser keeps platform downloads as its primary action and adds Company account and Store navigation;
 desktop mode shows Sign in & Play, account state, installation progress, and client settings.
 Map annotations, terrain cache, and UI preferences persist in the desktop session too.
 The shell bundles the site so its interface opens without a web connection. Map data refreshes

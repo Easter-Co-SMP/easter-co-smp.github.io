@@ -6,7 +6,7 @@
   "desktopName": "easter-company.desktop",
   "scripts": {
     "start": "electron .",
-    "test": "node --test tests/desktop/*.test.cjs tests/wiki.test.mjs tests/launcher-discovery.test.mjs tests/store.test.mjs",
+    "test": "node --test tests/desktop/*.test.cjs tests/wiki.test.mjs tests/launcher-discovery.test.mjs tests/store.test.mjs tests/web-account.test.mjs",
     "test:desktop": "xvfb-run -a node tests/desktop/electron.mjs",
     "test:site": "node tests/browser.mjs",
     "pack": "electron-builder --dir",
