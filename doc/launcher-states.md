@@ -558,7 +558,7 @@ launcher's only refresh token without asking for its successor, and kept the cop
 destroyed:
 
 - `xboxSignIn` reissued the token for `XboxLive.signin`, without `offline_access`, whenever the
-  device-code answer could not prove its own audience — which spends the token and (that scope
+  answer to the sign-in could not prove its own audience — which spends the token and (that scope
   asking for no refresh token) answers no replacement;
 - `graphAccessToken`, the optional Graph leg for the account's own email, runs on **every** Microsoft
   sign-in and immediately before the hand-over. It asked for `https://graph.microsoft.com/User.Read`
@@ -601,7 +601,7 @@ Inside a Play press, `reauth_required` means the stored session is dead. The lau
 
 1. states the reason in one sentence — `Microsoft needs you to sign in again before Minecraft starts.`
    — with no provider code, no HTTP status and no token in it, and
-2. falls back to the **interactive Microsoft device-code flow** it already has, once, inside the
+2. falls back to the **interactive Microsoft sign-in in the player's browser**, once, inside the
    same press, and
 3. on success re-hands the fresh refresh token to the service and carries on launching; on
    cancellation or failure it stops with the sign-in's own sentence.
@@ -684,7 +684,7 @@ shapes, the sanitizing of the minted session, the `reauth_required` mapping, the
 outcomes, the once-only fallback and the revoke outcomes; `tests/desktop/server-session.electron.mjs`
 proves the same behaviour through the real main process — a password sign-in that reaches Play with
 no Microsoft prompt, the vault written without a refresh token after a confirmed hand-over, the
-`reauth_required` fallback through the real device-code dialog, and the revoke driven through the
+`reauth_required` fallback through the real browser sign-in dialog, and the revoke driven through the
 preload bridge with no dialog control in front of it (the three sentences, the one authenticated
 POST per press, and the state each answer leaves) — against a fixture API. `tests/browser.mjs`
 proves the hero's own rendering of the session words: an unlinked
@@ -1172,7 +1172,7 @@ that returns.
   save settings), clears what is on screen without making that sentence deliverable
   again — a stale repaint stays stale.
 - **A running sign-in is never presented as failed.** While the sign-in dialog is
-  showing its device code and browser action, or while a sign-in call is still
+  waiting on Microsoft's page in the player's browser, or while a sign-in call is still
   outstanding, a sentence arriving from the state channel is not painted over them.
   A failure that really ends the flow arrives through the call that rejected, after
   which the dialog closes and the sentence takes its one home.
@@ -1235,11 +1235,11 @@ because the profile control it names is inert behind a modal: `Close this window
 Sign out from your profile before signing in to a different account.` The sentence no
 longer uses "the linked account", which was an undefined noun
 for someone who does not already understand a Company-account conflict, and it no longer
-points at a control the player cannot reach. No device code opens, no second sign-in
+points at a control the player cannot reach. No sign-in page opens, no second sign-in
 starts, the signed-in account id is unchanged, and the failure is not announced on the
 state channel at all — `state.error` stays null on that path, so the page notice never
 paints the sentence, not even for one frame. Every other failure of the saved session
-still falls through to the interactive sign-in with its device code. The account id
+still falls through to the interactive Microsoft sign-in in the browser. The account id
 comparison stays server-driven, and no account identifier, token or address appears in
 the sentence, the state or a log.
 
@@ -2730,8 +2730,9 @@ belongs to the header profile popover. The popover labels Microsoft and Easter
 Company identity separately when present and disables account changes during
 authentication or gameplay. The profile name and skin face retain their order.
 
-Sign-in shows a pending state until a device code arrives, then the code and browser
-action. Closing or cancelling that dialog aborts authentication and returns to the
+Sign-in shows a pending state until Microsoft's page is open in the player's browser, then
+the waiting line, the app's own name on Microsoft's consent screen and the action that opens
+that page again. Closing or cancelling that dialog aborts authentication and returns to the
 previous view, retaining an existing account. It never reveals Settings mid-flow.
 Errors appear in the active dialog or a visible page notice; a failed launch does
 not open Settings. Save can be submitted by keyboard and cannot submit twice while
@@ -2792,12 +2793,13 @@ dialog's title. The signed-out hero is *not* that action — it asks for the Eas
 account, which any of the four providers supplies, and it reads **Sign in** (*The
 signed-out hero's own sentence*, 2026-10-19; this paragraph named the hero here until
 then, which was true only while Microsoft was the only provider). The one button that is
-not that action is **Open the Microsoft page**, because that is all it does: it opens
-Microsoft's page in the browser
-and signs nobody in by itself. The sentences around the action already used the same verb
-and are unchanged (`Sign in again.`, `Sign in with a linked provider or with your
-username.`, `Sign in with Microsoft to continue.`), and so is the setup copy that names the
-account service. These are strings, so the suites assert the labels themselves.
+not that action is **Open the Microsoft sign-in page again**, because that is all it does:
+it puts the page the launcher already has open back in front of a player who closed it — the
+same sign-in, the same listener, the same `state` — and signs nobody in by itself. The
+sentences around the action already used the same verb and are unchanged (`Sign in again.`,
+`Sign in with a linked provider or with your username.`, `Sign in with Microsoft to
+continue.`), and so is the setup copy that names the account service. These are strings, so
+the suites assert the labels themselves.
 
 **Correction 2026-10-19: the middle of those three sentences was not unchanged, and this
 paragraph said it was.** It read `Sign in with Microsoft or with your username.` when this
@@ -2876,16 +2878,121 @@ dock use Buy Now only for confirmed missing entitlement, never an outage.
 Fixed-destination IPC opens the official store/profile pages; recheckAccess
 reuses the Microsoft session and can return directly to Download or Play.
 
+## The browser sign-in the launcher runs (2026-10-26)
+
+The launcher asks Microsoft for an authorization code the way every native application does
+(RFC 8252): it opens the player's own browser at Microsoft's own sign-in page, and Microsoft
+hands the code back to a socket this process holds open for exactly one callback. The player
+reads nothing out of a window, copies nothing and types nothing. `desktop/loopback.cjs`
+owns that socket and is the one place that decides what it accepts; `desktop/auth.cjs` adds
+only the authorize address, the registration check and the exchange. A sign-in is:
+
+1. A loopback listener opens on 127.0.0.1 on an ephemeral port, before anything else happens.
+   The address is the loopback interface and never `0.0.0.0`, a hostname or another machine,
+   and the bound address is read back rather than assumed.
+2. One 256-bit `state` and one PKCE S256 pair are minted in memory. The authorize request
+   carries only `SHA-256(verifier)` as its `code_challenge`; the verifier never leaves the
+   process, so a code that leaked out of the socket still cannot be exchanged by whoever took
+   it.
+3. The redirect URI is checked once, before the browser is opened (*The registration check*
+   below), because Microsoft answers a redirect URI it will not accept with its own error page
+   in the browser and never calls back at all — which here looks exactly like a player who
+   closed the tab, the one failure that must not be reported as one.
+4. The system browser is opened at Microsoft's sign-in page, and only an address on Microsoft's
+   own sign-in origin is ever handed to it. The UI is told the page is open at the moment the
+   browser is handed the address, which is the instant the player sees it appear.
+5. The first request carrying this sign-in's own `state` completes it: the code is taken, the
+   browser is told to go back to the launcher, and then every socket is destroyed and the
+   server closed in the same breath, so no second local process can reach a live listener. A
+   request with another path (a browser's own `/favicon.ico`, a probe), or a missing or wrong
+   `state` compared in constant time, is answered 400 and changes nothing: it neither completes
+   the sign-in nor cancels it, because a local process must not be able to end a sign-in the
+   player started.
+6. The code is exchanged with the verifier, and everything downstream — Xbox Live → XSTS →
+   Minecraft Java profile — is the unchanged chain this document already describes.
+
+**The registration check is a step because its failure is otherwise invisible.** When the
+launcher's return address is not one Microsoft will answer to, Microsoft draws its own error
+page in the browser and never calls back, so from the launcher the failure is a wait that ends
+in a timeout — indistinguishable from a player who closed the tab, and reported as that. So the
+authorize address is asked once before the browser is opened, and the check is deliberately
+one-sided: it refuses only what Microsoft has already refused. A page that says the redirect
+URI is not valid — `AADSTS50011` on the modern path, or the same refusal worded out on the
+consumer host — is the one answer that stops a sign-in, and it stops it with the exact address
+to compare (`http://localhost/callback`) rather than a generic failure. Everything else is not
+proof of anything and never
+refuses a sign-in: a sign-in page, a redirect back to this launcher, an outage, or an answer
+the check cannot read are all `unknown`, and the browser is opened anyway. The asymmetry is the
+point — a probe must never be the thing that refuses a sign-in it did not understand, and a
+clean page is not a licence to claim the address is registered. Measured on 2026-10-26 against
+the client id the launcher then shipped with, the address was not registered: the sign-in
+refused in a second and named `http://localhost/callback`, which is exactly what this check
+exists for instead of five minutes of a player watching a page that never comes back.
+
+**Why the redirect URI says `localhost` while the socket binds `127.0.0.1`.** The value the
+launcher sends Microsoft is `http://localhost:<port>/callback`, and the value an app
+registration must carry is `http://localhost/callback`. The listener itself is on 127.0.0.1
+whatever that name resolves to, which reads like an inconsistency and is not one: Microsoft
+ignores the **port** of a localhost redirect URI when it matches one, and that exemption holds
+for the name `localhost` **only**. `http://127.0.0.1:<port>/callback` would be matched
+literally, port and all, and an ephemeral port can never equal a registered one — so
+"correcting" the name to 127.0.0.1 breaks every sign-in at Microsoft's consent screen, for a
+player and for a fixture alike. The name is in the URI; the identity of the socket is in the
+`bind`. Both halves are needed and neither may be changed alone.
+
+**Five named bounds, and nothing waits outside them.**
+
+| Bound | Value | Why |
+|---|---|---|
+| `LOOPBACK_TIMEOUT_MS` | 5 min | half of one Microsoft code's life: a player who walked away from the page is ended here instead of waited on |
+| `LOOPBACK_IDLE_MS` | 15 s | one connection may not stall the accept — a header or a body that never finishes is dropped, so the single accepted request cannot be starved |
+| `LOOPBACK_MAX_CONNECTIONS` | 8 | how many sockets may exist at once; one past this many is destroyed rather than counted |
+| `LOOPBACK_REJECT_LIMIT` | 16 | a flood becomes one failure: past this many refusals the listener answers nothing more and closes, so a local process can deny a sign-in but never hold one open |
+| `REGISTRATION_HOPS` | 2 | the authority proxies once — `login.microsoftonline.com/consumers` hands the registration question to `login.live.com`, and only Microsoft's own sign-in hosts are ever followed, never more than this many |
+
+The wait is bounded from the moment the browser is opened, and a cancel ends it exactly as
+cleanly as an answer does: the port is closed on every path out, including a caller that gave
+up. The registration check is bounded apart from the five: one request per hop with its own
+30 s request timeout, `redirect: 'manual'` so it never follows a redirect into the listener,
+and a 64 KiB ceiling on the page it reads.
+
+**What the player sees, and what is gone.** No code, no *enter this code*, no copy control and
+no `microsoft.com/link` page: that hand-off was the whole point of the change. The sign-in
+dialog carries the waiting line, the sentence main put in the state's `message` — which is
+also where a sign-in the launcher started for its own reason says why it is on screen — the
+line that names the app on Microsoft's own consent screen (`Microsoft lists this app as
+<name>.`), the action **Open the Microsoft sign-in page again**, and **Cancel sign-in**. The
+action opens the page the launcher already has open: the same sign-in, the same listener, the
+same `state` and the same PKCE challenge, so a player who closed the tab gets the page back
+instead of a second flow, and a stale window can only ever complete the one flow. **Cancel**,
+Escape, a closed dialog and the timeout all end the Microsoft leg the same way: the socket is
+closed, no token was minted, no session was written, and the player is exactly as signed in as
+before.
+State carries `signInPage` — a flag, not a payload — where the code used to travel.
+
+**The one risk this shape carries, stated rather than hidden.** The authorize address carries
+`state` and the PKCE challenge and never the verifier, so an address someone read does not
+become a code they can spend; a code arriving with anyone else's `state` is refused, so a local
+process cannot inject a code of its choosing. What remains is the address itself: it is handed
+to the system browser as that program's own argument, so on Linux another process can read it
+out of a process command line while the page is opening, and a process that replays it in the
+player's browser first completes the sign-in as its own account. That is the conventional
+login-CSRF a public client cannot prevent — a launcher holds no secret, so it cannot prove
+which of two flows on one machine a browser belongs to. The control is the one the player
+already has and the launcher already prints: it says which account signed in
+(`Signed in as <name>.`), so a sign-in the player did not make is visible to them instead of
+silent.
+
 ## Sign-in steps, sentences and the redacted log (2026-10-18)
 
-A sign-in is six steps, in this order, whether it starts from a fresh device code or from
-the saved session the account is already holding. Each step owns one sentence, so the
-notice says which leg failed instead of collapsing every answer into "Sign-in could not
-finish. Please try again."
+A sign-in is six steps, in this order, whether it starts from the browser sign-in the player
+has just made or from the saved session the account is already holding. Each step owns one
+sentence, so the notice says which leg failed instead of collapsing every answer into
+"Sign-in could not finish. Please try again."
 
 | Step id | Sentence |
 |---|---|
-| `device-code` | `Microsoft sign-in could not start: …` |
+| `browser-sign-in` | `Microsoft sign-in could not start: …` |
 | `code-completion` | `Microsoft sign-in did not finish: …` |
 | `xbox-live` | `Xbox Live did not accept the Microsoft sign-in: …` |
 | `xsts` | `Xbox Live authorisation did not accept the sign-in: …` |
@@ -2894,12 +3001,12 @@ finish. Please try again."
 
 A network failure leads like every other sentence and never claims a refusal that did not
 happen: `Minecraft sign-in failed: the launcher could not reach <step>. Check your
-connection and try again.`, where `<step>` is `Microsoft to ask for a sign-in code`,
+connection and try again.`, where `<step>` is `the Microsoft sign-in page`,
 `Microsoft to finish the sign-in`, `Xbox Live`, `Xbox Live to authorise the sign-in`,
 `the Minecraft service`, or `the Java profile service`.
-`code-completion` is the token exchange on both routes: the device-code poll and the
-refresh of a saved session. The generic sentence is kept for a genuinely unknown step and
-is not used by any of the six.
+`code-completion` is the token exchange on both routes: the exchange of the code the
+browser brought back and the refresh of a saved session. The generic sentence is kept for a
+genuinely unknown step and is not used by any of the six.
 
 **A sentence never carries a provider code.** No HTTP status, no AAD `error` string
 (`invalid_grant`, `invalid_scope`, `unauthorized_client`…), no `XErr` number and no
@@ -2926,8 +3033,8 @@ any of them. The number is dropped and the sentence says what to do:
 | 2148916238 | `… this account is waiting for Microsoft Family approval. Ask your Microsoft Family organiser to approve Minecraft for this account, then sign in again.` |
 | any other | the step's own `Try again.`, which is right for a cause the launcher cannot name |
 
-Nothing from a response body, and no token, refresh token, device code, user code or email
-address, is ever part of a sentence; a provider code that would itself contain the word
+Nothing from a response body, and no token, refresh token, authorization code, PKCE verifier
+or email address, is ever part of a sentence; a provider code that would itself contain the word
 "token" is scrubbed by `main.cjs`'s safeError() rather than shown. Because a bare `XErr`
 number is four digits or more, the jargon guard in the suite also refuses any sentence
 containing one, so a number cannot reach a player even without its prefix.
@@ -2940,10 +3047,11 @@ containing one, so a number cannot reach a player even without its prefix.
 
 Fields: ISO-8601 UTC timestamp, launcher version, step, outcome (`ok` or `failed`), HTTP
 status or `-`, provider code or `-`, and an optional `note=reissued` when the Xbox Live
-token had to be minted first. A network failure is one line with `code=network`. The two
-poll answers that only mean "the player has not finished on Microsoft's page yet"
-(`authorization_pending`, `slow_down`) are not step outcomes and are not logged, so a
-sign-in that is simply waiting writes nothing. A step that fails writes exactly one line,
+token had to be minted first. A network failure is one line with `code=network`. Nothing is
+polled while the launcher waits — the answer arrives on the loopback listener — so a sign-in
+that is simply waiting writes nothing: the browser leg writes its one line once the
+registration check has been asked and the page is about to be handed to the browser, and the
+exchange writes its own line when it happens. A step that fails writes exactly one line,
 before its sentence is thrown, and nothing else in the launcher writes to this file.
 
 **One line is not a sign-in step and is logged anyway: `step=email`.** After the Xbox
@@ -2971,9 +3079,12 @@ The file is bounded: when a line would take it past 64 KiB it is rotated once to
 that cannot be written never affects the sign-in. `signin.log` is a diagnostic for the
 owner and is never read by the launcher, never broadcast, and not part of this contract.
 
-**The Xbox Live leg always holds a token minted for its own scope.** The device code asks
-for `XboxLive.signin offline_access https://graph.microsoft.com/User.Read` in one consent,
-and Microsoft decides which of those resources an answer is minted for. Before
+**The Xbox Live leg always holds a token minted for its own scope.** The sign-in's authorize
+request asks for `XboxLive.signin` and `offline_access` and nothing else, and Microsoft decides
+which resource an answer is minted for. The Graph token the account service needs is asked for
+separately afterwards, from the same refresh token (`desktop/auth.cjs` holds both scope strings
+and the reason they are never asked for together: an exchange whose granted scopes span two
+resources is refused). Before
 `user.auth.xboxlive.com` the launcher therefore checks the token's own claims: an Xbox Live
 audience, or an Xbox Live scope claim, is proof that it may be presented as the RPS ticket.
 Anything else — an opaque answer, a Graph audience, no audience — is not proof, and the
@@ -3270,13 +3381,20 @@ wrote and loading the pack it names. Shader compilation happens when a world is 
 entering one needs a real session, so **in-world compilation is not covered here**, and
 neither is any Windows or macOS run.
 
-## Stable Microsoft device code (2026-10-19)
+## A stable sign-in dialog (2026-10-19, restated 2026-10-26 for the browser flow)
 
-Background download progress must never replace an unchanged Microsoft device-code
-text node, disturb its selection, move focus, or reopen the sign-in dialog. The
-code and provider text update only when their displayed values change; a newly
-issued code still replaces the previous one. The progress bar continues updating
-while the code is selected or copied. No copy control or extra sign-in step is added.
+Background download progress must never close the sign-in dialog, reopen it, or move focus
+out of it, and it must not disturb the text or the selection of the dialog's own lines.
+Everything here was measured against the device code this dialog then showed; what it says
+now is the same rule for the same lines, which are the waiting line, the sentence the state's
+`message` supplies, the provider line naming the app on Microsoft's consent screen, the
+action that opens the page again and Cancel. The waiting line is written only when the stage
+changes or the long-wait threshold is crossed (`site/wait-feedback.mjs`, which a transfer
+broadcast never writes to), and the provider line only when its displayed value changes. The
+sentence under the waiting line is the state's own `message`, which a concurrent download
+legitimately rewrites, so what a selection must survive is the dialog's own text rather than
+that line. The progress bar continues updating while a sign-in is live. No code, no copy control and no extra sign-in step is added: the page
+is in the player's browser (*The browser sign-in the launcher runs*, above).
 
 The error notice's dismiss control and desktop dialog close controls explicitly
 center their glyphs without inherited button padding. Microsoft enrollment retries

@@ -88,17 +88,21 @@ Map annotations, terrain cache, and UI preferences persist in the desktop sessio
 The shell bundles the site so its interface opens without a web connection. Map data refreshes
 from Pages, with the bundled snapshot and persistent tile cache as fallbacks.
 
-Microsoft sign-in opens Microsoft's own page in the player's browser and takes the answer on a
-loopback redirect (authorization code + PKCE S256); nothing is copied into the launcher. It then
-follows consumers → Xbox Live → XSTS → Minecraft Java profile. Tokens never cross IPC or enter
-web storage. OS-backed safeStorage encrypts remembered accounts; Linux basic_text is rejected and
-the UI explicitly shows This session only when secure storage is unavailable. Sign-out deletes
-this app's session.
+Microsoft sign-in opens the player's own browser at Microsoft's sign-in page and takes the answer
+back on a loopback listener bound to 127.0.0.1, which accepts exactly one callback, validates the
+`state` it minted and exchanges the code with a PKCE S256 verifier that never left memory; the
+player copies nothing and types nothing. From there it follows consumers → Xbox Live → XSTS →
+Minecraft Java profile (doc/launcher-states.md, *The browser sign-in the launcher runs*). The
+redirect URI the launcher asks for is `http://localhost:<port>/callback` and the socket behind it
+is 127.0.0.1 on purpose: Microsoft ignores the port of a **localhost** redirect URI when it
+matches one, and would match a 127.0.0.1 one literally, port and all, which an ephemeral port can
+never satisfy. Tokens never cross IPC or enter web storage. OS-backed safeStorage encrypts
+remembered accounts; Linux basic_text is rejected and the UI explicitly shows This session only
+when secure storage is unavailable. Sign-out deletes this app's session.
 The public client ID is Easter Company's own registration (personal Microsoft accounts only, no
 secret in the app), so Microsoft's consent screen names **Easter Company**. It requires one
-redirect URI, `http://localhost/callback` — Microsoft ignores the port of a localhost URI, which
-is what lets the launcher use an ephemeral one. Set EASTER_MICROSOFT_CLIENT_ID to point a build at
-a different registration.
+redirect URI, `http://localhost/callback` — the port is ignored when matching, the path is not.
+Set EASTER_MICROSOFT_CLIENT_ID to point a build at a different registration.
 
 Easter Company account enrolment rides on that same Microsoft session: the Mojang access
 token the launcher already holds is posted to `POST /v1/accounts/login`, and the first

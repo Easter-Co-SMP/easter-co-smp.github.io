@@ -181,7 +181,7 @@ name from `/releases/latest/download/`. The launcher job is
    `xvfb-run -a node tests/desktop/integration.electron.mjs` (the download-first flow end
    to end through the real main process and the real renderer: the during-download hero
    asking for the Easter Company account, sign-in while a transfer runs and what it does to
-   that transfer, an install completing under a pending device code, Play gated on both
+   that transfer, an install completing under a pending browser sign-in, Play gated on both
    halves, and the sticky bar following the player to the Map. It was outside this list
    until 2026-10-19, which is why its hero assertion was still written against the
    Microsoft-only sentence that 5c9c853 had already replaced), and
