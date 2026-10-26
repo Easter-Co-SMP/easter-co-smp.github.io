@@ -18,7 +18,22 @@ auth.MicrosoftAuth=class extends Original{
  },wait:async(_ms,_value,{signal})=>new Promise((resolve,reject)=>{
   const abort=()=>reject(new DOMException('Cancelled','AbortError'));
   global.ownershipApprove=()=>{signal.removeEventListener('abort',abort);resolve();};signal.addEventListener('abort',abort,{once:true});
- })});}
+ })});
+ }
+ async signIn(notify,signal,onStage){
+  // The browser is the journey's own approve press: it answers the address the launcher opened,
+  // over the launcher's own loopback socket, with a code for that address's state. Everything
+  // after it is the real flow against this fixture's request stub.
+  const real=this.openExternal;
+  this.openExternal=async url=>{
+   await new Promise(resolve=>{global.ownershipApprove=resolve;});
+   const query=new URL(url).searchParams;
+   const answer=await fetch(query.get('redirect_uri')+'?code=fixture-code-ownershipApprove&state='+encodeURIComponent(query.get('state')||''),{redirect:'manual'});
+   if(!answer.ok)throw Error('the fixture browser could not reach the launcher');
+  };
+  try{return await super.signIn(notify,signal,onStage);}
+  finally{this.openExternal=real;}
+ }
 };
 const accounts=require('../../desktop/accounts.cjs');
 accounts.AccountClient=class{async login(){global.ownershipEnrols++;return {created:false,account:{id:42,username:'javacaptain',displayName:'JavaCaptain',minecraftName:null,minecraftUuid:null,roles:['member'],createdAt:'2026-01-01T00:00:00Z',passwordRequired:false,microsoftLinked:true,microsoftSubject:require('node:crypto').createHash('sha256').update('xbox-uhs:fixture-hash').digest('hex')},session:{token:'fixture-company-private',expiresAt:Date.now()+86400000}};}async logout(){}};

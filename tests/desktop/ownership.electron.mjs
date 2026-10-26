@@ -37,7 +37,7 @@ try{
  await hero('signin').click();await page.getByRole('button',{name:'Sign in with Microsoft',exact:true}).click();await page.locator('#desktop-signin').waitFor({state:'visible'});await app.evaluate(()=>global.ownershipApprove());
  await hero('buy').waitFor();
  assert.equal((await status()).minecraftAccess,'missing');assert.equal((await status()).canPlay,false);
- assert.equal(await page.locator('#desktop-signin').waitFor({state:'visible'}).isVisible(),false);assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'no generic sign-in error for non-owner');
+ assert.equal(await page.locator('#desktop-signin').isVisible(),false,'the sign-in dialog closes when the flow finishes');assert.equal(await page.locator('.desktop-page-notice').isVisible(),false,'no generic sign-in error for non-owner');
  assert.match((await status()).microsoftAccount.id,/^msa:[a-f0-9]{64}$/);assert.equal((await status()).profile,null);
  assert.equal(await app.evaluate(()=>global.ownershipEnrols),1,'non-owners can have a Company account independently of Java access');
  assert.equal((await status()).account.username,'javacaptain','the one signed-in account is state.account');
