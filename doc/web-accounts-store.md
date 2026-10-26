@@ -103,6 +103,12 @@ Existing store-browser.mjs retains the launcher flows and now expects the public
 store route instead of the superseded browser redirect. Independent frontend review
 is required before production, in addition to these checks.
 
+The control's label is the name a player is called, not the handle they type: the
+display name, then the Minecraft name, then the username - the order
+publicAccount already gives, and the rule the launcher has used since Owen's
+same report of 2026-10-19 (site/desktop.js, accountName). Owen, 2026-10-26, on
+this site: the nav showed `oceaster` where the launcher shows `OCEaster`.
+
 The same journey drives the account control's face in every state that matters -
 signed out, signing in, signed in with a picture, signed in with none, and a
 picture the browser cannot decode - and asserts the control measures the same

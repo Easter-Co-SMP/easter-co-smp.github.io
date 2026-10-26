@@ -6,7 +6,9 @@ import {pictureDataURL} from './skin-fixture.mjs';
 const origin=process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18104';
 const api='https://jyjshd22z3.execute-api.us-east-2.amazonaws.com';
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
-const baseAccount={id:17,username:'fixture_player',displayName:'Private fixture display name',passwordRequired:false,microsoftLinked:false,providers:['steam'],roles:[],picture:null};
+// The display name is deliberately not the username: the nav shows the name a player is called,
+// as the launcher does, so a fixture whose two names read the same would prove nothing.
+const baseAccount={id:17,username:'fixture_player',displayName:'Captain Fixture',passwordRequired:false,microsoftLinked:false,providers:['steam'],roles:[],picture:null};
 const product={key:'fixture-cosmetic',name:'Fixture cosmetic',amountMinor:500,currency:'USD',kind:'cosmetic',creditPence:0};
 const signed=account=>({account,session:{token:'fixture-session-not-a-real-credential',expiresAt:new Date(Date.now()+3600000).toISOString()}});
 let checks=0;
@@ -54,8 +56,10 @@ try{
   await page.locator('#desktop-company-signin button[type=submit]').click();
   await page.getByRole('button',{name:'Account options'}).waitFor();
   // The control's own text now holds the avatar slot as well; the account's name is the span
-  // inside it, and that is the visible label the assertion has always been about.
-  assert.equal(await page.locator('.web-account-nav .web-account-name').textContent(),'fixture_player');
+  // inside it, and it is the DISPLAY NAME - not the username this assertion used to expect. Owen,
+  // 2026-10-26: the launcher shows `OCEaster` where this site showed `oceaster`.
+  assert.equal(await page.locator('.web-account-nav .web-account-name').textContent(),baseAccount.displayName);
+  assert.notEqual(await page.locator('.web-account-nav .web-account-name').textContent(),baseAccount.username);
   assert.equal(await page.locator('.hero-copy h1').count(),1);
   assert.equal(await page.locator('[data-download-primary]').count(),1);
   assert.equal(await page.evaluate(()=>Boolean(window.easterDesktop)),false);
@@ -96,7 +100,9 @@ try{
   await page.locator('#desktop-company-password button[type=submit]').click();
   await page.locator('#desktop-company-password').waitFor({state:'hidden'});
   assert.equal(finishCalls,1);
-  assert.equal(await page.locator('.web-account-nav .web-account-name').textContent(),'new_fixture');
+  // A first-time provider signup says the name a player is called, never the handle just typed.
+  assert.equal(await page.locator('.web-account-nav .web-account-name').textContent(),baseAccount.displayName);
+  assert.notEqual(await page.locator('.web-account-nav .web-account-name').textContent(),'new_fixture');
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.screenshot({path:'/tmp/web-accounts-'+width+'.png',fullPage:true});
   assert.deepEqual(errors,[]);
@@ -153,7 +159,7 @@ try{
    await facePage.getByRole('button',{name:'Sign in or create an Easter Company account'}).waitFor();
   };
   const box=state=>({width:state.button.width,height:state.button.height});
-  account={...baseAccount,username:'oceaster',picture:pictureURL};
+  account={...baseAccount,username:'oceaster',displayName:'OCEaster',picture:pictureURL};
   await facePage.goto(origin);
   // The earliest box the control ever has with a picture in it: the mutation that sets the
   // image's src is recorded with the button's box at that same tick, before the decoder has
@@ -196,7 +202,8 @@ try{
   else assert.equal(painted.nameShown,false,'too little room for a face and a name, so the control is the face');
   assert.equal(painted.painted,true,'the account picture is what the control shows');
   assert.equal(painted.picture.natural,64,'and it is the picture itself, decoded');
-  assert.equal(painted.text,'oceaster');
+  assert.equal(painted.text,'OCEaster','the label is the display name, not the username');
+  assert.equal(painted.letter,'O','the letter comes from the name a player is called');
   assert.equal(painted.label,'Account options');
   assert.equal(await facePage.getByRole('button',{name:'Account options'}).count(),1,'the accessible name is still the account');
   assert.equal(painted.picture.position,'absolute','the image is out of the control layout, so a paint cannot move it');
@@ -208,7 +215,7 @@ try{
   assert.deepEqual({width:beforePaint.width,height:beforePaint.height},box(painted),'the control is the same size before the avatar paints as after');
   // 5. Signed in with no picture at all: the tile is the avatar. This is the state the wipe leaves.
   await signOut();
-  account={...baseAccount,username:'oceaster',picture:null};
+  account={...baseAccount,username:'oceaster',displayName:'OCEaster',picture:null};
   await signIn();
   await facePage.getByRole('button',{name:'Account options'}).waitFor();
   const noPicture=await snapshot();
@@ -225,7 +232,7 @@ try{
   assert.deepEqual(tile,{background:'rgb(83, 107, 102)',colour:'rgb(238, 219, 178)'},'the placeholder is the teal letter tile');
   // 6. A picture that fails: the tile replaces it, no broken image, no size change, same name.
   await signOut();
-  account={...baseAccount,username:'oceaster',picture:damagedPictureURL};
+  account={...baseAccount,username:'oceaster',displayName:'OCEaster',picture:damagedPictureURL};
   await signIn();
   await facePage.getByRole('button',{name:'Account options'}).waitFor();
   await facePage.waitForFunction(()=>{
@@ -239,7 +246,37 @@ try{
   assert.deepEqual(box(failed),box(painted),'a failed picture leaves the same box');
   assert.equal(failed.label,'Account options');
   assert.equal(await facePage.getByRole('button',{name:'Account options'}).count(),1);
-  // 7. An account with no name of its own yet - the moment between a provider sign-in and a first
+  // 7. The label's precedence, asserted in the same place as the face: the display name, then the
+  // Minecraft name, then the username - the account document's own order (publicAccount), which is
+  // also the order the launcher's bar uses. Owen, 2026-10-26: "Launcher also shows `Display Name`
+  // not username, which is correct."
+  const called=async next=>{
+   await signOut();
+   account={...baseAccount,...next};
+   await signIn();
+   await facePage.getByRole('button',{name:'Account options'}).waitFor();
+   return snapshot();
+  };
+  const bothNames=await called({username:'oceaster',displayName:'OCEaster',minecraftName:'CaptainFixture',picture:null});
+  assert.equal(bothNames.text,'OCEaster','the display name wins over the Minecraft name and the username');
+  const minecraftNameOnly=await called({username:'oceaster',displayName:null,minecraftName:'CaptainFixture',picture:null});
+  assert.equal(minecraftNameOnly.text,'CaptainFixture','with no display name the Minecraft name is the label');
+  assert.equal(minecraftNameOnly.letter,'C','and the letter comes from it');
+  const usernameOnly=await called({username:'oceaster',displayName:null,minecraftName:null,picture:null});
+  assert.equal(usernameOnly.text,'oceaster','with neither, the username is the last resort');
+  assert.equal(usernameOnly.letter,'O','and the letter comes from it');
+  // A long display name is the load the nav is measured under: one row, no sideways scroll, and the
+  // name clipped inside the control rather than pushing the row apart.
+  const longName=await called({username:'oceaster',displayName:'Captain Fixture of the Long Watch',picture:null});
+  assert.equal(longName.text,'Captain Fixture of the Long Watch');
+  assert.equal(longName.oneRow,true,'a long display name does not wrap the nav at '+width);
+  assert.equal(longName.overflow,false,'a long display name does not scroll the page sideways at '+width);
+  assert.equal(box(longName).height,box(painted).height,'a long display name keeps the control height');
+  if(width>360){
+   assert.equal(longName.nameShown,true,'the name is still shown beside the face at '+width);
+   assert.equal(longName.nameTruncated,true,'the long name is clipped inside the control at '+width);
+  }
+  // 8. An account with no name of its own yet - the moment between a provider sign-in and a first
   // username - is the Easter Company mark, never an empty box. It is last because that state's
   // control opens the setup dialog rather than the menu, so it is not signed out again here.
   await signOut();
@@ -273,7 +310,8 @@ try{
    +'signing in ('+size(signingIn)+', disabled, no face), '
    +'picture (as the image arrived '+beforePaint.width+'x'+beforePaint.height+', once painted '+size(painted)+'), '
    +'no picture ('+size(noPicture)+'), failed load ('+size(failed)+'), no name ('+size(nameless)+', the mark); '
-   +'one row, name '+painted.label+', no third-party request');
+   +'labels '+bothNames.text+' / '+minecraftNameOnly.text+' / '+usernameOnly.text+' then "'+longName.text+'" clipped; '
+   +'one row, accessible name '+painted.label+', no third-party request');
   checks++;
   await context.close();
  }

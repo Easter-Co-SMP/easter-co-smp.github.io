@@ -96,6 +96,9 @@ if(webAccount){
    // a face is never a reason to fail at anything, which is also the launcher's rule.
    portrait.onload=()=>face.classList.add('has-picture');
    portrait.onerror=()=>{portrait.hidden=true;face.classList.remove('has-picture');};
+   // The words 'Company member' are publicAccount's last resort for an account with no name at all
+   // (site/account-client.mjs:262): it is a sentence, not a name, so it is never lettered.
+   const GENERIC_NAME='Company member';
    const paintFace=next=>{
     const user=next.account;
     face.hidden=!user;
@@ -103,15 +106,21 @@ if(webAccount){
     // no face, so the name must stay - the control is never an empty box.
     account.classList.toggle('web-account-with-face',Boolean(user));
     if(!user){setInitial('');showPicture(null);return;}
-    // The letter is the player's own name, never a placeholder sentence: publicAccount falls back
-    // to the words "Company member", and a C for that would be a letter that means nothing. No
-    // name at all - the moment between a provider sign-in and a first username - is the mark.
-    setInitial(firstLetter(user.username)||firstLetter(user.minecraftName));
+    const called=typeof user.name==='string'&&user.name!==GENERIC_NAME?user.name:'';
+    // The letter is the display name's first character, then the Minecraft name's, then the
+    // username's: the same order as the label, because `name` is that mapping. An account with no
+    // name at all - the moment between a provider sign-in and a first name - is the mark, because
+    // a C for 'Company member' would be a letter that means nothing.
+    setInitial(firstLetter(called));
     showPicture(typeof user.picture==='string'?user.picture:'');
    };
    const paint=next=>{
     current=next;auth.render(next);profile?.syncLock();linked?.syncLock();
-    name.textContent=next.account?.passwordRequired?'Finish setup':next.account?.username||'Sign in';
+    // The name the player is called, not the handle they type - the launcher's own rule (site/desktop.js,
+    // accountName, after Owen's same report there on 2026-10-19): publicAccount gives the display
+    // name, then the Minecraft name, then the username. Owen, 2026-10-26, on this site: the nav showed
+    // `oceaster` where the launcher shows `OCEaster`.
+    name.textContent=next.account?next.account.passwordRequired?'Finish setup':next.account.name||GENERIC_NAME:'Sign in';
     paintFace(next);
     account.setAttribute('aria-label',next.account?.passwordRequired?'Finish account setup':next.account?'Account options':'Sign in or create an Easter Company account');
     account.setAttribute('aria-expanded',String(menu.matches(':popover-open')));
