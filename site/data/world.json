@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-10-19T04:18:12.238111+00:00",
+  "captured_at": "2026-10-26T21:04:04+00:00",
   "center": [
     -625,
     -247
@@ -253,8 +253,8 @@
       "z": -145.18
     }
   ],
-  "missed_days": 0,
-  "position_source": "Last observed ships and NPCs. Player records are excluded at export.",
+  "missed_days": 6,
+  "position_source": "Last observed ships and NPCs, carried from the 2026-10-19T04:18:12.238111+00:00 snapshot because the capture of 2026-10-26T21:04:04Z carried no position store. Player records are excluded at export.",
   "region_blocks": 512,
   "regions": [
     {
@@ -1840,9 +1840,9 @@
       "short_name": "Eastern Territories"
     }
   ],
-  "saved_chunk_slots": 31023,
+  "saved_chunk_slots": 32487,
   "schema": 1,
-  "snapshot_day": "2026-10-19",
+  "snapshot_day": "2026-10-26",
   "tiles": [
     {
       "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
@@ -1925,7 +1925,7 @@
       "z": -2
     },
     {
-      "version": "3427c7c6b5a87b8bb1a4f1590afbffff9aa58bc7f32f71bc8346b852db29a1df",
+      "version": "60ac91dcb3ea4227755c29aebc3388dd2fa8644b3d76b19e10024f26cdf21fa2",
       "x": -2,
       "z": -1
     },
@@ -1940,6 +1940,16 @@
       "z": 1
     },
     {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -2,
+      "z": 2
+    },
+    {
+      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "x": -2,
+      "z": 3
+    },
+    {
       "version": "bf152499a7507b5e57afe95be945c915baf14c28193e68404ee8dcfa96cdb6c0",
       "x": -1,
       "z": -3
@@ -1950,27 +1960,27 @@
       "z": -2
     },
     {
-      "version": "c06c27db5086556ab4e13e80f9ccdcdef8345f488f80e18e1124c228a8cefc24",
+      "version": "b130cae0d06aadf3db97a595880fd073aea1e290198837dc4210ab969ac3657e",
       "x": -1,
       "z": -1
     },
     {
-      "version": "eb705c9dacacd004f0ab0c4d2cad85df1c990e56b4f76f3264c466a8c00c4238",
+      "version": "6f1c1d8c9377f2c4b44400d5c614c54eb9571429eef0f05470edb921f673cdb2",
       "x": -1,
       "z": 0
     },
     {
-      "version": "2b044fc609e6a74c5c391184e9bf5064f7534e216d7f15bf5ec7d156ec1fb3f7",
+      "version": "60419e2cac100d8623c5e394c4d317046c0b6623be55c098ccb8365cf80c132a",
       "x": -1,
       "z": 1
     },
     {
-      "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
+      "version": "474179e2d2faa48e28a4bc91439dd25a1fdf7ec2c35cb6414286ee27fa22b232",
       "x": -1,
       "z": 2
     },
     {
-      "version": "eaf1519c2b53f4bfc290b017d0223d236773ed0c377e21cd1aea52657bb1b62a",
+      "version": "64257df22bfbb520ac5fef52c7474acb2e636e84f0636219592b0ef6dfd13762",
       "x": -1,
       "z": 3
     },
@@ -2015,17 +2025,17 @@
       "z": 0
     },
     {
-      "version": "53c166e77b4eda0548727343f88c9ed26588c0cac30fba0f2fd1fb082ad0a5ad",
+      "version": "4b66e2d3d4a71a73b859c8f4d8e0500633d3fc778597c891a5610727d31fbab7",
       "x": 0,
       "z": 1
     },
     {
-      "version": "b86c1e57f8215e403961d90afc5515a112e25ff712e3e9a695986e0c5aef2480",
+      "version": "aa009d92aa22091d27c58e831ab29a5b46ce180da5f4f4fc31d48b849f6713cc",
       "x": 0,
       "z": 2
     },
     {
-      "version": "d432de016f335b4d53e23a2d8356e5b5ac2c11c5dbde11a883bd85f7b0501a90",
+      "version": "04ec3ddd91a56768ae7b60ebb1522c6d510da6c7aedeaf82e305457821d2fa5d",
       "x": 0,
       "z": 3
     },
@@ -2065,17 +2075,17 @@
       "z": 0
     },
     {
-      "version": "97184988cec9b0233a187821b6724d2ea805391ec4a83a63e1e0dfd45eb26670",
+      "version": "45f93004e222e7cedc6052b5fd0a522c37212a84cd968498a43cf80a87b0d80f",
       "x": 1,
       "z": 1
     },
     {
-      "version": "59d02006e639d1d0808c64550ae9b07c852e5e9fdca97351fe5ef9cf88cb60df",
+      "version": "0b56d66b31c91eaf8370206a6a622d0f4c76fe6f631854a4b99a39456b4607cb",
       "x": 1,
       "z": 2
     },
     {
-      "version": "b6644c211b93f46be4bc1a27f4720bdafa031dd909b820aa1ce53158bd95dc67",
+      "version": "c72e2e091dc45c68a8126cde527ce6f12240027b61d857d74083b49568e23581",
       "x": 1,
       "z": 3
     },
