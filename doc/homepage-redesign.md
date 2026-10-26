@@ -10,6 +10,16 @@ players, with ten or more recommended for an average group. It describes weekly
 End regeneration and the end of hostile Overworld surface spawning until the next
 Wednesday reset around 04:00 EST. It does not change game rules or the wiki.
 
+**Corrected 2026-10-26: the reset schedule sentence was removed from the page.** The
+dump described a feature the owner believed was running, and the measurement says
+otherwise: the only scheduler that ever existed was this machine's
+`minecraft-reset-end.timer` (removed; one journal run, 2026-10-14, which found no End
+region files), and the account's only EventBridge rule is `easter-atlas-hourly` — no
+reset rule, no EventBridge Scheduler schedule, no reset Lambda. So
+`Weekly reset: Wednesday, around 04:00 EST.` was a promise nothing keeps. The buff
+sentence above it still stands, because the datapack implements the buff; it just ends
+at a reset that no longer happens. Restore the sentence when the feature is restored.
+
 The native details/summary control reveals crime, wallet, debt and prison rules.
 Chapter anchors and wiki/map links work without JavaScript. The new styles are in
 site/world-journal.css; the whole section retains .home-below so the existing

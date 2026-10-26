@@ -392,7 +392,7 @@ gate are about behaviour.
 
 ### The 2026-10-22 measurement
 
-Measured on this household server against `https://easter-co-smp.github.io/data/client.json`.
+Measured on this machine against `https://easter-co-smp.github.io/data/client.json`.
 The gate's own two runs, which are the numbers a re-run should be read against — byte counts
 are stable, durations are that day's network:
 
