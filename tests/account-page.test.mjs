@@ -7,7 +7,7 @@
 // Microsoft token of any kind appears in one, because the page is never given one.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {readFile,readdir} from 'node:fs/promises';
 import {createWebAccount} from '../site/web-account.mjs';
 import {AccountClient} from '../site/account-client.mjs';
 import {createMicrosoftSignIn,readCallback,REDIRECT_URI,ACCOUNT_PATH} from '../site/account/microsoft-signin.mjs';
@@ -302,6 +302,37 @@ test('the dialog and the account page draw their sign-in options from one module
  assert.equal(providerLabel('steam'),'Sign in with Steam');
  assert(!dialog.includes("for(const provider of ['google','steam','discord'])"),'neither surface keeps a second provider list');
  assert(!page.includes('PROVIDER_NAMES'),'nor a second table of provider names');
+});
+
+test('a successful sign-in leaves the account page for the site root instead of painting an account',async()=>{
+ // Owen, 2026-10-26, signed in on /account/: the page "should redirect back to the / page once
+ // signed in. Do not show whatever this is." signedIn() is the one funnel every success passes
+ // through - the Microsoft callback, an in-place provider sign-in, the direct Company form, and a
+ // stored session re-validated on boot - so this gate is about the answer it gives rather than
+ // about one journey: a navigation, and nothing painted.
+ const page=await readFile(new URL('../site/account/account.mjs',import.meta.url),'utf8');
+ assert(page.includes("location.replace(new URL('../',location.href))"),'a success navigates to the site root, resolved from the page so a preview server is the same answer');
+ assert(!page.includes('location.assign'),'and the entry is replaced rather than added to, so Back cannot re-enter the page it left');
+ assert(page.includes("shown='in'"),'the state is recorded before the navigation, so a repaint cannot redraw the options behind it');
+ assert(!page.includes('Signed in as'),'the page paints no account line any more');
+ assert(!page.includes('PLAY_NOTE'),'and the note constant is gone');
+ // The stylesheet cannot keep a rule for an element nothing draws.
+ const css=await readFile(new URL('../site/account/account.css',import.meta.url),'utf8');
+ for(const gone of ['.account-identity','.account-note'])assert(!css.includes(gone),'the stylesheet drops '+gone+' too');
+ // Sign-out did not go with the panel: the one in the product is the nav's account menu, on every
+ // page of the site, and it still clears the session through the same seam.
+ const web=await readFile(new URL('../site/web.js',import.meta.url),'utf8');
+ assert(web.includes("action('Sign out'"),'sign-out is still the nav account menu\'s, on every page');
+ // The sentence is DELETED, not moved: the words a player could read on this page exist in no file
+ // the site serves. A copy parked on another page would be a second author of player-facing copy.
+ const site=new URL('../site/',import.meta.url);
+ const files=(await readdir(site,{recursive:true})).filter(name=>/\.(mjs|js|html|css)$/.test(name));
+ assert(files.includes('account/account.mjs')&&files.includes('web.js')&&files.length>30,'the scan read the whole site tree and the pages it names: '+files.length+' files');
+ for(const name of files){
+  const text=await readFile(new URL(name,site),'utf8');
+  for(const moved of ['Signing in here does not start Minecraft'])
+   assert(!text.includes(moved),'the Play sentence was removed rather than relocated, but site/'+name+' carries it');
+ }
 });
 
 test('a waking account service is waited out on its own declared answer, and nothing else is retried',async()=>{

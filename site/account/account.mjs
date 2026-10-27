@@ -140,12 +140,13 @@ function unavailable(){
 
 // THE SIGNED-IN ANSWER IS THE SITE ROOT.
 //
-// Owen, 2026-10-26, signed in and looking at this page: "Signed in as OCEaster / Signing in here
-// does not start Minecraft. Play stays in the launcher. / Sign out" is not what a success should
-// draw - the page "should redirect back to the / page once signed in. Do not show whatever this
-// is." So this page has no signed-in state at all. Every success funnels through here (the
-// Microsoft callback, the in-place provider sign-in, the direct Company username/password form, and
-// boot() re-validating a stored session), and every one of them leaves.
+// Owen, 2026-10-26, signed in and looking at this page, asked for what it drew - the account's
+// name, a note about Play and a sign-out button, with a heading over them - to be gone: the page
+// "should redirect back to the / page once signed in. Do not show whatever this is." So this page
+// has no signed-in state at all, and the note's sentence was deleted rather than moved: it has no
+// surface here any more, and player-facing copy is Owen's to write. Every success funnels through
+// here (the Microsoft callback, the in-place provider sign-in, the direct Company username/password
+// form, and boot() re-validating a stored session), and every one of them leaves.
 //
 // The address is resolved from this page rather than written out, so one branch is the site root
 // on easter-co-smp.github.io and on a preview server alike. `location.replace` rather than

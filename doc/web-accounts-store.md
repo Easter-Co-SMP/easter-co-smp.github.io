@@ -117,13 +117,26 @@ descriptive loading spinner" and nothing else.
   start is read in the dialog. `completeMicrosoftSignIn` still refuses a
   callback anywhere but the registered path; what the Azure registration pins is
   the address the answer comes back to.
+- A SUCCESS LEAVES THE PAGE. Owen, 2026-10-26, signed in on `/account/`: it
+  should "redirect back to the / page once signed in. Do not show whatever this
+  is." `signedIn()` — the one funnel the Microsoft callback, a provider sign-in,
+  the direct Company form and a stored session re-validated on boot all reach —
+  paints nothing and calls `location.replace(new URL('../', location.href))`, so
+  the document ends on the site root, the entry it arrived on is replaced rather
+  than added to (Back cannot re-enter it), and the "signed in as" line, the note
+  about Play and the page-level Sign out are gone. The note's sentence was
+  deleted rather than moved. Sign-out did not go with it: the nav's account menu
+  carries it on every page (`site/web.js:81`). Every refusal is unchanged.
 - Document loads per step, measured with `tests/account-browser.mjs`'s counter
   against `f386139`: dialog → Microsoft 2 → 1, a refused start 1 → 0, a callback
-  with a code 1 → 1, the page's own Microsoft button 1 → 1, a refused exchange
-  1 → 1, a provider sign-in from the page 0 → 0. The whole journey from the
-  nav's Sign in to a signed-in account page is 4 → 3. The two that remain are the
-  authorize redirect and Microsoft's return to `/account/`, which are the
-  registration itself.
+  with a code 1 → 2, the page's own Microsoft button 1 → 1, a refused exchange
+  1 → 1, a provider sign-in from the page 0 → 1, the direct Company sign-in →
+  1, a signed-in visit to `/account/` → 2. Everything a success gained is the one
+  load of the return to the site root above; the refusal rows did not move. The
+  whole journey from the nav's Sign in to a signed-in page is 4 → 4 — the
+  authorize redirect, Microsoft's return to `/account/`, and that return to `/`,
+  of which the first two are the registration itself and the third is the rule
+  above.
 
 ## A cold load paints the account; it does not ask
 

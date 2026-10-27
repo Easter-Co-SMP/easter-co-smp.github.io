@@ -6,9 +6,18 @@
 // the account API or to Microsoft is answered by a fixture below, so no live service, no real
 // Microsoft account and no Company credential is involved. What is proved here is what a player
 // sees at each of the three widths: the sign-in options - the same ones the nav's dialog draws,
-// from the same module - the busy state while a flow is in flight, the signed-in account, a
-// cancelled sign-in, a refused one, a replayed one, a callback with no state, and the page's
-// refusal to start a flow from any address but its own.
+// from the same module - the busy state while a flow is in flight, a cancelled sign-in, a refused
+// one, a replayed one, a callback with no state, and the page's refusal to start a flow from any
+// address but its own.
+//
+// THE ONE RULE THIS SUITE MEASURES ABOUT SUCCESS (Owen, 2026-10-26, signed in on /account/:
+// "should redirect back to the / page once signed in. Do not show whatever this is."): a sign-in
+// that succeeds never paints an account here. The document ends on the SITE ROOT with the account
+// named in the nav, by all three routes that can succeed on this page - the Microsoft callback, a
+// provider, and the direct Company username/password form - and by opening /account/ while already
+// signed in. Nothing is refused any differently than before: every refusal still ends on /account/
+// with its sentence in the one alert region. Sign-out is the nav's, on every page
+// (site/web.js:81), so it is exercised from the root rather than from this page.
 //
 // It also counts DOCUMENT LOADS per step and prints them: a full page load is the cost Owen felt
 // after a real sign-in ("too many full page loads", 2026-10-26), and a number is the only way to
@@ -17,9 +26,16 @@
 import assert from 'node:assert/strict';
 import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
 import {API_ORIGIN} from '../site/account-client.mjs';
-import {REDIRECT_URI} from '../site/account/microsoft-signin.mjs';
+import {REDIRECT_URI,ACCOUNT_PATH} from '../site/account/microsoft-signin.mjs';
 import {SIGN_IN,SIGN_IN_WAIT,PROVIDER_WAIT,PROVIDER_ORDER,providerLabel} from '../site/signin-options.mjs';
 const origin=process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18118';
+// Where a success must leave the document, resolved from /account/ the way the page resolves it
+// (site/account/account.mjs, `new URL('../', location.href)`), so this suite is not the second
+// author of that address: it is the site root of whichever origin is serving site/.
+const SITE_ROOT=origin+'/';
+// The account's name as the nav prints it (site/account-client.mjs:274, publicAccount `name`: the
+// display name first), which is the account a visitor sees after a success now.
+const NAV_NAME='CaptainFixture';
 // A returning player: the Microsoft account already has an Easter Company username, so the
 // sign-in lands on the account itself rather than on the first-time setup the launcher and the
 // site both run. The new-account shape is its own step at the end, because that is the other
@@ -29,8 +45,15 @@ const NEW_ACCOUNT={...ACCOUNT,id:43,companyId:'EC-43',username:null,passwordRequ
 const SESSION_TOKEN='fixture-company-session-not-a-real-credential';
 const signed=account=>({created:true,account,session:{token:SESSION_TOKEN,expiresAt:new Date(Date.now()+3600000).toISOString()},emailStatus:'stored'});
 const NOT_REGISTERED='Microsoft does not accept this sign-in yet: the redirect URI is not registered on the Easter Company Microsoft application. Add '+REDIRECT_URI+' as a Web redirect URI in the Azure portal, then try again.';
+// A provider that does not confirm the sign-in is a refusal, never a success, so it must be read on
+// the page rather than answered with a navigation. The sentence itself belongs to the seam
+// (site/account-client.mjs picks it), so this suite asserts that one was drawn rather than pinning
+// the words.
 const STATE='Zm9vYmFyYmF6cXV1eGNvcmdlZ3JhdWx0Z2FycGx5'.slice(0,43).padEnd(43,'a');
 const CALLBACK_CODE='M.C523_BAY.2.U.fixture-code';
+// The exact address Microsoft comes back to, built once so every journey arrives the same way and
+// the loads this suite counts can be named.
+const CALLBACK_URL=origin+'/account/?code='+encodeURIComponent(CALLBACK_CODE)+'&state='+STATE;
 // The sentences the busy state is allowed to say. One action, one sentence: they are the nav's
 // dialog's own (site/signin-options.mjs), so the page adds no words to the product.
 const BUSY_SIGN_IN=SIGN_IN_WAIT;
@@ -40,15 +63,25 @@ const PROVIDER_LABELS=PROVIDER_ORDER.map(providerLabel);
 // same step cost on main (f386139), measured with this same counter: the dialog used to send the
 // browser to /account/?provider=microsoft and let that page start the flow, which was one whole
 // document load that answered nothing.
+//
+// A SUCCESS NOW COSTS ONE MORE LOAD THAN IT DID, and that load is the feature rather than a
+// regression: the sign-in no longer answers on /account/ (a document that was already loaded), it
+// sends the browser to the site root, which is a document. So the callback and a direct visit to
+// /account/ while signed in are 2 (arrive, then leave), and the provider and direct Company
+// sign-ins that used to answer in place with no load at all are 1 (leave). The refusal rows are
+// untouched at what they always cost, because a refusal still navigates nowhere.
 const BUDGET=[
  {step:'nav Sign in -> dialog',before:1,after:1},
  {step:'dialog start refused by the service',before:1,after:0},
  {step:'dialog "Sign in with Microsoft" -> Microsoft',before:2,after:1},
- {step:'Microsoft -> /account/ callback with a code',before:1,after:1},
+ {step:'Microsoft -> /account/ callback with a code',before:1,after:2},
  {step:'/account/ "Sign in with Microsoft" -> Microsoft',before:1,after:1},
+ {step:'a signed-in visit to /account/ -> the site root',before:1,after:2},
  {step:'a refused exchange, re-rendered in place',before:1,after:1},
- {step:'a direct username/password sign-in, re-rendered in place',before:null,after:0},
- {step:'a provider sign-in, re-rendered in place',before:0,after:0},
+ {step:'a direct username/password sign-in -> the site root',before:null,after:1},
+ {step:'a refused direct sign-in, re-rendered in place',before:null,after:0},
+ {step:'a provider sign-in -> the site root',before:0,after:1},
+ {step:'a provider refusal, re-rendered in place',before:0,after:0},
 ];
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
 let checks=0;
@@ -84,6 +117,34 @@ async function assertBusy(page,{width,label,sentence}){
  assert(mark.width>0,'the spinner is laid out, never nothing ('+label+')');
  return mark;
 }
+// A SUCCESS, read back from the finished page: the document is the SITE ROOT, the address bar holds
+// no query, the account page is not there, and the account is named in the nav. Nothing here is
+// inferred from the load that produced it; every line is a value read back from the settled page.
+async function assertLeftForRoot(page,label){
+ assert.equal(page.url(),SITE_ROOT,label+' ends on the site root, not on /account/: '+page.url());
+ assert.equal(new URL(page.url()).search,'',label+' leaves no query in the address bar: '+page.url());
+ assert.equal(await page.locator('#account-panel').count(),0,label+' is not left on the account page');
+ await page.waitForFunction(name=>document.querySelector('.web-account-name')?.textContent.trim()===name,NAV_NAME);
+ assert.equal((await page.locator('.web-account-name').textContent()).trim(),NAV_NAME,'the nav names the account ('+label+')');
+ assert.equal(await page.locator('.web-account-nav').isVisible(),true,'and the named account control is on screen ('+label+')');
+ // The panel this page used to paint after a success exists nowhere in the product now, which is
+ // what Owen's "do not show whatever this is" means for a later reader of this suite.
+ assert.equal(await page.locator('.account-identity').count(),0,'no "Signed in as" line is drawn ('+label+')');
+ assert.equal(await page.locator('.account-note').count(),0,'and no note about Play ('+label+')');
+ assert.equal(await page.getByRole('button',{name:'Sign out',exact:true}).count(),0,'and no page-level Sign out is drawn - the one in the product is the nav menu\'s, and it is closed ('+label+')');
+}
+// Sign out is the nav's account menu, on every page of the site (site/web.js:81, `action('Sign out')`):
+// the page-level button went with the panel, so this is the surface a signed-in visitor has, and it
+// is exercised from the root rather than from /account/.
+async function signOutFromNav(page,label){
+ await page.locator('.web-account-nav').click();
+ const out=page.locator('#web-account-menu button').filter({hasText:'Sign out'});
+ await out.waitFor();
+ await out.click();
+ await page.waitForFunction(()=>document.querySelector('.web-account-name')?.textContent.trim()==='Sign in');
+ assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null,label+': the nav\'s sign-out clears the session this tab holds');
+ assert.equal(await page.locator('.web-account-nav').getAttribute('aria-label'),'Sign in or create an Easter Company account',label+': and the control is the signed-out one again');
+}
 try{
  for(const width of [1440,834,390]){
   const context=await browser.newContext({viewport:{width,height:1000},reducedMotion:'reduce'});
@@ -92,7 +153,9 @@ try{
   // start says, so one journey can be signed in, refused and replayed without a second server.
   // `hold` slows one answer down so the busy state can be read while it is on screen rather than
   // guessed at afterwards.
-  let exchange='ok',hold=0,startRefusal=null,password='ok';
+  // `meName` is what GET /v2/accounts/me calls the account, so one journey can prove the nav shows
+  // the name the SERVICE answered with rather than the one the tab happens to have stored.
+  let exchange='ok',hold=0,startRefusal=null,password='ok',meName=null,providerRefusal=false;
   page.on('pageerror',error=>errors.push(error.message));
   watcher(page,loads);
   await context.route(API_ORIGIN+'/**',async route=>{
@@ -112,7 +175,10 @@ try{
    }
    else if(path==='/v2/accounts/providers')value={providers:['microsoft','steam','google']};
    else if(path==='/v2/accounts/providers/start')value={flow:'f'.repeat(43),url:'https://steamcommunity.com/openid/login?fixture=1',expiresIn:600};
-   else if(path==='/v2/accounts/providers/finish')value=signed(ACCOUNT);
+   else if(path==='/v2/accounts/providers/finish'){
+    if(providerRefusal){status=403;value={error:'provider_refused',message:'Steam did not confirm the sign-in.'};}
+    else value=signed(ACCOUNT);
+   }
    else if(path==='/v2/accounts/password/login'){
     // The direct Company sign-in this page shares with the dialog. The refusal is the service's
     // own 401, which the seam turns into its own sentence; this suite asserts the page shows it
@@ -120,7 +186,9 @@ try{
     if(password==='refused'){status=401;value={error:'invalid_credentials'};}
     else value=signed(ACCOUNT);
    }
-   else if(path==='/v2/accounts/me')value={account:ACCOUNT};
+   // The boot read answers with the account this flow produced: the name `meName` asks for, the
+   // account with no username yet while that is the exchange's shape, and ACCOUNT otherwise.
+   else if(path==='/v2/accounts/me')value={account:meName?{...ACCOUNT,displayName:meName}:exchange==='new-account'?NEW_ACCOUNT:ACCOUNT};
    else if(path==='/v2/accounts/logout')value={};
    else throw Error('Unexpected API request '+path);
    await route.fulfill({status,contentType:'application/json',body:JSON.stringify(value)});
@@ -193,6 +261,22 @@ try{
   assert.equal(await discord.getAttribute('title'),SIGN_IN.providerUnconfigured);
   assert.equal(await page.evaluate(()=>Boolean(window.easterDesktop)),false);
   assert.equal(await page.locator('footer.account-footer a[href$="legal/privacy/"]').count(),1);
+  // This page draws no sign-out of its own any more, and it carries no signed-in panel in its
+  // markup either: both went with the panel a success used to paint. Sign-out is the nav's, on
+  // every page (site/web.js:81), which is why there is no page-level button to find here.
+  assert.equal(await page.getByRole('button',{name:'Sign out',exact:true}).count(),0,'the account page has no Sign out of its own');
+  assert.equal(await page.locator('.account-identity, .account-note').count(),0,'no signed-in panel exists on this page');
+  // And what the panel was built from - the sentence about Play, the identity line, the constant
+  // and the classes - is DELETED rather than moved: none of it exists in the file this server just
+  // served, so a later reader cannot find it parked somewhere else. The rendered page is asserted
+  // the same way below, which is the check that matters: a comment could still say the words.
+  const served=await page.evaluate(()=>fetch('account.mjs').then(answer=>answer.text()));
+  for(const gone of ['Signing in here does not start Minecraft','Play stays in the launcher','Signed in as','account-note','account-identity','PLAY_NOTE'])
+   assert.equal(served.includes(gone),false,'the account page no longer carries '+JSON.stringify(gone));
+  assert(served.includes("location.replace(new URL('../',location.href))"),'and a success is a navigation to the site root');
+  const drawn=(await page.locator('#account-panel').innerText()).replace(/\s+/g,' ');
+  for(const gone of ['Signing in here does not start Minecraft','Play stays in the launcher','Signed in as'])
+   assert.equal(drawn.includes(gone),false,'the page draws no '+JSON.stringify(gone)+': '+drawn);
   await noOverflow('the sign-in choices');
   // The dialog, on this same page, draws the same node: this comparison is the whole of point one.
   await page.getByRole('button',{name:'Sign in or create an Easter Company account',exact:true}).evaluate(button=>button.click());
@@ -223,83 +307,137 @@ try{
   });
   assert.equal(byKeyboard.count,1,'the page reaches Microsoft in one document load: '+JSON.stringify(byKeyboard.urls));
 
-  // 4. The callback: the code and the state it arrived with are posted, the Company session is
-  //    kept, the account is shown, and the code leaves the address bar. While the exchange is in
-  //    flight the page is the busy state and nothing else.
+  // 4. THE CALLBACK. The code and the state it arrived with are posted, the Company session is
+  //    kept - and the page paints no account: it replaces itself with the SITE ROOT, with the
+  //    account named in the nav. While the exchange is in flight the page is the busy state and
+  //    nothing else, which is unchanged.
   exchange='ok';
   hold=400;
   const callback=await step('Microsoft -> /account/ callback with a code',async()=>{
-   await page.goto(origin+'/account/?code='+encodeURIComponent(CALLBACK_CODE)+'&state='+STATE);
+   await page.goto(CALLBACK_URL);
    const mark=await assertBusy(page,{width,label:'the exchange',sentence:BUSY_SIGN_IN});
    // Reduced motion is the context this suite runs in: the spinner must still be something - a
    // still gold ring rather than an invisible or empty element.
    assert.equal(mark.animation,'none','reduced motion stops the rotation');
    assert.equal(mark.border,'rgb(228, 196, 134)','and paints the ring solid gold instead: '+JSON.stringify(mark));
-   await page.locator('.account-identity').waitFor();
+   // A success is a navigation now, so this is what the end of the flow looks like.
+   await page.waitForURL(SITE_ROOT);
   });
-  assert.equal(callback.count,1,'the callback costs one document load: '+JSON.stringify(callback.urls));
-  assert.equal(await page.locator('#account-panel').getAttribute('data-busy'),'false','the busy state ends with the flow');
-  assert.equal(await page.locator('#account-wait').isVisible(),false,'and the spinner is gone');
-  assert.match(await page.locator('.account-identity').innerText(),/^Signed in as/);
-  assert.equal((await page.locator('.account-identity strong').textContent()).trim(),'CaptainFixture');
+  hold=0;
+  assert.equal(callback.urls.filter(url=>url.includes('/account/')).length,1,'the callback is one document load and the exchange never reloads it: '+JSON.stringify(callback.urls));
+  assert.equal(callback.count,2,'and it leaves for the site root - one more document load, which is the feature: '+JSON.stringify(callback.urls));
+  await assertLeftForRoot(page,'the Microsoft callback');
   assert.equal(exchangeCalls().length,1);
   assert.deepEqual(exchangeCalls()[0].body,{code:CALLBACK_CODE,state:STATE,client:'website/1'});
   assert.equal(new URL(page.url()).search,'','the code is not left in the address bar');
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')!==null),true);
   assert.equal(await page.evaluate(()=>JSON.stringify(localStorage).includes('fixture-company-session')),false);
   assert.equal(await page.getByRole('button',{name:'Play',exact:true}).count(),0);
-  await page.getByRole('button',{name:'Sign out',exact:true}).waitFor();
-  await noOverflow('the signed-in account');
+  await noOverflow('the site root after a sign-in');
+  // The entry the callback arrived on was REPLACED, not added to - which is why the page uses
+  // location.replace: Back from the root must not re-enter /account/ carrying a spent code.
+  // Measured, then the root is restored for the journeys that follow.
+  await page.goBack({waitUntil:'load'});
+  assert.equal(page.url().includes('/account/'),false,'Back from the site root does not return to the callback: '+page.url());
+  await page.goForward({waitUntil:'load'});
+  await page.waitForURL(SITE_ROOT);
 
-  // 5. A refresh keeps the session, and it is read from the service rather than trusted.
-  await page.reload();
-  await page.locator('.account-identity').waitFor();
-  assert.equal(calls.filter(call=>call.path==='/v2/accounts/me').length,1);
+  // 5. OPENING /account/ WHILE SIGNED IN IS THE SAME SUCCESS - a refresh, a bookmark, a typed
+  //    address - and it leaves for the root too. The account is not trusted on faith: the nav ends
+  //    up with the name the SERVICE answered, not the one the tab has stored.
+  meName='RefreshedFixture';
+  const meBefore=calls.filter(call=>call.path==='/v2/accounts/me').length;
+  const revisit=await step('a signed-in visit to /account/ -> the site root',async()=>{
+   await page.goto(origin+'/account/');
+   await page.waitForURL(SITE_ROOT);
+   await page.waitForFunction(()=>document.querySelector('.web-account-name')?.textContent.trim()==='RefreshedFixture');
+  });
+  meName=null;
+  assert.equal(revisit.count,2,'the account page and the root it sends the browser to: '+JSON.stringify(revisit.urls));
+  assert.deepEqual(revisit.urls.map(url=>url.replace(origin,'')),['/account/','/'],'the account page is loaded once and replaced by the root: '+JSON.stringify(revisit.urls));
+  assert(calls.filter(call=>call.path==='/v2/accounts/me').length>meBefore,'the session is read from the service, not trusted: '+JSON.stringify(calls.filter(call=>call.path==='/v2/accounts/me').length));
+  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')!==null),true,'and the session survives the visit');
+  await noOverflow('the site root after a signed-in visit to the account page');
 
-  // 6. Sign out clears it, here and in the tab's storage, and the shared panel comes back.
-  await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  // 6. SIGN OUT IS THE NAV'S, ON EVERY PAGE. The panel's own button went with the panel; the menu
+  //    the nav opens on the root is what clears the session, and it still does.
+  await signOutFromNav(page,'signing out from the site root');
+  await noOverflow('the site root after signing out');
+  // And the account page meets a signed-out visitor with the shared options panel again.
+  await page.goto(origin+'/account/');
   await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
   assert.equal(await page.locator('#account-root .company-signin').count(),1,'signing out draws the shared panel again');
-  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null);
+  assert.equal(await page.locator('.account-identity').count(),0,'with no signed-in panel anywhere on it');
   await noOverflow('the sign-in choices after signing out');
 
-  // 7. A provider sign-in started here: the page is the busy state and says which flow it waits
-  //    on, and the answer is drawn in place - no document load of its own at all.
-  const providerStep=await step('a provider sign-in, re-rendered in place',async()=>{
+  // 7. A provider sign-in started on this page: the page is the busy state and says which flow it
+  //    waits on, and a success leaves for the site root - one document load, where answering in
+  //    place used to cost none.
+  const providerStep=await step('a provider sign-in -> the site root',async()=>{
    await page.getByRole('button',{name:'Sign in with Steam',exact:true}).click();
    await assertBusy(page,{width,label:'the provider sign-in',sentence:BUSY_PROVIDER});
-   await page.locator('.account-identity').waitFor({timeout:20000});
+   await page.waitForURL(SITE_ROOT,{timeout:20000});
   });
-  assert.equal(providerStep.count,0,'a provider sign-in costs no document load: '+JSON.stringify(providerStep.urls));
-  assert.match(await page.locator('.account-identity').innerText(),/^Signed in as/);
-  await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  assert.equal(providerStep.count,1,'a provider sign-in leaves for the site root in one document load: '+JSON.stringify(providerStep.urls));
+  assert.equal(new URL(providerStep.urls[0]).pathname,'/','and the load it costs is the root: '+JSON.stringify(providerStep.urls));
+  await assertLeftForRoot(page,'a provider sign-in');
+  await signOutFromNav(page,'signing out after a provider sign-in');
+  await page.goto(origin+'/account/');
   await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
 
-  // 8. The direct Company sign-in, on this page: the option Owen found missing. It is the same
-  //    form the dialog draws, it runs in place - no document load at all - and it is a busy state
-  //    while it runs. A refusal ends on this page with the password field cleared.
+  // 7b. A PROVIDER REFUSAL IS NOT A SUCCESS, and it must not become one: the page stays where it
+  //     is, draws the service's own sentence in the one alert region, and ends the busy state.
+  providerRefusal=true;
+  const providerRefused=await step('a provider refusal, re-rendered in place',async()=>{
+   await page.getByRole('button',{name:'Sign in with Steam',exact:true}).click();
+   await assertBusy(page,{width,label:'the refused provider sign-in',sentence:BUSY_PROVIDER});
+   await page.locator('.account-error').waitFor({timeout:20000});
+   await page.waitForTimeout(300);
+  });
+  providerRefusal=false;
+  assert.equal(providerRefused.count,0,'a provider refusal navigates nowhere: '+JSON.stringify(providerRefused.urls));
+  assert.equal(new URL(page.url()).pathname,ACCOUNT_PATH,'and it ends on the account page: '+page.url());
+  assert.equal(await page.locator('#account-panel').getAttribute('data-busy'),'false','the busy state ended with the flow');
+  assert.equal(await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).isVisible(),true,'and the options are drawn beside the refusal');
+  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null,'and nobody was signed in');
+  const providerRefusalText=(await page.locator('.account-error').innerText()).trim();
+  assert(providerRefusalText.length>0,'the refusal is drawn as a sentence, not left blank: '+JSON.stringify(providerRefusalText));
+  assert.equal(await page.locator('.account-identity').count(),0,'and no account is painted for it');
+  await noOverflow('a provider refusal');
+
+  // 8. The direct Company sign-in, on this page: the option Owen found missing. It is the same form
+  //    the dialog draws, it is a busy state while it runs, and it leaves for the site root too. The
+  //    refusal is unchanged: it ends on this page, in the one alert region, password cleared.
   await page.locator('#account-root input[name=identifier]').fill('fixture_player');
   await page.locator('#account-root input[name=password]').fill('fixture-passphrase');
   hold=400;
-  const direct=await step('a direct username/password sign-in, re-rendered in place',async()=>{
+  const direct=await step('a direct username/password sign-in -> the site root',async()=>{
    await page.locator('#account-root button[type=submit]').click();
    await assertBusy(page,{width,label:'the direct sign-in',sentence:BUSY_SIGN_IN});
-   await page.locator('.account-identity').waitFor();
+   await page.waitForURL(SITE_ROOT);
   });
-  assert.equal(direct.count,0,'the direct sign-in costs no document load: '+JSON.stringify(direct.urls));
-  assert.match(await page.locator('.account-identity').innerText(),/^Signed in as/);
   hold=0;
-  await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  assert.equal(direct.count,1,'the direct sign-in leaves for the site root in one document load: '+JSON.stringify(direct.urls));
+  await assertLeftForRoot(page,'a direct Company sign-in');
+  await signOutFromNav(page,'signing out after a direct sign-in');
+  await page.goto(origin+'/account/');
   await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
   password='refused';
-  await page.locator('#account-root input[name=identifier]').fill('fixture_player');
-  await page.locator('#account-root input[name=password]').fill('not-the-passphrase');
-  await page.locator('#account-root button[type=submit]').click();
-  await page.locator('.account-error').waitFor();
+  const refusedPassword=await step('a refused direct sign-in, re-rendered in place',async()=>{
+   await page.locator('#account-root input[name=identifier]').fill('fixture_player');
+   await page.locator('#account-root input[name=password]').fill('not-the-passphrase');
+   await page.locator('#account-root button[type=submit]').click();
+   await page.locator('.account-error').waitFor();
+   await page.waitForTimeout(300);
+  });
+  assert.equal(refusedPassword.count,0,'a refused sign-in navigates nowhere: '+JSON.stringify(refusedPassword.urls));
+  assert.equal(page.url(),origin+'/account/','a refused sign-in ends on the account page: '+page.url());
   assert.equal(await page.locator('#account-panel').getAttribute('data-busy'),'false','a refusal is not a busy state');
   assert.equal(await page.locator('#account-root input[name=password]').inputValue(),'','the password is not left on screen after a refusal');
   assert.equal(await page.locator('#account-root input[name=identifier]').inputValue(),'fixture_player','and what was typed as the identifier is kept');
   assert.equal(await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).isVisible(),true,'the options are drawn beside the refusal');
+  assert.equal(await page.locator('.account-identity').count(),0,'and a refusal paints no account');
+  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null,'and it signs nobody in');
   password='ok';
 
   // 9. A cancelled sign-in is the authority's own shape: error plus description, no code, and no
@@ -307,6 +445,7 @@ try{
   const before=exchangeCalls().length;
   await page.goto(origin+'/account/?error=access_denied&error_description='+encodeURIComponent('AADSTS50011: the player cancelled the sign-in.'));
   await page.getByText('Sign-in cancelled.',{exact:true}).waitFor();
+  assert.equal(new URL(page.url()).pathname,ACCOUNT_PATH,'a cancelled sign-in stays on the account page: '+page.url());
   assert.equal(await page.locator('#account-panel').getAttribute('data-busy'),'false','a refusal is not a busy state');
   assert.equal(await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).isVisible(),true,'and the options are drawn beside it');
   assert.equal(exchangeCalls().length,before,'a refusal has no code to exchange');
@@ -324,6 +463,7 @@ try{
    assert.equal(loads.length,settled,'a refusal navigates nowhere: '+JSON.stringify(loads.slice(settled)));
   });
   assert.equal(refused.count,1,'a refused exchange costs the one document load it arrived on: '+JSON.stringify(refused.urls));
+  assert.equal(new URL(page.url()).pathname,ACCOUNT_PATH,'a refused exchange stays on the account page: '+page.url());
   const refusal=await page.locator('.account-error').innerText();
   assert(refusal.includes(NOT_REGISTERED),'the service sentence is drawn verbatim: '+refusal);
   assert(refusal.includes('does not accept this sign-in yet'));
@@ -337,6 +477,7 @@ try{
   const beforeReplay=exchangeCalls().length;
   await page.goto(origin+'/account/?code='+encodeURIComponent(CALLBACK_CODE)+'&state='+STATE);
   await page.getByText('This sign-in has expired or was already used. Start again.',{exact:true}).waitFor();
+  assert.equal(new URL(page.url()).pathname,ACCOUNT_PATH,'a replayed state stays on the account page: '+page.url());
   assert.equal(exchangeCalls().length,beforeReplay+1);
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null);
 
@@ -346,6 +487,7 @@ try{
   const beforeNoState=exchangeCalls().length;
   await page.goto(origin+'/account/?code='+encodeURIComponent(CALLBACK_CODE));
   await page.getByText('This sign-in has expired or was already used. Start again.',{exact:true}).waitFor();
+  assert.equal(new URL(page.url()).pathname,ACCOUNT_PATH,'a callback with no state stays on the account page: '+page.url());
   assert.equal(exchangeCalls().length,beforeNoState,'no exchange is asked for without a state');
 
   // 12. The flow belongs to one address. Loaded anywhere else, the page says so and offers no
@@ -360,13 +502,17 @@ try{
 
   // 13. A Microsoft account with no Easter Company username yet reaches the existing first-time
   //     setup, exactly as a provider sign-up on this site does: the page does not invent a second
-  //     way to claim a name.
+  //     way to claim a name. Closing that setup with the account signed in is a success like any
+  //     other, so it leaves for the site root - where the nav offers the setup rather than a name.
   exchange='new-account';
-  await page.goto(origin+'/account/?code='+encodeURIComponent(CALLBACK_CODE)+'&state='+STATE);
+  await page.goto(CALLBACK_URL);
   await page.locator('#desktop-company-username[open]').waitFor();
   await page.getByRole('heading',{name:'Choose your Easter Company username',exact:true}).waitFor();
   await page.getByRole('button',{name:'Close username setup',exact:true}).click();
-  await page.locator('.account-identity').waitFor();
+  await page.waitForURL(SITE_ROOT);
+  assert.equal(page.url(),SITE_ROOT,'an account with no name yet leaves for the site root too: '+page.url());
+  await page.waitForFunction(()=>document.querySelector('.web-account-name')?.textContent.trim()==='Finish setup');
+  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')!==null),true,'and the session it created is still the tab\'s');
   exchange='ok';
 
   // 14. Nothing on this path may ask for a Minecraft session, and no Microsoft token is stored.
@@ -398,7 +544,7 @@ try{
   await page.goto(origin+'/account/');
   await page.locator('#account-root .company-signin').waitFor();
   await page.waitForFunction(()=>document.getElementById('account-panel')?.dataset.busy==='false');
-  assert.equal(await page.locator('.account-identity').count(),0,'the signed-out options are what these widths measure');
+  assert.equal(await page.locator('.account-identity').count(),0,'the signed-out options are what these widths measure, on a page that paints no account at all');
   await page.getByRole('button',{name:'Sign in with Steam',exact:true}).waitFor();
   await noOverflow('the final sign-in choices');
   const controlHeights=await page.locator('#account-root .company-signin button, #account-root .company-signin input').evaluateAll(nodes=>nodes.map(node=>({label:(node.textContent||node.name||'').trim(),height:Math.round(node.getBoundingClientRect().height)})));
@@ -422,7 +568,7 @@ try{
    assert.equal(countedRow.count,row.after,row.step+' costs '+row.after+' document load(s), not '+countedRow.count);
   }
   assert.deepEqual(errors,[]);
-  console.log('PASS account page: one shared options panel, one busy state, counted document loads, chooser hand-off, choices, start by pointer and by keyboard, callback, session, refresh, sign out, provider sign-in, cancelled, not registered, replay, no state, wrong address at '+width);
+  console.log('PASS account page: one shared options panel, one busy state, counted document loads, chooser hand-off, choices, start by pointer and by keyboard, callback -> the site root, session, a signed-in visit -> the site root, sign out from the nav, provider -> the site root, direct -> the site root, cancelled, not registered, refused password, replay, no state, wrong address at '+width);
   checks++;await context.close();
  }
  // 16. No motion preference: the same busy state, and the spinner actually turns. Reduced motion
@@ -441,8 +587,8 @@ try{
  await page.goto(origin+'/account/?code='+encodeURIComponent(CALLBACK_CODE)+'&state='+STATE);
  const mark=await assertBusy(page,{width:1440,label:'the exchange, no motion preference',sentence:BUSY_SIGN_IN});
  assert.equal(mark.animation,'update-spin','without a motion preference the spinner rotates: '+JSON.stringify(mark));
- await page.locator('.account-identity').waitFor();
- console.log('PASS the spinner rotates with no motion preference and is a still gold ring under reduced motion');
+ await page.waitForURL(SITE_ROOT);
+ console.log('PASS the spinner rotates with no motion preference and is a still gold ring under reduced motion, and the success leaves for the site root');
  checks++;await moving.close();
 }finally{await browser.close();}
 console.log(checks+' responsive account journeys passed; every authority, account and session was a fixture.');
