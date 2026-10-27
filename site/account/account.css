@@ -264,26 +264,6 @@
   outline: 2px solid var(--account-gold);
   outline-offset: 3px;
 }
-.account-identity {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--account-muted);
-  overflow-wrap: anywhere;
-}
-.account-identity strong {
-  display: block;
-  margin-top: 4px;
-  font: 22px/1.25 Georgia, "Times New Roman", serif;
-  font-weight: 400;
-  color: #ede2c9;
-}
-.account-note {
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.7;
-  color: var(--account-muted);
-}
 .account-error {
   display: grid;
   gap: 8px;

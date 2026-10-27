@@ -9,7 +9,15 @@
 //   callback  Microsoft returns with either ?code=&state= or ?error=&error_description=. The
 //             code case posts those two values, the state exactly as received, to the exchange;
 //             the error case is a refusal and is never exchanged.
-//   account   the signed-in account, and a sign-out that clears it through the same seam.
+//   success   and then the page is done with the player: a signed-in answer is not painted here at
+//             all. Every way a sign-in can succeed - this callback, a provider, the direct Company
+//             username/password form, or a stored session re-validated on boot - funnels through
+//             signedIn() below, and signedIn() sends the browser to the site root. Owen,
+//             2026-10-26, looking at this page signed in: it should "redirect back to the / page
+//             once signed in. Do not show whatever this is." Signing out is not lost with the
+//             panel it used to draw: every page carries it in the nav's account menu
+//             (site/web.js, `action('Sign out', ...)`), which is the surface a signed-in visitor
+//             actually has.
 //
 // The rule: this page holds no Microsoft token and never asks for a Minecraft session. The
 // backend discards the refresh token by design (doc/BROWSER_SIGN_IN.md, section 4), so Play
@@ -31,11 +39,11 @@ import {REDIRECT_URI,ACCOUNT_PATH,NOT_CONFIGURED,readCallback} from './microsoft
 // look the same today is exactly what drifts, so there is one renderer and one copy table.
 import {SIGN_IN_TITLE,SIGN_IN,SIGN_IN_WAIT,PROVIDER_WAIT,createSignInOptions} from '../signin-options.mjs';
 
-// The launcher's own words for the actions this page shares with it: the sign-out in the account
-// menu (site/web.js) and the cancelled sentence the browser sign-in seam already answers with.
-// One action, one spelling: a second copy of the same sentence is a second thing that can stop
-// being true.
-const SIGN_OUT='Sign out';
+// The launcher's own words for the one refusal this page shares with it: the cancelled sentence the
+// browser sign-in seam already answers with. One action, one spelling: a second copy of the same
+// sentence is a second thing that can stop being true. (`Sign out` used to be kept here beside it,
+// for the button the signed-in panel drew; that button went with the panel, and the one sign-out in
+// the product is the nav's, site/web.js:81.)
 const CANCELLED='Sign-in cancelled.';
 // The two sentences this page adds, both of them about a state the launcher has no surface for.
 // Not-configuration is one state and carries the service's own sentence; the address is named
@@ -43,9 +51,6 @@ const CANCELLED='Sign-in cancelled.';
 // sentence leaves out.
 const WRONG_ADDRESS='Sign in at '+REDIRECT_URI+'.';
 const AUTHORITY_REFUSED='Microsoft did not complete the sign-in.';
-// What a browser session can and cannot do is a product boundary, not a hidden edge: a player who
-// has just signed in on the site should not have to discover it by looking for a Play button.
-const PLAY_NOTE='Signing in here does not start Minecraft. Play stays in the launcher.';
 
 const root=document.getElementById('account-root');
 const panel=document.getElementById('account-panel');
@@ -133,19 +138,33 @@ function unavailable(){
  root.replaceChildren();
 }
 
-function signedIn(account){
+// THE SIGNED-IN ANSWER IS THE SITE ROOT.
+//
+// Owen, 2026-10-26, signed in and looking at this page: "Signed in as OCEaster / Signing in here
+// does not start Minecraft. Play stays in the launcher. / Sign out" is not what a success should
+// draw - the page "should redirect back to the / page once signed in. Do not show whatever this
+// is." So this page has no signed-in state at all. Every success funnels through here (the
+// Microsoft callback, the in-place provider sign-in, the direct Company username/password form, and
+// boot() re-validating a stored session), and every one of them leaves.
+//
+// The address is resolved from this page rather than written out, so one branch is the site root
+// on easter-co-smp.github.io and on a preview server alike. `location.replace` rather than
+// `assign`: the entry this page was opened on is replaced, so Back does not bounce the player into
+// the page he has just been sent away from - which for a callback means the spent code and the
+// address it arrived on are gone from the history too.
+//
+// Sign-out did not go with the panel (site/web.js:81). It is the nav's account menu on every page
+// of the site, and that is the surface a signed-in visitor actually has.
+function signedIn(){
+ // Set before the navigation so a repaint caused by a broadcast from the seam cannot redraw the
+ // options panel - or anything else - behind it.
  shown='in';
  options=null;
  clearProblem();
- const identity=element('p','account-identity','Signed in as ');
- identity.append(element('strong',null,account?.name||'Company member'));
- const out=element('button','account-provider',SIGN_OUT);
- out.type='button';
- out.onclick=()=>{
-  out.disabled=true;
-  void bridge.signOut();
- };
- root.replaceChildren(identity,element('p','account-note',PLAY_NOTE),out);
+ // Nothing is left on screen for the frame before the new document takes over: the root is
+ // emptied rather than filled, so this page paints no account, no note and no button of its own.
+ root.replaceChildren();
+ location.replace(new URL('../',location.href));
 }
 
 // The signed-out answer is the shared panel, one node, whether or not the service has answered
@@ -177,9 +196,10 @@ function signedOut(){
  });
 }
 
-// Every entry point below opens the busy state, asks once, closes it, and draws whatever came
-// back in place. None of them navigates: the only navigation on this page is the one to
-// Microsoft, which is the contract, and a refusal must not cost a document load.
+// Every entry point below opens the busy state, asks once and closes it, then either leaves for the
+// site root (a success, see signedIn) or draws the refusal in the one alert region - in place, on
+// this page, which a refusal must never cost a document load for. The only navigations on this
+// page are therefore the two the product asks for: to Microsoft, and back to the site root.
 //
 // `starting` is what makes the start idempotent: boot() opens the busy state before its first
 // paint when the page was handed a flow, so the button that arrives with ?provider=microsoft is
@@ -206,8 +226,8 @@ async function signInWithProvider(provider){
  begin(PROVIDER_WAIT);
  const outcome=await bridge.signInProvider(provider,false);
  end();
- // A completed provider sign-in has already been saved by the seam, and the state change paints
- // the account; a refusal is drawn here, on this page, in place.
+ // A completed provider sign-in has already been saved by the seam, and the state change is what
+ // navigates to the site root; a refusal is drawn here, on this page, in place.
  if(outcome?.ok===false)problem(outcome.error||SIGN_IN.providerFailed);
  paint();
 }
@@ -277,7 +297,7 @@ function stripAddress(){
 function paint(next=bridge.getState()){
  const key=next.account?'in':'out';
  if(key!==shown){
-  if(key==='in')signedIn(next.account);
+  if(key==='in')signedIn();
   else if(shown!=='unavailable')signedOut();
  }
 }
