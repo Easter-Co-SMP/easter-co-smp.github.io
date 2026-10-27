@@ -50,9 +50,9 @@ function waitsFor(){
  const waits=[];
  return {waits,waitFor:async ms=>{waits.push(ms);}};
 }
-function bridgeFor({answer,storage=memory(),where=atAccountPage,...rest}={}){
+function bridgeFor({answer,storage=memory(),where=atAccountPage,redirectUri=REDIRECT_URI,...rest}={}){
  const stub=authority(answer),visits=[];
- const microsoftBrowser=createMicrosoftSignIn({request:stub.request,baseUrl:'https://api.fixture',waitFor:rest.waitFor});
+ const microsoftBrowser=createMicrosoftSignIn({request:stub.request,baseUrl:'https://api.fixture',waitFor:rest.waitFor,redirectUri});
  const client=new AccountClient({client:'website/1',request:offline,retryBudget:0});
  const bridge=createWebAccount({storage,client,microsoftBrowser,where,navigate:url=>visits.push(url)});
  return {bridge,storage,visits,stub};
@@ -71,7 +71,10 @@ test('start posts no token, navigates to the authorize address, and sends the br
  assert.deepEqual(stub.paths(),['/v2/oauth/microsoft/start']);
  const [call]=stub.calls;
  assert.equal(call.method,'POST');
- assert.deepEqual(call.body,{});
+ // The address this page is registered at is NAMED to the service (2026-10-27): it is an
+ // allow-list there, and naming it is what lets a second first-party site sign in on its own
+ // registered address without either site guessing which one the service will use.
+ assert.deepEqual(call.body,{redirectUri:REDIRECT_URI});
  // The transport rules the rest of this site already uses.
  assert.equal(call.options.credentials,'omit');
  assert.equal(call.options.cache,'no-store');
@@ -90,7 +93,7 @@ test('a start from any page of the site sends the browser to the authorize addre
  assert.equal(result.ok,true,result.error);
  assert.deepEqual(visits,[AUTHORIZE],'the one navigation is to Microsoft');
  assert.deepEqual(stub.paths(),['/v2/oauth/microsoft/start']);
- assert.deepEqual(stub.calls[0].body,{});
+ assert.deepEqual(stub.calls[0].body,{redirectUri:REDIRECT_URI});
 });
 
 test('a callback is refused anywhere but the registered path, before it is sent',async()=>{
@@ -261,7 +264,11 @@ test('a signed-in visitor cannot start a second Microsoft sign-in over the first
 });
 
 test('the website no longer says Microsoft sign-in is launcher-only, or hides its button',async()=>{
- const web=await readFile(new URL('../site/web.js',import.meta.url),'utf8');
+ // The control lives in its own module since 2026-10-27 (site/account-control.mjs) so the
+ // corporate site can mount the same one; the assertions below are about what the site ships,
+ // so they read both files rather than insisting on where the text sits.
+ const web=(await readFile(new URL('../site/web.js',import.meta.url),'utf8'))
+  + (await readFile(new URL('../site/account-control.mjs',import.meta.url),'utf8'));
  // The sentence this ticket deletes, and the hack that went with it: the chooser's Microsoft
  // button is visible on the website now, and pressing it opens the flow rather than an excuse.
  assert(!web.includes('available in the launcher'),'the launcher-only note is gone');
@@ -333,7 +340,8 @@ test('a successful sign-in leaves the account page for the site root instead of 
  for(const gone of ['.account-identity','.account-note'])assert(!css.includes(gone),'the stylesheet drops '+gone+' too');
  // Sign-out did not go with the panel: the one in the product is the nav's account menu, on every
  // page of the site, and it still clears the session through the same seam.
- const web=await readFile(new URL('../site/web.js',import.meta.url),'utf8');
+ const web=(await readFile(new URL('../site/web.js',import.meta.url),'utf8'))
+  + (await readFile(new URL('../site/account-control.mjs',import.meta.url),'utf8'));
  assert(web.includes("action('Sign out'"),'sign-out is still the nav account menu\'s, on every page');
  // The sentence is DELETED, not moved: the words a player could read on this page exist in no file
  // the site serves. A copy parked on another page would be a second author of player-facing copy.
@@ -383,4 +391,30 @@ test('a refusal and an outage that is not the declared one are never asked again
   assert.equal(stub.calls.length,1,body.error+' must not be retried');
   assert.deepEqual(waits,[]);
  }
+});
+
+test('a caller may sign in on its own registered address, and the answer must agree',async()=>{
+ // The corporate site (easter.company) signs in on its own address since 2026-10-27: the module
+ // takes the literal as an argument, NAMES it to the service, and refuses an answer that comes
+ // back with any other - the same string comparison Microsoft makes, made here first.
+ const corporate='https://easter.company/account/';
+ // The same authorize address with ITS redirect in it: Microsoft compares that parameter too,
+ // so an answer naming the corporate redirect in `redirectUri` while the URL still carried the
+ // launcher's is exactly the half-applied change this test exists to refuse.
+ const corporateAuthorize=AUTHORIZE.replace(encodeURIComponent(REDIRECT_URI),encodeURIComponent(corporate));
+ const agreeing={state:STATE,authorizeUrl:corporateAuthorize,expiresIn:600,redirectUri:corporate};
+ const good=bridgeFor({redirectUri:corporate,answer:path=>path.endsWith('/microsoft/start')?[200,agreeing]:null});
+ const started=await good.bridge.startMicrosoftSignIn();
+ assert.equal(started.ok,true,started.error);
+ assert.deepEqual(good.visits,[corporateAuthorize]);
+ assert.deepEqual(good.stub.calls[0].body,{redirectUri:corporate},
+                  'the corporate page names ITS address, not the launcher\'s');
+
+ // The service answering with the launcher's literal instead is how a half-applied change looks:
+ // the page must refuse rather than send the browser to a URI its own callback does not sit at.
+ const disagreeing={...agreeing,redirectUri:REDIRECT_URI};
+ const bad=bridgeFor({redirectUri:corporate,answer:path=>path.endsWith('/microsoft/start')?[200,disagreeing]:null});
+ const refused=await bad.bridge.startMicrosoftSignIn();
+ assert.equal(refused.ok,false,'an answer naming another address must not start a flow');
+ assert.deepEqual(bad.visits,[],'and the browser is not sent anywhere');
 });

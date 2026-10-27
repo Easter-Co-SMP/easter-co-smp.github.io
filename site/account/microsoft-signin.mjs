@@ -112,7 +112,15 @@ export function readCallback(search){
  return {kind:'code',code,state};
 }
 
-export function createMicrosoftSignIn({request=(...args)=>fetch(...args),baseUrl=API_ORIGIN,timeout=30000,waitFor=ms=>new Promise(done=>setTimeout(done,ms)),now=Date.now}={}){
+// THE REDIRECT IS A PARAMETER, DEFAULTING TO THIS SITE'S OWN REGISTERED LITERAL.
+//
+// A second first-party site signs in on its OWN address: Owen registered
+// https://easter.company/account/ on the Easter Company application on 2026-10-27, and the
+// service takes the address a caller names as long as the deployment allows it
+// (api/microsoft_oauth.py, the allow-list). So the page hands the address over instead of
+// assuming launcher.easter.company: `createMicrosoftSignIn({redirectUri})`. A caller that
+// passes nothing gets REDIRECT_URI and the behaviour every existing page already has.
+export function createMicrosoftSignIn({request=(...args)=>fetch(...args),baseUrl=API_ORIGIN,timeout=30000,waitFor=ms=>new Promise(done=>setTimeout(done,ms)),now=Date.now,redirectUri=REDIRECT_URI}={}){
  // One POST, with the browser transport rules the rest of this site already uses: no ambient
  // cookies, no cache, no redirect followed, no referrer.
  const once=async (pathname,body,ceiling)=>{
@@ -153,12 +161,15 @@ export function createMicrosoftSignIn({request=(...args)=>fetch(...args),baseUrl
   // this page's registered literal. The second names the disagreement before a code is spent
   // on a URI Microsoft does not know.
   async start(){
-   const answer=await send('/v2/oauth/microsoft/start',{});
+   // The address this page is registered at is NAMED to the service, so the flow is minted
+   // for the right one: the start answer and the authorize URL are then checked against it
+   // below, and a deployment that does not allow it refuses before a browser moves.
+   const answer=await send('/v2/oauth/microsoft/start',{redirectUri});
    const state=typeof answer.state==='string'?answer.state:'';
    let url=null;
    try{url=new URL(typeof answer.authorizeUrl==='string'?answer.authorizeUrl:'');}catch{url=null;}
    if(!url||!STATE_PATTERN.test(state)||url.origin!==AUTHORITY_ORIGIN||url.pathname!==AUTHORIZE_PATH||url.username||url.password)throw new AccountError('invalid_request','The sign-in address is invalid.');
-   if(answer.redirectUri!==REDIRECT_URI||url.searchParams.get('redirect_uri')!==REDIRECT_URI)throw new AccountError('not_configured',NOT_CONFIGURED);
+   if(answer.redirectUri!==redirectUri||url.searchParams.get('redirect_uri')!==redirectUri)throw new AccountError('not_configured',NOT_CONFIGURED);
    return {state,authorizeUrl:url.href};
   },
   // Finish a callback this page received. `code` and `state` are the two values the URL
