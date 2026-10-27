@@ -64,8 +64,15 @@ so no module can lose that race. An ordinary visit returns on the second line. *
   // before any of this existed.
   import('./auth-return.mjs').then(module=>{
    const target=module.takeTarget();
-   if(target){location.replace(target);return;}
-   handBack();
+   if(!target){handBack();return;}
+   location.replace(target);
+   // A DEEP LINK THE BROWSER DOES NOT TAKE LEAVES THIS DOCUMENT EXACTLY WHERE IT IS: measured in
+   // Chromium on 2026-10-26, location.replace('easter-company://...') with no registered handler
+   // throws nothing, fires no error and navigates nowhere, so a tab sent to the launcher's scheme
+   // with no launcher installed would sit on this splash with nothing to press. An https return
+   // needs no such guard - it commits or it fails visibly - so the timer is for that one scheme,
+   // and it hands the page back rather than leaving the window stuck.
+   if(target.startsWith('easter-company:'))setTimeout(handBack,2500);
   },handBack);
  };
  // Painted before acted on: two frames are a rendered first paint, and the timer is the same

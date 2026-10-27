@@ -1022,8 +1022,25 @@ try{
   await page.goto(origin+'/');
   assert.equal(await page.evaluate(key=>sessionStorage.getItem(key),RETURN_KEY),null,'and it spent the target on that one visit');
 
+  // (g) THE LAUNCHER'S OWN SCHEME IN A BROWSER THAT DOES NOT HANDLE IT. `easter-company://signed-in`
+  //     has no handler in this fixture, and a deep link the browser does not take navigates nowhere
+  //     (measured: no navigation, no error), so a splash that followed it would leave the window
+  //     stuck on itself. The tab is handed its page back instead, and the target is spent either
+  //     way - this tab has been brought back as far as a browser without the launcher can go.
+  await clearTab();
+  await page.goto(origin+'/?app=launcher');
+  assert.equal(await storedTarget(),appUrl('launcher'),'the launcher is an allow-listed id like any other');
+  await page.goto(origin+'/?signed-in=1');
+  await page.locator('#signed-in-splash').waitFor();
+  await page.locator('#signed-in-splash').waitFor({state:'hidden',timeout:15000});
+  const stuck=await page.evaluate(splashState);
+  assert.equal(stuck.url,SITE_ROOT,'a deep link with no handler leaves the address where it was: '+stuck.url);
+  assert.equal(stuck.hero,true,'and the page is handed back rather than left on the splash');
+  assert.equal(stuck.attr,null,'with the flag gone from the document');
+  assert.equal(await storedTarget(),null,'the target is spent: a browser without the launcher has gone as far as it can');
+
   assert.deepEqual(errors,[]);
-  console.log('PASS the return target: ?app=e-server stored in the tab, carried through the Microsoft round trip and spent on exactly one visit to the allow-listed origin with an address carrying nothing appended, ?next accepted only on an easter.company host, a refused and a cancelled sign-in each leaving no target, the splashed ordinary tab leaving for the app with no frame of the homepage behind it, a popup closing itself instead, and a provider sign-in answering in place and leaving for the same app');
+  console.log('PASS the return target: ?app=e-server stored in the tab, carried through the Microsoft round trip and spent on exactly one visit to the allow-listed origin with an address carrying nothing appended, ?next accepted only on an easter.company host, a refused and a cancelled sign-in each leaving no target, the splashed ordinary tab leaving for the app with no frame of the homepage behind it, a popup closing itself instead, a provider sign-in answering in place and leaving for the same app, and the launcher deep link handing the page back in a browser that cannot take it');
   checks++;await context.close();
  }
  // 16. No motion preference: the same busy state, and the spinner actually turns. Reduced motion
