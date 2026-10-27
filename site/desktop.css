@@ -112,8 +112,6 @@
 .desktop-save-row{display:flex;align-items:center;gap:16px}
 .desktop-save-row button{padding:11px 16px;background:var(--app-gold);border:0;border-radius:6px;color:#14262e;font-size:12px;font-weight:600;cursor:pointer}
 .desktop-settings-result{color:#c6d8c4;font-size:12px}
-.desktop-launcher-update{font-size:11px;line-height:1.6;color:var(--app-muted)}
-.desktop-launcher-update a{color:var(--app-gold)}
 .desktop-utilities{display:flex;align-items:center;justify-content:space-between;gap:16px;border-top:1px solid var(--app-border);padding-top:16px;margin-top:24px}
 .desktop-utilities .text-link{font-size:11px;padding:0}.desktop-version{font-size:10px;color:var(--app-muted)}
 #desktop-signin{width:min(440px,calc(100vw - 32px));text-align:center;padding:32px}
@@ -224,7 +222,6 @@
    and to the controls under it. A chooser with no refusal keeps its full padding, and at a
    window tall enough to hold the dialog nothing changes at all. */
 @media(max-height:700px){.desktop-company-dialog:has(.company-error:not([hidden])){padding-bottom:16px}}
-
 
 /* Verified emails. One address per row, the selected one marked, and the copy that says
    only that address is a login key. The rows wrap rather than scroll sideways, so a long
@@ -350,7 +347,6 @@
 .discovery-action:hover{color:#fff0c6}
 .discovery-dialog{width:min(480px,calc(100vw - 32px));max-height:calc(100dvh - 48px);overflow:auto;padding:32px;background:var(--app-panel);color:var(--ink);border:1px solid var(--app-border);border-radius:14px}
 .discovery-dialog::backdrop{background:#06141dcc;backdrop-filter:blur(5px)}
-.discovery-store-note{font:12px/1.6 system-ui;color:var(--app-gold);padding:16px 0;border-top:1px solid var(--app-border)}
 @media(max-width:1000px){
  .desktop-mode .home .home-hero{grid-template-columns:minmax(0,1fr);max-width:680px}
  .desktop-mode .home-hero>.hero-copy{min-height:0}
