@@ -313,6 +313,10 @@ test('a successful sign-in leaves the account page for the site root instead of 
  const page=await readFile(new URL('../site/account/account.mjs',import.meta.url),'utf8');
  assert(page.includes("location.replace(new URL('../',location.href))"),'a success navigates to the site root, resolved from the page so a preview server is the same answer');
  assert(!page.includes('location.assign'),'and the entry is replaced rather than added to, so Back cannot re-enter the page it left');
+ // One navigation in the whole module, and it is this one: a refusal cannot navigate even by
+ // accident, because there is no second place a document could be sent from.
+ assert.equal((page.match(/location\.(replace|assign)\(/g)||[]).length,1,'the page has exactly one navigation, the success above');
+ assert(!/location\.href\s*=/.test(page),'and nothing assigns the address directly');
  assert(page.includes("shown='in'"),'the state is recorded before the navigation, so a repaint cannot redraw the options behind it');
  assert(!page.includes('Signed in as'),'the page paints no account line any more');
  assert(!page.includes('PLAY_NOTE'),'and the note constant is gone');
