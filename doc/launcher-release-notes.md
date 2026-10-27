@@ -1,3 +1,27 @@
+# Easter Company launcher 1.0.51
+
+# Easter Company launcher 1.0.51
+
+## The account control is one control
+
+The button in the header that opens your account menu is now a single shared piece rather than
+part of each page's own script. Nothing about it looks or behaves differently here; what changes
+is that the Easter Company website runs the same control from the same source instead of keeping
+a copy, so your face, your name and the menu behind the button cannot drift apart between the
+launcher and the web.
+
+## Signing in names the address it belongs to
+
+The account page states the exact address you are signing in at. With the company website now
+also signing people in on its own registered address, that sentence was the one thing that could
+print the wrong one; it now reads the address from the page it is on.
+
+## Smaller things
+
+- One sentence fewer in the account page's script, one module more in the site: no page was
+  removed and no feature changed.
+
+
 # Easter Company launcher 1.0.50
 
 # Easter Company launcher 1.0.50
