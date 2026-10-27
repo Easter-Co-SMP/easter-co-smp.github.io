@@ -54,7 +54,14 @@ const CANCELLED='Sign-in cancelled.';
 // Not-configuration is one state and carries the service's own sentence; the address is named
 // only when this page is being read somewhere else, because that is the fact the service's
 // sentence leaves out.
-const WRONG_ADDRESS='Sign in at '+REDIRECT_URI+'.';
+// WHICH ADDRESS THIS PAGE IS REGISTERED AT. A second first-party site serves this same module
+// on its own origin - the corporate site at https://easter.company/account/ has been a registered
+// redirect since 2026-10-27 - so the sentence that names the address is written from the page's
+// own <meta name="easter-redirect-uri"> when it has one, and from this site's literal when it does
+// not. Nothing else about the module is origin-dependent: the flow it completes was started by the
+// page that started it, and the state carries which redirect that was.
+const PAGE_REDIRECT=document.querySelector('meta[name="easter-redirect-uri"]')?.content?.trim()||REDIRECT_URI;
+const WRONG_ADDRESS='Sign in at '+PAGE_REDIRECT+'.';
 const AUTHORITY_REFUSED='Microsoft did not complete the sign-in.';
 
 const root=document.getElementById('account-root');
