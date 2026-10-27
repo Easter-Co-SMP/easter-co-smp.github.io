@@ -23,6 +23,28 @@ are preserved in ships-homepage-art-prompts.json. They illustrate gameplay rathe
 than acting as screenshots or precise ship models. Navy crew retain redcoat-style
 uniforms and the artwork avoids flags, banners and repetitive scenery.
 
+## The cannon sentence is forward-looking, not a description of today
+
+Owen, 2026-10-26, asked for this in so many words: **"keep it, we'll add the features later."**
+
+That sentence in the Ship combat chapter — "Purchase or craft cannons to give your ship serious
+firepower" — is therefore a promise, not a report, and nothing below it is implemented today.
+Measured before it was published, 2026-10-26:
+
+- Shippy Ships 1.0.23.1 (the only ship mod on the server and in the launcher's manifest) carries no
+  `cannon` string in any class; what it does implement is ramming, as per-hull `*Rammer` subentities
+  (`SailboatRammer`, `CogRammer`, `CogRammerSmall`, `CaravelRammer`), which is why the ramming
+  warning in that chapter is accurate.
+- The launcher's client manifest ships exactly five dependencies — Fabric API, Shippy Ships,
+  IngeniumAPI, Tectonic, Lithostitched (site/data/client.json) — and no cannon mod.
+- The ships wiki page (site/wiki/pages.mjs, `ships-and-sailing`) never mentions cannons.
+- The only trace in the whole tree is IngeniumAPI's own description, "API for Shippy Ships and
+  OldCannons": a sibling mod that is installed nowhere we can see.
+
+So: do not cite this page as evidence that cannons exist, and if the feature never lands, the
+sentence and its "Make room for the big guns" heading come out. Scuttling and ramming need no such
+caveat — they are in the game (EasterFleet.scuttle / ShipControls, and the rammers above).
+
 Validation: all 146 Python tests completed successfully (one existing skip), full
 site validation passed with 129 files, and whitespace checks passed. Interactive
 visual review uses the supported cloud browser; the CLI browser suite's hardcoded
