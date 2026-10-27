@@ -62,7 +62,7 @@ async function installedTree({chunks={},extraFiles=[]}={}){
 }
 
 test('the client origin is overridable with the same rule as the API origin',()=>{
- assert.equal(DEFAULT_CLIENT_ORIGIN,'https://easter-co-smp.github.io/');
+ assert.equal(DEFAULT_CLIENT_ORIGIN,'https://launcher.easter.company/');
  assert.equal(clientOrigin(undefined),DEFAULT_CLIENT_ORIGIN);
  assert.equal(clientOrigin(''),DEFAULT_CLIENT_ORIGIN);
  assert.equal(clientOrigin('https://example.test'),'https://example.test/');
@@ -106,7 +106,7 @@ test('the manifest URL and the relative mod URL both come from the client origin
  // The mod jar: relative on the manifest, resolved against the origin, and never
  // allowed to leave it.
  const client={mod:{url:'downloads/easter-navy.jar'}};
- assert.equal(modFile(client),'https://easter-co-smp.github.io/downloads/easter-navy.jar');
+ assert.equal(modFile(client),'https://launcher.easter.company/downloads/easter-navy.jar');
  assert.equal(modFile(client,'http://127.0.0.1:8123'),'http://127.0.0.1:8123/downloads/easter-navy.jar');
  assert.equal(modFile(client,'http://localhost:8123/'),'http://localhost:8123/downloads/easter-navy.jar');
  for(const url of ['https://evil.example/downloads/easter-navy.jar','downloads/other.jar','/etc/passwd','downloads/../private/easter-navy.jar',''])
@@ -115,7 +115,7 @@ test('the manifest URL and the relative mod URL both come from the client origin
  const digest='c'.repeat(64);
  const graphics={name:'Enhanced graphics',filename:'graphics.zip',url:'downloads/graphics.zip',sha256:digest};
  assert.equal(graphicsEntry(graphics,'http://127.0.0.1:8123').url,'http://127.0.0.1:8123/downloads/graphics.zip');
- assert.equal(graphicsEntry(graphics).url,'https://easter-co-smp.github.io/downloads/graphics.zip');
+ assert.equal(graphicsEntry(graphics).url,'https://launcher.easter.company/downloads/graphics.zip');
  assert.throws(()=>graphicsEntry({...graphics,url:'https://evil.example/graphics.zip'},'http://127.0.0.1:8123'),/Unexpected graphics location/);
 });
 

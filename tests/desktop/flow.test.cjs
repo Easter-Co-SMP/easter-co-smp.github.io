@@ -356,7 +356,7 @@ test('the enhanced graphics toggle only installs what the manifest publishes',()
  const published={...PUBLISHED,graphics:{name:'Enhanced graphics',version:'1.0.0',filename:'easter-graphics.zip',url:'downloads/easter-graphics.zip',sha256:hash}};
  const plan=graphicsPlan(published,true);
  assert.equal(plan.state,'install');
- assert.deepEqual(plan.entry,{name:'Enhanced graphics',version:'1.0.0',filename:'easter-graphics.zip',hash,url:'https://easter-co-smp.github.io/downloads/easter-graphics.zip'});
+ assert.deepEqual(plan.entry,{name:'Enhanced graphics',version:'1.0.0',filename:'easter-graphics.zip',hash,url:'https://launcher.easter.company/downloads/easter-graphics.zip'});
  assert.match(plan.message,/installed/);
  const diff=installDiff(published,{minecraft:'26.2',fabric:'0.19.5',modSha256:MOD_SHA,dependencies:[{id:'fabric-api',version:'0.161.0+26.2'},{id:'shippy-ships',version:'1.0.23.1'}],graphics:null},{includeGraphics:true});
  assert.deepEqual(diff.changes,['graphics']);

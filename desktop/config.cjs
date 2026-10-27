@@ -27,7 +27,10 @@ function apiOrigin(value=process.env.EASTER_API_BASE_URL){
 // relative paths inside them are served from. Same rule as the API origin: HTTPS
 // only, with a loopback exception so a test can run the real flow against a local
 // server. No real deployment can be pointed at plaintext through it.
-const DEFAULT_CLIENT_ORIGIN='https://easter-co-smp.github.io/';
+// 2026-10-26: the site moved to its custom domain; the old GitHub Pages origin 301s here,
+// so an installed build keeps working either way, but new builds fetch from the origin
+// that actually serves the files.
+const DEFAULT_CLIENT_ORIGIN='https://launcher.easter.company/';
 function clientOrigin(value=process.env.EASTER_CLIENT_ORIGIN){
  const candidate=String(value||'').trim();
  if(!candidate)return DEFAULT_CLIENT_ORIGIN;

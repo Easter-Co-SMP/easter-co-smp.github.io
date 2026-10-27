@@ -9,7 +9,7 @@ const {locationProblem,MARKER,clientOrigin,serverAddress,BUNDLED_DEPLOYMENT,DEPL
 const {qualitySettings,applyQualitySettings,recordQuality,applyDisplayDefaults}=require('./hardware.cjs');
 const {configureVisuals,disableShaders}=require('./visuals.cjs');
 const dispatcher=new Agent({connections:8,connect:{family:4,timeout:30000},headersTimeout:45000,bodyTimeout:90000}).compose(interceptors.retry({maxRetries:3}));
-const ORIGIN='https://easter-co-smp.github.io/';
+const ORIGIN='https://launcher.easter.company/';
 const FABRIC='0.19.5';
 const LOOPBACK=new Set(['127.0.0.1','[::1]','::1','localhost']);
 const MAX_DOWNLOAD=256*1024*1024;
