@@ -4,7 +4,7 @@
 
 The twelve real guides replace the six layout demos. Document only installed changes that affect a vanilla player's decision. Use 300–600 words normally, at most five substantive sections, and two or three related guides. Place common rules on one owner page rather than duplicating a manual of vanilla Minecraft. Entries for recipes, NPCs and places stay inside their parent article.
 
-The earlier authoring kit is the scope baseline. The complete public catalogue is `site/wiki/pages.mjs`; the website and launcher use the same file. Private source notes, production paths and open implementation questions never belong in the player copy.
+The earlier authoring kit is the scope baseline. The complete public catalogue is `site/minecraft/wiki/pages.mjs`; the website and launcher use the same file. Private source notes, production paths and open implementation questions never belong in the player copy.
 
 The renderer uses textContent for all authored content, with optional paragraphs, ordered steps, flat lists, tables, notes, section guide links and a map action. It does not parse arbitrary HTML or Markdown. Search includes every player-facing text field. Mobile tables scroll inside their container; article pages must not widen the document.
 

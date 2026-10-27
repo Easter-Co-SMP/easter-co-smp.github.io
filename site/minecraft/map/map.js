@@ -107,7 +107,7 @@ async function hydrate(r){
 async function load(r){
  const id=key(r),entry=tiles.get(id);entry.loading=true;entry.attempted=r.version;running++;
  try{
-  const response=await fetch('../data/tiles/'+r.x+'/'+r.z+'.png?v='+r.version,{cache:'no-cache'});
+  const response=await fetch('../../data/tiles/'+r.x+'/'+r.z+'.png?v='+r.version,{cache:'no-cache'});
   if(!response.ok)throw Error('Tile unavailable');
   const blob=await response.blob(),image=await createImageBitmap(blob);
   if(tiles.get(id)!==entry||world?.tiles.find(row=>key(row)===id)?.version!==r.version){image.close();return;}
@@ -183,7 +183,7 @@ function setWorld(fresh){
 async function refresh(){
  const epoch=++serial;
  try{
-  const response=await fetch('../data/world.json',{cache:'no-cache'});if(!response.ok)throw Error();const fresh=await response.json();if(!validWorld(fresh))throw Error();if(epoch!==serial)return;
+  const response=await fetch('../../data/world.json',{cache:'no-cache'});if(!response.ok)throw Error();const fresh=await response.json();if(!validWorld(fresh))throw Error();if(epoch!==serial)return;
   failed=false;cached=false;for(const t of tiles.values())if(t.error&&!t.loading){t.error=false;t.attempted=undefined;}
   setWorld(fresh);void cache.writeSnapshot('world',fresh);
  }catch{if(epoch===serial){failed=true;draw();}}

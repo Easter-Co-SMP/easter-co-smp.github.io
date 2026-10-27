@@ -30,7 +30,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm test
-      - run: node --check site/map/map.js && node --check site/map/drawings.mjs && node --check site/home.js && node --check site/downloads.js && node --check site/desktop.js && node --check site/wiki/wiki.js && node --check site/wiki/pages.mjs
+      - run: node --check site/minecraft/map/map.js && node --check site/minecraft/map/drawings.mjs && node --check site/home.js && node --check site/downloads.js && node --check site/desktop.js && node --check site/minecraft/wiki/wiki.js && node --check site/minecraft/wiki/pages.mjs
   deploy:
     if: github.event_name != 'pull_request'
     needs: check

@@ -10,7 +10,7 @@ invented. Existing sections, alignment work and revised encounter recommendation
 are preserved; chapter numbering and navigation now cover all eight chapters.
 
 Copy source: Owen's current ship and combat briefs. Existing ownership and crew
-limits are documented in site/wiki/pages.mjs (ships-and-sailing, crews-and-property),
+limits are documented in site/minecraft/wiki/pages.mjs (ships-and-sailing, crews-and-property),
 including one registered vessel per owner. Fleet expansion is described as a crew
 effort rather than promising multiple personal registrations. This is website copy;
 no game rules, player records or launcher release are changed. The .home-below
@@ -37,7 +37,7 @@ Measured before it was published, 2026-10-26:
   warning in that chapter is accurate.
 - The launcher's client manifest ships exactly five dependencies — Fabric API, Shippy Ships,
   IngeniumAPI, Tectonic, Lithostitched (site/data/client.json) — and no cannon mod.
-- The ships wiki page (site/wiki/pages.mjs, `ships-and-sailing`) never mentions cannons.
+- The ships wiki page (site/minecraft/wiki/pages.mjs, `ships-and-sailing`) never mentions cannons.
 - The only trace in the whole tree is IngeniumAPI's own description, "API for Shippy Ships and
   OldCannons": a sibling mod that is installed nowhere we can see.
 

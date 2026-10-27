@@ -38,7 +38,7 @@ try {
   assert.equal(await page.getByLabel('Search the wiki',{exact:true}).evaluate(node=>node===document.activeElement),true);
   for (const width of [800,390,320]) {
     await page.setViewportSize({width,height:width===800?600:844});
-    await page.goto(origin+'/wiki/');
+    await page.goto(origin+'/minecraft/wiki/');
     await page.locator('.wiki-card').first().waitFor();
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'overview fits '+width);
     await page.screenshot({path:'/tmp/wiki-overview-'+width+'.png',fullPage:true});
@@ -54,7 +54,7 @@ try {
     assert.match(page.url(),/the-recipe-book$/);
     await page.screenshot({path:'/tmp/wiki-article-'+width+'.png',fullPage:true});
   }
-  await page.goto(origin+'/wiki/#/unknown-page');
+  await page.goto(origin+'/minecraft/wiki/#/unknown-page');
   await page.getByRole('heading',{name:'That page isn’t on the chart.'}).waitFor();
   await page.getByRole('link',{name:'Back to the wiki →'}).click();
   await page.locator('.wiki-card').first().waitFor();
@@ -63,7 +63,7 @@ try {
   await page.goBack(); await page.locator('.wiki-card').first().waitFor();
   await page.goForward(); await page.getByRole('heading',{name:'Getting started',exact:true,level:1}).waitFor();
   for (const [id, heading] of [['money-and-banking','Money & banking'], ['law-and-bounties','Law & bounties'], ['crews-and-property','Crews & property']]) {
-    await page.goto(origin+'/wiki/#/'+id);
+    await page.goto(origin+'/minecraft/wiki/#/'+id);
     await page.getByRole('heading',{name:heading,exact:true,level:1}).waitFor();
     if (id === 'money-and-banking') {
       assert(await page.locator('.wiki-note').count() >= 1);
@@ -74,7 +74,7 @@ try {
     await page.locator('.wiki-section-links a').first().click();
     assert(!page.url().endsWith('#/'+id));
   }
-  await page.goto(origin+'/wiki/#/the-world-and-its-regions/a-world-to-explore');
+  await page.goto(origin+'/minecraft/wiki/#/the-world-and-its-regions/a-world-to-explore');
   await page.waitForFunction(()=>document.activeElement?.id==='region-notices');
   assert(page.url().endsWith('/region-notices'));
   assert.equal(await page.locator('.wiki-sidebar-note').innerText().then(text=>/demo|sample/i.test(text)), false);

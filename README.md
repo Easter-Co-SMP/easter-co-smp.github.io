@@ -282,11 +282,11 @@ between computers, or included in the daily map archive. Clearing browser data r
 
 ## Shared wiki
 
-`site/wiki/` is the same bundled wiki in the website and Electron launcher, with no
+`site/minecraft/wiki/` is the same bundled wiki in the website and Electron launcher, with no
 separate desktop content or network dependency. Its twelve articles document the installed game’s custom rules: health and death,
 regions, ships, wildlife, law, banking, crews, cooking, services, equipment and encounters.
 
-Edit `site/wiki/pages.mjs` to maintain articles. Each has a stable id, title, group,
+Edit `site/minecraft/wiki/pages.mjs` to maintain articles. Each has a stable id, title, group,
 summary, sections (stable ids, text, optional paragraphs, ordered steps, flat lists,
 tables, notes, related-guide links and map link), and related article ids.
 The same catalogue supplies the overview, sidebar, full-text search, related links and

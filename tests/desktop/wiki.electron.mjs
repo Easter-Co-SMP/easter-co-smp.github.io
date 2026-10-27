@@ -13,7 +13,7 @@ try {
   await page.keyboard.press('Escape');
   await page.getByRole('link',{name:'Wiki',exact:true}).click();
   await page.locator('.wiki-card').first().waitFor();
-  assert(page.url().startsWith('easter://easter/wiki/'));
+  assert(page.url().startsWith('easter://easter/minecraft/wiki/'));
   assert.equal(await page.locator('.wiki-card').count(),12);
   assert.equal(await page.locator('.arrival-mist').count(),0);
   assert.equal(await page.locator('nav [popovertarget]').count(),0);

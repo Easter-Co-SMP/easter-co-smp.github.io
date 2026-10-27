@@ -11,7 +11,7 @@ worn gear and hotbar retained, and full equipment/inventory loss on a bounty cla
 No game rules or wiki articles are changed by this marketing-page task.
 
 Crafting sources:
-- Existing site/wiki/pages.mjs cooking-and-crafting and equipment-and-enchanting;
+- Existing site/minecraft/wiki/pages.mjs cooking-and-crafting and equipment-and-enchanting;
   their installed-pack evidence is recorded in doc/wiki-content-sources.md.
 - Author's project page: https://modrinth.com/datapack/matcha-flavoured
 - Author's source repository, branch 26.2, commit

@@ -46,8 +46,8 @@ LEGAL_TARGETS = (('/legal/privacy', 'Privacy'), ('/legal/terms', 'Terms'))
 # out of the scan and take its legal links with it, and the scan would still pass.
 PAGES_WITH_FOOTERS = (
     'index.html',
-    'map/index.html',
-    'wiki/index.html',
+    'minecraft/map/index.html',
+    'minecraft/wiki/index.html',
     'legal/privacy/index.html',
     'legal/terms/index.html',
 )

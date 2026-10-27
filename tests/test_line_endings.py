@@ -62,7 +62,7 @@ class LineEndingPins(unittest.TestCase):
         # covering the files that actually failed.
         self.assertGreater(len(compared), 10, f'expected the site text assets, found {compared}')
         for name in ('site/index.html', 'site/desktop.js', 'site/styles.css',
-                     'site/data/world.json', 'site/map/map.js', 'site/.nojekyll'):
+                     'site/data/world.json', 'site/minecraft/map/map.js', 'site/.nojekyll'):
             self.assertIn(name, compared, f'{name} must be one of the compared text assets')
 
         result = git('check-attr', 'eol', '--', *compared)

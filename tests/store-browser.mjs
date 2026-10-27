@@ -786,7 +786,7 @@ try {
       // and their static nav never carried one — so on 62be555 a browser showed a Store entry on
       // /legal/terms/ and /legal/privacy/ that no page markup contained (measured: one link into
       // /store/ on each, class="store-entry", at 1440).
-      for (const path of ["/", "/map/", "/wiki/", "/account/", "/legal/terms/", "/legal/privacy/"]) {
+      for (const path of ["/", "/minecraft/map/", "/minecraft/wiki/", "/account/", "/legal/terms/", "/legal/privacy/"]) {
         await noScript.goto(origin + path, { waitUntil: "load" });
         assert.equal(
           await noScript.locator('.site-header nav a[href*="store/"]').count(),
@@ -812,7 +812,7 @@ try {
     // Every page of the site, not only the home page — the legal pages included, where the
     // injected entry used to be the only one on an otherwise link-free nav: not one link anywhere
     // reaches /store/.
-    for (const path of ["/", "/map/", "/wiki/", "/account/", "/legal/terms/", "/legal/privacy/"]) {
+    for (const path of ["/", "/minecraft/map/", "/minecraft/wiki/", "/account/", "/legal/terms/", "/legal/privacy/"]) {
       await plain.page.goto(origin + path, { waitUntil: "networkidle" });
       assert.equal(
         await plain.page.locator('.site-header nav a[href*="store/"]').count(),
@@ -883,8 +883,8 @@ try {
       "no Store button that opens a dialog",
     );
     // A shared script appends that entry on every page, so its href is resolved against the site
-    // root: a page-relative './store/' would be /map/store/ and a dead link.
-    for (const path of ["/map/", "/wiki/", "/account/"]) {
+    // root: a page-relative './store/' would be /minecraft/map/store/ and a dead link.
+    for (const path of ["/minecraft/map/", "/minecraft/wiki/", "/account/"]) {
       await page.goto(origin + path, { waitUntil: "networkidle" });
       const here = page.locator(".site-header nav a.desktop-store-entry");
       await here.waitFor();
@@ -1273,8 +1273,8 @@ try {
     for (const file of [
       "site/index.html",
       "site/account/index.html",
-      "site/map/index.html",
-      "site/wiki/index.html",
+      "site/minecraft/map/index.html",
+      "site/minecraft/wiki/index.html",
       "site/store/index.html",
       // The two legal pages belong to the coordinator, who took their store prose on 2026-10-27
       // (main, fe9bb0b). They are read here, never edited: this asserts only that neither carries

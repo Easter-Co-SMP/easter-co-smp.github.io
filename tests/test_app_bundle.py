@@ -290,8 +290,8 @@ class ClassificationTests(unittest.TestCase):
     """The compared/skipped split is a contract, not an accident."""
 
     def test_text_assets_are_compared(self):
-        for relpath in ('site/index.html', 'site/styles.css', 'site/desktop.js', 'site/map/cache.mjs',
-                        'site/map/index.html', 'site/data/world.json', 'site/data/client.json',
+        for relpath in ('site/index.html', 'site/styles.css', 'site/desktop.js', 'site/minecraft/map/cache.mjs',
+                        'site/minecraft/map/index.html', 'site/data/world.json', 'site/data/client.json',
                         'site/.nojekyll', 'site/404.html', 'site/notes.txt', 'site/README.md'):
             self.assertTrue(is_text_asset(relpath), relpath)
 

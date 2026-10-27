@@ -7,7 +7,7 @@ async function saved(page,count){for(let i=0;i<100;i++){const value=await read(p
 try{
  const context=await browser.newContext({viewport:{width:1440,height:900}});
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto(origin+'/map/');await page.waitForFunction(()=>document.getElementById('map-status').hidden);
+ await page.goto(origin+'/minecraft/map/');await page.waitForFunction(()=>document.getElementById('map-status').hidden);
  await page.locator('#map-drawing summary').click();
  await page.getByRole('button',{name:'Circle',exact:true}).waitFor({state:'visible'});
  await page.locator('input[aria-label="Drawing colour"]').evaluate(el=>{el.value='#ff00ff';el.dispatchEvent(new Event('change'));});
@@ -124,7 +124,7 @@ try{
  const narrow=await browser.newContext({viewport:{width:390,height:844}});
  try{
   const narrowPage=await narrow.newPage();narrowPage.on('pageerror',e=>errors.push(e.message));
-  await narrowPage.goto(origin+'/map/');await narrowPage.waitForFunction(()=>document.getElementById('map-status').hidden);
+  await narrowPage.goto(origin+'/minecraft/map/');await narrowPage.waitForFunction(()=>document.getElementById('map-status').hidden);
   const loaded=await paletteGeometry(narrowPage);
   assert.equal(loaded.left,'148px','a chart loaded at 390 puts the palette at the narrow rule\'s 148px: '+loaded.left);
   assert.equal(loaded.inlineLeft,null,'and leaves the designed position to the stylesheet rather than freezing an inline copy of it');
@@ -204,7 +204,7 @@ try{
   // The negative control. The room above the footer on its own, and the stylesheet's own viewport
   // subtraction, are both where this panel ended before the bar was in the sum - and both reach
   // past the bar's own top edge, which is the reviewer's overlap. Take the bar term out of the sum
-  // in site/map/map.js and the measured room becomes one of those numbers.
+  // in site/minecraft/map/map.js and the measured room becomes one of those numbers.
   const footerOnly=geometry.footerTop-geometry.panelTop-10,barRoom=geometry.bar.top-geometry.panelTop;
   assert(Number.parseInt(geometry.room,10)<=barRoom,'the published room is the room above the bar, '+size.width+'px: '+JSON.stringify({room:geometry.room,barRoom,footerOnly}));
   assert(footerOnly>barRoom,'while the footer-only room would reach under the bar, '+size.width+'px: '+JSON.stringify({footerOnly,barRoom}));

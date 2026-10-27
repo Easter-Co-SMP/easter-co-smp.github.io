@@ -30,7 +30,7 @@ try{
  assert.equal(await arriving(launcher.page),true,'the first visit plays the arrival');
 
  // 2. Map, then Home: the same window session must not play it again.
- await launcher.page.goto(base+'map/',{waitUntil:'domcontentloaded'});
+ await launcher.page.goto(base+'minecraft/map/',{waitUntil:'domcontentloaded'});
  await launcher.page.goto(base+'/',{waitUntil:'domcontentloaded'});
  await startArrival(launcher.page);
  await launcher.page.waitForTimeout(120);
@@ -49,7 +49,7 @@ try{
  await site.page.goto(base+'/',{waitUntil:'domcontentloaded'});
  await site.page.waitForTimeout(120);
  assert.equal(await arriving(site.page),true,'the website keeps its arrival');
- await site.page.goto(base+'map/',{waitUntil:'domcontentloaded'});
+ await site.page.goto(base+'minecraft/map/',{waitUntil:'domcontentloaded'});
  await site.page.goto(base+'/',{waitUntil:'domcontentloaded'});
  await site.page.waitForTimeout(120);
  assert.equal(await arriving(site.page),true,'the website plays it again on a new visit');

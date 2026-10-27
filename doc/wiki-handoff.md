@@ -6,7 +6,7 @@ Do not release from this worktree.
 
 ## Result
 
-The shared `site/wiki/` UI is linked from Home and Map in the website and launcher.
+The shared `site/minecraft/wiki/` UI is linked from Home and Map in the website and launcher.
 Six clearly marked demo articles exercise the content model; they specify no new
 gameplay rules. One bundled catalogue supplies article text, topic navigation,
 full-text search, section links, related links and the overview. There are no
@@ -16,7 +16,7 @@ Article and section routes use hashes, including on GitHub Pages and the
 launcher's easter:// origin. The mobile topic list and article contents collapse
 into compact controls. Search queries remain plain text, including HTML-looking input.
 
-Edit `site/wiki/pages.mjs` for real content later. Keep page and section IDs stable
+Edit `site/minecraft/wiki/pages.mjs` for real content later. Keep page and section IDs stable
 once links are shared. The README documents the catalogue and test commands.
 
 ## Frontend review

@@ -83,8 +83,8 @@ page.on('response', response => {
 });
 try {
   await journey(page, '/', '.home-footer', 'home');
-  await journey(page, '/map/', '.map-bottom', 'map');
-  await journey(page, '/wiki/', '.wiki-footer', 'wiki');
+  await journey(page, '/minecraft/map/', '.map-bottom', 'map');
+  await journey(page, '/minecraft/wiki/', '.wiki-footer', 'wiki');
 
   // GitHub Pages answers any missing path with 404.html, so the page is served from a URL that
   // is not its own directory. The static preview cannot do that, so the file the preview serves

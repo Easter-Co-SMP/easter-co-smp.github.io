@@ -103,7 +103,7 @@ try{
  assert.equal(await page.locator('.download-link,#open-guide,#guide-dialog').count(),0);
  assert.equal(await page.getByRole('navigation',{name:'Main navigation'}).count(),1);
  assert.equal(await page.locator('nav a[aria-current="page"]').textContent(),'Home');
- assert.equal(await page.getByRole('link',{name:'Wiki',exact:true}).getAttribute('href'),'./wiki/');await noOverflow();
+ assert.equal(await page.getByRole('link',{name:'Wiki',exact:true}).getAttribute('href'),'./minecraft/wiki/');await noOverflow();
  await page.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
  const skipPage=await context.newPage();await skipPage.goto(origin);
  assert.equal(await skipPage.getByRole('button',{name:'Skip intro'}).count(),1);
@@ -119,8 +119,28 @@ try{
  // redesign (PR 17) removed the `.wiki-link` class this used to name, and a gate that binds
  // to a class or to a sentence turns an intended redesign into a red suite - or, worse,
  // makes the suite a second author of copy it was never asked to keep. What must not change
- // is that the homepage offers a link to `wiki/`, so that is what is asserted.
- assert((await reducedPage.locator('a[href="wiki/"]').count())>=1,'the homepage no longer links to the wiki');await reduced.close();
+ // is that the homepage offers a link to `minecraft/wiki/`, so that is what is asserted.
+ assert((await reducedPage.locator('a[href="minecraft/wiki/"]').count())>=1,'the homepage no longer links to the wiki');await reduced.close();
+ // The map and the wiki moved to /minecraft/map/ and /minecraft/wiki/, where the umbrella domain
+ // names the product, and players have the old addresses bookmarked. GitHub Pages cannot answer a
+ // 301 for a path, so each old address is a stub page that names the new one canonical, keeps
+ // itself out of search and navigates on by itself. The fragment is the half that fails silently:
+ // every wiki article is a hash route, so a hop that drops it still looks like a working redirect
+ // while landing the reader on the contents page instead of the article they bookmarked.
+ for(const [oldPath,newPath] of [['/map/','/minecraft/map/'],['/wiki/','/minecraft/wiki/']]){
+  const stub=await (await fetch(origin+oldPath)).text();
+  assert.match(stub,/<meta name="robots" content="noindex">/,`${oldPath} must keep the old address out of search`);
+  assert.match(stub,new RegExp('<link rel="canonical" href="[^"]*'+newPath+'">'),`${oldPath} must name ${newPath} canonical`);
+ }
+ for(const [oldUrl,pathname,hash] of [['/map/','/minecraft/map/',''],['/map/#legend','/minecraft/map/','#legend'],['/wiki/','/minecraft/wiki/',''],['/wiki/#/ships-and-sailing','/minecraft/wiki/','#/ships-and-sailing']]){
+  const arrival=await context.newPage();
+  try{
+   await arrival.goto(origin+oldUrl);
+   await arrival.waitForURL(url=>url.pathname===pathname);
+   assert.equal(new URL(arrival.url()).hash,hash,`${oldUrl} must land on ${pathname} keeping '${hash}'`);
+   if(hash==='#/ships-and-sailing')await arrival.getByRole('heading',{name:'Ships & sailing',exact:true,level:1}).waitFor();
+  }finally{await arrival.close();}
+ }
  await page.locator('.hero-copy').evaluate(async el=>{await Promise.all(el.getAnimations().map(animation=>animation.finished));});
  await page.screenshot({path:'/tmp/easter-public-home-desktop.png',fullPage:true});
  for(const trigger of [page.getByRole('button',{name:'Choose launcher platform',exact:true}),page.getByRole('navigation').getByRole('button',{name:'Download',exact:true})]){
@@ -268,7 +288,7 @@ try{
   if(size.width===390)await page.screenshot({path:'/tmp/easter-public-map-mobile.png'});
  }
  await page.setViewportSize({width:1440,height:900});await page.locator('#home').click();await ready();
- let manifest=await page.evaluate(async()=>{const {createMapCache}=await import('/map/cache.mjs');return createMapCache().readSnapshot('world');});
+ let manifest=await page.evaluate(async()=>{const {createMapCache}=await import('/minecraft/map/cache.mjs');return createMapCache().readSnapshot('world');});
  assert(manifest.markers.every(r=>Object.hasOwn(MARKERS,r.kind)),'the saved chart carries only published marker categories');
  const tile=manifest.tiles.find(r=>r.x===Math.floor(manifest.center[0]/512)&&r.z===Math.floor(manifest.center[1]/512));assert(tile);
  const sampleWorld={x:tile.x*512+128,z:tile.z*512+128};
@@ -286,7 +306,7 @@ try{
  await page.route(`**/data/tiles/${tile.x}/${tile.z}.png?*`,async r=>{await tileGate.promise;return failTile?r.fulfill({status:503,body:'try later'}):r.fulfill({contentType:'image/png',body:bytes[0]});});
  await page.reload();await page.waitForFunction(()=>window.mapFrame.tiles>0&&window.mapFrame.regions>0);
  assert.deepEqual(await sample(),originalPixel);assert((await page.locator('#map-status').textContent()).includes('saved chart'));
- const onDisk=await page.evaluate(async()=>{const {createMapCache}=await import('/map/cache.mjs');return createMapCache().readSnapshot('world');});
+ const onDisk=await page.evaluate(async()=>{const {createMapCache}=await import('/minecraft/map/cache.mjs');return createMapCache().readSnapshot('world');});
  assert.equal(onDisk.markers.length,manifest.markers.length);
  manifestGate.resolve();await page.locator('#map-status').filter({hasText:'Updating the chart'}).waitFor();
  assert.deepEqual(await sample(),originalPixel);tileGate.resolve();
@@ -318,7 +338,7 @@ try{
    await fixtureContext.addInitScript(()=>localStorage.setItem('easter-co-atlas-ui',JSON.stringify({layers:{navy:false,citizen:false,criminal:false,pirate:false,prisoner:false,other:false},view:{cx:315,cz:315,scale:.5}})));
    const fixturePage=await fixtureContext.newPage(),fixtureErrors=[];
    fixturePage.on('pageerror',e=>fixtureErrors.push(e.message));
-   await fixturePage.goto(origin+'/map/');
+   await fixturePage.goto(origin+'/minecraft/map/');
    await fixturePage.waitForFunction(()=>window.mapFrame.tiles>0&&document.getElementById('map-status').hidden);
    await fixturePage.locator('#map-key summary').click();
    // Saved settings from the removed player-faction layers must not hide a marker category.
@@ -352,7 +372,7 @@ try{
  // is filled with its key colour. The live chart's own age mix is not assumed.
  {
   // The chart calls a reading old when the snapshot is more than five minutes newer than the
-  // observation (site/map/map.js: captured_at - observed_at > 300000). Building these from the
+  // observation (site/minecraft/map/map.js: captured_at - observed_at > 300000). Building these from the
   // clock made the test a time bomb: it only held while now-90min was still before the
   // snapshot's own captured_at, and every daily export moves that. Anchoring both readings to
   // the snapshot makes the case hold at any hour, on any snapshot.
@@ -370,7 +390,7 @@ try{
    await agedContext.route('**/data/world.json',route=>route.fulfill({json:aged}));
    const agedPage=await agedContext.newPage(),agedErrors=[];
    agedPage.on('pageerror',e=>agedErrors.push(e.message));
-   await agedPage.goto(origin+'/map/');
+   await agedPage.goto(origin+'/minecraft/map/');
    await agedPage.waitForFunction(()=>window.mapFrame.tiles>0&&document.getElementById('map-status').hidden);
    await agedPage.locator('#map-key summary').click();
    await agedPage.locator('[data-layer="ship"]').uncheck();
@@ -417,9 +437,9 @@ try{
    await staleContext.route('**/data/world.json',route=>route.fulfill({status:503,body:'unavailable'}));
    const stalePage=await staleContext.newPage(),staleErrors=[];
    stalePage.on('pageerror',e=>staleErrors.push(e.message));
-   await stalePage.goto(origin+'/map/');
+   await stalePage.goto(origin+'/minecraft/map/');
    const seed=snapshot=>stalePage.evaluate(async value=>{
-    const {createMapCache}=await import('/map/cache.mjs');
+    const {createMapCache}=await import('/minecraft/map/cache.mjs');
     await createMapCache().writeSnapshot('world',value);
    },snapshot);
    // A saved snapshot is judged as a whole before it is used. One carrying a marker kind this
@@ -445,7 +465,12 @@ try{
   }finally{await staleContext.close().catch(()=>{});}
  }
  assert(requests.every(r=>r.method==='GET'));
- assert(!requests.some(r=>r.url.includes('/minecraft/')||r.url.includes('/api/')));
+ // The public site asks nothing of the private household API. `/api/` is that service's own route
+ // space and its private map endpoints live under `/minecraft/` on it, so the guard is that no
+ // request leaves this preview for either. The last half is asserted off-origin since the move:
+ // the public map and wiki now live under the site's own `/minecraft/` path, so a same-origin
+ // request carrying that segment is the page fetching itself, not a call to the private map.
+ assert(!requests.some(r=>r.url.includes('/api/')||(!r.url.startsWith(origin)&&r.url.includes('/minecraft/'))),'the public page must not call the private API');
  // The download-first flow is desktop-only. A plain browser must show none of it.
  assert.equal(await page.locator('#launcher-bar').count(),0,'the sticky bar is a launcher affordance');
  assert.equal(await page.locator('[data-desktop-play],[data-desktop-nav],.desktop-account-nav,.desktop-install').count(),0,'no desktop affordance may leak into the public page');

@@ -672,7 +672,7 @@ try{
  // inline left was captured once at load, so a chart loaded narrow kept 148px on a wide window
  // (covering the last 6.4px of the map key's summary, where a click opened Draw instead of the
  // key) and a chart loaded wide kept 166px on a narrow one, 18px right of its designed position.
- // site/map/map.js now measures the room between the panel's own top and the first edge under it —
+ // site/minecraft/map/map.js now measures the room between the panel's own top and the first edge under it —
  // the chart's footer, or the bar where the bar stands over the palette's columns — publishes it as
  // --drawing-panel-room, and re-reads both that and the stylesheet's own left whenever anything
  // that feeds them moves. What is proven here is the launcher's real bar at all three widths, with
@@ -772,7 +772,7 @@ try{
     // The negative control, in the review's own numbers. Before the bar was in the sum the panel was
     // the height the stylesheet still falls back to (the viewport minus 210px below 600, minus 240
     // above it), and where the panel is taller than that fallback it ends under the bar. Take the bar
-    // term out of site/map/map.js and the panel stops above the footer instead - which is the height
+    // term out of site/minecraft/map/map.js and the panel stops above the footer instead - which is the height
     // that put Colour and Stroke behind the bar at 390. The controls' own offsets from the panel's
     // top are what the panel scrolls, so they are where they were: under it.
     if(geometry.scrolling){

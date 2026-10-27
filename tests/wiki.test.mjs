@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {groups, pages, searchPages, searchableText, sectionAliases} from '../site/wiki/pages.mjs';
+import {groups, pages, searchPages, searchableText, sectionAliases} from '../site/minecraft/wiki/pages.mjs';
 test('article links and section links resolve in the bundled catalogue', () => {
   const ids = new Set(pages.map(page => page.id));
   assert.equal(ids.size, pages.length);

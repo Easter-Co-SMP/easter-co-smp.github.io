@@ -1187,7 +1187,7 @@ that returns.
   instead of covering the crest or the heading. A guide page has no hero card, and until
   2026-10-18 reserved nothing at all: the band landed on the guide's eyebrow line at 1440
   and on the sidebar's brand and search box at 800 and 390. The room is now reserved on
-  the layout that holds the sidebar and the article (`site/wiki/wiki.css` reads the same
+  the layout that holds the sidebar and the article (`site/minecraft/wiki/wiki.css` reads the same
   `--launcher-notice-space`), measured from the first block of each column the band
   actually reaches, so no column starts under the band at any width.
   The map is neither case: it is a full-bleed chart with its controls docked on top of it,
@@ -1206,7 +1206,7 @@ that returns.
   The drawing palette's own panel follows the same rule rather than a viewport
   subtraction: it is capped by the room between its own top and the first edge under it —
   the chart's footer, or the sticky bar where the bar stands over the palette's columns —
-  which `site/map/map.js` measures and publishes as `--drawing-panel-room` (the notice
+  which `site/minecraft/map/map.js` measures and publishes as `--drawing-panel-room` (the notice
   band's reserved height is already inside that number, because the band moves the whole
   strip), while `site/styles.css` keeps its own viewport subtraction as the other term of
   a `min()`, so a chart nobody has measured lays out exactly as it did and a measurement
@@ -3577,7 +3577,7 @@ absence, emptiness or failure leaves every other surface exactly as it was.
 ## Mock commerce surface
 
 The Community store is a page of its own at `site/store/index.html`, served at
-`/store/` and reached by navigation exactly as `/map/` and `/wiki/` are: the shared site
+`/store/` and reached by navigation exactly as `/minecraft/map/` and `/minecraft/wiki/` are: the shared site
 header nav links to it from Home, Map, Wiki and the store itself. There is no dialog, and
 nothing in the launcher opens a store surface over the page. `site/store/store.mjs`
 exports `mountStore(root, {api})`, which renders into `#store-root` from the in-process

@@ -3,8 +3,8 @@ import {webAccount} from '../web-account.mjs';
  * The Community store, rendered into the page at /store/.
  *
  * site/store/index.html owns the page shell — the site header and its nav, the h1 and the
- * footer. This module owns everything inside #store-root, and it is a page like /map/ and
- * /wiki/ rather than a dialog, so its views are hash routes: Back, Forward and a shared link
+ * footer. This module owns everything inside #store-root, and it is a page like /minecraft/map/ and
+ * /minecraft/wiki/ rather than a dialog, so its views are hash routes: Back, Forward and a shared link
  * all reach the same view.
  *
  *   #catalogue    every product the server sells, in the server's order.
