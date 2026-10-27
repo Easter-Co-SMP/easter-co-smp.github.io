@@ -1,6 +1,17 @@
 import {webAccount} from './web-account.mjs';
 import {createCompanyAuth} from './company-auth.mjs';
+import {rememberReturnTarget} from './auth-return.mjs';
 if(webAccount){
+ // WHAT THIS PAGE WAS ASKED TO RETURN TO. Owen, 2026-10-26: "easter-co-smp.github.io should have
+ // generic flags to handle redirects and other e apps using the same auth flows." `?app=<id>` (an
+ // allow-listed first-party app) and `?next=<url>` (an address that passes the same validator) are a
+ // request to be brought back to that app once this tab has signed in, and they are read here
+ // because this module runs on every page of the site: an app may open the homepage, and the player
+ // may sign in from the nav's dialog rather than from /account/. site/auth-return.mjs owns the
+ // allow-list, the one storage key and the consume-once rule, and its header says what this must
+ // never become (a token handoff); doc/auth-return.md is the written contract. A page opened
+ // without either parameter writes nothing at all.
+ rememberReturnTarget(location.search);
  document.documentElement.classList.add('web-mode');
  // THE WEBSITE HAS NO STORE. Owen, 2026-10-27: the Easter Company app registration is going to
  // Minecraft for API approval and the form reviews this site, so a storefront on it is a

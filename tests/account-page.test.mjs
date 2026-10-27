@@ -310,8 +310,16 @@ test('a successful sign-in leaves the account page for the site root instead of 
  // through - the Microsoft callback, an in-place provider sign-in, the direct Company form, and a
  // stored session re-validated on boot - so this gate is about the answer it gives rather than
  // about one journey: a navigation, and nothing painted.
+ //
+ // The one exception is the other rule of the same day - "easter-co-smp.github.io should have
+ // generic flags to handle redirects and other e apps using the same auth flows" - so the
+ // destination is the return target this tab stored, and the site root when there is none. The
+ // fallback is resolved from the page, so a preview server is the same answer.
  const page=await readFile(new URL('../site/account/account.mjs',import.meta.url),'utf8');
- assert(page.includes("location.replace(new URL('../',location.href))"),'a success navigates to the site root, resolved from the page so a preview server is the same answer');
+ assert(page.includes("location.replace(takeTarget()||new URL('../',location.href))"),'a success navigates to the stored return target, or to the site root when this tab asked for none');
+ assert(page.includes("from '../auth-return.mjs'"),'and both the allow-list and the storage are that one module, not a second copy here');
+ assert(page.includes('rememberReturnTarget(location.search)'),'the target this address asks for is stored before the first paint can answer with it');
+ assert(page.includes('forgetTarget()'),'and a refused sign-in drops it rather than carrying it into the next one');
  assert(!page.includes('location.assign'),'and the entry is replaced rather than added to, so Back cannot re-enter the page it left');
  // One navigation in the whole module, and it is this one: a refusal cannot navigate even by
  // accident, because there is no second place a document could be sent from.

@@ -26,6 +26,13 @@
 // of each document: the real popup, a window the browser refuses to close, an ordinary tab that is
 // handed back in place, and the homepage with no flag at all.
 //
+// THE RETURN TARGET, which is what makes this the household's sign-in rather than only the site's
+// (Owen, 2026-10-26: "easter-co-smp.github.io should have generic flags to handle redirects and other
+// e apps using the same auth flows."). Section 17 at the end drives `?app=` and `?next=` through the
+// real flows against fixture copies of the two allow-listed origins, including the Microsoft round
+// trip: the callback's address cannot carry a parameter, so what the browser keeps in the tab
+// between leaving for Microsoft and coming back is measured there rather than assumed.
+//
 // It also counts DOCUMENT LOADS per step and prints them: a full page load is the cost Owen felt
 // after a real sign-in ("too many full page loads", 2026-10-26), and a number is the only way to
 // keep it from creeping back. The only unavoidable ones are the authorize redirect to Microsoft
@@ -39,6 +46,10 @@ import {SIGN_IN,SIGN_IN_WAIT,PROVIDER_WAIT,PROVIDER_ORDER,providerLabel} from '.
 // site root reads that literal in its own inline head script, which cannot import anything, so the
 // popup journey below is what keeps the pair from drifting apart.
 import {SIGN_IN_WINDOW} from '../site/web-account.mjs';
+// The return target's own module, so this suite is not a second author of the address a sign-in is
+// sent back to: `?app=e-server` is resolved here by the same table and the same validator the site
+// ships, and the storage key is the module's one key rather than a literal copied into a test.
+import {RETURN_KEY,appUrl} from '../site/auth-return.mjs';
 const origin=process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18118';
 // Where a success must leave the document, resolved from /account/ the way the page resolves it
 // (site/account/account.mjs, `new URL('../', location.href)`), so this suite is not the second
@@ -178,6 +189,27 @@ async function assertLeftForRoot(page,label){
  assert.equal(await page.locator('.account-note').count(),0,'and no note about Play ('+label+')');
  assert.equal(await page.getByRole('button',{name:'Sign out',exact:true}).count(),0,'and no page-level Sign out is drawn - the one in the product is the nav menu\'s, and it is closed ('+label+')');
 }
+// EVERY FRAME OF EVERY DOCUMENT IN A CONTEXT, FROM THE FIRST ONE. The sign-in splash is a first-paint
+// claim, so it is measured as one: the sampler records what was on screen in each animation frame of
+// each document - the popup included - and the journeys assert over that history instead of trusting
+// a screenshot taken after the fact. The interval chain is the same record for a window whose
+// animation frames are throttled, which is how a background popup would otherwise look unsampled
+// rather than unflashed. Installed by both the per-width contexts and the return-target one.
+function framesSampler(){
+ const frames=[];
+ window.__frames=frames;
+ const visible=selector=>{
+  const node=document.querySelector(selector);
+  if(!node)return false;
+  const style=getComputedStyle(node);
+  return style.display!=='none'&&style.visibility!=='hidden'&&node.getClientRects().length>0;
+ };
+ const snapshot=()=>({splash:visible('#signed-in-splash'),hero:visible('.home-hero'),mist:visible('.arrival-mist'),skip:visible('.skip-arrival'),arriving:Boolean(document.body?.classList.contains('is-arriving')),attr:document.documentElement.getAttribute('data-signed-in'),body:Boolean(document.body),t:Math.round(performance.now())});
+ const frame=()=>{frames.push(snapshot());if(frames.length<240)requestAnimationFrame(frame);};
+ requestAnimationFrame(frame);
+ let ticks=0;
+ const timer=setInterval(()=>{frames.push(snapshot());if(++ticks>60)clearInterval(timer);},50);
+}
 // Sign out is the nav's account menu, on every page of the site (site/web.js:81, `action('Sign out')`):
 // the page-level button went with the panel, so this is the surface a signed-in visitor has, and it
 // is exercised from the root rather than from /account/.
@@ -193,27 +225,7 @@ async function signOutFromNav(page,label){
 try{
  for(const width of [1440,834,390]){
   const context=await browser.newContext({viewport:{width,height:1000},reducedMotion:'reduce'});
-  // EVERY FRAME OF EVERY DOCUMENT IN THIS CONTEXT, FROM THE FIRST ONE. The sign-in splash is a
-  // first-paint claim, so it is measured as one: the sampler records what was on screen in each
-  // animation frame of each document - the popup included - and the journeys below assert over
-  // that history instead of trusting a screenshot taken after the fact. The interval chain is the
-  // same record for a window whose animation frames are throttled, which is how a background
-  // popup would otherwise look unsampled rather than unflashed.
-  await context.addInitScript(()=>{
-   const frames=[];
-   window.__frames=frames;
-   const visible=selector=>{
-    const node=document.querySelector(selector);
-    if(!node)return false;
-    const style=getComputedStyle(node);
-    return style.display!=='none'&&style.visibility!=='hidden'&&node.getClientRects().length>0;
-   };
-   const snapshot=()=>({splash:visible('#signed-in-splash'),hero:visible('.home-hero'),mist:visible('.arrival-mist'),skip:visible('.skip-arrival'),arriving:Boolean(document.body?.classList.contains('is-arriving')),attr:document.documentElement.getAttribute('data-signed-in'),body:Boolean(document.body),t:Math.round(performance.now())});
-   const frame=()=>{frames.push(snapshot());if(frames.length<240)requestAnimationFrame(frame);};
-   requestAnimationFrame(frame);
-   let ticks=0;
-   const timer=setInterval(()=>{frames.push(snapshot());if(++ticks>60)clearInterval(timer);},50);
-  });
+  await context.addInitScript(framesSampler);
   const page=await context.newPage(),errors=[],calls=[],loads=[],counted={};
   // One stub authority. `exchange` decides what the exchange says and `startRefusal` what the
   // start says, so one journey can be signed in, refused and replayed without a second server.
@@ -344,7 +356,7 @@ try{
   const served=await page.evaluate(()=>fetch('account.mjs').then(answer=>answer.text()));
   for(const gone of ['Signing in here does not start Minecraft','Play stays in the launcher','Signed in as','account-note','account-identity','PLAY_NOTE'])
    assert.equal(served.includes(gone),false,'the account page no longer carries '+JSON.stringify(gone));
-  assert(served.includes("location.replace(new URL('../',location.href))"),'and a success is a navigation to the site root');
+  assert(served.includes("location.replace(takeTarget()||new URL('../',location.href))"),'and a success is a navigation to the return target this tab stored, or to the site root when it stored none');
   const drawn=(await page.locator('#account-panel').innerText()).replace(/\s+/g,' ');
   for(const gone of ['Signing in here does not start Minecraft','Play stays in the launcher','Signed in as'])
    assert.equal(drawn.includes(gone),false,'the page draws no '+JSON.stringify(gone)+': '+drawn);
@@ -823,6 +835,195 @@ try{
   }
   assert.deepEqual(errors,[]);
   console.log('PASS account page: one shared options panel, one busy state, counted document loads, chooser hand-off, choices, start by pointer and by keyboard, callback -> the site root, session, a signed-in visit -> the site root, sign out from the nav, provider -> the site root, direct -> the site root, cancelled, not registered, refused password, replay, no state, wrong address, the sign-in splash from the first frame (popup, refused close, ordinary tab, no flag) at '+width);
+  checks++;await context.close();
+ }
+ // 17. THE RETURN TARGET: another of the household's apps sends the browser here to sign in and
+ //     gets it back afterwards (Owen, 2026-10-26: "easter-co-smp.github.io should have generic flags
+ //     to handle redirects and other e apps using the same auth flows"). site/auth-return.mjs owns
+ //     the allow-list, the one storage key and the consume-once rule; this section is the composed
+ //     proof, in a real browser, that a target survives the flows and that nothing else is followed.
+ //     It is measured rather than assumed: sessionStorage is per tab and per origin, and the
+ //     Microsoft flow leaves this origin entirely before it comes back.
+ //
+ //     The two allow-listed origins are answered by fixtures here: what is proved is where the
+ //     browser was sent and what its address carries, not what that app does when it arrives.
+ {
+  const app=appUrl('e-server');
+  const COMPANY_PAGE='https://easter.company/linked/';
+  const context=await browser.newContext({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
+  await context.addInitScript(framesSampler);
+  const page=await context.newPage(),errors=[],loads=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  watcher(page,loads);
+  let password='ok';
+  await context.route(API_ORIGIN+'/**',async route=>{
+   const path=new URL(route.request().url()).pathname;
+   let status=200,value={};
+   if(path==='/v2/oauth/microsoft/start')value={state:STATE,authorizeUrl:'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_id=fixture&response_type=code&redirect_uri='+encodeURIComponent(REDIRECT_URI)+'&state='+STATE+'&code_challenge=fixture-challenge&code_challenge_method=S256',expiresIn:600,redirectUri:REDIRECT_URI};
+   else if(path==='/v2/oauth/microsoft/exchange')value=signed(ACCOUNT);
+   else if(path==='/v2/accounts/providers')value={providers:['microsoft','steam','google']};
+   else if(path==='/v2/accounts/providers/start')value={flow:'f'.repeat(43),url:'https://steamcommunity.com/openid/login?fixture=1',expiresIn:600};
+   else if(path==='/v2/accounts/providers/finish')value=signed(ACCOUNT);
+   else if(path==='/v2/accounts/password/login'){
+    if(password==='refused'){status=401;value={error:'invalid_credentials'};}
+    else value=signed(ACCOUNT);
+   }
+   else if(path==='/v2/accounts/me')value={account:ACCOUNT};
+   else if(path==='/v2/accounts/logout')value={};
+   else throw Error('Unexpected API request '+path);
+   await route.fulfill({status,contentType:'application/json',body:JSON.stringify(value)});
+  });
+  await context.route('https://login.microsoftonline.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture Microsoft sign-in</title><p>Fixture authority</p>'}));
+  await context.route('https://steamcommunity.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture provider</title><p>Fixture provider complete</p>'}));
+  const appPage=title=>route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>'+title+'</title><p>'+title+'</p>'});
+  await context.route('https://easter-server.char-istrian.ts.net:8443/**',appPage('Fixture e-server'));
+  await context.route('https://easter.company/**',appPage('Fixture easter.company'));
+  const storedTarget=()=>page.evaluate(key=>sessionStorage.getItem(key),RETURN_KEY);
+  // BACK ON THIS ORIGIN BEFORE CLEARING IT: sessionStorage is per origin, so a clear run while the
+  // tab is sitting on one of the returned apps' own origins would leave this tab's real session in
+  // place and /account/ would boot signed in - which is exactly the bug this helper exists to keep
+  // out of the journeys below.
+  const clearTab=async()=>{
+   await page.goto(origin+'/');
+   await page.evaluate(()=>sessionStorage.clear());
+  };
+  const signedOutPage=async()=>{
+   await clearTab();
+   await page.goto(origin+'/account/');
+   await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
+  };
+  const directSignIn=async()=>{
+   await page.locator('#account-root input[name=identifier]').fill('fixture_player');
+   await page.locator('#account-root input[name=password]').fill('fixture-passphrase');
+   await page.locator('#account-root button[type=submit]').click();
+  };
+
+  // (a) ?app=e-server SURVIVES THE MICROSOFT ROUND TRIP. The registered redirect is a fixed literal,
+  //     so the app's name cannot travel in the callback's query string: it has to be in this tab's
+  //     storage when the browser comes back, and this journey leaves the origin for
+  //     login.microsoftonline.com and returns to prove that it is.
+  await page.goto(origin+'/account/?app=e-server');
+  await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
+  assert.equal(await storedTarget(),app,'?app=e-server stores the allow-listed address before anything is signed in: '+await storedTarget());
+  await page.locator('#account-root .company-microsoft').click();
+  await page.waitForURL('https://login.microsoftonline.com/**');
+  assert.equal(new URL(page.url()).searchParams.get('app'),null,'the authorize address carries no app: the callback cannot be given one');
+  const callbackLoads=loads.length;
+  await page.goto(CALLBACK_URL);
+  await page.waitForURL(app,{timeout:20000});
+  assert.equal(page.url(),app,'the callback leaves for the allow-listed app, not the site root: '+page.url());
+  assert.deepEqual(loads.slice(callbackLoads),[CALLBACK_URL,app],'the callback is its own document and the return is one more: '+JSON.stringify(loads.slice(callbackLoads)));
+  assert.equal(new URL(page.url()).search,'','the return address carries no query string');
+  assert.equal(new URL(page.url()).hash,'','and no fragment');
+  for(const secret of [SESSION_TOKEN,CALLBACK_CODE,STATE,'access_token','refresh_token','id_token','code='])
+   assert.equal(page.url().includes(secret),false,'nothing of the sign-in travels in the return address: '+JSON.stringify(secret));
+  assert.equal(await page.title(),'Fixture e-server','the tab really is on the app it was sent to');
+  assert.equal(await page.evaluate(key=>sessionStorage.getItem(key),RETURN_KEY),null,'and the target was spent by the sign-in that used it');
+  // CONSUMED ONCE: the same tab, still signed in, with no target left, goes where it always did.
+  const secondLoads=loads.length;
+  await page.goto(origin+'/account/');
+  await page.waitForURL(SITE_ROOT);
+  assert.deepEqual(loads.slice(secondLoads).map(url=>url.replace(origin,'')),['/account/','/'],'a second visit is the account page and the site root: '+JSON.stringify(loads.slice(secondLoads)));
+  assert.equal(await page.evaluate(key=>sessionStorage.getItem(key),RETURN_KEY),null,'and it stored nothing of its own');
+
+  // (b) ?next= IS ACCEPTED ONLY WHEN THE SAME VALIDATOR PASSES. A refused address is not an error:
+  //     the visit is the visit it always was, and a sign-in ends on the site root.
+  await signedOutPage();
+  await page.goto(origin+'/account/?next='+encodeURIComponent('https://evil.example/signed-in'));
+  await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
+  assert.equal(await storedTarget(),null,'a next the validator refuses stores nothing');
+  await directSignIn();
+  await page.waitForURL(SITE_ROOT);
+  assert.equal(page.url(),SITE_ROOT,'so the sign-in ends on the site root, exactly as it does with no parameter');
+  await signedOutPage();
+  await page.goto(origin+'/account/?next='+encodeURIComponent(COMPANY_PAGE));
+  await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
+  assert.equal(await storedTarget(),COMPANY_PAGE,'?next= on an easter.company host is stored');
+  await directSignIn();
+  await page.waitForURL(COMPANY_PAGE);
+  assert.equal(new URL(page.url()).search,'','and the tab is left on that address with nothing appended');
+  assert.equal(await page.title(),'Fixture easter.company','on the app the parameter named');
+
+  // (c) A REFUSED SIGN-IN NAVIGATES NOWHERE AND LEAVES NO TARGET BEHIND - neither the service's
+  //     refusal nor the authority's cancellation.
+  await signedOutPage();
+  await page.goto(origin+'/account/?app=e-server');
+  await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
+  assert.equal(await storedTarget(),app,'the request is stored while the visitor signs in');
+  password='refused';
+  await directSignIn();
+  await page.locator('.account-error').waitFor();
+  await page.waitForTimeout(300);
+  password='ok';
+  assert.equal(new URL(page.url()).pathname,ACCOUNT_PATH,'a refused sign-in navigates nowhere: '+page.url());
+  assert.equal(await storedTarget(),null,'and drops the request instead of carrying it into the next sign-in');
+  await page.goto(origin+'/account/?app=e-server');
+  await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
+  assert.equal(await storedTarget(),app,'the request is stored again for the next attempt');
+  await page.goto(origin+'/account/?error=access_denied&error_description='+encodeURIComponent('AADSTS50011: the player cancelled the sign-in.'));
+  await page.getByText('Sign-in cancelled.',{exact:true}).waitFor();
+  assert.equal(new URL(page.url()).pathname,ACCOUNT_PATH,'a cancelled sign-in navigates nowhere: '+page.url());
+  assert.equal(await storedTarget(),null,'and leaves no stored target behind either');
+
+  // (d) THE SPLASH'S ORDINARY TAB LEAVES FOR THE TARGET instead of settling on the homepage, and the
+  //     splash stays the page while the target is resolved - nothing of the homepage flashes behind
+  //     it. No frame of that document showed the hero, the mist or the Skip intro button.
+  await clearTab();
+  await page.goto(origin+'/?app=e-server');
+  assert.equal(await storedTarget(),app,'the site root records the app it was asked for too');
+  const splashLoads=loads.length;
+  await page.goto(origin+'/?signed-in=1');
+  await page.locator('#signed-in-splash').waitFor();
+  await page.waitForFunction(()=>Array.isArray(window.__frames)&&window.__frames.length>2);
+  const during=await page.evaluate(splashState);
+  assert.equal(during.splash,true,'the splash is the page while the target is resolved');
+  assert.equal(during.attr,'1','and it is still the flag\'s page, never a settled homepage');
+  assert.equal(during.hero,false,'with the homepage never shown behind it');
+  const flashed=during.frames.filter(frame=>frame.body&&(frame.hero||frame.mist||frame.skip));
+  assert.deepEqual(flashed,[],'no frame of the returning tab showed the homepage or the intro: '+JSON.stringify(flashed));
+  await page.waitForURL(app,{timeout:20000});
+  assert.deepEqual(loads.slice(splashLoads),[origin+'/?signed-in=1',app],'the flagged document and the app it handed the tab to: '+JSON.stringify(loads.slice(splashLoads)));
+  await page.goto(origin+'/');
+  assert.equal(await page.evaluate(key=>sessionStorage.getItem(key),RETURN_KEY),null,'the site origin keeps no target after the hand-back: it was consumed');
+
+  // (e) A POPUP CLOSES ITSELF AND NAVIGATES NOWHERE, even holding a target: only an ordinary tab
+  //     leaves. The marker is the one site/web-account.mjs puts on the window it opens; a window it
+  //     cannot in fact close is the same branch here, and either way it must not be sent to the app.
+  await clearTab();
+  await page.goto(origin+'/?app=e-server');
+  assert.equal(await storedTarget(),app,'a target is stored for this tab');
+  await page.evaluate(name=>{window.name=name;},SIGN_IN_WINDOW);
+  await page.goto(origin+'/?signed-in=1');
+  await page.locator('#signed-in-splash').waitFor();
+  await page.locator('#signed-in-splash-fallback').waitFor({timeout:10000});
+  await page.waitForTimeout(250);
+  assert.equal(page.url(),SITE_ROOT,'the window the site opened for a sign-in is not sent to the app: '+page.url());
+  assert.equal(await storedTarget(),app,'and it does not spend the target an ordinary tab would have used');
+  await page.evaluate(()=>{window.name='';});
+
+  // (f) A PROVIDER SIGN-IN ON THIS PAGE, which answers in place instead of leaving: the seam saves
+  //     the session, the state change is what navigates, and that funnel is signedIn() - so it
+  //     resolves the same stored target. The popup it opens is the provider's page, not the return.
+  await signedOutPage();
+  await page.goto(origin+'/account/?app=e-server');
+  await page.getByRole('button',{name:'Sign in with Steam',exact:true}).waitFor();
+  assert.equal(await storedTarget(),app,'the request is stored for a provider sign-in too');
+  const popupOpened=page.waitForEvent('popup');
+  await page.getByRole('button',{name:'Sign in with Steam',exact:true}).click();
+  const providerPopup=await popupOpened;
+  await page.waitForURL(app,{timeout:25000});
+  assert.equal(page.url(),app,'a provider sign-in leaves for the allow-listed app as well');
+  // THE POPUP IS NEVER THE WINDOW THAT GOES. The seam closes the provider window when the poll
+  // settles, and this tab's own navigation can outrun that last close - which is the width
+  // journey's business, not this section's - so what is asserted here is the rule: the window the
+  // site opened for the provider did not follow the target.
+  const providerPopupURL=providerPopup.isClosed()?null:providerPopup.url();
+  assert.equal(providerPopupURL===null||providerPopupURL.startsWith('https://steamcommunity.com/'),true,'the provider window is not the one that returned to the app: '+JSON.stringify(providerPopupURL));
+  await page.goto(origin+'/');
+  assert.equal(await page.evaluate(key=>sessionStorage.getItem(key),RETURN_KEY),null,'and it spent the target on that one visit');
+
+  assert.deepEqual(errors,[]);
+  console.log('PASS the return target: ?app=e-server stored in the tab, carried through the Microsoft round trip and spent on exactly one visit to the allow-listed origin with an address carrying nothing appended, ?next accepted only on an easter.company host, a refused and a cancelled sign-in each leaving no target, the splashed ordinary tab leaving for the app with no frame of the homepage behind it, a popup closing itself instead, and a provider sign-in answering in place and leaving for the same app');
   checks++;await context.close();
  }
  // 16. No motion preference: the same busy state, and the spinner actually turns. Reduced motion

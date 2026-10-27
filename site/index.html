@@ -32,26 +32,41 @@ so no module can lose that race. An ordinary visit returns on the second line. *
  history.replaceState(null,'',location.pathname);
  html.dataset.signedIn='1';
  const popup=window.name===SIGN_IN_POPUP;
+ // HANDING THE PAGE BACK IN PLACE. No second document load, nothing telling the reader to close the
+ // window they are using, and no page left permanently hidden - the attribute's rule stops applying
+ // and site/home.js plays the arrival it held back for it.
+ const handBack=()=>{
+  html.removeAttribute('data-signed-in');
+  document.dispatchEvent(new Event('signed-in:settled'));
+ };
  const settle=()=>{
-  if(!popup){
-   // An ordinary tab: hand the page back in place. No extra document load, nothing telling the
-   // reader to close the window they are using, and no page left permanently hidden - the
-   // attribute's rule stops applying and site/home.js plays the arrival it held back for it.
-   html.removeAttribute('data-signed-in');
-   document.dispatchEvent(new Event('signed-in:settled'));
+  if(popup){
+   // A window opened by script may close itself, and by now the splash is painted, so this is the
+   // confirmation Owen asked for rather than a blank page that flickers and goes.
+   window.close();
+   // Still alive, so the browser refused: the fallback line exists for this one case and is never
+   // drawn in an ordinary tab.
+   setTimeout(()=>{
+    const line=document.getElementById('signed-in-splash-fallback');
+    if(!line)return;
+    line.textContent=SIGNED_IN_FALLBACK;
+    line.hidden=false;
+   },600);
    return;
   }
-  // A window opened by script may close itself, and by now the splash is painted, so this is the
-  // confirmation Owen asked for rather than a blank page that flickers and goes.
-  window.close();
-  // Still alive, so the browser refused: the fallback line exists for this one case and is never
-  // drawn in an ordinary tab.
-  setTimeout(()=>{
-   const line=document.getElementById('signed-in-splash-fallback');
-   if(!line)return;
-   line.textContent=SIGNED_IN_FALLBACK;
-   line.hidden=false;
-  },600);
+  // AN ORDINARY TAB, WHICH MAY HAVE BEEN SENT HERE TO SIGN IN FOR ANOTHER APP. Owen, 2026-10-26:
+  // "easter-co-smp.github.io should have generic flags to handle redirects and other e apps using
+  // the same auth flows." site/auth-return.mjs holds that request in this tab's storage and is the
+  // only author of what a return target may be, so the module is loaded here rather than this
+  // script reading its key and deciding for itself: a second reader would be a second allow-list.
+  // While the module is asked, the splash is still the page, so nothing flashes behind it; and with
+  // no target - or if the module cannot be had at all - the page is handed back exactly as it was
+  // before any of this existed.
+  import('./auth-return.mjs').then(module=>{
+   const target=module.takeTarget();
+   if(target){location.replace(target);return;}
+   handBack();
+  },handBack);
  };
  // Painted before acted on: two frames are a rendered first paint, and the timer is the same
  // promise for a window whose frames never run - a hidden tab must not stay hidden because

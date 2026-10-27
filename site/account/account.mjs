@@ -12,12 +12,13 @@
 //   success   and then the page is done with the player: a signed-in answer is not painted here at
 //             all. Every way a sign-in can succeed - this callback, a provider, the direct Company
 //             username/password form, or a stored session re-validated on boot - funnels through
-//             signedIn() below, and signedIn() sends the browser to the site root. Owen,
-//             2026-10-26, looking at this page signed in: it should "redirect back to the / page
-//             once signed in. Do not show whatever this is." Signing out is not lost with the
-//             panel it used to draw: every page carries it in the nav's account menu
-//             (site/web.js, `action('Sign out', ...)`), which is the surface a signed-in visitor
-//             actually has.
+//             signedIn() below, and signedIn() sends the browser to the site root, or to the return
+//             target this tab asked for when another household app sent it here to sign in
+//             (site/auth-return.mjs, `?app=`/`?next=`). Owen, 2026-10-26, looking at this page signed
+//             in: it should "redirect back to the / page once signed in. Do not show whatever this
+//             is." Signing out is not lost with the panel it used to draw: every page carries it in
+//             the nav's account menu (site/web.js, `action('Sign out', ...)`), which is the surface a
+//             signed-in visitor actually has.
 //
 // The rule: this page holds no Microsoft token and never asks for a Minecraft session. The
 // backend discards the refresh token by design (doc/BROWSER_SIGN_IN.md, section 4), so Play
@@ -30,6 +31,10 @@
 // saying what a human still has to register rather than a sign-in that broke.
 import {webAccount} from '../web-account.mjs';
 import {REDIRECT_URI,ACCOUNT_PATH,NOT_CONFIGURED,readCallback} from './microsoft-signin.mjs';
+// WHERE A SUCCESS LEAVES, when another app sent the browser here to sign in. One module owns the
+// allow-list, the storage and the consume-once rule (site/auth-return.mjs, and doc/auth-return.md is
+// the contract this page and e-server both build against); this page only asks it.
+import {rememberReturnTarget,takeTarget,forgetTarget} from '../auth-return.mjs';
 
 // The sign-in options are not written out here either. This page and the nav's dialog draw the
 // same panel from site/signin-options.mjs - the Microsoft button, the provider buttons in one
@@ -79,6 +84,14 @@ function problem(lines){
  alertBox.hidden=!shownLines.length;
 }
 const clearProblem=()=>problem([]);
+// A REFUSAL IS NOT A SIGN-IN, so it does not leave a return target behind: the request was not
+// answered, and the next sign-in in this tab must not redeem an intent the player abandoned
+// (site/auth-return.mjs, "A REFUSED SIGN-IN DROPS THE REQUEST"). A refusal still navigates nowhere,
+// which is why nothing else below changes: the visitor stays on this page with the sentence.
+function refused(lines){
+ forgetTarget();
+ problem(lines);
+}
 
 // THE BUSY STATE, which is the whole of what this page shows while a flow is in flight.
 //
@@ -138,7 +151,7 @@ function unavailable(){
  root.replaceChildren();
 }
 
-// THE SIGNED-IN ANSWER IS THE SITE ROOT.
+// THE SIGNED-IN ANSWER IS THE SITE ROOT, or the app that sent this tab here to sign in.
 //
 // Owen, 2026-10-26, signed in and looking at this page, asked for what it drew - the account's
 // name, a note about Play and a sign-out button, with a heading over them - to be gone: the page
@@ -148,11 +161,18 @@ function unavailable(){
 // here (the Microsoft callback, the in-place provider sign-in, the direct Company username/password
 // form, and boot() re-validating a stored session), and every one of them leaves.
 //
-// The address is resolved from this page rather than written out, so one branch is the site root
-// on easter-co-smp.github.io and on a preview server alike. `location.replace` rather than
-// `assign`: the entry this page was opened on is replaced, so Back does not bounce the player into
-// the page he has just been sent away from - which for a callback means the spent code and the
-// address it arrived on are gone from the history too.
+// THE ONE EXCEPTION IS A RETURN TARGET, Owen's other rule of the same day: "easter-co-smp.github.io
+// should have generic flags to handle redirects and other e apps using the same auth flows." A tab
+// that arrived from another household app carries that app's address - resolved and stored by
+// site/auth-return.mjs when this page loaded - and a success takes it there instead. Reading the
+// target deletes it, so it is answered once: a later sign-in in this tab goes to '/' as it always
+// did. With no target, `takeTarget()` answers null and the destination is exactly what it was
+// before, resolved from this page rather than written out, so one branch is the site root on
+// easter-co-smp.github.io and on a preview server alike.
+//
+// `location.replace` rather than `assign`: the entry this page was opened on is replaced, so Back
+// does not bounce the player into the page he has just been sent away from - which for a callback
+// means the spent code and the address it arrived on are gone from the history too.
 //
 // Sign-out did not go with the panel (site/web.js:81). It is the nav's account menu on every page
 // of the site, and that is the surface a signed-in visitor actually has.
@@ -165,7 +185,7 @@ function signedIn(){
  // Nothing is left on screen for the frame before the new document takes over: the root is
  // emptied rather than filled, so this page paints no account, no note and no button of its own.
  root.replaceChildren();
- location.replace(new URL('../',location.href));
+ location.replace(takeTarget()||new URL('../',location.href));
 }
 
 // The signed-out answer is the shared panel, one node, whether or not the service has answered
@@ -217,7 +237,7 @@ async function startMicrosoft(){
  // lands here is a refusal, including the two this page makes before asking anybody anything.
  end();
  if(result.ok)return;
- problem(result.error);
+ refused(result.error);
  paint();
 }
 
@@ -229,7 +249,7 @@ async function signInWithProvider(provider){
  end();
  // A completed provider sign-in has already been saved by the seam, and the state change is what
  // navigates to the site root; a refusal is drawn here, on this page, in place.
- if(outcome?.ok===false)problem(outcome.error||SIGN_IN.providerFailed);
+ if(outcome?.ok===false)refused(outcome.error||SIGN_IN.providerFailed);
  paint();
 }
 
@@ -240,7 +260,7 @@ async function signInWithPassword(identifier,secret){
  const outcome=await bridge.loginCompany(identifier,secret);
  end();
  if(outcome&&outcome.ok===false){
-  problem(outcome.error||SIGN_IN.failed);
+  refused(outcome.error||SIGN_IN.failed);
   // The attempt ended, so the page is back to its ordinary content - and the password the player
   // typed is not left on screen to be read over their shoulder.
   options?.clearPassword();
@@ -251,6 +271,13 @@ async function signInWithPassword(identifier,secret){
 // The four possible answers to "what is in this page's address", in the order they matter. The
 // callback comes first because it is what the player came back for.
 async function boot(){
+ // FIRST, before this page can answer anything: the return target an app sent this tab here to ask
+ // for. It is stored now rather than when it is needed because the answer arrives later and
+ // elsewhere - Microsoft returns to a fixed registered address, and a target cannot travel in the
+ // callback's query string - and because a signed-in visitor is answered by the very first paint
+ // below, which would otherwise navigate away before it was kept. No app or next parameter writes
+ // nothing at all, which is every visit that is not from another app.
+ rememberReturnTarget(location.search);
  const callback=readCallback(location.search);
  const handed=callback.kind==='none'&&new URLSearchParams(location.search).get('provider')==='microsoft';
  // A page that is mid-flow never shows its ordinary content, not even for the first frame: a
@@ -264,7 +291,7 @@ async function boot(){
   // the common case and says so in one line; anything else keeps the detail, because it is the
   // only thing that can tell a player whether to retry or to stop.
   stripAddress();
-  problem(callback.error==='access_denied'?[CANCELLED]:[AUTHORITY_REFUSED,callback.description]);
+  refused(callback.error==='access_denied'?[CANCELLED]:[AUTHORITY_REFUSED,callback.description]);
   return;
  }
  if(callback.kind==='code'||callback.kind==='state-missing'){
@@ -276,7 +303,7 @@ async function boot(){
   // and it is useless without the verifier, but nothing here needs to keep it, and a refreshed
   // page must not post it a second time.
   stripAddress();
-  if(!result.ok)problem(result.error);
+  if(!result.ok)refused(result.error);
   paint();
   return;
  }
