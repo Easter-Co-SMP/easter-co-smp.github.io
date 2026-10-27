@@ -1,3 +1,34 @@
+# Easter Company launcher 1.0.50
+
+# Easter Company launcher 1.0.50
+
+## Two new chapters about the water
+
+The home page now tells the rest of the sailing story, in the same illustrated chapters as the
+rest: taking a ship, naming it and sailing it with your crew, and then what happens when two
+ships meet. Both are on the site, and the launcher shows them where it shows the others.
+
+## The map and the guide have new addresses
+
+`/minecraft/map` and `/minecraft/wiki` are where they live now, under the product's own name.
+Old links keep working: a bookmark to the old address takes you to the new one, including a
+link straight to a wiki article.
+
+## Signing in
+
+- The sign-in window closes itself when it is done, and shows a short confirmation instead of
+  the home page while it does.
+- The account page hands you back to the site once you are signed in instead of showing you
+  an account panel with nothing to do on it.
+- Microsoft now signs you in on the company's own domain.
+
+## Smaller things
+
+- The chapter links under the home page sit in two even rows.
+- The footer carries the operator credit and the motto's translation.
+- The icon is the same picture at a quarter of the size, so the launcher starts a little faster.
+
+
 # Easter Company launcher 1.0.49
 
 # Easter Company launcher 1.0.49
