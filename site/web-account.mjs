@@ -11,6 +11,11 @@ import {createMicrosoftSignIn,readCallback,ACCOUNT_PATH,NOT_CONFIGURED,START_AGA
 // refuse a second one (startMicrosoftSignIn below). The account here is a projection, never a
 // credential: the token is still the only secret in this storage.
 const SESSION_KEY='easter-company-web-session-v1';
+// The name a provider popup carries back from the provider. The site root reads it to tell the
+// window this module opened apart from an ordinary tab (site/index.html's head script, whose inline
+// copy cannot import anything), so the pair is one literal in two files rather than one constant:
+// tests/account-browser.mjs drives the whole flow, which is what keeps them from drifting.
+export const SIGN_IN_WINDOW='easter-company-signin';
 const PROVIDERS={google:['https://accounts.google.com','/o/oauth2/v2/auth'],discord:['https://discord.com','/oauth2/authorize'],steam:['https://steamcommunity.com','/openid/login']};
 // Where a browser may sign in with Microsoft, and what a callback must look like, are one
 // contract: site/account/microsoft-signin.mjs holds both, because the registered redirect
@@ -125,6 +130,15 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
    if(!allowed)return Promise.resolve({ok:false,error:'Sign in with Microsoft on your account page.'});
    const popup=openWindow('about:blank','_blank');
    if(!popup)return Promise.resolve({ok:false,error:'Allow a sign-in window for this site and try again.'});
+   // THE WINDOW NAMES ITSELF, AND THAT NAME IS THE ONLY WAY THE RETURNED SITE ROOT CAN TELL IT IS
+   // THE POPUP. When this provider sign-in finishes, the account API's callback sends this window
+   // to `/?signed-in=1` and the site root paints a "Login Successful" splash there instead of the
+   // homepage and its arrival intro (site/index.html's head script, site/styles.css). The address
+   // cannot carry that distinction - the Microsoft flow and the launcher's provider window arrive
+   // at the same root as ordinary tabs, and must never be told to close themselves - but
+   // window.name survives every navigation in this window, including the cross-origin ones to the
+   // provider and back. Set before the first navigation, exactly as the root reads it.
+   popup.name=SIGN_IN_WINDOW;
    popup.opener=null;
    return run(async()=>{
     const abort=new AbortController();providerAbort=abort;

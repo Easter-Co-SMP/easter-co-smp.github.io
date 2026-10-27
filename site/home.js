@@ -40,7 +40,14 @@ const beginArrival=()=>{
  window.addEventListener('keydown',event=>{if(event.key==='Escape'||event.key==='Tab')finishArrival();});
  window.addEventListener('pagehide',finishArrival,{once:true});
 };
-if(window.easterDesktop?.mode==='desktop')window.addEventListener('desktop:startup-ready',beginArrival,{once:true});
+// A SIGN-IN THAT CAME BACK TO THIS PAGE DOES NOT START THE ARRIVAL UNDER ITS OWN SPLASH. The site
+// root's head script sets `data-signed-in` when `?signed-in=1` arrived (site/index.html), and that
+// attribute hides this whole page behind the splash. It hands the page back by removing the
+// attribute and dispatching `signed-in:settled`, which is where the arrival is due - so an ordinary
+// tab gets its intro at the moment the splash goes, and a popup, which never settles, never starts
+// one at all. An attribute already gone means the splash finished before this script ran.
+if(document.documentElement.dataset.signedIn==='1')document.addEventListener('signed-in:settled',beginArrival,{once:true});
+else if(window.easterDesktop?.mode==='desktop')window.addEventListener('desktop:startup-ready',beginArrival,{once:true});
 else beginArrival();
 motionPreference.addEventListener('change',event=>{if(event.matches)finishArrival();});
 document.getElementById('copyright-year').textContent=new Date().getFullYear();

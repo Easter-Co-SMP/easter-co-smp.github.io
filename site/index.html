@@ -5,7 +5,62 @@
   <meta name="description" content="The Ultimate MC Experience. Rebuilt from Matcha Flavoured: a rich early game, cooking, baking, brewing, tougher survival, and raid boss style challenges. Better together.">
   <meta property="og:title" content="Easter Co. SMP — The Ultimate MC Experience"><meta property="og:description" content="Griefing is encouraged. Justice pays better. Find your crew, cause chaos, or hunt it."><meta property="og:image" content="https://easter-co-smp.github.io/assets/crest.jpg">
   <title>Easter Co. SMP — The Ultimate MC Experience</title><link rel="icon" href="assets/favicon.ico" sizes="16x16 32x32 48x48 64x64 128x128 256x256"><link rel="icon" href="assets/favicon.png" type="image/png" sizes="64x64"><link rel="apple-touch-icon" href="assets/apple-touch-icon.png"><link rel="stylesheet" href="styles.css"><link rel="preload" as="image" href="assets/harbour.jpg">
-<link rel="stylesheet" href="world-journal.css"><link rel="stylesheet" href="desktop.css"><link rel="stylesheet" href="web.css"></head>
+<link rel="stylesheet" href="world-journal.css"><link rel="stylesheet" href="desktop.css"><link rel="stylesheet" href="web.css">
+<script>/* THE SIGN-IN SPLASH, AND THE HEAD IS THE WHOLE TRICK. A provider sign-in that finishes in the
+window site/web-account.mjs opened comes back to this page as `/?signed-in=1` (the account API's
+callback 302s here; doc/BROWSER_SIGN_IN.md in the cloud repository owns that address). Until this
+existed, that window painted the homepage and played its arrival intro for a second or two before
+the sign-in closed itself - Owen, 2026-10-26. Nothing here is a second page, a route or a file a
+search engine reads as content: the flag is recognised while the head is parsed, before the body
+exists, and the one rule keyed on `data-signed-in` in styles.css carries the whole visual decision,
+so no module can lose that race. An ordinary visit returns on the second line. */
+(function(){
+ const html=document.documentElement;
+ if(new URLSearchParams(location.search).get('signed-in')!=='1')return;
+ // The only sentence a window the browser will not close may carry. Owen's copy, and the one
+ // string in here he is expected to replace.
+ const SIGNED_IN_FALLBACK='You are signed in. You can close this window.';
+ // The name site/web-account.mjs gives the window it opens, before it navigates it to the
+ // provider. window.name survives every navigation, including the cross-origin ones, so it is the
+ // only reliable answer to "am I the window that asked for this?". The windows this page must
+ // never close are the ones nobody opened for it: the Microsoft flow hands the whole tab back
+ // through /account/, and the launcher's provider window is an ordinary OS-browser tab.
+ const SIGN_IN_POPUP='easter-company-signin';
+ // FIRST, the address is cleaned: from here a reload, a bookmark or a copied URL is the ordinary
+ // homepage and can never re-show this. Nothing has touched the window yet, so the strip cannot be
+ // in the way of the close below.
+ history.replaceState(null,'',location.pathname);
+ html.dataset.signedIn='1';
+ const popup=window.name===SIGN_IN_POPUP;
+ const settle=()=>{
+  if(!popup){
+   // An ordinary tab: hand the page back in place. No extra document load, nothing telling the
+   // reader to close the window they are using, and no page left permanently hidden - the
+   // attribute's rule stops applying and site/home.js plays the arrival it held back for it.
+   html.removeAttribute('data-signed-in');
+   document.dispatchEvent(new Event('signed-in:settled'));
+   return;
+  }
+  // A window opened by script may close itself, and by now the splash is painted, so this is the
+  // confirmation Owen asked for rather than a blank page that flickers and goes.
+  window.close();
+  // Still alive, so the browser refused: the fallback line exists for this one case and is never
+  // drawn in an ordinary tab.
+  setTimeout(()=>{
+   const line=document.getElementById('signed-in-splash-fallback');
+   if(!line)return;
+   line.textContent=SIGNED_IN_FALLBACK;
+   line.hidden=false;
+  },600);
+ };
+ // Painted before acted on: two frames are a rendered first paint, and the timer is the same
+ // promise for a window whose frames never run - a hidden tab must not stay hidden because
+ // requestAnimationFrame was throttled. After that the splash gets a moment to be read.
+ let armed=false;
+ const arm=()=>{if(armed)return;armed=true;setTimeout(settle,900);};
+ requestAnimationFrame(()=>requestAnimationFrame(arm));
+ setTimeout(arm,2000);
+})();</script></head>
 <body class="home">
   <header class="site-header"><a class="site-wordmark" href="./" aria-label="Easter Co. SMP home"><img class="wordmark-mark" src="assets/ec-logo.svg" alt="" width="26" height="26" decoding="async">Easter Co.<span>SMP</span></a><nav aria-label="Main navigation"><a href="./" aria-current="page">Home</a><button type="button" popovertarget="launcher-downloads">Download <svg class="download-chevron-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><a href="./map/">Map</a><a href="./wiki/">Wiki</a></nav></header>
   <div class="arrival-mist" aria-hidden="true"><i></i><i></i><i></i></div>
@@ -94,5 +149,10 @@
     </div>
   </main>
   <footer class="home-footer"><span>© <span id="copyright-year">2026</span> Easter LTD<br>hosted by <a href="https://easter.company">easter.company</a></span><span class="legal-links"><a href="legal/privacy/">Privacy</a><span aria-hidden="true">·</span><a href="legal/terms/">Terms</a></span><span><span lang="la">Numquam Succumbe</span><br>Never give up</span></footer>
+  <div class="signed-in-splash" id="signed-in-splash">
+    <img class="signed-in-splash-mark" src="assets/ec-logo.svg" alt="" width="96" height="96" decoding="async">
+    <h2 class="signed-in-splash-title">Login Successful</h2>
+    <p class="signed-in-splash-fallback" id="signed-in-splash-fallback" hidden></p>
+  </div>
   <script src="home.js" defer></script>
 <script src="downloads.js" defer></script><script src="desktop.js" defer></script><script type="module" src="web.js"></script></body></html>

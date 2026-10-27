@@ -59,6 +59,21 @@ dialog{width:min(580px,calc(100% - 32px));max-height:calc(100dvh - 40px);overflo
 @keyframes harbour-approach{0%{filter:blur(8px);transform:translate3d(0,2%,0) scale(1.23)}55%{filter:blur(1px)}100%{filter:blur(0);transform:translate3d(var(--scene-x,0px),var(--scene-y,0px),0) scale(1.06)}}
 @keyframes arrival-content{0%,42%{opacity:0;transform:translate3d(0,18px,0)}85%,100%{opacity:1;transform:translate3d(0,0,0)}}
 @media(prefers-reduced-motion:reduce){.arrival-mist,.skip-arrival{display:none!important}.harbour-background{will-change:auto;transform:scale(1.06)}}
+/* THE SIGN-IN SPLASH. The account API's callback sends a finished sign-in back to this page as
+   `/?signed-in=1`, and the inline script at the end of site/index.html's head sets
+   `data-signed-in="1"` on the root element while that head is still being parsed - before the body
+   exists, so before any frame of the homepage or of the arrival above can be painted. Everything
+   visual is decided by the rules below: the splash is hidden markup on an ordinary visit, and the
+   attribute makes it the only thing on screen. No module, no script and no second request stands
+   between the flag and the first paint. */
+.signed-in-splash{display:none;position:fixed;inset:0;z-index:60;padding:clamp(24px,6vw,56px);place-content:center;justify-items:center;gap:24px;text-align:center;background:radial-gradient(ellipse at 50% 30%,#16323c 0%,#0a1a21 72%)}
+html[data-signed-in="1"] .signed-in-splash{display:grid}
+.signed-in-splash-mark{width:clamp(72px,9vw,104px);height:auto}
+.signed-in-splash-title{font:400 clamp(30px,4.6vw,56px)/1.06 Georgia,"Times New Roman",serif;letter-spacing:-.03em;color:#e8dcc0;margin:0;text-shadow:0 3px 30px #0003}
+.signed-in-splash-fallback{max-width:32ch;margin:0;font-size:13px;line-height:1.7;color:var(--muted)}
+/* The stage the splash replaces, including both surfaces the arrival owns - the mist and the Skip
+   intro button site/home.js drives - so an intro that starts anyway cannot paint under it. */
+html[data-signed-in="1"] .site-header,html[data-signed-in="1"] .home-content,html[data-signed-in="1"] .home-footer,html[data-signed-in="1"] .harbour-background,html[data-signed-in="1"] .arrival-mist,html[data-signed-in="1"] .skip-arrival,html[data-signed-in="1"] .home::after{display:none!important}
 
 /* Shared navigation keeps the atlas and future Wiki familiar and easy to revisit. */
 .site-header{position:relative;z-index:2;flex:none;height:72px;display:flex;align-items:center;justify-content:space-between;gap:24px;width:min(1120px,calc(100% - 96px));margin:0 auto;border-bottom:1px solid #e4dcc121}

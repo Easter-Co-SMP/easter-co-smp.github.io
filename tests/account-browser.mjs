@@ -19,6 +19,13 @@
 // with its sentence in the one alert region. Sign-out is the nav's, on every page
 // (site/web.js:81), so it is exercised from the root rather than from this page.
 //
+// THE RETURNING WINDOW, which is the other half of a sign-in. A provider sign-in that finishes in
+// the popup comes back to the site root as `/?signed-in=1`, and Owen's rule (2026-10-26) is that
+// that window shows a `Login Successful` splash instead of the homepage and its arrival intro for
+// the second or two before it closes. Journeys 16a-16d measure that from the first animation frame
+// of each document: the real popup, a window the browser refuses to close, an ordinary tab that is
+// handed back in place, and the homepage with no flag at all.
+//
 // It also counts DOCUMENT LOADS per step and prints them: a full page load is the cost Owen felt
 // after a real sign-in ("too many full page loads", 2026-10-26), and a number is the only way to
 // keep it from creeping back. The only unavoidable ones are the authorize redirect to Microsoft
@@ -28,6 +35,10 @@ import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.6
 import {API_ORIGIN} from '../site/account-client.mjs';
 import {REDIRECT_URI,ACCOUNT_PATH} from '../site/account/microsoft-signin.mjs';
 import {SIGN_IN,SIGN_IN_WAIT,PROVIDER_WAIT,PROVIDER_ORDER,providerLabel} from '../site/signin-options.mjs';
+// The name a provider popup carries back from the provider, taken from the module that gives it: the
+// site root reads that literal in its own inline head script, which cannot import anything, so the
+// popup journey below is what keeps the pair from drifting apart.
+import {SIGN_IN_WINDOW} from '../site/web-account.mjs';
 const origin=process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18118';
 // Where a success must leave the document, resolved from /account/ the way the page resolves it
 // (site/account/account.mjs, `new URL('../', location.href)`), so this suite is not the second
@@ -85,6 +96,40 @@ const BUDGET=[
 ];
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
 let checks=0;
+// WHAT THE PAGE SAYS ABOUT THE SIGN-IN SPLASH, read out of the document rather than off a
+// screenshot: `visible` is the page's own answer - laid out, and neither display:none nor
+// visibility:hidden - so a splash that is merely present in the markup is told apart from one that
+// is painted. Every journey below reads the same object, and the frame sampler records it too.
+function splashState(){
+ const visible=selector=>{
+  const node=document.querySelector(selector);
+  if(!node)return false;
+  const style=getComputedStyle(node);
+  return style.display!=='none'&&style.visibility!=='hidden'&&node.getClientRects().length>0;
+ };
+ const box=selector=>{
+  const node=document.querySelector(selector);
+  if(!node)return null;
+  const rect=node.getBoundingClientRect();
+  return {x:Math.round(rect.x),y:Math.round(rect.y),w:Math.round(rect.width),h:Math.round(rect.height)};
+ };
+ const fallback=document.getElementById('signed-in-splash-fallback');
+ return {
+  url:location.href,name:window.name,
+  attr:document.documentElement.getAttribute('data-signed-in'),
+  splash:visible('#signed-in-splash'),hero:visible('.home-hero'),mist:visible('.arrival-mist'),skip:visible('.skip-arrival'),
+  title:document.querySelector('.signed-in-splash-title')?.textContent??null,
+  fallback:visible('#signed-in-splash-fallback'),fallbackText:fallback?(fallback.textContent||'').trim():'',
+  arriving:Boolean(document.body?.classList.contains('is-arriving')),
+  // Geometry, because the splash has to be the screen: the box of the splash, of the mark the
+  // wordmark uses and of the heading, plus the viewport it has to fill.
+  splashBox:box('#signed-in-splash'),markBox:box('.signed-in-splash-mark'),titleBox:box('.signed-in-splash-title'),
+  viewport:{w:innerWidth,h:innerHeight,scrollWidth:document.documentElement.scrollWidth},
+  // The sampler's whole record for this document, so one call reads the live state and the first
+  // paint together.
+  frames:Array.isArray(window.__frames)?window.__frames.slice():[],
+ };
+}
 // The main frame's document requests are exactly a full page load: a same-document history change
 // (stripAddress) is not one, and neither is a fetch.
 function watcher(page,loads){
@@ -148,6 +193,27 @@ async function signOutFromNav(page,label){
 try{
  for(const width of [1440,834,390]){
   const context=await browser.newContext({viewport:{width,height:1000},reducedMotion:'reduce'});
+  // EVERY FRAME OF EVERY DOCUMENT IN THIS CONTEXT, FROM THE FIRST ONE. The sign-in splash is a
+  // first-paint claim, so it is measured as one: the sampler records what was on screen in each
+  // animation frame of each document - the popup included - and the journeys below assert over
+  // that history instead of trusting a screenshot taken after the fact. The interval chain is the
+  // same record for a window whose animation frames are throttled, which is how a background
+  // popup would otherwise look unsampled rather than unflashed.
+  await context.addInitScript(()=>{
+   const frames=[];
+   window.__frames=frames;
+   const visible=selector=>{
+    const node=document.querySelector(selector);
+    if(!node)return false;
+    const style=getComputedStyle(node);
+    return style.display!=='none'&&style.visibility!=='hidden'&&node.getClientRects().length>0;
+   };
+   const snapshot=()=>({splash:visible('#signed-in-splash'),hero:visible('.home-hero'),mist:visible('.arrival-mist'),skip:visible('.skip-arrival'),arriving:Boolean(document.body?.classList.contains('is-arriving')),attr:document.documentElement.getAttribute('data-signed-in'),body:Boolean(document.body),t:Math.round(performance.now())});
+   const frame=()=>{frames.push(snapshot());if(frames.length<240)requestAnimationFrame(frame);};
+   requestAnimationFrame(frame);
+   let ticks=0;
+   const timer=setInterval(()=>{frames.push(snapshot());if(++ticks>60)clearInterval(timer);},50);
+  });
   const page=await context.newPage(),errors=[],calls=[],loads=[],counted={};
   // One stub authority. `exchange` decides what the exchange says and `startRefusal` what the
   // start says, so one journey can be signed in, refused and replayed without a second server.
@@ -155,7 +221,10 @@ try{
   // guessed at afterwards.
   // `meName` is what GET /v2/accounts/me calls the account, so one journey can prove the nav shows
   // the name the SERVICE answered with rather than the one the tab happens to have stored.
-  let exchange='ok',hold=0,startRefusal=null,password='ok',meName=null,providerRefusal=false;
+  // `providerReturn` is what the provider's own page does with the popup it was given. null is the
+  // plain fixture page the provider journeys use; 'signed-in' answers 302 to the site root with the
+  // flag, which is exactly what the account API's callback does with a finished provider sign-in.
+  let exchange='ok',hold=0,startRefusal=null,password='ok',meName=null,providerRefusal=false,providerReturn=null;
   page.on('pageerror',error=>errors.push(error.message));
   watcher(page,loads);
   await context.route(API_ORIGIN+'/**',async route=>{
@@ -196,7 +265,9 @@ try{
   // Microsoft's own sign-in page, as a fixture: what matters is that the browser was sent to the
   // authorize address carrying this page's registered redirect, not that Microsoft drew anything.
   await context.route('https://login.microsoftonline.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture Microsoft sign-in</title><p>Fixture authority</p>'}));
-  await context.route('https://steamcommunity.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture provider</title><p>Fixture provider complete</p>'}));
+  await context.route('https://steamcommunity.com/**',route=>providerReturn==='signed-in'
+   ?route.fulfill({status:302,headers:{location:origin+'/?signed-in=1'},body:''})
+   :route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture provider</title><p>Fixture provider complete</p>'}));
 
   const atAccount=()=>page.goto(origin+'/account/');
   const exchangeCalls=()=>calls.filter(call=>call.path==='/v2/oauth/microsoft/exchange');
@@ -552,6 +623,189 @@ try{
   const panelBox=await page.locator('#account-panel').evaluate(node=>{const rect=node.getBoundingClientRect();return {width:Math.round(rect.width),height:Math.round(rect.height),right:Math.round(rect.right)};});
   assert(panelBox.right<=width,'the panel stays inside the viewport at '+width+': '+JSON.stringify(panelBox));
 
+  // 16. THE SIGN-IN SPLASH. A provider sign-in that finishes in the window site/web-account.mjs
+  //     opened comes back to the SITE ROOT as `/?signed-in=1` (the account API's callback), and
+  //     Owen's rule of 2026-10-26 is that that window shows `Login Successful` instead of the
+  //     homepage and its arrival intro for the second or two before it closes. Four journeys, one
+  //     per case, and each of them reads the frame history the sampler above recorded: "the splash
+  //     was the first paint" is a measurement here, not a screenshot taken afterwards.
+  //
+  //     (a) THE REAL POPUP, driven through site/web-account.mjs exactly as a player drives it: the
+  //     nav's dialog, the provider, the API's 302 back to the root with the flag. What must hold is
+  //     that the splash is what that window painted - never the hero, never the mist, never the Skip
+  //     intro button - and that the window then closed itself.
+  providerReturn='signed-in';
+  const popupSplash=await step('a provider popup returns with ?signed-in=1, then closes itself',async()=>{
+   await page.goto(origin+'/');
+   const opened=page.waitForEvent('popup');
+   await page.getByRole('button',{name:'Sign in or create an Easter Company account',exact:true}).click();
+   await page.locator('#desktop-company-signin[open]').waitFor();
+   await page.getByRole('button',{name:'Sign in with Steam',exact:true}).click();
+   const popup=await opened;
+   // The popup is its own document, so its errors are the suite's errors too.
+   popup.on('pageerror',error=>errors.push('popup: '+error.message));
+   const closed=popup.waitForEvent('close',{timeout:20000});
+   await popup.locator('#signed-in-splash').waitFor();
+   // Everything is read in ONE evaluation, before the window closes itself a moment later: the
+   // address as it stands, the name it still carries, the whole frame history, and the live state.
+   await popup.waitForFunction(()=>Array.isArray(window.__frames)&&window.__frames.length>2);
+   const shot=await popup.evaluate(splashState);
+   await closed;
+   // The sign-in itself is untouched: the window closed itself and the poll behind it saved the
+   // account, which the root paints in the nav without leaving the page.
+   await page.waitForFunction(name=>document.querySelector('.web-account-name')?.textContent.trim()===name,NAV_NAME);
+   return {shot,url:page.url()};
+  });
+  providerReturn=null;
+  {
+   const {shot,url}=popupSplash.value;
+   assert.equal(popupSplash.count,1,'the popup costs the opener the root it was opened from, and no more: '+JSON.stringify(popupSplash.urls.map(url=>url.replace(origin,''))));
+   assert.equal(url,SITE_ROOT,'the opener stayed on the site root: '+url);
+   // The name site/web-account.mjs gives the window before navigating it is the whole distinction:
+   // it survived about:blank, the provider's own origin and the API's 302 back here.
+   assert.equal(shot.name,SIGN_IN_WINDOW,'the returning popup still carries the name site/web-account.mjs gave it: '+JSON.stringify(shot.name));
+   assert.equal(shot.url,SITE_ROOT,'and its address is already the ordinary homepage: '+shot.url);
+   assert.equal(shot.attr,'1','the splash is the attribute-keyed rule, not a module that arrived later');
+   assert.equal(shot.splash,true,'the returning window paints the splash');
+   assert.equal(shot.title,'Login Successful','in the owner\'s own words: '+JSON.stringify(shot.title));
+   assert.equal(shot.hero,false,'and never the hero at '+width);
+   assert.equal(shot.mist,false,'nor the arrival mist at '+width);
+   assert.equal(shot.skip,false,'nor the Skip intro button at '+width);
+   assert.equal(shot.fallback,false,'a window that closed itself is told nothing about closing');
+   // It is the whole screen of that window, not a banner over a homepage: the box is the viewport,
+   // the phoenix mark the wordmark uses and the heading are both laid out, and nothing overflows.
+   console.log('  the returning popup at '+width+': viewport '+shot.viewport.w+'x'+shot.viewport.h+', splash '+JSON.stringify(shot.splashBox)+', mark '+JSON.stringify(shot.markBox)+', heading '+JSON.stringify(shot.titleBox));
+   assert.deepEqual([shot.splashBox.x,shot.splashBox.y,shot.splashBox.w,shot.splashBox.h],[0,0,shot.viewport.w,shot.viewport.h],'the splash is the whole viewport of that window');
+   assert(shot.markBox.w>0&&shot.titleBox.w>0,'the phoenix mark and the heading are laid out, not empty boxes');
+   assert(shot.viewport.scrollWidth<=shot.viewport.w,'and nothing overflows its window: '+JSON.stringify(shot.viewport));
+   // The frame history is the first-paint claim: sampled from the first animation frame of the
+   // document, so a flash of the homepage or of the intro would be in here.
+   const framed=shot.frames.filter(frame=>frame.body);
+   assert(framed.length>=2,'frames were sampled from the first paint: '+shot.frames.length);
+   assert(framed.some(frame=>frame.splash),'the splash is in the recorded frames');
+   const flashed=framed.filter(frame=>frame.hero||frame.mist||frame.skip);
+   assert.deepEqual(flashed,[],'no frame of the popup ever showed the homepage, the mist or Skip intro: '+JSON.stringify(flashed));
+   assert.equal(framed.every(frame=>!frame.arriving),true,'the arrival intro never started inside the splash');
+   assert.equal(framed.every(frame=>frame.attr==='1'),true,'from its very first frame this was the flag\'s page, not a later decision');
+   // AND IT CLOSED ITSELF. The opener cannot be the one that closed it: site/web-account.mjs waits
+   // 2000ms between finish polls and closes in its `finally`, so a window still holding this record
+   // at 1500ms of its own document would be closed by the opener rather than by the splash.
+   const last=shot.frames.at(-1);
+   assert(last.t<1500,'the returning window acted on itself, before the opener\'s first 2000ms poll could: last frame at '+last.t+'ms');
+   await signOutFromNav(page,'signing out after the popup splash');
+  }
+
+  //     (b) A WINDOW THE BROWSER WILL NOT CLOSE. window.close() is refused for any window no script
+  //     opened, which is the case the one fallback sentence exists for; this journey puts the marker
+  //     on an ordinary tab, so it is that branch exactly: the splash stays, readable, carrying
+  //     Owen's line - and the line appears nowhere else.
+  const refusedClose=await step('a window that cannot be closed keeps the splash and its one line',async()=>{
+   await page.evaluate(name=>{window.name=name;},SIGN_IN_WINDOW);
+   await page.goto(origin+'/?signed-in=1');
+   await page.locator('#signed-in-splash').waitFor();
+   await page.locator('#signed-in-splash-fallback').waitFor({timeout:10000});
+   await page.waitForTimeout(120);
+   return page.evaluate(splashState);
+  });
+  {
+   const state=refusedClose.value;
+   assert.equal(refusedClose.count,1,'the flag costs the one document load it arrived on: '+JSON.stringify(refusedClose.urls));
+   assert.equal(state.name,SIGN_IN_WINDOW,'the marker is what made this the popup branch');
+   assert.equal(state.url,SITE_ROOT,'and the address is cleaned anyway: '+state.url);
+   assert.equal(state.splash,true,'the splash is still up: a refused close must not hide it');
+   assert.equal(state.hero,false,'with the homepage still behind it');
+   assert.equal(state.fallback,true,'and the one fallback line is drawn');
+   assert(state.fallbackText.length>0,'as a sentence rather than an empty box');
+   assert(state.fallbackText.length<=200,'one short sentence: '+JSON.stringify(state.fallbackText));
+   console.log('  the fallback sentence a refused close shows: '+JSON.stringify(state.fallbackText));
+   await noOverflow('the splash with its fallback line');
+   // Nothing to hand back and nothing to reload: leave the marker behind for the next journey.
+   await page.evaluate(()=>{window.name='';});
+  }
+
+  //     (c) AN ORDINARY TAB: nobody opened it for the sign-in, which is how the Microsoft flow
+  //     returns the whole tab and how the launcher's provider window arrives. It shows the splash
+  //     and then hands the page back IN PLACE - no second document load, no sentence telling the
+  //     reader to close the window they are using, and nothing left hidden.
+  const handedBack=await step('an ordinary tab with ?signed-in=1 hands back to the homepage in place',async()=>{
+   await page.goto(origin+'/?signed-in=1');
+   const beforeHandBack=loads.length;
+   await page.locator('#signed-in-splash').waitFor();
+   const during=await page.evaluate(splashState);
+   await page.locator('#signed-in-splash').waitFor({state:'hidden',timeout:15000});
+   await page.waitForTimeout(200);
+   const after=await page.evaluate(splashState);
+   const handBackLoads=loads.length-beforeHandBack;
+   // And a reload of the address the hand-back left behind is the ordinary homepage: the flag is
+   // not in it any more, so it cannot come back for a refresh, a bookmark or a copied link.
+   await page.reload();
+   await page.locator('.home-hero').waitFor();
+   await page.waitForTimeout(250);
+   const reloaded=await page.evaluate(splashState);
+   return {during,after,reloaded,handBackLoads};
+  });
+  {
+   const {during,after,reloaded,handBackLoads}=handedBack.value;
+   const frames=after.frames;
+   assert.equal(handBackLoads,0,'handing back is not a navigation - no document load between the splash and the homepage: '+JSON.stringify(handedBack.urls.map(url=>url.replace(origin,''))));
+   assert.equal(handedBack.count,2,'the flag costs its one document load, and the reload its own: '+JSON.stringify(handedBack.urls.map(url=>url.replace(origin,''))));
+   assert.notEqual(during.name,SIGN_IN_WINDOW,'this tab was not opened by the site: '+JSON.stringify(during.name));
+   assert.equal(during.splash,true,'so it shows the splash too');
+   assert.equal(during.url,SITE_ROOT,'with the flag already stripped: '+during.url);
+   assert.equal(during.hero,false,'and nothing of the homepage under it at '+width);
+   assert.equal(during.mist,false,'no arrival mist at '+width);
+   assert.equal(during.attr,'1','the first paint was the splash');
+   assert.equal(after.splash,false,'and then the splash goes');
+   assert.equal(after.hero,true,'leaving the ordinary homepage');
+   assert.equal(after.attr,null,'with no trace of the flag left on the document');
+   assert.equal(after.url,SITE_ROOT,'and the address still the ordinary homepage');
+   assert.equal(after.fallback,false,'an ordinary tab is never told to close itself');
+   assert.equal(after.fallbackText,'','and the fallback sentence is not even in the page as text: '+JSON.stringify(after.fallbackText));
+   // The frame history again: the page was never the homepage until the hand-back, and never the
+   // homepage-and-splash at once.
+   const flagged=frames.filter(frame=>frame.attr==='1');
+   assert(flagged.some(frame=>frame.splash),'the splash is in the frames the flag owned');
+   const early=flagged.filter(frame=>frame.hero||frame.mist||frame.skip);
+   assert.deepEqual(early,[],'no frame before the hand-back showed the homepage or the intro: '+JSON.stringify(early));
+   const settled=frames.filter(frame=>frame.attr!=='1');
+   assert(settled.some(frame=>frame.hero&&!frame.splash),'and the hand-back is in the frames too, homepage without the splash');
+   assert.deepEqual([during.splashBox.x,during.splashBox.y,during.splashBox.w,during.splashBox.h],[0,0,during.viewport.w,during.viewport.h],'the splash filled the viewport of this tab too: '+JSON.stringify(during.splashBox));
+   assert.equal(reloaded.url,SITE_ROOT,'a reload asks for the cleaned address: '+reloaded.url);
+   assert.equal(reloaded.splash,false,'and it is the ordinary homepage, with no splash');
+   assert.equal(reloaded.attr,null,'and no attribute');
+   assert(reloaded.frames.length>2,'frames were sampled on the reload: '+reloaded.frames.length);
+   assert(reloaded.frames.every(frame=>frame.splash===false),'no frame of the reload showed the splash');
+   await noOverflow('the homepage after the hand-back');
+  }
+
+  //     (d) WITHOUT THE FLAG, `/` IS THE HOMEPAGE IT ALWAYS WAS: no splash in the markup's paint,
+  //     no attribute on the document, and the arrival intro free to run. A `signed-in` that is not
+  //     `1` is the same ordinary visit, because the value is part of the flag.
+  const noFlag=await step('the homepage without the flag, and with a flag that is not 1',async()=>{
+   await page.goto(origin+'/');
+   await page.locator('.home-hero').waitFor();
+   await page.waitForTimeout(250);
+   const root=await page.evaluate(splashState);
+   await page.goto(origin+'/?signed-in=0');
+   await page.locator('.home-hero').waitFor();
+   const otherValue=await page.evaluate(splashState);
+   return {root,otherValue};
+  });
+  {
+   const {root,otherValue}=noFlag.value;
+   const frames=root.frames;
+   assert.equal(noFlag.count,2,'an ordinary visit and a wrong value: '+JSON.stringify(noFlag.urls.map(url=>url.replace(origin,''))));
+   assert.equal(root.splash,false,'no splash without the flag');
+   assert.equal(root.hero,true,'the hero is the page at '+width);
+   assert.equal(root.attr,null,'and no data-signed-in attribute is ever set');
+   assert.equal(root.fallback,false,'with no fallback line anywhere');
+   assert(frames.length>2,'frames were sampled on this visit too: '+frames.length);
+   assert(frames.every(frame=>frame.splash===false),'and no frame of it showed the splash: '+JSON.stringify(frames.filter(frame=>frame.splash)));
+   assert(frames.every(frame=>frame.attr===null),'nor set the attribute for a frame: '+JSON.stringify(frames.filter(frame=>frame.attr!==null)));
+   assert.equal(otherValue.splash,false,'?signed-in=0 is the ordinary homepage');
+   assert.equal(otherValue.attr,null,'and sets nothing either');
+  }
+
   // The counted table, printed before it is asserted: a change is visible in the log even when
   // nothing fails.
   console.log('document loads at '+width+':');
@@ -568,7 +822,7 @@ try{
    assert.equal(countedRow.count,row.after,row.step+' costs '+row.after+' document load(s), not '+countedRow.count);
   }
   assert.deepEqual(errors,[]);
-  console.log('PASS account page: one shared options panel, one busy state, counted document loads, chooser hand-off, choices, start by pointer and by keyboard, callback -> the site root, session, a signed-in visit -> the site root, sign out from the nav, provider -> the site root, direct -> the site root, cancelled, not registered, refused password, replay, no state, wrong address at '+width);
+  console.log('PASS account page: one shared options panel, one busy state, counted document loads, chooser hand-off, choices, start by pointer and by keyboard, callback -> the site root, session, a signed-in visit -> the site root, sign out from the nav, provider -> the site root, direct -> the site root, cancelled, not registered, refused password, replay, no state, wrong address, the sign-in splash from the first frame (popup, refused close, ordinary tab, no flag) at '+width);
   checks++;await context.close();
  }
  // 16. No motion preference: the same busy state, and the spinner actually turns. Reduced motion
