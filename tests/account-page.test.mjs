@@ -59,7 +59,7 @@ function bridgeFor({answer,storage=memory(),where=atAccountPage,...rest}={}){
 }
 
 test('the redirect literal is the one the Azure registration must carry',()=>{
- assert.equal(REDIRECT_URI,'https://easter-co-smp.github.io/account/');
+ assert.equal(REDIRECT_URI,'https://launcher.easter.company/account/');
  assert.equal(ACCOUNT_PATH,'/account/');
 });
 
@@ -203,7 +203,7 @@ test('a state of the wrong shape counts as no state at all',async()=>{
 });
 
 test('the redirect_uri_not_registered refusal is drawn as the service wrote it, and reads as not configured',async()=>{
- const message='Microsoft does not accept this sign-in yet: the redirect URI is not registered on the Easter Company Microsoft application. Add https://easter-co-smp.github.io/account/ as a Web redirect URI in the Azure portal, then try again.';
+ const message='Microsoft does not accept this sign-in yet: the redirect URI is not registered on the Easter Company Microsoft application. Add https://launcher.easter.company/account/ as a Web redirect URI in the Azure portal, then try again.';
  const {bridge,storage}=bridgeFor({answer:path=>path.endsWith('/microsoft/exchange')?[503,{error:'redirect_uri_not_registered',message}]:null});
  const result=await bridge.completeMicrosoftSignIn('?code='+encodeURIComponent(CODE)+'&state='+STATE);
  assert.equal(result.ok,false);

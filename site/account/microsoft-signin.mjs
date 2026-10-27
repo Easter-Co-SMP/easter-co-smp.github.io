@@ -19,11 +19,14 @@ import {API_ORIGIN,AccountError} from '../account-client.mjs';
 
 // THE REDIRECT IS A CONTRACT. This exact literal - scheme, host, path, trailing slash - is
 // what has to be registered as a Web redirect URI on the Easter Company Microsoft
-// application, and Microsoft compares it as a string. GitHub Pages answers /account with a
-// redirect to /account/, so the two spellings are not interchangeable: a flow started from
-// any other address would be sent to a URI nobody registered and Microsoft would refuse it
-// after the player had already signed in.
-export const REDIRECT_URI='https://easter-co-smp.github.io/account/';
+// application, and Microsoft compares it as a string. It moved with the site to the custom
+// domain on 2026-10-26: Owen registered https://launcher.easter.company/account/ and the
+// API's BROWSER_REDIRECT_URI moved in the same change, because shipping one without the
+// other refuses every sign-in. GitHub Pages answers /account with a redirect to /account/,
+// so the two spellings are never interchangeable either: a flow started from any other
+// address would be sent to a URI nobody registered and Microsoft would refuse it after the
+// player had already signed in.
+export const REDIRECT_URI='https://launcher.easter.company/account/';
 // The path that literal names. Starting a flow compares the page's own pathname with it, which is
 // the one part of the address this page can check on its own and the one part a preview or a
 // mirror of the site shares; the origin is checked where it matters, on the redirect URI the
