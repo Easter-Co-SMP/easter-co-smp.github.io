@@ -74,3 +74,12 @@ sharing food and maintaining equipment at camp. Both preserve full 1536 × 1024
 compositions, use quality-86 WebP and lazy loading, and avoid banners and repetitive
 scenery. Exact briefs are in `doc/crafting-survival-art-prompts.json`. These are
 promotional illustrations, not screenshots or exact workstation models.
+
+## Ships and naval combat chapters
+
+Two new promotional illustrations accompany the Ships & crews and Ship combat
+chapters. Generated with the built-in image tool in stylized-concept mode; final
+assets are `site/assets/world-ships.webp` and `site/assets/world-ship-combat.webp`.
+Both are 1536 × 1024 quality-86 WebP, lazy-loaded without cropping. Exact prompts
+are in `doc/ships-homepage-art-prompts.json`; content notes are in
+`doc/ships-homepage.md`. Existing artwork is unchanged.
