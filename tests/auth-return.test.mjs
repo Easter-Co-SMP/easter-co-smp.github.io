@@ -27,6 +27,9 @@ test('the allow-listed apps are e-server and the launcher, at the addresses the 
  const source=await readFile(new URL('../site/auth-return.mjs',import.meta.url),'utf8');
  assert(source.includes("const TAILNET_DOMAIN='char-istrian.ts.net'"),'the tailnet suffix is one constant');
  assert(!source.includes('chat-istrian.ts.net'),'and the misspelled domain is not implemented anywhere');
+ // One mask, named, with the measurement that put it there and the condition that takes it out.
+ assert(source.includes("const MASKED_HOSTS=new Set(['minecraft.easter.company'])"),'exactly one masked host is excluded from the suffix rule');
+ assert(source.includes('301 forward'),'and the module says the row comes out when the mask becomes a plain 301 forward');
 });
 
 test('an id that is not in the table is no target at all',()=>{
@@ -53,6 +56,26 @@ test('an https address on an easter.company host, or a char-istrian.ts.net host,
  for(const target of accepted)assert.equal(resolve(target),new URL(target).href,'accepted: '+target);
  assert.equal(resolve('https://easter-company.easter.company/'),'https://easter-company.easter.company/','a label that contains the domain is fine when it is a label of a real subdomain of it');
  assert.equal(resolve('  https://easter.company/account/  '),'https://easter.company/account/','surrounding whitespace is a copy-paste artefact, not an address');
+});
+
+test('a masked forward is refused by name although the suffix rule would take it',()=>{
+ // minecraft.easter.company is a GoDaddy MASKED forward, measured 2026-10-26: it answers with one
+ // <frameset> whose only frame is https://launcher.easter.company, and every deep link under it
+ // 404s - /account/ and /wiki/ both - because only its root exists. The suffix rule accepts any
+ // host under easter.company, so this pair is the point of the test: the same path on a real
+ // origin is accepted, and on the mask it is refused rather than handed to a 404 that would read
+ // as a successful return. Nothing here is about CORS: inside the frame the document's own origin
+ // is launcher.easter.company, which the API already answers.
+ assert.equal(resolve('https://launcher.easter.company/wiki/'),'https://launcher.easter.company/wiki/','a real origin under the domain keeps its deep paths, wiki included');
+ assert.equal(resolve('https://launcher.easter.company/account/'),'https://launcher.easter.company/account/','and its account page is a page');
+ assert.equal(resolve('https://minecraft.easter.company/wiki/'),null,'the mask is refused: that host is a frameset around launcher.easter.company and 404s every deep link (measured 2026-10-26), so a "return" to it is a missing page');
+ assert.equal(resolve('https://minecraft.easter.company/account/'),null,'and the mask 404s /account/ too, which is the address a sign-in is most likely to be sent back to');
+ assert.equal(resolve('https://minecraft.easter.company/'),null,'even its bare root is refused: a mask is not an origin to return a signed-in browser to');
+ // The exclusion is one named host, not a widening of the rule: another name under the same suffix
+ // is still accepted, and the mask name cannot be smuggled into a neighbour.
+ assert.equal(resolve('https://wiki.easter.company/'),'https://wiki.easter.company/','another host under the suffix is unaffected by the exclusion');
+ assert.equal(resolve('https://minecraft.easter.companys.example/'),null,'and the mask name on a foreign domain stays refused by the suffix rule');
+ assert.equal(resolve('https://minecraft.easter.company.evil.example/'),null,'as does the mask name used as a label of somebody else\'s domain');
 });
 
 test('the launcher scheme is accepted as its own deep link and nowhere else',()=>{

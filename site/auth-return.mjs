@@ -14,6 +14,11 @@
 //   https, with a host that is char-istrian.ts.net or a subdomain of it,
 //   the easter-company: scheme, which is the launcher's own deep link.
 //
+// One host under an allowed suffix is refused BY NAME because it is a mask rather than an origin:
+// minecraft.easter.company serves a <frameset> around launcher.easter.company and 404s every deep
+// link under it (measured 2026-10-26), so a return there would be a return to a missing page.
+// MASKED_HOSTS below says why it is there and when it comes out.
+//
 // Owen wrote "chat-istrian"; the domain the household's tailnet actually serves is
 // char-istrian.ts.net - measured from e-server's own configured public URL,
 // https://easter-server.char-istrian.ts.net:8443/ - so that is the suffix implemented here and the
@@ -73,6 +78,19 @@ export const ALLOWED={
 
 const COMPANY_DOMAIN='easter.company';
 const TAILNET_DOMAIN='char-istrian.ts.net';
+// HOSTS THAT ARE A MASK RATHER THAN AN ORIGIN, refused although the suffix rule below would take
+// them. `minecraft.easter.company` is a GoDaddy MASKED forward, measured 2026-10-26: it answers with
+// a single <frameset> whose one frame is https://launcher.easter.company, and every deep link under
+// it 404s - /account/ and /wiki/ both - because only its root exists. A masked host passes the
+// suffix rule and would then hand the returning browser a 404, which is the false success this
+// project keeps getting bitten by: a return that reads as "you are back" and is a missing page.
+// Nothing about the mask needs a CORS entry - inside the frame the document's own origin is
+// launcher.easter.company, which the API already answers - the 404s are the whole reason.
+// THIS HOST COMES OUT the moment Owen replaces the GoDaddy mask with a plain 301 forward, which is
+// the fix being put to him: easter-co-smp.github.io's own 301 already preserves paths and a mask
+// does not. Then delete the row, and move the host into the acceptance list in
+// tests/auth-return.test.mjs where it can be seen to be a real origin.
+const MASKED_HOSTS=new Set(['minecraft.easter.company']);
 const HTTPS='https:';
 const APP_SCHEME='easter-company:';
 // The authority as it was WRITTEN, before any normalisation: everything between the scheme and the
@@ -112,6 +130,8 @@ export function resolve(target){
  // path that app chooses to open. Nothing else is a scheme this module can answer.
  if(url.protocol===APP_SCHEME)return url.host?url.href:null;
  if(url.protocol!==HTTPS)return null;
+ // A named mask, never a pattern: this list is empty again the day each entry is a 301 forward.
+ if(MASKED_HOSTS.has(url.hostname))return null;
  return under(url.hostname,COMPANY_DOMAIN)||under(url.hostname,TAILNET_DOMAIN)?url.href:null;
 }
 

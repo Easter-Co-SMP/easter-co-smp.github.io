@@ -17,10 +17,23 @@ A return target is accepted only when it is
 - the `easter-company://` scheme (the launcher's deep link).
 
 Matching is on label boundaries and never on a substring: `evil-char-istrian.ts.net`,
-`char-istrian.ts.net.evil.example` and `char-istrianXts.net` are all refused. The host also has to
+`char-istrian.ts.net.evil.example` and `char-istrianXts.net` are all refused. A host that only
+becomes an allowed host after normalisation — a trailing dot, an upper-case spelling — is refused
+too, and one masked host is excluded by name (below). The host also has to
 be spelled the way the URL parser already reads it, so a trailing dot, an upper-case spelling, a
 percent-encoded dot and a Unicode look-alike are refused rather than accepted on a normalisation
 nobody wrote. Any URL carrying a username or password is refused outright.
+
+One host under an allowed suffix is refused by name, because it is a **mask rather than an
+origin**: `https://minecraft.easter.company/` is a GoDaddy masked forward, measured 2026-10-26 —
+it serves a single `<frameset>` whose only frame is `https://launcher.easter.company`, and every
+deep link under it 404s (`/account/` → 404, `/wiki/` → 404); only the root exists. The suffix rule
+would accept it, and a return there would be a return to a missing page — the false success this
+project keeps getting bitten by. It is one named row, `MASKED_HOSTS` in `site/auth-return.mjs`, and
+it comes out the moment Owen replaces the mask with a plain 301 forward (the fix being recommended
+to him: `easter-co-smp.github.io`'s own 301 already preserves paths, a mask does not). Nothing about
+the mask needs a CORS entry: inside the frame the document's own origin is
+`launcher.easter.company`, and the API already answers that origin correctly.
 
 Owen wrote "chat-istrian". The domain the household's tailnet actually serves — measured from
 e-server's own configured public URL, `https://easter-server.char-istrian.ts.net:8443/` — is
@@ -83,7 +96,9 @@ do.
 ## Where it is proved
 
 - `tests/auth-return.test.mjs` — the validator on its own: every accept, every rejection class the
-  ticket names, the storage seam (stored once, consumed once, a refused sign-in dropping it, a
+  ticket names, the masked-host exclusion beside the suffix acceptance it carves out of
+  (`https://launcher.easter.company/wiki/` accepted, `https://minecraft.easter.company/wiki/`
+  refused), the storage seam (stored once, consumed once, a refused sign-in dropping it, a
   hand-edited value dropped), and the no-token scan.
 - `tests/account-page.test.mjs` — the account page's answer: one navigation, the stored target when
   there is one and the site root otherwise, the target stored before the first paint can answer with
