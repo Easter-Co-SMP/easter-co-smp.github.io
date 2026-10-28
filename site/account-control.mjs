@@ -55,7 +55,15 @@ export async function mountAccountControl({nav, seam, document: doc = globalThis
   const portrait=doc.createElement('img');portrait.className='web-account-picture';portrait.alt='';portrait.decoding='async';portrait.hidden=true;
   face.append(initial,portrait);
   const name=doc.createElement('span');name.className='web-account-name';name.textContent='Sign in';
-  account.append(face,name);nav.append(account);
+  account.append(name,face);nav.append(account);
+  // NAME THEN FACE, because this control only ever sits on the RIGHT of a header: the site's
+  // header, the corporate site's header and the launcher's web surface all put it at the right
+  // end of the nav. The face leads only where the button is on the left, which is e-server's
+  // topbar, and e-server draws its own control (api/page_utils.py) rather than mounting this
+  // one. Owen, 2026-10-28: "[ PROFILE_PICTURE DISPLAY_NAME ] but it should only appear this on
+  // e-server because the button is on the left hand side ... on the right hand side ... should
+  // be mirror [ DISPLAY_NAME PROFILE_PICTURE ]". The launcher's native window header already
+  // appends name then face for the same reason (site/desktop.js:1139).
   const menu=doc.createElement('div');menu.id='web-account-menu';menu.className='desktop-profile-menu';menu.setAttribute('popover','auto');menu.setAttribute('aria-label','Account options');doc.body.append(menu);
   const notice=doc.createElement('p');notice.className='web-account-notice';notice.setAttribute('role','alert');notice.hidden=true;menu.append(notice);
   let current=webAccount.getState(),profile=null,linked=null;
