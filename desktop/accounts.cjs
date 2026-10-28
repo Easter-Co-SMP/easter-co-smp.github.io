@@ -61,6 +61,13 @@ const OPERATIONS={
  '/v2/accounts/emails':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a read: it changes nothing server side'},
  '/v2/game/status':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a read: it changes nothing server side, and a bounce is not an answer about the server'},
  '/v2/accounts/username/available':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a question about a name: it writes nothing'},
+ // Not a request for an answer but a request for the service to STOP being cold: one
+ // statement against a paused cluster, two words back. It writes nothing, so repeating it is
+ // free, and the server bounds it per client anyway (six per ten minutes, then 429). Five
+ // seconds is the window a deliberate attempt would be given, and it is the same ceiling
+ // wake() puts on its own call - nothing waits on a wake today, because the seam fires it and
+ // forgets it, so the declared budget documents the ceiling rather than a retry ladder.
+ '/v2/accounts/wake':{repeat:true,kind:'read',budgetMs:5000,why:'one statement against a paused cluster and two words back: it writes nothing, and the service rate-limits it per client'},
  // The Community store's own three routes (desktop/store.cjs). The two reads share the store's
  // shorter window, for the reason beside that constant. The checkout is a WRITE and stays on the
  // rule every write is on: it creates a Stripe Checkout Session, a lost answer may have created
