@@ -69,6 +69,10 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
  }
  async function run(action){
   if(working)return {ok:false,error:'Another account request is in progress.'};
+  // Every account action gets the cluster waking behind it: the visitor about to sign in
+  // pays the resume on the button otherwise (16.49 s measured cold against 0.57-0.62 s
+  // warm). Fired, not awaited, so a slow wake cannot delay the request it precedes.
+  client.wake?.();
   working=true;emit();
   try{return {ok:true,value:await action()};}
   catch(error){return {ok:false,error:error.name==='AbortError'?'Sign-in cancelled.':error.message,code:error.code};}
@@ -87,6 +91,10 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
   // With no document to paint there is nothing to show and nothing a click could honour: the boot is
   // not ready until the read settles. That is the one load after this change ships.
   else booting=true;
+  // The returning visitor's stall: this page reconciles the stored account with /me, and after an
+  // idle spell that read is the request that pays Aurora's resume (20.11 s cold measured
+  // 2026-10-28 against 0.32-0.40 s warm). Start the wake in parallel with the read, never awaited.
+  client.wake?.();
   emit();
   try{
    const account=await client.me(saved.token);

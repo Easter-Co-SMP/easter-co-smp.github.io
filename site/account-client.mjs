@@ -488,6 +488,22 @@ class AccountClient{
   const found=await this.attempt('/v2/accounts/me',{token,signal});
   return sanitizeAccount(found?.account);
  }
+ // Wake the account service before asking it anything. Aurora auto-pauses after five
+ // quiet minutes and the first request after that pays the whole 18-20 s resume -
+ // measured 2026-10-28: GET /v2/accounts/me 20.11 s paused against 0.32-0.40 s warm,
+ // and the visitor who suffers most is the returning one, who never presses Sign in.
+ // This starts that resume while the page is still painting.
+ //
+ // Deliberately not an `attempt`: it is fired and forgotten, it must never reject, it
+ // carries no credential (the visitor about to sign in has none), and its answer is
+ // discarded. A 429 means this browser already woke something inside its own window,
+ // which is the rate limit working, not a failure. Cost when the cluster is awake is
+ // nothing; when paused, one resume (~$0.03-0.04), which the page needed anyway.
+ async wake(){
+  try{
+   await this.call('/v2/accounts/wake',{method:'POST',timeout:Math.min(this.timeout,5000)});
+  }catch{/* the wake is an optimisation: never a reason to fail anything */}
+ }
  // The player's own verified addresses, and the one the account service signs them in
  // with. Owner-only: the call carries the Company session and no account handle, and its
  // answer is checked into the shape the profile section renders. Nothing here caches it.
