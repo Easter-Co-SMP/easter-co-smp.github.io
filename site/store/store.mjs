@@ -677,34 +677,34 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
 // The store page is the only page with a mount point; importing this module elsewhere (as the
 // browser tests do, with their own bridge) renders nothing.
 //
-// THE MOUNT GATE: THE STORE IS A LAUNCHER SURFACE AND NEVER A WEBSITE DESTINATION. Owen,
-// 2026-10-27, while the Easter Company app registration goes to Minecraft for API approval:
+// Both modes use the same store views. Only the transport differs, and the transport is whichever
+// account seam this page has: the launcher's isolated preload (desktop/preload.cjs, the only thing
+// that puts `window.easterDesktop` there) or the website's bounded browser transport
+// (site/web-account.mjs), which speaks the same three commands to the same account service.
+//
+// THE STORE WAS A LAUNCHER-ONLY PAGE FOR THREE DAYS AND IS NOT ONE NOW. Owen, 2026-10-27, while the
+// Easter Company app registration went to Minecraft for Java Edition Game Service API approval:
 // *"let's not remove, but disable the store on the website ... leave it inside the launcher
-// though"* - a shop on the site that registration points at is a monetisation question we do not
-// want asked during a review. So a page loaded with no launcher bridge - no `window.easterDesktop`
-// claiming `mode:'desktop'`, which only the isolated preload (desktop/preload.cjs) puts there -
-// sends the browser to the site root instead of painting a shop: /store/ on the public site lands
-// on the home page, and not even a direct file open produces a catalogue, a price, a cart, a
-// checkout or an order. Nothing is deleted: the store, its views, its bridge and the browser
-// transport below all stay, and the launcher's own mount is what it was. When the store comes back
-// to the web, this gate is what goes.
+// though"* - so for those three days a page with no launcher bridge replaced its address with the
+// site root instead of painting a shop. The approval arrived 2026-10-28 and Owen asked for the
+// storefront back on 2026-10-29 (*"yes, return the store to the website"*), so the gate and the
+// redirect are gone and a direct browser load renders the catalogue again.
+// doc/web-accounts-store.md keeps that history.
 const mount = document.getElementById("store-root");
-const bridge = globalThis.easterDesktop?.mode === "desktop" ? globalThis.easterDesktop : null;
-if (!bridge) {
-  location.replace(new URL("../", location.href));
-} else if (mount) {
+const bridge = globalThis.easterDesktop || webAccount;
+if (mount) {
   const view = mountStore(mount, {bridge});
-  // The shared nav marks Store as the current page. No page carries that link in its own markup
-  // any more, so the launcher's own entry - appended on every page by site/desktop.js, which
-  // matches on the href rather than a class - is the one marked, on the one page it is current.
-  // desktop.js is a deferred script and therefore runs after this module, so the entry is looked
-  // for once now and once more when the document has finished running its deferred scripts.
+  // The shared nav marks Store as the current page. Every page carries that link in its own markup
+  // again, but the entry can also be the one site/web.js or site/desktop.js APPENDS when a page
+  // lacks one - and both of those scripts run after this module - so the entry is looked for once
+  // now and once more when the document has finished running its deferred scripts.
   const markCurrent = () => document.querySelector('.site-header nav a[href$="store/"]')?.setAttribute("aria-current", "page");
   markCurrent();
   document.addEventListener("DOMContentLoaded", markCurrent, {once: true});
   const skip = document.querySelector(".store-skip"), region = mount.querySelector(".store-content");
   if (skip && region) skip.addEventListener("click", event => {event.preventDefault();region.focus();});
-  // The browser transport is kept, unwired, for the day the store returns to the website.
+  // A browser session is the same player's: the views reset when the account behind this page
+  // changes, because another account's orders are not this one's.
   if (webAccount) {
     await webAccount.ready;
     let account = webAccount.getState().account?.id || null;

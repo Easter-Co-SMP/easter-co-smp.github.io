@@ -64,23 +64,25 @@ item of one and a total computed here would be a second source of pricing truth.
 one of the removed routes is redirected in place with `history.replaceState`, so the address bar
 never names a view that is not on screen.
 
-The page is reached from the launcher's own nav only. No page of the website carries a `Store`
-link: Owen, 2026-10-27, while the Easter Company app registration goes to Minecraft for API
-approval — *"let's not remove, but disable the store on the website ... leave it inside the
-launcher though"* — so the website has no store at all and the launcher's own entry, appended on
-every page by `site/desktop.js` and resolved against the site root, is the only one that exists.
-`site/desktop.css` hides the whole store page until `desktop-mode` is on `<html>`, and `store.mjs`
-sends a browser visitor — no `window.easterDesktop` claiming `mode:'desktop'` — back to the site
-root. Nothing advertises the store on the website.
+The page is reached from the launcher's own nav, and from the website's. The store is shared by
+both surfaces again: Owen, 2026-10-29, *"yes, return the store to the website"*, after the
+Minecraft API approval of 2026-10-28 ended the review it had been hidden for since 2026-10-27
+(`doc/web-accounts-store.md` keeps that history). Every page of the site carries its own `Store`
+entry in static markup, resolved against the site root; `site/desktop.js` appends its own only on
+a page that has none, which is the safety net and never a second entry; and `site/desktop.css`
+paints the page and the entry in both modes. `site/store/store.mjs` mounts on
+`window.easterDesktop || webAccount` — the launcher's isolated preload, or the website's own
+bounded account transport — so the views are one implementation and only the transport differs.
 
-**A browser is not a shop floor**, and since 2026-10-27 that is a product decision rather than a
-visibility rule. It is re-proved by both browser suites: `/store/` lands on the home page with and
-without scripting, the store makes no API call at all on such a load (counted, not assumed), and a
-scripted page with no bridge paints nothing of the shop on the way. Both of the rules that keep it
-off the website are asserted **where they live**, because a design pass over a stale base dropped
-both of them once (commit 5e5a2fc): the absence of any link into `/store/` is asserted in all five
-pages' own markup, and the mount gate (`bridge.mode === "desktop"`, else `location.replace("../")`)
-is asserted in `site/store/store.mjs`'s source as well as observed in the browser.
+**A browser is a shop floor again**, and both browser suites prove it in both modes. The rules are
+asserted **where they live**, because a design pass over a stale base dropped them once (commit
+5e5a2fc): every page's own markup is asserted to carry exactly one `class="store-entry"` pointing
+at the site root — including a wiki guide three directories deep, which is the page a relative
+literal gets wrong — the mount's transport line (`globalThis.easterDesktop || webAccount`) is
+asserted in `site/store/store.mjs`'s source, and `site/web.js`'s fragment forwarding is asserted to
+set a HASH and nothing else. In a browser, `/store/` renders the store with no Easter Company
+session asking the player to sign in, and the signed-in journey in
+`tests/web-accounts-browser.mjs` drives the catalogue, Orders and a Buy press into Stripe.
 
 ## The look: Sol's pass, applied to the wired page
 

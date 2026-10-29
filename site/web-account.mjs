@@ -99,7 +99,17 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
   try{
    const account=await client.me(saved.token);
    save({session:{token:saved.token,expiresAt:saved.expiresAt},account});
-  }catch{forget();}
+  }catch(error){
+   // ONLY THE SERVICE MAY END A SESSION. A boot read that was ABORTED because this document is
+   // being navigated away from is not a refusal of the credential - and this page now does exactly
+   // that on purpose: a Stripe return fragment (`/#store-paid/...`) is forwarded by site/web.js the
+   // moment it lands, so the landing document starts this read and then dies. Forgetting the
+   // session there signed a paying player out on the store page the fragment was routing them to
+   // (measured 2026-10-29 against site/ on 127.0.0.1:18104: the tab's stored session gone, the
+   // orders view reading "Sign in to buy." one load after a checkout). It is also the rule `read()`
+   // above already applies: 401 and `invalid_session` end a session, nothing else does.
+   if(error?.status===401||error?.code==='invalid_session')forget();
+  }
   finally{booting=false;emit();}
  })();
  const bridge={

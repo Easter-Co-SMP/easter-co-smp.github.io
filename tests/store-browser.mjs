@@ -1,10 +1,12 @@
 /*
  * The Community store is a page at /store/ and the real one: four products the server sells,
- * one at a time from their own cards, and the player's own orders. This suite drives the real
- * page shell against a STUBBED LAUNCHER BRIDGE at five viewport sizes and proves the shape the
- * launcher relies on - no dialog, no inline script, no off-origin request, a header nav entry
- * that navigates, hash routes a cold load honours, a stale route landing on the catalogue, and
- * the launcher-only rule the previous commit enforced.
+ * one at a time from their own cards, and the player's own orders. It is SHARED WITH THE PUBLIC
+ * WEBSITE (Owen, 2026-10-29: *"yes, return the store to the website"*), so this suite drives it in
+ * BOTH modes: against a STUBBED LAUNCHER BRIDGE at five viewport sizes for the launcher's shape - no
+ * dialog, no inline script, no off-origin request, a header nav entry that navigates, hash routes a
+ * cold load honours, a stale route landing on the catalogue - and against a plain browser for the
+ * website's, where every page carries its own Store entry, /store/ renders the catalogue through the
+ * website's own account transport, and Stripe's return fragment is a routing signal and nothing more.
  *
  * What is NOT proved here: any real payment, and any real server answer. The account API's
  * catalogue and orders routes do not exist yet, so the only honest way to drive this page is a
@@ -208,15 +210,17 @@ try {
       await page.getByRole("heading", { name: "The Community store" }).count(),
       1,
     );
+    // The entry is the page's OWN, so its markup is a relative address; what has to be absolute -
+    // and is - is where the browser resolves it: /store/.
     assert.equal(
-      await page.locator('.site-header nav a[aria-current="page"]').getAttribute("href"),
+      await page.locator('.site-header nav a[aria-current="page"]').evaluate((a) => a.href),
       origin + "/store/",
-      "the launcher's own nav entry marks Store as the current page on the store page",
+      "the store page marks its own nav entry as the current page",
     );
     assert.equal(
       await page.locator('.site-header nav a[href$="store/"]').count(),
       1,
-      "the nav lists Store once, and the launcher's appended entry is the only one",
+      "the nav lists Store exactly once: the page's entry and nothing appended beside it",
     );
     assert.equal(
       await page.locator("script:not([src])").count(),
@@ -771,35 +775,45 @@ try {
     assert.equal(await store.locator("input").count(), 0);
     console.log("A preload without the store commands offers no buying control");
   }
-  // THE STORE IS A LAUNCHER SURFACE, NOT A WEBSITE DESTINATION (doc/launcher-store.md, and Owen's
-  // instruction of 2026-10-27 while the Easter Company app registration is reviewed by Minecraft:
-  // "let's not remove, but disable the store on the website ... leave it inside the launcher
-  // though"). Asserted with no JavaScript first: that is the case with nothing to hide it.
+  // THE STORE IS SHARED WITH THE WEBSITE AGAIN (doc/web-accounts-store.md; Owen, 2026-10-29:
+  // *"yes, return the store to the website"*, after the Minecraft API approval of 2026-10-28 ended
+  // the review the store was hidden for). Every page carries its own Store entry in the shared
+  // header, and every one of those routes is resolved against the SITE ROOT - which is the whole
+  // difference from the 2026-10-27 shape, when the map and the wiki still lived at /map/ and
+  // /wiki/ and a page-relative './store/' happened to be right for each of the five pages that
+  // existed then. The pages below include a guide three directories deep, because that is the page
+  // this rule gets wrong if it is written as a relative literal.
+  const SITE_PAGES = [
+    "/",
+    "/minecraft/map/",
+    "/minecraft/wiki/",
+    "/minecraft/wiki/getting-started/",
+    "/account/",
+    "/legal/terms/",
+    "/legal/privacy/",
+  ];
+  // No JavaScript at all first: every page's OWN markup carries the entry, so a reader with
+  // scripting off still has the route and nothing has to run to produce it.
   {
     const noScript = await browser.newPage({
       viewport: { width: 1440, height: 1000 },
       javaScriptEnabled: false,
     });
     try {
-      // The legal pages are the coordinator's copy and are never edited from here; they are in
-      // this list because site/web.js used to inject a Store entry into any nav that lacked one,
-      // and their static nav never carried one — so on 62be555 a browser showed a Store entry on
-      // /legal/terms/ and /legal/privacy/ that no page markup contained (measured: one link into
-      // /store/ on each, class="store-entry", at 1440).
-      for (const path of ["/", "/minecraft/map/", "/minecraft/wiki/", "/account/", "/legal/terms/", "/legal/privacy/"]) {
+      for (const path of SITE_PAGES) {
         await noScript.goto(origin + path, { waitUntil: "load" });
-        assert.equal(
-          await noScript.locator('.site-header nav a[href*="store/"]').count(),
-          0,
-          `${path} carries no Store entry in its own markup`,
-        );
+        const entry = noScript.locator(".site-header nav a.store-entry");
+        assert.equal(await entry.count(), 1, `${path} carries exactly one Store entry in its own markup`);
+        assert.equal(await entry.evaluate((a) => a.href), origin + "/store/", `${path}'s Store entry lands on /store/`);
+        assert.equal(await entry.isVisible(), true, `and the entry is painted on ${path}`);
       }
-      // The public store URL with no scripting at all: the page's own noscript refresh lands the
-      // visitor on the home page rather than on a shop or a shutter.
+      // The public store URL stays a store page with no scripting: the shell, the heading and the
+      // page's own sentence about needing scripts. There is no refresh away from it.
       await noScript.goto(origin + "/store/", { waitUntil: "load" });
-      await noScript.waitForURL(origin + "/");
-      assert.equal(new URL(noScript.url()).pathname, "/", "/store/ lands on the homepage with no scripting");
-      assert.equal(await noScript.locator(".store-main").count(), 0, "and paints nothing of the store");
+      assert.equal(new URL(noScript.url()).pathname, "/store/", "/store/ stays /store/ with no scripting");
+      assert.equal(await noScript.locator(".store-main").isVisible(), true, "the store page paints its own shell");
+      assert.equal(await noScript.locator(".store-noscript").isVisible(), true, "and its sentence asking for scripting");
+      assert.equal(await noScript.locator(".store-product").count(), 0, "with no catalogue in the static markup");
     } finally {
       await noScript.close();
     }
@@ -809,99 +823,121 @@ try {
       "undefined",
       "a plain browser page has no desktop bridge",
     );
-    // Every page of the site, not only the home page — the legal pages included, where the
-    // injected entry used to be the only one on an otherwise link-free nav: not one link anywhere
-    // reaches /store/.
-    for (const path of ["/", "/minecraft/map/", "/minecraft/wiki/", "/account/", "/legal/terms/", "/legal/privacy/"]) {
+    // Every page, in a browser: exactly one entry, resolved at the site root.
+    for (const path of SITE_PAGES) {
       await plain.page.goto(origin + path, { waitUntil: "networkidle" });
+      const entries = plain.page.locator('.site-header nav a[href$="store/"]');
+      assert.equal(await entries.count(), 1, `${path} shows exactly one Store entry in a browser`);
+      assert.equal(await entries.evaluate((a) => a.href), origin + "/store/", `${path}'s Store entry lands on /store/`);
+      assert.equal(await entries.isVisible(), true, `and the entry is painted on ${path}`);
       assert.equal(
-        await plain.page.locator('.site-header nav a[href*="store/"]').count(),
-        0,
-        `${path} shows no Store entry in a browser`,
-      );
-      assert.deepEqual(
-        await plain.page.evaluate(() =>
-          [...document.querySelectorAll("a")].map((a) => a.href).filter((href) => href.includes("/store/")),
-        ),
-        [],
-        `no link anywhere on ${path} reaches /store/`,
+        await plain.page.getByRole("link", { name: "Store", exact: true }).count(),
+        1,
+        `${path} offers Store as a link, not a dialog behind a button`,
       );
     }
-    // THE PUBLIC STORE URL LANDS ON THE HOME PAGE, and nothing asks the account service anything
-    // about a store: the call count is the assertion, not the intention.
+    // The entry NAVIGATES, from the deepest page on the site and not only from the home page.
+    await plain.page.goto(origin + "/minecraft/wiki/getting-started/", { waitUntil: "networkidle" });
+    await plain.page.locator(".site-header nav a.store-entry").click();
+    await plain.page.waitForURL(origin + "/store/");
+    // THE CATALOGUE RENDERS IN A BROWSER, through the website's own account transport: the same
+    // views as the launcher. With no Easter Company session it asks the player to sign in rather
+    // than reading a catalogue it has no right to, and the call count is the assertion.
     const storeCalls = [];
     plain.page.on("request", (request) => {
       const path = new URL(request.url()).pathname;
       if (/\/store\/(catalogue|orders|checkout)$/.test(path)) storeCalls.push(path);
     });
     await plain.page.goto(origin + "/store/", { waitUntil: "networkidle" });
-    assert.equal(new URL(plain.page.url()).pathname, "/", "/store/ lands on the homepage in a browser");
+    await plain.page.getByText(COPY.signedOut, { exact: true }).waitFor();
+    assert.equal(await plain.page.locator(".store-main").count(), 1, "/store/ renders the store page in a browser");
+    assert.equal(await plain.page.locator(".store-product").count(), 0, "and no catalogue before a sign-in");
+    assert.deepEqual(storeCalls, [], "an unsigned /store/ load asks the account service nothing");
+    // STRIPE'S RETURN FRAGMENT IS A ROUTING SIGNAL AND NOTHING MORE. site/web.js forwards it into
+    // the store page's own hash route; the orders shown there are the ones the account service
+    // reports, re-read on use, so a fragment anybody can type can never manufacture a sale.
+    await plain.page.goto(origin + "/#store-paid/cs_test_forged", { waitUntil: "networkidle" });
+    await plain.page.waitForURL(origin + "/store/#orders");
     assert.equal(
-      await plain.page.locator(".store-main").count(),
-      0,
-      "and the page it lands on carries nothing of the store",
+      new URL(plain.page.url()).hash,
+      "#orders",
+      "#store-paid/cs_... routes to the store's orders view",
     );
     assert.equal(
-      await plain.page.locator(".store-product,.store-price,.store-order-record").count(),
+      await plain.page.getByRole("heading", { name: COPY.successful, exact: true }).count(),
       0,
-      "no catalogue, no price and no order row anywhere on it",
+      "and a forged fragment claims no payment success",
     );
-    assert.deepEqual(storeCalls, [], "a direct /store/ load makes no store API call");
-    assert.deepEqual(
-      plain.external.filter((url) => /\/store\//.test(new URL(url).pathname)),
-      [],
-      "and no request to any store route leaves the page",
+    assert.equal(
+      await plain.page.locator(".store-order-record").count(),
+      0,
+      "with no order row manufactured from it",
     );
+    assert.deepEqual(storeCalls, [], "and it never reaches a store API route: " + storeCalls.join(", "));
+    await plain.page.goto(origin + "/#store-cancelled", { waitUntil: "networkidle" });
+    await plain.page.waitForURL(origin + "/store/#catalogue");
+    assert.equal(new URL(plain.page.url()).hash, "#catalogue", "#store-cancelled routes to the catalogue");
+    assert.equal(
+      await plain.page.getByRole("heading", { name: COPY.successful, exact: true }).count(),
+      0,
+      "and claims nothing of a payment either",
+    );
+    assert.deepEqual(storeCalls, [], "neither fragment costs a store API call: " + storeCalls.join(", "));
+    assert.deepEqual(plain.errors, [], "no page error routing a browser into the store");
     console.log(
-      `  /store/ on the web: ${storeCalls.length} store API calls and ${plain.external.length} off-site request(s) in total (${plain.external.map((url) => new URL(url).pathname).join(", ") || "none"})`,
-    );
-    assert.deepEqual(plain.errors, [], "no page error redirecting a browser home");
-    console.log(
-      "Off the website passed: no page links into /store/, the public store URL lands on the home page with no store API call, and the store page paints nothing on the way",
+      "Store on the website passed: every page carries its own Store entry resolved at the site root and navigates to /store/, a browser /store/ renders the store through the website transport, and #store-paid/#store-cancelled route to #orders/#catalogue without manufacturing an order",
     );
   }
-  // The launcher's nav entry is a link to the page, not a modal behind a button. It is the
-  // launcher's own entry - site/desktop.js appends it on any page that has no link into the store,
-  // which is now every page of the site - and it must resolve to the store from EVERY page, not
-  // only from the site root.
+  // The launcher's nav entry is a link to the page, not a modal behind a button, and it must
+  // reach the store from EVERY page. Since the store is shared with the website again the entry is
+  // the page's own static one, and site/desktop.js appends its own only on a page that has none -
+  // so this proves both halves at once: the route resolves from every depth, and the header never
+  // ends up carrying two entries because two scripts each wanted to add one.
   {
     const { page, errors } = await openPage({
       init: installBridge,
       arg: { products: PRODUCTS, orders: [] },
       url: origin,
     });
-    const entry = page.locator(".site-header nav a.desktop-store-entry");
-    await entry.waitFor();
+    const entries = page.locator('.site-header nav a[href$="store/"]');
+    await entries.first().waitFor();
+    assert.equal(await entries.count(), 1, "the home page's header carries exactly one Store entry");
     assert.equal(
-      await entry.getAttribute("href"),
+      await entries.evaluate((a) => a.href),
       origin + "/store/",
-      "the launcher's own entry points at the store from the home page",
+      "and it lands on the store",
+    );
+    assert.equal(
+      await page.locator(".site-header nav a.desktop-store-entry").count(),
+      0,
+      "the launcher adds no second entry beside the page's own",
     );
     assert.equal(
       await page.getByRole("button", { name: "Store", exact: true }).count(),
       0,
       "no Store button that opens a dialog",
     );
-    // A shared script appends that entry on every page, so its href is resolved against the site
-    // root: a page-relative './store/' would be /minecraft/map/store/ and a dead link.
-    for (const path of ["/minecraft/map/", "/minecraft/wiki/", "/account/"]) {
+    // A shared script appends that entry where a page lacks one, so its href is resolved against
+    // the site root: a page-relative './store/' would be /minecraft/wiki/store/ on a guide.
+    for (const path of ["/minecraft/map/", "/minecraft/wiki/", "/minecraft/wiki/getting-started/", "/account/"]) {
       await page.goto(origin + path, { waitUntil: "networkidle" });
-      const here = page.locator(".site-header nav a.desktop-store-entry");
-      await here.waitFor();
+      const here = page.locator('.site-header nav a[href$="store/"]');
+      await here.first().waitFor();
+      assert.equal(await here.count(), 1, `${path} carries exactly one Store entry in the launcher`);
       assert.equal(
-        await here.getAttribute("href"),
+        await here.evaluate((a) => a.href),
         origin + "/store/",
-        `the launcher's Store entry reaches the store from ${path}`,
+        `the Store entry reaches the store from ${path}`,
       );
     }
     await page.goto(origin, { waitUntil: "networkidle" });
-    await page.locator(".site-header nav a.desktop-store-entry").click();
+    await page.locator('.site-header nav a[href$="store/"]').click();
     await page.waitForURL(origin + "/store/");
     await page.locator(".store-product").first().waitFor();
     assert.equal(await page.locator('.site-header nav a[href*="store/"]').count(), 1);
     assert.equal(await page.locator("dialog[open]").count(), 0);
     assert.deepEqual(errors, []);
-    console.log("Launcher nav entry navigates to the store page, and reaches it from every page");
+    console.log("Launcher nav entry navigates to the store page, reaching it from every page and never twice");
   }
   // SOL'S SKIP LINK AND THE KEYBOARD. The link is the page's first Tab stop, it is off screen
   // until it is focused, and pressing it puts the reader inside the store without turning itself
@@ -1265,56 +1301,82 @@ try {
     assert.equal(lively.ring.duration, "0.9s");
     console.log("Reduced motion passed: the busy ring turns, and stops when the reader asks it to");
   }
-  // THE TWO STANDING RULES A DESIGN PASS HAS ALREADY DROPPED ONCE (commit 5e5a2fc), in the shape
-  // Owen's instruction of 2026-10-27 gives them: no page carries a route into the store, and the
-  // mount gate keeps the store off the website altogether. Both are asserted where they live, so a
-  // later visual pass over a stale base fails here.
+  // THE THREE STANDING RULES A DESIGN PASS HAS ALREADY DROPPED ONCE (commit 5e5a2fc), in the shape
+  // Owen's store decision of 2026-10-29 gives them: every page carries a Store entry of its own, the
+  // entry and the page paint in both modes, and the mount takes whichever account transport the
+  // page has. All three are asserted WHERE THEY LIVE, in the markup and the module source, so a
+  // later visual pass over a stale base fails here rather than shipping.
   {
     for (const file of [
       "site/index.html",
       "site/account/index.html",
       "site/minecraft/map/index.html",
       "site/minecraft/wiki/index.html",
+      "site/minecraft/wiki/getting-started/index.html",
       "site/store/index.html",
-      // The two legal pages belong to the coordinator, who took their store prose on 2026-10-27
-      // (main, fe9bb0b). They are read here, never edited: this asserts only that neither carries
-      // a route into /store/, which is the property the whole site owes the reviewer.
       "site/legal/terms/index.html",
       "site/legal/privacy/index.html",
     ]) {
       const markup = await readFile(new URL("../" + file, import.meta.url), "utf8");
-      assert.doesNotMatch(markup, /href="[^"]*store\/"/, `${file} carries no link into the store`);
-      assert.doesNotMatch(markup, /class="store-entry"/, `${file} carries no Store entry`);
+      assert.match(
+        markup,
+        /<a class="store-entry" href="(?:\.\.\/)*\.?\/?store\/"/
+        ,
+        `${file} carries its own Store entry`,
+      );
+      assert.doesNotMatch(markup, /http-equiv="refresh"/, `${file} refreshes nobody away from anywhere`);
     }
     const storeMarkup = await readFile(new URL("../site/store/index.html", import.meta.url), "utf8");
+    assert.match(
+      storeMarkup,
+      /<a class="store-entry" href="\.\.\/store\/" aria-current="page">Store<\/a>/,
+      "the store page marks its own entry as the current page",
+    );
     assert.match(
       storeMarkup,
       /<a class="store-skip" href="#store-root">Skip to store<\/a>/,
       "the skip link is in the static markup, so it exists before any script runs",
     );
-    assert.match(
-      storeMarkup,
-      /<noscript><meta http-equiv="refresh" content="0; url=\.\.\/"><\/noscript>/,
-      "a browser with no scripting is sent to the site root rather than left on a store page",
-    );
     const source = await readFile(new URL("../site/store/store.mjs", import.meta.url), "utf8");
     assert.match(
       source,
-      /const bridge = globalThis\.easterDesktop\?\.mode === "desktop" \? globalThis\.easterDesktop : null;/,
-      "the mount takes its transport only when the launcher is present",
+      /const bridge = globalThis\.easterDesktop \|\| webAccount;/,
+      "the mount takes the launcher's bridge or the website's own account transport",
     );
-    assert.match(
+    assert.doesNotMatch(
       source,
-      /location\.replace\(new URL\("\.\.\/", location\.href\)\)/,
-      "and sends a browser with no launcher to the site root instead of mounting a shop",
+      /location\.replace\(/,
+      "and sends nobody away from the page it mounted on",
     );
     assert.match(
       source,
       /mountStore\(mount, \{bridge\}\)/,
-      "the launcher still mounts the shared store with its own transport",
+      "both modes mount the same store",
+    );
+    // The website's two routes into the store live in site/web.js, and both are routing only.
+    const web = await readFile(new URL("../site/web.js", import.meta.url), "utf8");
+    assert.match(
+      web,
+      /#store-paid/,
+      "site/web.js forwards Stripe's return fragment again: #store-paid/... reaches the store",
+    );
+    assert.match(
+      web,
+      /location\.hash === '#store-cancelled'/,
+      "and #store-cancelled is forwarded with it",
+    );
+    assert.match(
+      web,
+      /destination\.hash = location\.hash === '#store-cancelled' \? 'catalogue' : 'orders';/,
+      "and the fragment decides a HASH and nothing else: orders are the service's, re-read on use",
+    );
+    assert.match(
+      web,
+      /new URL\('store\/', base\)/,
+      "the Store entry it injects on a page that lacks one resolves against the site root",
     );
     console.log(
-      "Standing rules passed: no page carries a route into /store/, and store.mjs mounts only under the launcher",
+      "Standing rules passed: every page carries its own Store entry and paints it in both modes, store.mjs mounts the shared store on either transport without sending anybody away, and site/web.js routes the Stripe fragment by hash alone",
     );
   }
 } finally {

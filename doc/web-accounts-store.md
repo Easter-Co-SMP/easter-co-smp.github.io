@@ -3,8 +3,10 @@
 Owen requested browser sign-up/sign-in and the same store features as the launcher on
 2026-10-26, preserving the existing website design and download-first hero. That
 superseded the earlier launcher-only store visibility instruction; the store then left the
-website again on 2026-10-27 while the app registration is reviewed (below), so read the two
-together. No game rule,
+website for three days, 2026-10-27 to 2026-10-29, while the app registration was reviewed —
+and it came back when Owen asked for it ("yes, return the store to the website"). Three
+sections below hold that history in order; the last one is the state of the site today.
+No game rule,
 product, amount, price, copy policy or launcher release is changed here.
 
 ## The store leaves the website again, 2026-10-27
@@ -188,15 +190,19 @@ python3 -m unittest discover -s tests -p 'test_*.py', and
 python3 scripts/validate.py site. With site/ served on loopback port 18104:
 node tests/web-accounts-browser.mjs. The latter uses fixture-only credentials,
 provider pages and checkout sessions at 1440/834/390/320 widths. It covers wrong
-password, successful sign-in, profile edits, no Store entry and no store request anywhere on
-the site, an inert `#store-paid` fragment, logout and provider signup.
+password, successful sign-in, profile edits, the shared store driven through the website's own
+account transport (the Store entry, the catalogue and its prices, Orders, one Buy press into
+Stripe, and a forged `#store-paid` fragment that re-reads orders and manufactures none),
+logout and provider signup.
 Its three cold-load journeys hold `/me` on the route — the delay belongs where the
 player's Aurora resume is, not in a sleep after the load — and assert what the control
 says on its FIRST frame, what a click reaches there, and what happens when the read
-answers or answers 401. store-browser.mjs keeps every launcher flow and asserts the reverse
-of its old web expectation: no page links into `/store/`, the public URL lands on the home
-page with no store API call, and the launcher's own entry still reaches the store from every
-page. Independent
+answers or answers 401. store-browser.mjs keeps every launcher flow and now proves the web half too:
+every page carries its own Store entry with and without scripting, each one resolved at the
+site root (a guide three directories deep is in the list, because a relative literal is what
+this rule gets wrong), a browser `/store/` renders the store through the website transport,
+and `#store-paid/...` and `#store-cancelled` route to `#orders` and `#catalogue` without
+starting a checkout or manufacturing an order. Independent
 frontend review is required before production, in addition to these checks.
 
 The control's label is the name a player is called, not the handle they type: the
@@ -301,7 +307,39 @@ they do not troubleshoot API access.
 and through the packaged desktop app, and both completed — the site's flow and the app's
 `desktop/auth.cjs` chain are both live on the same registration.
 
-**Consequence left open:** the website store was disabled on 2026-10-27 *because* this review
-was in flight. That reason is spent, so the store may return to the site whenever Owen says
-so; it stays launcher-only until then, because re-enabling it is his product decision and
-not a review artefact.
+**Consequence, closed 2026-10-29:** the website store was disabled on 2026-10-27 *because*
+this review was in flight. That reason is spent, and Owen asked for the storefront back —
+see the section below.
+
+## The store returns to the website, 2026-10-29
+
+Owen, 2026-10-29: *"yes, return the store to the website."* Nothing had been deleted on
+2026-10-27, so the return is the inverse of the three commits that took it away
+(`e6f6b82` the code, `9176c19` these documents and the browser suite, `fe9bb0b` the legal
+pages). What is true of the site again:
+
+- **every page of the site carries a Store entry in its shared header**, in the page's own
+  static markup, so a reader with scripting off still has the route. The pages are not the
+  five that lost it: the SEO work since moved the map and the wiki under `/minecraft/`, so
+  the entry cannot be a page-relative `./store/` and is not one. Each page's href is the
+  site-root-relative address for its own depth, every one of them resolves to `/store/`,
+  and `site/web.js` still injects a root-resolved entry on any page whose nav lacks one;
+- **Stripe's return fragment is forwarded again.** `site/web.js` sends
+  `#store-paid/...` to `/store/#orders` and `#store-cancelled` to `/store/#catalogue`. The
+  fragment stays a routing signal only — it decides a hash and nothing else — and the
+  orders view is the account service's answer, re-read on use. A forged fragment therefore
+  manufactures no payment, no order row and no success claim, and both browser suites now
+  prove that by counting checkouts rather than by reading a sentence;
+- **`/store/` mounts for a browser again.** The desktop-only gate and the redirect to the
+  site root are gone from `site/store/store.mjs`, the mount takes `window.easterDesktop ||
+  webAccount`, and the launcher's own mount through its isolated preload is unchanged. The
+  `noscript` refresh in `site/store/index.html` is gone with it, and `site/desktop.css`
+  paints the store page and its entry in both modes instead of hiding them outside
+  `desktop-mode`;
+- **the launcher's entry is untouched** — `site/desktop.js` still resolves it against the
+  site root and still appends it only on a page that has none, which now simply means it
+  never doubles the page's own.
+
+The gates were the part that mattered: both browser suites asserted the store's ABSENCE
+from 2026-10-27, so they were flipped to assert its PRESENCE in both modes rather than left
+to pass on the old truth.

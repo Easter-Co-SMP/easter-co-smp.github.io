@@ -53,20 +53,23 @@ The download will include the custom Easter Company launcher and Minecraft clien
 
 Do not display Source, source code bundles, standalone client/server bundle options, or the old direct-mod download section.
 
-The store is a page at site/store/ and, by Owen's instruction of 2026-10-27 while the
-Easter Company app registration is reviewed by Minecraft, it is a launcher surface only:
-no page of the website links into /store/, the public URL lands on the home page, and
-site/store/store.mjs mounts only under `window.easterDesktop` claiming `mode:'desktop'`.
-Nothing is deleted — the page, its views, its tests and its bridge all stay, the launcher
-keeps the store exactly as it was — and it comes back to the website afterwards.
+The store is a page at site/store/, shared by the website and the launcher (Owen,
+2026-10-29: "yes, return the store to the website"; it was launcher-only for three days,
+2026-10-27 to 2026-10-29, while the Easter Company app registration was reviewed by Minecraft).
+Every page of the site carries a Store entry in its own header markup, each resolved against
+the site root — never a page-relative './store/', because the map and the wiki now live at
+/minecraft/map/ and /minecraft/wiki/ — and site/web.js forwards Stripe's return fragment
+(#store-paid/... to /store/#orders, #store-cancelled to /store/#catalogue) as a routing
+signal only: orders are re-read from the service, so a forged fragment manufactures no
+payment. site/store/store.mjs mounts on `window.easterDesktop || webAccount`, so the same
+page and the same views serve both modes and only the transport differs.
 The website keeps sign-in/sign-up and its download-first hero and visual design. Browser
 account work uses site/web-account.mjs, never a forged easterDesktop bridge or desktop-mode.
 It is named "The Community store" and stays `noindex`. It is the REAL store: five
 products for real USD through Stripe's hosted Checkout page, driven by the account service
 through three commands on `window.easterDesktop` (`storeCatalogue`, `storeCheckout`,
-`storeOrders`) in the launcher. The bounded browser transport for the same API is kept in
-site/store/store.mjs, unwired, for the store's return to the website; the catalogue, the
-prices and the orders are
+`storeOrders`) in the launcher, and in the browser through the bounded browser transport
+the same page uses — the catalogue, the prices and the orders are
 the server's, and site/ holds no catalogue of its own. Buying is one product at a time from its
 own card: no cart, no quantity, no basket total. Its views are hash routes (#catalogue,
 #item/<key>, #orders); a stale link to a removed route lands on #catalogue. The

@@ -36,12 +36,20 @@ try{
    else if(path.endsWith('/me')){if(meHold)await meHold;if(meStatus!==200){status=meStatus;value={error:'invalid_session'};}else value={account};}
    else if(path.endsWith('/emails'))value={emails:[],loginEmail:null};
    else if(path.endsWith('/profile')){account={...account,displayName:body.displayName};value={account};}
-   // THE WEBSITE HAS NO STORE while the Easter Company app registration is reviewed (Owen,
-   // 2026-10-27). These three routes still answer, because the cloud half does; what is asserted
-   // below is that the website never asks them, so a request to one is recorded and fails the run.
+   // THE STORE IS SHARED WITH THE WEBSITE AGAIN (Owen, 2026-10-29: "yes, return the store to the
+   // website", after the Minecraft API approval of 2026-10-28 ended the review it was hidden for),
+   // so the signed-in website drives it again. Every request to one of these three routes is
+   // recorded, which is how the forged-fragment assertion below can prove that a fragment typed by
+   // a visitor never starts a checkout and never creates an order.
    else if(path.endsWith('/store/catalogue')){storeCalls.push(path);value={products:[product]};}
    else if(path.endsWith('/store/orders')){storeCalls.push(path);value={orders:paid?[{sessionId:'fixture-order',product:product.key,amountMinor:500,currency:'USD',paid:true,delivered:false,creditPence:0,createdAt:'2026-10-26T12:00:00Z'}]:[]};}
    else if(path.endsWith('/checkout')){storeCalls.push(path);checkoutCalls++;assert.deepEqual(body,{product:product.key});value={url:'https://checkout.stripe.com/c/pay/fixture',sessionId:'fixture-order',product:product.key};}
+   // A tab that already holds a session starts a WAKE in parallel with the read it precedes
+   // (site/web-account.mjs, `ready`), so after a sign-in every load asks this route once. The page
+   // never waits on it and treats a failure as nothing, so an empty answer is all this stub owes -
+   // without it the route falls through to the "unexpected request" refusal below and the suite
+   // dies on a request the product makes correctly.
+   else if(path.endsWith('/wake'))value={};
    else if(path.endsWith('/logout'))value={};
    else throw Error('Unexpected API request '+path);
    await route.fulfill({status,contentType:'application/json',body:JSON.stringify(value)});
@@ -79,33 +87,51 @@ try{
   await page.locator('#company-profile button[type=submit]').first().click();
   await page.locator('#company-profile .company-status').filter({hasText:'Saved.'}).waitFor();
   await page.getByRole('button',{name:'Close My Profile'}).click();
-  // THE WEBSITE HAS NO STORE, signed in or not (Owen, 2026-10-27, while the app registration is
-  // reviewed: "let's not remove, but disable the store on the website ... leave it inside the
-  // launcher though"). What used to be here was the whole web shop - the Store link, its
-  // catalogue, an Orders view, a Buy press that reached Stripe, and the #store-paid return. The
-  // store itself is untouched and the launcher still sells; the website simply offers no way in.
-  assert.equal(await page.getByRole('link',{name:'Store',exact:true}).count(),0,'the nav offers no Store entry on the website');
+  // THE STORE IS SHARED WITH THE WEBSITE, signed in or not: Owen, 2026-10-29, *"yes, return the
+  // store to the website"* - it left on 2026-10-27 only while the Easter Company app registration
+  // went to Mojang for the Java Edition Game Service API approval, and that approval arrived on
+  // 2026-10-28. So the signed-in website drives the whole web shop again, through its own bounded
+  // account transport (site/web-account.mjs) rather than any launcher bridge.
+  assert.equal(await page.getByRole('link',{name:'Store',exact:true}).count(),1,'the nav offers the Store entry on the website');
   assert.deepEqual(
     await page.evaluate(()=>[...document.querySelectorAll('a')].map(a=>a.href).filter(href=>href.includes('/store/'))),
-    [],
-    'and no link anywhere on the page reaches /store/');
-  // The public store URL lands on the home page and asks the account service nothing about a store.
-  await page.goto(origin+'/store/',{waitUntil:'networkidle'});
-  assert.equal(new URL(page.url()).pathname,'/','/store/ on the website lands on the home page');
-  assert.equal(await page.locator('.store-main,.store-product,.store-price,.store-order-record').count(),0,'and paints nothing of the store');
-  // Stripe's return fragment is inert here now: it names a checkout the website cannot show, so it
-  // stays where it is, records no order and claims no success.
+    [origin+'/store/'],
+    'and the only link into the store is that one, resolved at the site root');
+  await page.getByRole('link',{name:'Store',exact:true}).click();
+  await page.waitForURL(origin+'/store/');
+  await page.getByRole('heading',{name:product.name,exact:true}).waitFor();
+  assert.equal(await page.locator('.store-price').textContent(),'$5.00','the catalogue prices are the service prices');
+  assert.deepEqual(storeCalls.filter(path=>!/\/store\/(catalogue|orders)$/.test(path)),[],'a catalogue load starts no checkout');
+  await page.getByRole('link',{name:'Orders',exact:true}).click();
+  await page.getByText('No orders yet.',{exact:true}).waitFor();
+  assert.equal(await page.locator('.store-order-record').count(),0,'an account with no order shows no order');
+  await page.getByRole('link',{name:'Browse',exact:true}).click();
+  await page.getByRole('button',{name:'Buy '+product.name,exact:true}).click();
+  await page.waitForURL('https://checkout.stripe.com/**');
+  assert.equal(checkoutCalls,1,'pressing Buy starts exactly one checkout');
+  // STRIPE'S RETURN FRAGMENT IS A ROUTING SIGNAL AND NOTHING ELSE. It routes the tab to the orders
+  // view; the orders it shows are re-read from the account service, so a fragment anybody can type
+  // manufactures no payment, no order and no success claim - the checkout count is the proof that
+  // nothing was started by visiting it.
+  const checkoutsBefore=checkoutCalls;
   await page.goto(origin+'/#store-paid/forged');
-  await page.waitForTimeout(150);
-  assert.equal(new URL(page.url()).pathname,'/','the #store-paid fragment no longer routes into the store');
-  assert.equal(await page.getByRole('heading',{name:'Payment Successful',exact:true}).count(),0);
-  assert.equal(await page.locator('.store-order-record').count(),0);
-  assert.deepEqual(storeCalls,[],'the website never called a store route: '+storeCalls.join(', '));
-  assert.equal(checkoutCalls,0,'no checkout was started from the website');
+  await page.waitForURL('**/store/#orders');
+  await page.getByText('No orders yet.',{exact:true}).waitFor();
+  assert.equal(await page.getByRole('heading',{name:'Payment Successful',exact:true}).count(),0,'a forged #store-paid fragment claims no payment success');
+  assert.equal(await page.locator('.store-order-record').count(),0,'and manufactures no order row');
+  assert.equal(checkoutCalls,checkoutsBefore,'and starts no checkout');
+  assert.equal(paid,false,'the fixture never recorded a payment, so nothing could have been re-read as one');
+  // The cancelled half of the same contract routes to the catalogue and claims nothing either.
+  await page.goto(origin+'/#store-cancelled');
+  await page.waitForURL('**/store/#catalogue');
+  await page.getByRole('heading',{name:product.name,exact:true}).waitFor();
+  assert.equal(await page.getByRole('heading',{name:'Payment Successful',exact:true}).count(),0,'#store-cancelled claims nothing of a payment');
+  assert.equal(checkoutCalls,checkoutsBefore,'and starts no checkout either');
   await page.getByRole('button',{name:'Account options'}).click();
   await page.getByRole('button',{name:'Sign out',exact:true}).click();
   await page.getByRole('button',{name:'Sign in or create an Easter Company account'}).waitFor();
-  assert.equal(await page.locator('.store-order-record').count(),0);
+  await page.getByText('Sign in to buy.',{exact:true}).waitFor();
+  assert.equal(await page.locator('.store-order-record').count(),0,'a signed-out store page shows no order');
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null);
   await page.getByRole('button',{name:'Sign in or create an Easter Company account'}).click();
   await page.getByRole('button',{name:'Sign in with Steam',exact:true}).click();
@@ -125,7 +151,7 @@ try{
   await page.screenshot({path:'/tmp/web-accounts-'+width+'.png',fullPage:true});
   assert.deepEqual(errors,[]);
   assert(requests.every(r=>!new URL(api+r.path).search));
-  console.log('PASS web login, profile, no store on the website and no store request made, inert #store-paid fragment, logout, provider signup, no overflow at '+width);
+  console.log('PASS web login, profile, the shared store in a browser (catalogue, orders, one Buy), a forged #store-paid fragment creating no order, #store-cancelled, logout, provider signup, no overflow at '+width);
   checks++;
 
   // ---- The account control's face, in the states that matter -------------------------------
@@ -505,6 +531,13 @@ try{
   const seedSession=async value=>{
    meHold=null;meStatus=200;
    await bootPage.goto(origin);
+   // WAIT FOR THIS LOAD'S OWN RECONCILE BEFORE SEEDING. A page that already holds a stored document
+   // asks /me and writes the whole document back (site/web-account.mjs, `remember`), so a seed
+   // written while that read is still in flight is overwritten by the answer it was meant to
+   // replace - and the next cold load then paints an account the seed did not contain. Measured on
+   // 2026-10-29 as a flake present on main before the store's return (1 failing run in 4, always
+   // this assertion: "the first frame invents no name"); the wait is what makes it deterministic.
+   await bootPage.waitForLoadState('networkidle');
    await bootPage.evaluate(([key,stored])=>sessionStorage.setItem(key,JSON.stringify(stored)),[SESSION_KEY,value]);
   };
   const coldLoad=async()=>{

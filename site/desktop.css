@@ -411,12 +411,13 @@
 @media(min-width:601px) and (max-height:700px){
  .desktop-mode body.home>.home-content{padding:calc(16px + var(--launcher-notice-space,0px)) 40px 24px}
 }
-/* The store is a launcher surface and never a website page (doc/launcher-store.md): outside
-   `desktop-mode` neither its nav entry nor the page itself is painted, so the public /store/ URL
-   shows no shop and site/store/store.mjs sends the browser to the site root. Owen, 2026-10-27:
-   *"let's not remove, but disable the store on the website ... leave it inside the launcher"*. */
-.site-header nav a.store-entry{display:none}
-.store-main,.store-noscript{display:none}
+/* The Community store is shared by the public website and the launcher (doc/web-accounts-store.md).
+   It left the website between 2026-10-27 and 2026-10-29, while the Easter Company app registration
+   was reviewed; those three days hid its nav entry and its page outside `desktop-mode`. Owen,
+   2026-10-29: *"yes, return the store to the website"* - so the store paints in both modes again
+   and only the launcher's own footer line stays a launcher detail. */
+.site-header nav a.store-entry{display:inline}
+.store-main,.store-noscript{display:block}
 .desktop-mode .site-header nav a.store-entry{display:inline}
 .desktop-mode .store-main{display:block}
 .desktop-mode .store-noscript{display:block}

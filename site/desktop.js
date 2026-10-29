@@ -1120,13 +1120,15 @@ signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close s
  }
  if(homeCopy)void import('./launcher-discovery.mjs').then(({mountDiscovery})=>mountDiscovery(homeCopy.parentElement,desktop));
  // The store is a page of its own at ./store/, reached by navigation exactly as Map and Wiki
- // are. No page carries that Store link in its own static markup any more: the website has no
- // store at all while the app registration is reviewed (Owen, 2026-10-27), so the launcher is the
- // only surface that offers the entry and this is where it is added. The href is resolved against
- // the site root - the wordmark's own href, which points at the root from every page - because
- // this one script is shared by pages at /, /minecraft/map/, /minecraft/wiki/, /account/ and /store/, and a bare
- // './store/' would be /minecraft/map/store/ on the map page. Matching on the link rather than on a class is
- // what keeps the header to exactly one Store entry.
+ // are, and it is shared with the public website again (Owen, 2026-10-29: *"yes, return the store
+ // to the website"*; it was launcher-only between 2026-10-27 and 2026-10-29 while the app
+ // registration was reviewed). Every page carries its own Store link in static markup, so this
+ // append is the safety net it always was and never the only entry: it puts one on a page whose
+ // nav lacks one. The href is resolved against the site root - the wordmark's own href, which
+ // points at the root from every page - because this one script is shared by pages at /,
+ // /minecraft/map/, /minecraft/wiki/<guide>/, /account/ and /store/, and a bare './store/' would be
+ // /minecraft/wiki/store/ on a guide page. Matching on the link rather than on a class is what
+ // keeps the header to exactly one Store entry.
  const storeNav=document.querySelector('.site-header nav');
  if(storeNav&&!storeNav.querySelector('a[href="./store/"],a[href$="/store/"]')){
   const storeRoot=document.querySelector('.site-wordmark')?.href||document.baseURI;
