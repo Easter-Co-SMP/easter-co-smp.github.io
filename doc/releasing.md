@@ -72,9 +72,11 @@ name from `/releases/latest/download/`. The launcher job is
    AppImage's own first screen inside `--verify`, never against yesterday's `release/`.
 2. The full check suite passes on that exact tree: `python -m unittest discover -s tests
    -p 'test_*.py'` (use `/root/e-server/.venv/bin/python`), `python scripts/validate.py
-   site`, `npm test`, `node tests/drawings.mjs`, `node tests/browser.mjs` against a local
-   preview — and every Electron journey in `tests/desktop`, which is **not** a list of
-   commands to type by hand:
+   site`, `npm test`, `node tests/drawings.mjs`, and `npm run test:site` against a local
+   preview — which runs `tests/browser.mjs` and, since 2026-10-29, `tests/wiki-browser.mjs`
+   as well, because the field guide stopped being one hash-routed page (its gate had been
+   red on main since the SEO restructure and nobody was running it) — and every Electron
+   journey in `tests/desktop`, which is **not** a list of commands to type by hand:
 
        node scripts/check-electron-journeys.mjs
 

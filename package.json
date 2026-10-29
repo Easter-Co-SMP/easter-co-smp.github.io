@@ -8,7 +8,7 @@
     "start": "electron .",
     "test": "node --test tests/desktop/*.test.cjs tests/wiki.test.mjs tests/launcher-discovery.test.mjs tests/store.test.mjs tests/web-account.test.mjs tests/account-page.test.mjs tests/auth-return.test.mjs",
     "test:desktop": "xvfb-run -a node tests/desktop/electron.mjs",
-    "test:site": "node tests/browser.mjs",
+    "test:site": "node tests/browser.mjs && node tests/wiki-browser.mjs",
     "pack": "electron-builder --dir",
     "dist:linux": "electron-builder --linux AppImage deb pacman --x64 --publish never",
     "dist:windows": "electron-builder --win nsis --x64 --publish never"
