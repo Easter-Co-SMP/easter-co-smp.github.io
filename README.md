@@ -2,6 +2,22 @@
 
 Public website: **https://easter-co-smp.github.io/**
 
+Search metadata uses the site's existing canonical host, **https://launcher.easter.company/**.
+`site/robots.txt` allows crawling (including the resources needed to render pages),
+and `site/sitemap.xml` lists only canonical, indexable public documents. Account,
+launcher-only store, error and moved pages remain `noindex` and outside the sitemap.
+Public pages have unique titles/descriptions, canonical links, Open Graph/Twitter
+cards and JSON-LD. No invented ratings, review counts or search-result guarantees.
+
+Run `node scripts/seo.mjs` after editing public page metadata or the wiki catalogue.
+It regenerates the static wiki overview and twelve readable article documents from
+`site/minecraft/wiki/pages.mjs`, plus metadata and the sitemap. The article content,
+tables and navigation work without JavaScript; small enhancements keep mobile topics
+and search usable. The desktop launcher retains its existing hash navigation.
+CI runs `node scripts/seo.mjs --check` to reject stale generated output. The sitemap
+omits speculative dates, change frequencies and priorities. Submit its canonical URL
+in the owner's Google Search Console/Bing Webmaster Tools after publication.
+
 `site/` is the complete buildless GitHub Pages site. A push to `main` validates the site
 and deploys that directory. Scripts, host configuration, and tests are excluded from the
 published artifact. Preview with `python -m http.server --directory site 18100`.
