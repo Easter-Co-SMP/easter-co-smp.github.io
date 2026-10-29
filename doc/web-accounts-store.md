@@ -10,7 +10,12 @@ product, amount, price, copy policy or launcher release is changed here.
 ## The store leaves the website again, 2026-10-27
 
 Owen, while the Easter Company app registration goes to Minecraft for API approval and the
-form reviews this site: *"let's not remove, but disable the store on the website — having it
+form reviews this site:
+
+> **That review has since concluded — see "The Minecraft API approval arrived, 2026-10-28"
+> at the end of this file.** The store's removal from the site was a *review* precaution,
+> not a product decision, and the reason it cites is now spent.
+ *"let's not remove, but disable the store on the website — having it
 on our website will make things more complicated for approval, we can handle that afterwards.
 Leave it inside the launcher though."* A storefront on the associated website invites
 monetisation questions during a review, so the website now has none:
@@ -275,3 +280,28 @@ check, `validate.py site`, and `tests/web-accounts-browser.mjs` (twelve journeys
 deployed and not released by this branch: the coordinator publishes. `read_image`
 does not work in this environment, so every verdict here is a measured number or a
 value read back from the DOM, never a look at a screenshot.
+
+## The Minecraft API approval arrived, 2026-10-28
+
+Mojang Enforcement (MCENotify@microsoft.com) closed the appID review on 2026-10-28: the
+application was approved for the Java Edition Game Service API allow list, with no blocked
+outcomes in the batch. That is the registration whose application id the launcher bakes in
+as `DEFAULT_CLIENT_ID` (`desktop/auth.cjs`) and which the accounts stack exports as
+`MicrosoftClientId`, so the launcher's own calls are the ones covered — `login_with_xbox`,
+`entitlements/license` and `minecraft/profile`. Before approval the service answers
+`403 invalid app registration`; that failure mode should not be mistaken for a missing
+entitlement, which is a different answer on the same account.
+
+What it does not change: it is not a licence (an account without Java Edition still fails
+the entitlement check, correctly), it does not revive the retired Mojang accounts API, and
+it says nothing about the map, wiki or catalogue APIs. Mojang's message is explicit that
+they do not troubleshoot API access.
+
+**Proven, 2026-10-29:** Owen signed in with Microsoft through `https://launcher.easter.company/`
+and through the packaged desktop app, and both completed — the site's flow and the app's
+`desktop/auth.cjs` chain are both live on the same registration.
+
+**Consequence left open:** the website store was disabled on 2026-10-27 *because* this review
+was in flight. That reason is spent, so the store may return to the site whenever Owen says
+so; it stays launcher-only until then, because re-enabling it is his product decision and
+not a review artefact.
