@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+
+# Account, store, error and moved pages carry HTML noindex directives.
+# Keep them crawlable so search engines can read those directives.
+Sitemap: https://launcher.easter.company/sitemap.xml

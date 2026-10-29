@@ -26,6 +26,10 @@ function icon(name) {
   return svg;
 }
 function link(title, href, className) {
+  const match=/^#\/([^/?]+)(?:\/([^/?]+))?$/.exec(href);
+  if (!window.easterDesktop && match && pages.some(page=>page.id===match[1])) {
+    href='./'+match[1]+'/'+(match[2]?'#'+match[2]:'');
+  }
   const node = el('a', className, title); node.href = href; return node;
 }
 function card(page, compact = false) {
@@ -41,6 +45,7 @@ function heading(eyebrow, title, description) {
   if (description) header.append(el('p', 'wiki-intro', description));
   return header;
 }
+topics.replaceChildren();
 topics.append(link('Wiki overview', '#/', 'wiki-overview-link'));
 for (const group of groups) {
   const section = el('div', 'wiki-topic-group');
