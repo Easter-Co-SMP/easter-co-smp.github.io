@@ -343,3 +343,42 @@ pages). What is true of the site again:
 The gates were the part that mattered: both browser suites asserted the store's ABSENCE
 from 2026-10-27, so they were flipped to assert its PRESENCE in both modes rather than left
 to pass on the old truth.
+
+## The store needs a session, 2026-10-29
+
+Owen, the same day, once the storefront was back and a signed-out visitor could browse the
+catalogue and read its prices: *"hide the store from non-signed-in users."* The store is now
+offered to a player with an Easter Company session and to nobody else — and "nobody else"
+includes a visitor whose browser runs no scripts.
+
+- **One verdict, one author.** `site/store-access.mjs` is the only thing that decides it:
+  `paintStoreAccess(state)` puts `store-signed-in` on `<html>` when the account seam reports an
+  account and takes it away when it does not. `site/web.js` uses it for the header's entry and
+  `site/store/store.mjs` for the page itself; neither decides for itself.
+- **The entry is hidden by a stylesheet default, not by a script.** Every page carries its Store
+  entry in static markup and `site/desktop.css` hides `a.store-entry` unless the class is present,
+  which is what makes a no-scripting visitor see no Store link: nothing on such a page can check a
+  session, so nothing can claim one. `desktop-mode` (the launcher) is outside the rule and shows
+  its own entry either way.
+- **`/store/` ships the gate in its markup** — a heading saying the store needs an Easter Company
+  account, a sentence saying what signing in shows, and the store's own `.store-button` pointing at
+  `/account/`, the sign-in surface the site already had. `store.mjs` replaces it with the shop only
+  when the seam reports an account, so a signed-out load makes **zero store API calls**: no
+  catalogue, no prices, no cart, no orders. A direct address, a bookmark and Stripe's return
+  fragment all land on the gate.
+- **Signing out takes the store with it, in the same tab and with no reload**: the class goes, the
+  entry disappears, the shop the session built is dropped and the gate comes back. The store never
+  outlives the session that opened it.
+- **The gates assert this in both directions and count the consequence.** `tests/store-browser.mjs`
+  proves the signed-out half with scripting off and on (no Store link in the accessibility tree on
+  any page, the gate on `/store/` by address, bookmark and fragment, zero store API calls), and
+  keeps every launcher-mode rule unchanged; `tests/web-accounts-browser.mjs` drives the signed-out
+  gate before sign-in, then the full signed-in shop (entry, catalogue and prices, Orders, one Buy
+  into Stripe, `#store-paid` naming `#orders`), then the sign-out that re-gates the shop with no
+  store request afterwards. The gate's heading is asserted from the page's markup in both suites,
+  so rewording it moves the page and the gates together.
+
+The gate's wording is the one piece of player-facing copy introduced here that is not Owen's own;
+it has to live in the markup for the no-script visitor, and it is short and factual for that
+reason. Changing it means changing `site/store/index.html` and the `GATE`/`GATE_HEADING` literals
+in the two suites.

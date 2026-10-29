@@ -56,9 +56,19 @@ Do not display Source, source code bundles, standalone client/server bundle opti
 The store is a page at site/store/, shared by the website and the launcher (Owen,
 2026-10-29: "yes, return the store to the website"; it was launcher-only for three days,
 2026-10-27 to 2026-10-29, while the Easter Company app registration was reviewed by Minecraft).
-Every page of the site carries a Store entry in its own header markup, each resolved against
-the site root — never a page-relative './store/', because the map and the wiki now live at
-/minecraft/map/ and /minecraft/wiki/ — and site/web.js forwards Stripe's return fragment
+ON THE WEBSITE IT IS OFFERED ONLY TO A PLAYER WITH AN EASTER COMPANY SESSION — Owen, later
+the same day: "hide the store from non-signed-in users." Every page carries a Store entry in
+its own header markup, each resolved against the site root (never a page-relative
+'./store/', because the map and the wiki live at /minecraft/map/ and /minecraft/wiki/, so the
+entry sits at a different depth on every page), and site/desktop.css HIDES it until
+site/store-access.mjs puts `store-signed-in` on <html> from the account seam's state — which is
+what makes a no-scripting visitor see no Store link, since nothing on such a page can check a
+session. The same verdict decides the page: /store/ ships a sign-in gate in its own markup and
+site/store/store.mjs replaces it with the shop only when there is an account, so a signed-out
+visitor — by address, bookmark or Stripe fragment — reads the gate and makes no store API call
+at all. Signing out puts the gate back and drops the shop in the same tab, with no reload. The
+launcher is out of this rule: `desktop-mode` shows the launcher's own entry and the app mounts
+the store with its own transport. site/web.js forwards Stripe's return fragment
 (#store-paid/... to /store/#orders, #store-cancelled to /store/#catalogue) as a routing
 signal only: orders are re-read from the service, so a forged fragment manufactures no
 payment. site/store/store.mjs mounts on `window.easterDesktop || webAccount`, so the same

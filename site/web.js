@@ -11,14 +11,16 @@
 // What did NOT move: the return-target handling (an app asking to be brought back is a request made
 // to the launcher site, not to whoever imports the control) and the store's routes into this site.
 //
-// THE STORE IS SHARED WITH THE WEBSITE AGAIN (Owen, 2026-10-29: *"yes, return the store to the
-// website"*). It left on 2026-10-27 only while the Easter Company app registration went to Mojang
-// for the Java Edition Game Service API approval; that approval arrived on 2026-10-28, so the two
-// routes this file stopped providing come back unchanged. doc/web-accounts-store.md keeps that
-// history.
+// THE STORE IS OFFERED ONLY TO A PLAYER WITH AN EASTER COMPANY SESSION. Owen, 2026-10-29, the day
+// after he asked for the storefront back: *"hide the store from non-signed-in users."* Every page's
+// Store entry is hidden by site/desktop.css until site/store-access.mjs proves a session by putting
+// `store-signed-in` on <html>, and this file is what proves it: the account seam's state, now and on
+// every change - which is also how signing out takes the entry away again in the same tab without a
+// reload. doc/web-accounts-store.md keeps the history.
 import {webAccount} from './web-account.mjs';
 import {rememberReturnTarget} from './auth-return.mjs';
 import {mountAccountControl} from './account-control.mjs';
+import {paintStoreAccess} from './store-access.mjs';
 
 if (webAccount) {
   document.documentElement.classList.add('web-mode');
@@ -29,7 +31,8 @@ if (webAccount) {
   const base = new URL('./', import.meta.url);
   // Stripe's return URL is a routing signal only. Orders are re-read from the API, so a visitor
   // forging the fragment cannot create a payment-success claim: all this decides is which view of
-  // the store the address bar opens.
+  // the store the address bar opens - and with no session that view is the sign-in gate, because
+  // site/store/store.mjs decides what /store/ paints from the same seam this file reads.
   if (/^#store-paid(?:\/|$)/.test(location.hash) || location.hash === '#store-cancelled') {
     const destination = new URL('store/', base);
     destination.hash = location.hash === '#store-cancelled' ? 'catalogue' : 'orders';
@@ -41,17 +44,25 @@ if (webAccount) {
     // (a token handoff). A page opened without either parameter writes nothing at all.
     rememberReturnTarget(location.search);
     const nav = document.querySelector('.site-header nav');
-    // The pages carry their Store entry in their own markup, so this is the safety net that has been
-    // here since the store was first shared: a page whose nav lacks one still gets one, and matching
-    // on the href rather than on a class keeps the header to exactly ONE Store entry wherever a page
-    // already carries its own.
-    if (nav && !nav.querySelector('a[href$="store/"]')) {
-      const link = document.createElement('a');
-      link.href = new URL('store/', base).href;
-      link.textContent = 'Store';
-      link.className = 'store-entry';
-      nav.append(link);
-    }
+    // THE ENTRY FOLLOWS THE SESSION, in both directions and without a reload. The pages carry their
+    // Store entry in their own markup, so all this has to do is say whether the header may show it;
+    // the safety net from the first shared iteration stays for a nav that has no entry at all, and
+    // adds one only to a visitor who has a session. Matching on the href rather than on a class
+    // keeps the header to exactly one Store entry wherever a page carries its own.
+    const paint = state => {
+      if (!paintStoreAccess(state)) return;
+      if (nav && !nav.querySelector('a[href$="store/"]')) {
+        const link = document.createElement('a');
+        link.href = new URL('store/', base).href;
+        link.textContent = 'Store';
+        link.className = 'store-entry';
+        nav.append(link);
+      }
+    };
+    // The seam calls this immediately with the state it already holds and again on every change: a
+    // signed-out visitor paints nothing, a returning visitor's cached account paints on the first
+    // frame, and a sign-out removes the class that reveals the entry.
+    webAccount.subscribe(paint);
     await mountAccountControl({nav, seam: webAccount});
   }
 }

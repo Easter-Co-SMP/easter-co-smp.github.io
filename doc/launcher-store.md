@@ -64,25 +64,31 @@ item of one and a total computed here would be a second source of pricing truth.
 one of the removed routes is redirected in place with `history.replaceState`, so the address bar
 never names a view that is not on screen.
 
-The page is reached from the launcher's own nav, and from the website's. The store is shared by
-both surfaces again: Owen, 2026-10-29, *"yes, return the store to the website"*, after the
-Minecraft API approval of 2026-10-28 ended the review it had been hidden for since 2026-10-27
+The page is reached from the launcher's own nav, and from the website's for a player who has
+signed in. The store is shared by both surfaces: Owen, 2026-10-29, *"yes, return the store to the
+website"*, after the Minecraft API approval of 2026-10-28 ended the review it had been hidden for
+since 2026-10-27 — and later the same day *"hide the store from non-signed-in users"*
 (`doc/web-accounts-store.md` keeps that history). Every page of the site carries its own `Store`
-entry in static markup, resolved against the site root; `site/desktop.js` appends its own only on
-a page that has none, which is the safety net and never a second entry; and `site/desktop.css`
-paints the page and the entry in both modes. `site/store/store.mjs` mounts on
-`window.easterDesktop || webAccount` — the launcher's isolated preload, or the website's own
-bounded account transport — so the views are one implementation and only the transport differs.
+entry in static markup, resolved against the site root, and `site/desktop.css` hides it unless
+`site/store-access.mjs` has put `store-signed-in` on `<html>` from the account seam's state:
+`site/web.js` does that for the header, `site/store/store.mjs` for the page itself. A visitor with
+no session — with or without scripting — therefore sees no entry at all, and `/store/` shows the
+page's own sign-in gate instead of the shop. `site/desktop.js` still appends its own entry on a
+page that has none, which is the safety net and never a second entry. `site/store/store.mjs`
+mounts on `window.easterDesktop || webAccount` — the launcher's isolated preload, or the website's
+own bounded account transport — so the views are one implementation and only the transport differs.
 
-**A browser is a shop floor again**, and both browser suites prove it in both modes. The rules are
-asserted **where they live**, because a design pass over a stale base dropped them once (commit
-5e5a2fc): every page's own markup is asserted to carry exactly one `class="store-entry"` pointing
-at the site root — including a wiki guide three directories deep, which is the page a relative
-literal gets wrong — the mount's transport line (`globalThis.easterDesktop || webAccount`) is
-asserted in `site/store/store.mjs`'s source, and `site/web.js`'s fragment forwarding is asserted to
-set a HASH and nothing else. In a browser, `/store/` renders the store with no Easter Company
-session asking the player to sign in, and the signed-in journey in
-`tests/web-accounts-browser.mjs` drives the catalogue, Orders and a Buy press into Stripe.
+**The website's shop floor needs a session; the launcher's does not.** `desktop-mode` shows the
+launcher's entry and the app mounts the store with its own transport, exactly as before — that is
+out of the website rule's scope, and the gate in the page markup is simply never seen there. On the
+website, the gate is asserted **where it lives**, because a design pass over a stale base dropped
+that class once (commit 5e5a2fc): the sheet's default-hidden rule, the `store-signed-in` reveal, the
+gate's own markup and sign-in link in `site/store/index.html`, `store-access.mjs`'s verdict, and
+`store.mjs` opening the shop only for an account and putting the gate back on sign-out. The
+browser suites count the consequence instead of trusting it: a signed-out `/store/` load makes zero
+store API calls, and so does a sign-out on the shop page. The signed-in journey in
+`tests/web-accounts-browser.mjs` drives the entry, the catalogue, Orders, one Buy press into Stripe,
+`#store-paid` landing on `#orders`, and the sign-out that re-gates the shop in the same tab.
 
 ## The look: Sol's pass, applied to the wired page
 

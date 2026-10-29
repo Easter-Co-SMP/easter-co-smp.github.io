@@ -3,11 +3,14 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0d2029">
 <meta name="robots" content="noindex,nofollow">
-<!-- The Community store is a page of this website and of the launcher (doc/web-accounts-store.md).
-     It was briefly a launcher-only page between 2026-10-27 and 2026-10-29, while the Easter
-     Company app registration was reviewed, and a browser with no scripting was refreshed to the
-     site root for those three days. Owen, 2026-10-29: *"yes, return the store to the website"* -
-     so the URL stays here and a reader with no scripting gets the page's own sentence below. -->
+<!-- The Community store is a page of this website and of the launcher (doc/web-accounts-store.md),
+     and it is offered only to a player with an Easter Company session: Owen, 2026-10-29, the day
+     after he asked for the storefront back, *"hide the store from non-signed-in users."*
+     WHAT IS IN #store-root BELOW IS THE GATE, and it is what a visitor without a session sees -
+     including a visitor whose browser runs no scripts, who can never be shown a catalogue because
+     no session can be checked here. site/store/store.mjs replaces the gate with the shop only once
+     the account seam reports an account, and puts it back when that account goes away; the
+     launcher ignores the gate entirely because it mounts the store with its own transport. -->
 <meta property="og:title" content="The Community store — Easter Company">
 <title>The Community store — Easter Company</title>
 <link rel="icon" href="../assets/favicon.ico" sizes="16x16 32x32 48x48 64x64 128x128 256x256"><link rel="icon" href="../assets/favicon.png" type="image/png" sizes="64x64"><link rel="apple-touch-icon" href="../assets/apple-touch-icon.png"><link rel="stylesheet" href="../styles.css">
@@ -21,10 +24,15 @@
 <div class="store-mast">
 <div class="store-brand"><p class="store-overline">EASTER COMPANY</p><h1 class="store-title" id="store-title">The Community store</h1></div>
 </div>
-<div class="store-app" id="store-root"></div>
+<div class="store-app" id="store-root">
+<section class="store-gate" aria-labelledby="store-gate-heading">
+<h2 id="store-gate-heading">The store needs an Easter Company account</h2>
+<p>Sign in to see the catalogue, the prices and your orders.</p>
+<a class="store-button store-gate-signin" href="../account/">Sign in to your Easter Company account</a>
+</section>
+</div>
 </main>
 <footer class="store-footer"><span>© Easter LTD</span><span class="legal-links"><a href="../legal/privacy/">Privacy</a><span aria-hidden="true">·</span><a href="../legal/terms/">Terms</a></span><span>Numquam Succumbe</span></footer>
-<noscript><p class="store-noscript">Enable JavaScript to browse the store.</p></noscript>
 <script type="module" src="store.mjs"></script><script src="../downloads.js" defer></script><script src="../desktop.js" defer></script>
 <script type="module" src="../web.js"></script></body>
 </html>

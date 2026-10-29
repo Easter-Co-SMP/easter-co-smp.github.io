@@ -48,6 +48,7 @@ import {webAccount} from '../web-account.mjs';
  * of the three writes an order: the row is the server's, and the orders read is what shows it.
  */
 import { productArt } from "./art.mjs";
+import { paintStoreAccess } from "../store-access.mjs";
 
 const COPY = {
   buy: "Buy",
@@ -682,35 +683,79 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
 // that puts `window.easterDesktop` there) or the website's bounded browser transport
 // (site/web-account.mjs), which speaks the same three commands to the same account service.
 //
-// THE STORE WAS A LAUNCHER-ONLY PAGE FOR THREE DAYS AND IS NOT ONE NOW. Owen, 2026-10-27, while the
-// Easter Company app registration went to Minecraft for Java Edition Game Service API approval:
-// *"let's not remove, but disable the store on the website ... leave it inside the launcher
-// though"* - so for those three days a page with no launcher bridge replaced its address with the
-// site root instead of painting a shop. The approval arrived 2026-10-28 and Owen asked for the
-// storefront back on 2026-10-29 (*"yes, return the store to the website"*), so the gate and the
-// redirect are gone and a direct browser load renders the catalogue again.
+// TWO GATES HAVE BEEN HERE AND ONLY ONE IS LEFT. 2026-10-27 to 2026-10-29 the store was a
+// launcher-only page, so a browser with no launcher bridge was sent to the site root: Owen's
+// instruction then was *"let's not remove, but disable the store on the website"* while the Easter
+// Company app registration was reviewed. The approval arrived 2026-10-28, he asked for the
+// storefront back on 2026-10-29 (*"yes, return the store to the website"*) and that redirect went.
+// The same day he added the rule that is still here: *"hide the store from non-signed-in users."*
+// So this page is offered to a player with an Easter Company session and to nobody else - the shop
+// replaces the sign-in gate the page ships with only when the account seam reports an account, and
+// the gate comes back when that account goes away. Nothing about the launcher changes: the app
+// mounts the store with its own transport and never sees the gate.
 // doc/web-accounts-store.md keeps that history.
 const mount = document.getElementById("store-root");
-const bridge = globalThis.easterDesktop || webAccount;
-if (mount) {
+// THE GATE IS THE PAGE'S OWN MARKUP, captured before the shop ever replaces it (site/store/index.html
+// carries a .store-gate inside #store-root). Holding the node rather than rebuilding it is what
+// keeps the copy in one place: the no-script visitor, the signed-out visitor and the visitor who
+// signs out mid-visit all see the same sentence, and no script here authors a second one.
+const gate = mount ? mount.querySelector(".store-gate") : null;
+// The shared nav marks Store as the current page. Every page carries that link in its own markup,
+// but the entry can also be the one site/web.js or site/desktop.js APPENDS when a page lacks one -
+// and both of those scripts run after this module - so the entry is looked for once now and once
+// more when the document has finished running its deferred scripts. It is only ever marked for a
+// shop that is actually open: a signed-out visitor is offered no Store entry to mark.
+const markCurrent = current => {
+  const entry = document.querySelector('.site-header nav a[href$="store/"]');
+  if (!entry) return;
+  if (current) entry.setAttribute("aria-current", "page");
+  else entry.removeAttribute("aria-current");
+};
+function openShop(bridge) {
+  // The gate is what a visitor without a session sees; the shop replaces it outright, so there is
+  // never a moment where both are on the page.
+  mount.replaceChildren();
   const view = mountStore(mount, {bridge});
-  // The shared nav marks Store as the current page. Every page carries that link in its own markup
-  // again, but the entry can also be the one site/web.js or site/desktop.js APPENDS when a page
-  // lacks one - and both of those scripts run after this module - so the entry is looked for once
-  // now and once more when the document has finished running its deferred scripts.
-  const markCurrent = () => document.querySelector('.site-header nav a[href$="store/"]')?.setAttribute("aria-current", "page");
-  markCurrent();
-  document.addEventListener("DOMContentLoaded", markCurrent, {once: true});
+  markCurrent(true);
+  document.addEventListener("DOMContentLoaded", () => markCurrent(true), {once: true});
   const skip = document.querySelector(".store-skip"), region = mount.querySelector(".store-content");
   if (skip && region) skip.addEventListener("click", event => {event.preventDefault();region.focus();});
-  // A browser session is the same player's: the views reset when the account behind this page
-  // changes, because another account's orders are not this one's.
-  if (webAccount) {
+  return view;
+}
+function closeShop() {
+  // Signing out has to take the shop away in the same tab, with no reload: drop what the store
+  // painted and put the page's own gate back.
+  mount.replaceChildren();
+  if (gate) mount.append(gate);
+  markCurrent(false);
+}
+if (mount) {
+  if (globalThis.easterDesktop) {
+    // The launcher mounts the store itself, signed in or not: its session is the app's business and
+    // this page is inside it (doc/launcher-store.md).
+    openShop(globalThis.easterDesktop);
+  } else if (webAccount) {
+    // THE WEBSITE'S GATE. A shop only ever opens for an account this page can see, and it closes
+    // again the moment that account is gone - so a signed-out visitor makes no store request at all:
+    // mountStore is never called, so there is no catalogue read, no orders read and no price on this
+    // page to leak. The seam calls this immediately with the state it already holds and again on
+    // every change, which is what makes sign-in and sign-out work without a reload.
+    let view = null, accountId = null;
+    const sync = state => {
+      const signedIn = paintStoreAccess(state);
+      const next = state?.account?.id || null;
+      if (!signedIn) {
+        if (view) {closeShop(); view = null; accountId = null;}
+        return;
+      }
+      if (!view) {view = openShop(webAccount); accountId = next; return;}
+      // Another account's orders are not this one's: the views reset when the account changes.
+      if (next !== accountId) {accountId = next; view.reset?.();}
+    };
+    webAccount.subscribe(sync);
     await webAccount.ready;
-    let account = webAccount.getState().account?.id || null;
-    webAccount.subscribe(state => {
-      const next = state.account?.id || null;
-      if (next !== account) {account = next;view.reset?.();}
-    });
+    sync(webAccount.getState());
   }
+  // Neither a launcher nor a browser seam (an embedded copy of this tree served by something else):
+  // the gate stands, because nothing here can prove a session.
 }

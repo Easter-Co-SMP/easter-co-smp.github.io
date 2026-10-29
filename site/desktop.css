@@ -411,14 +411,24 @@
 @media(min-width:601px) and (max-height:700px){
  .desktop-mode body.home>.home-content{padding:calc(16px + var(--launcher-notice-space,0px)) 40px 24px}
 }
-/* The Community store is shared by the public website and the launcher (doc/web-accounts-store.md).
-   It left the website between 2026-10-27 and 2026-10-29, while the Easter Company app registration
-   was reviewed; those three days hid its nav entry and its page outside `desktop-mode`. Owen,
-   2026-10-29: *"yes, return the store to the website"* - so the store paints in both modes again
-   and only the launcher's own footer line stays a launcher detail. */
-.site-header nav a.store-entry{display:inline}
-.store-main,.store-noscript{display:block}
-.desktop-mode .site-header nav a.store-entry{display:inline}
+/* THE STORE IS OFFERED ONLY TO A PLAYER WITH AN EASTER COMPANY SESSION. Owen, 2026-10-29, the day
+   after he asked for the storefront back on the site: *"hide the store from non-signed-in users."*
+   Every page carries its Store entry in static markup (the map and the wiki moved under
+   /minecraft/, so the entry sits at a different depth on every page), and a visitor may arrive with
+   no scripting at all - so the rule is a CSS DEFAULT rather than a script that removes things:
+   hidden unless something has PROVEN a session. Only site/store-access.mjs may put
+   `store-signed-in` on <html>, and it does so from the account seam's state, never from anything a
+   page guesses. A document that cannot check a session therefore cannot claim one.
+   `desktop-mode` is the launcher, which is out of this rule's scope: the app mounts the store with
+   its own transport and offers its own entry, so it shows one either way. The launcher's entry is
+   `a.desktop-store-entry` (appended by site/desktop.js on a page that lacks one) or, since the
+   pages carry their own, the static `a.store-entry` - both are listed here so neither can be the
+   one a later edit forgets. */
+.site-header nav a.store-entry,
+.site-header nav a.desktop-store-entry{display:none}
+.store-signed-in .site-header nav a.store-entry{display:inline}
+.desktop-mode .site-header nav a.store-entry,
+.desktop-mode .site-header nav a.desktop-store-entry{display:inline}
+.store-main{display:block}
 .desktop-mode .store-main{display:block}
-.desktop-mode .store-noscript{display:block}
 .desktop-mode .store-footer>span:last-child{display:inline}

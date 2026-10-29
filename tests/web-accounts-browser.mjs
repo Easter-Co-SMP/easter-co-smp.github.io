@@ -9,6 +9,9 @@ const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['-
 // The display name is deliberately not the username: the nav shows the name a player is called,
 // as the launcher does, so a fixture whose two names read the same would prove nothing.
 const baseAccount={id:17,username:'fixture_player',displayName:'Captain Fixture',passwordRequired:false,microsoftLinked:false,providers:['steam'],roles:[],picture:null};
+// The sign-in gate's heading, which lives in site/store/index.html because a visitor with no
+// scripting reads it there. This suite is its second reader.
+const GATE_HEADING='The store needs an Easter Company account';
 const product={key:'fixture-cosmetic',name:'Fixture cosmetic',amountMinor:500,currency:'USD',kind:'cosmetic',creditPence:0};
 const signed=account=>({account,session:{token:'fixture-session-not-a-real-credential',expiresAt:new Date(Date.now()+3600000).toISOString()}});
 let checks=0;
@@ -61,6 +64,20 @@ try{
   // other form, so showing a face costs the page no request to any host. A picture that fails is
   // still reachable - it is a data URI this browser cannot decode - and that is state 6 below.
   const pictureURL=pictureDataURL(),damagedPictureURL='data:image/png;base64,AAAA';
+  // THE STORE IS OFFERED ONLY TO A PLAYER WITH AN EASTER COMPANY SESSION (Owen, 2026-10-29:
+  // "hide the store from non-signed-in users"), so this journey opens on the signed-out half of it
+  // before signing in: no Store link anywhere, and the shop URL is the gate with not one store
+  // request. The count is the assertion - `storeCalls` is written by the fixture's own routes.
+  await page.goto(origin);
+  await page.getByRole('button',{name:'Sign in or create an Easter Company account'}).waitFor();
+  assert.equal(await page.getByRole('link',{name:'Store',exact:true}).count(),0,'a signed-out visitor is offered no Store link');
+  assert.equal(await page.evaluate(()=>document.documentElement.classList.contains('store-signed-in')),false,'and the page carries no session class');
+  await page.goto(origin+'/store/',{waitUntil:'networkidle'});
+  assert.equal(await page.locator('.store-gate').isVisible(),true,'/store/ signed out is the sign-in gate');
+  assert.equal((await page.locator('#store-gate-heading').textContent()).trim(),GATE_HEADING,'with the gate heading the store page ships');
+  assert.equal(await page.locator('.store-gate-signin').evaluate(a=>a.href),origin+'/account/','and the sign-in surface the site already has');
+  assert.equal(await page.locator('.store-product,.store-price,.store-order-record,.store-content').count(),0,'and nothing of the shop behind it');
+  assert.deepEqual(storeCalls,[],'a signed-out /store/ load asks the store service nothing: '+storeCalls.join(', '));
   await page.goto(origin);
   await page.getByRole('button',{name:'Sign in or create an Easter Company account'}).click();
   await page.locator('#desktop-company-signin input[name=identifier]').fill('fixture_player');
@@ -92,7 +109,8 @@ try{
   // went to Mojang for the Java Edition Game Service API approval, and that approval arrived on
   // 2026-10-28. So the signed-in website drives the whole web shop again, through its own bounded
   // account transport (site/web-account.mjs) rather than any launcher bridge.
-  assert.equal(await page.getByRole('link',{name:'Store',exact:true}).count(),1,'the nav offers the Store entry on the website');
+  assert.equal(await page.getByRole('link',{name:'Store',exact:true}).count(),1,'the nav offers the Store entry once the session resolves');
+  assert.equal(await page.evaluate(()=>document.documentElement.classList.contains('store-signed-in')),true,'and the page carries the session class that reveals it');
   assert.deepEqual(
     await page.evaluate(()=>[...document.querySelectorAll('a')].map(a=>a.href).filter(href=>href.includes('/store/'))),
     [origin+'/store/'],
@@ -127,11 +145,26 @@ try{
   await page.getByRole('heading',{name:product.name,exact:true}).waitFor();
   assert.equal(await page.getByRole('heading',{name:'Payment Successful',exact:true}).count(),0,'#store-cancelled claims nothing of a payment');
   assert.equal(checkoutCalls,checkoutsBefore,'and starts no checkout either');
+  // SIGNING OUT TAKES THE STORE WITH IT - in the same tab, with no reload, on the shop page the
+  // session had just opened. The entry goes, the page's own gate comes back, and the shop the
+  // session built is gone rather than merely hidden: no catalogue row, no price, no order, no
+  // checkout control left in the DOM for anyone signing in after this player.
+  const beforeSignOut=requests.length;
   await page.getByRole('button',{name:'Account options'}).click();
   await page.getByRole('button',{name:'Sign out',exact:true}).click();
   await page.getByRole('button',{name:'Sign in or create an Easter Company account'}).waitFor();
-  await page.getByText('Sign in to buy.',{exact:true}).waitFor();
-  assert.equal(await page.locator('.store-order-record').count(),0,'a signed-out store page shows no order');
+  assert.equal(new URL(page.url()).pathname,'/store/','the tab never left the shop page');
+  await page.locator('.store-gate').waitFor();
+  assert.equal((await page.locator('#store-gate-heading').textContent()).trim(),GATE_HEADING,'the gate is back on the shop page, without a reload');
+  assert.equal(await page.locator('.store-content,.store-product,.store-price,.store-order-record').count(),0,'and nothing of the closed shop is left behind');
+  assert.equal(await page.getByRole('link',{name:'Store',exact:true}).count(),0,'the header offers no Store link again');
+  assert.equal(await page.evaluate(()=>document.documentElement.classList.contains('store-signed-in')),false,'and the session class is gone');
+  // The only requests a sign-out may make are the account service's own: the store must not be
+  // read again for a player who is no longer signed in.
+  assert.deepEqual(
+    requests.slice(beforeSignOut).map(r=>r.path).filter(path=>/\/store\/(catalogue|orders|checkout)$/.test(path)),
+    [],
+    'and signing out asks the store service nothing');
   assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null);
   await page.getByRole('button',{name:'Sign in or create an Easter Company account'}).click();
   await page.getByRole('button',{name:'Sign in with Steam',exact:true}).click();
@@ -151,7 +184,7 @@ try{
   await page.screenshot({path:'/tmp/web-accounts-'+width+'.png',fullPage:true});
   assert.deepEqual(errors,[]);
   assert(requests.every(r=>!new URL(api+r.path).search));
-  console.log('PASS web login, profile, the shared store in a browser (catalogue, orders, one Buy), a forged #store-paid fragment creating no order, #store-cancelled, logout, provider signup, no overflow at '+width);
+  console.log('PASS web login, profile, the store gated while signed out then the full shop once signed in (catalogue, orders, one Buy), a forged #store-paid fragment creating no order, #store-cancelled, sign-out re-gating the shop in the same tab with no store request, provider signup, no overflow at '+width);
   checks++;
 
   // ---- The account control's face, in the states that matter -------------------------------

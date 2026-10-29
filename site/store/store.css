@@ -117,12 +117,34 @@
   display: inline-flex;
   gap: 6px;
 }
-.store-noscript {
+/* THE SIGN-IN GATE, which is what #store-root holds in site/store/index.html and what a visitor
+   without an Easter Company session sees: a browser that is signed out, and a browser that runs no
+   scripts at all (Owen, 2026-10-29: *"hide the store from non-signed-in users"*). It is the page's
+   own markup rather than something a script builds, so the no-script visitor gets the same gate
+   instead of an empty shell; site/store/store.mjs swaps it for the shop only when the account seam
+   reports an account. The action is the store's own .store-button, and it points at the site's
+   existing sign-in surface rather than growing a second one. This replaces the old
+   "Enable JavaScript to browse the store." line: with a gate in the markup there is nothing left
+   for a noscript sentence to say. */
+.store-gate {
+  max-width: 560px;
+  padding: 28px;
+  border: 1px solid var(--store-line);
+  border-radius: 10px;
+  background: var(--store-panel);
+}
+.store-gate h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--store-ink);
+}
+.store-gate p {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.6;
   color: var(--store-muted);
-  font-size: 13px;
-  line-height: 1.7;
-  text-align: center;
-  padding: 20px;
 }
 /* The store sets sizes in longhand and never a `font-family` of its own: declaring a family here
    would replace the site stack that ../styles.css puts on :root, so store text would render in a

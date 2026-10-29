@@ -49,6 +49,9 @@ const COPY = {
   delivered: "In the game",
   donation: "A one-off donation.",
 };
+// The sign-in gate's words, which live in site/store/index.html because a visitor with no scripting
+// has to be able to read them. This suite is their second reader: reword the page and it stops.
+const GATE = {heading: "The store needs an Easter Company account"};
 const ORDER = {
   sessionId: "cs_test_a1",
   product: "sterling-100",
@@ -775,14 +778,17 @@ try {
     assert.equal(await store.locator("input").count(), 0);
     console.log("A preload without the store commands offers no buying control");
   }
-  // THE STORE IS SHARED WITH THE WEBSITE AGAIN (doc/web-accounts-store.md; Owen, 2026-10-29:
-  // *"yes, return the store to the website"*, after the Minecraft API approval of 2026-10-28 ended
-  // the review the store was hidden for). Every page carries its own Store entry in the shared
-  // header, and every one of those routes is resolved against the SITE ROOT - which is the whole
-  // difference from the 2026-10-27 shape, when the map and the wiki still lived at /map/ and
-  // /wiki/ and a page-relative './store/' happened to be right for each of the five pages that
-  // existed then. The pages below include a guide three directories deep, because that is the page
-  // this rule gets wrong if it is written as a relative literal.
+  // THE STORE IS OFFERED ONLY TO A PLAYER WITH AN EASTER COMPANY SESSION. Owen, 2026-10-29, the day
+  // after he asked for the storefront back: *"hide the store from non-signed-in users."* Every page
+  // still carries its Store entry in its own markup - resolved against the SITE ROOT, which is why a
+  // guide three directories deep is in this list - and site/desktop.css hides it unless
+  // site/store-access.mjs has put `store-signed-in` on <html> from the account seam's state.
+  //
+  // This block is the SIGNED-OUT half, in both scripted states, because that is the half this suite
+  // can prove without credentials. The signed-in half is tests/web-accounts-browser.mjs's: it is the
+  // suite with an account fixture, and it drives entry, catalogue, orders, checkout, sign-out and
+  // the re-gated shop. The launcher's own entry is a different rule entirely (desktop-mode shows it,
+  // the app mounts the store itself) and is asserted below.
   const SITE_PAGES = [
     "/",
     "/minecraft/map/",
@@ -792,8 +798,10 @@ try {
     "/legal/terms/",
     "/legal/privacy/",
   ];
-  // No JavaScript at all first: every page's OWN markup carries the entry, so a reader with
-  // scripting off still has the route and nothing has to run to produce it.
+  // NO SCRIPTING AT ALL: the entry is hidden by the sheet and nothing on such a page can reveal it.
+  // That is the requirement rather than a degradation - a page that cannot check a session must not
+  // claim one - and it is the case that proves the gate is not "a class the tests also set": here
+  // nothing runs at all.
   {
     const noScript = await browser.newPage({
       viewport: { width: 1440, height: 1000 },
@@ -803,17 +811,25 @@ try {
       for (const path of SITE_PAGES) {
         await noScript.goto(origin + path, { waitUntil: "load" });
         const entry = noScript.locator(".site-header nav a.store-entry");
-        assert.equal(await entry.count(), 1, `${path} carries exactly one Store entry in its own markup`);
-        assert.equal(await entry.evaluate((a) => a.href), origin + "/store/", `${path}'s Store entry lands on /store/`);
-        assert.equal(await entry.isVisible(), true, `and the entry is painted on ${path}`);
+        assert.equal(await entry.count(), 1, `${path} still carries its Store entry in its own markup`);
+        assert.equal(await entry.evaluate((a) => a.href), origin + "/store/", `${path}'s entry still resolves at the site root`);
+        assert.equal(await entry.isVisible(), false,
+          `${path} does not offer the store with no session, and no scripting cannot create one`);
+        assert.equal(
+          await noScript.evaluate(() => document.documentElement.classList.contains("store-signed-in")),
+          false,
+          `${path} cannot claim a session it has not checked`,
+        );
       }
-      // The public store URL stays a store page with no scripting: the shell, the heading and the
-      // page's own sentence about needing scripts. There is no refresh away from it.
+      // /store/ with no scripting: the gate, not a catalogue and not an empty shell.
       await noScript.goto(origin + "/store/", { waitUntil: "load" });
       assert.equal(new URL(noScript.url()).pathname, "/store/", "/store/ stays /store/ with no scripting");
-      assert.equal(await noScript.locator(".store-main").isVisible(), true, "the store page paints its own shell");
-      assert.equal(await noScript.locator(".store-noscript").isVisible(), true, "and its sentence asking for scripting");
-      assert.equal(await noScript.locator(".store-product").count(), 0, "with no catalogue in the static markup");
+      assert.equal(await noScript.locator(".store-gate").isVisible(), true, "the shop URL shows the sign-in gate");
+      assert.equal((await noScript.locator("#store-gate-heading").textContent()).trim(), GATE.heading,
+        "the gate says what it needs, in the page's own words");
+      assert.equal(await noScript.locator(".store-gate-signin").evaluate((a) => a.href), origin + "/account/",
+        "and offers the sign-in the site already has");
+      assert.equal(await noScript.locator(".store-product").count(), 0, "with no catalogue and no price anywhere in it");
     } finally {
       await noScript.close();
     }
@@ -823,69 +839,68 @@ try {
       "undefined",
       "a plain browser page has no desktop bridge",
     );
-    // Every page, in a browser: exactly one entry, resolved at the site root.
+    // Scripting on, and still no session: not one page offers a Store link. The entry is in the
+    // markup and `display:none`, which keeps it out of the accessibility tree as well as off the
+    // screen - so a role query cannot reach it and a keyboard cannot tab into it.
     for (const path of SITE_PAGES) {
       await plain.page.goto(origin + path, { waitUntil: "networkidle" });
-      const entries = plain.page.locator('.site-header nav a[href$="store/"]');
-      assert.equal(await entries.count(), 1, `${path} shows exactly one Store entry in a browser`);
-      assert.equal(await entries.evaluate((a) => a.href), origin + "/store/", `${path}'s Store entry lands on /store/`);
-      assert.equal(await entries.isVisible(), true, `and the entry is painted on ${path}`);
       assert.equal(
         await plain.page.getByRole("link", { name: "Store", exact: true }).count(),
-        1,
-        `${path} offers Store as a link, not a dialog behind a button`,
+        0,
+        `${path} offers no Store link to a visitor without a session`,
+      );
+      const entries = plain.page.locator('.site-header nav a[href$="store/"]');
+      assert.equal(await entries.count(), 1, `${path} still carries its entry in markup, resolved at the site root`);
+      assert.equal(await entries.isVisible(), false, `${path} keeps it hidden`);
+      assert.equal(
+        await plain.page.evaluate(() => document.documentElement.classList.contains("store-signed-in")),
+        false,
+        `${path} carries no session class`,
       );
     }
-    // The entry NAVIGATES, from the deepest page on the site and not only from the home page.
-    await plain.page.goto(origin + "/minecraft/wiki/getting-started/", { waitUntil: "networkidle" });
-    await plain.page.locator(".site-header nav a.store-entry").click();
-    await plain.page.waitForURL(origin + "/store/");
-    // THE CATALOGUE RENDERS IN A BROWSER, through the website's own account transport: the same
-    // views as the launcher. With no Easter Company session it asks the player to sign in rather
-    // than reading a catalogue it has no right to, and the call count is the assertion.
+    // THE SHOP URL, SIGNED OUT: the gate, and NOT ONE STORE REQUEST - counted, not assumed. The shop
+    // is never mounted, so there is no catalogue read, no orders read and no price on this page.
     const storeCalls = [];
     plain.page.on("request", (request) => {
       const path = new URL(request.url()).pathname;
       if (/\/store\/(catalogue|orders|checkout)$/.test(path)) storeCalls.push(path);
     });
     await plain.page.goto(origin + "/store/", { waitUntil: "networkidle" });
-    await plain.page.getByText(COPY.signedOut, { exact: true }).waitFor();
-    assert.equal(await plain.page.locator(".store-main").count(), 1, "/store/ renders the store page in a browser");
-    assert.equal(await plain.page.locator(".store-product").count(), 0, "and no catalogue before a sign-in");
-    assert.deepEqual(storeCalls, [], "an unsigned /store/ load asks the account service nothing");
-    // STRIPE'S RETURN FRAGMENT IS A ROUTING SIGNAL AND NOTHING MORE. site/web.js forwards it into
-    // the store page's own hash route; the orders shown there are the ones the account service
-    // reports, re-read on use, so a fragment anybody can type can never manufacture a sale.
+    assert.equal(await plain.page.locator(".store-gate").isVisible(), true, "/store/ signed out shows the sign-in gate");
+    assert.equal((await plain.page.locator("#store-gate-heading").textContent()).trim(), GATE.heading, "with its own sentence");
+    assert.equal(await plain.page.locator(".store-gate-signin").evaluate((a) => a.href), origin + "/account/",
+      "and a way to the site's sign-in");
+    assert.equal(
+      await plain.page.locator(".store-content,.store-product,.store-price,.store-order-record,.store-busy").count(),
+      0,
+      "nothing of the shop is built behind the gate, not even a busy ring",
+    );
+    assert.deepEqual(storeCalls, [], "a signed-out /store/ load asks the store service nothing: " + storeCalls.join(", "));
+    // A bookmarked shop address is the same page, and so is Stripe's return fragment: both land on
+    // the gate. The fragment stays a routing signal - the view it names is the one the gate is on.
     await plain.page.goto(origin + "/#store-paid/cs_test_forged", { waitUntil: "networkidle" });
     await plain.page.waitForURL(origin + "/store/#orders");
-    assert.equal(
-      new URL(plain.page.url()).hash,
-      "#orders",
-      "#store-paid/cs_... routes to the store's orders view",
-    );
+    assert.equal(new URL(plain.page.url()).hash, "#orders", "#store-paid/cs_... still names the orders view");
+    assert.equal(await plain.page.locator(".store-gate").isVisible(), true, "and lands on the gate, not a catalogue");
     assert.equal(
       await plain.page.getByRole("heading", { name: COPY.successful, exact: true }).count(),
       0,
-      "and a forged fragment claims no payment success",
+      "a forged fragment claims no payment success",
     );
-    assert.equal(
-      await plain.page.locator(".store-order-record").count(),
-      0,
-      "with no order row manufactured from it",
-    );
-    assert.deepEqual(storeCalls, [], "and it never reaches a store API route: " + storeCalls.join(", "));
+    assert.equal(await plain.page.locator(".store-order-record").count(), 0, "and manufactures no order row");
+    assert.deepEqual(storeCalls, [], "and costs no store API call: " + storeCalls.join(", "));
     await plain.page.goto(origin + "/#store-cancelled", { waitUntil: "networkidle" });
     await plain.page.waitForURL(origin + "/store/#catalogue");
-    assert.equal(new URL(plain.page.url()).hash, "#catalogue", "#store-cancelled routes to the catalogue");
+    assert.equal(await plain.page.locator(".store-gate").isVisible(), true, "#store-cancelled lands on the gate too");
     assert.equal(
       await plain.page.getByRole("heading", { name: COPY.successful, exact: true }).count(),
       0,
       "and claims nothing of a payment either",
     );
     assert.deepEqual(storeCalls, [], "neither fragment costs a store API call: " + storeCalls.join(", "));
-    assert.deepEqual(plain.errors, [], "no page error routing a browser into the store");
+    assert.deepEqual(plain.errors, [], "no page error gating the store");
     console.log(
-      "Store on the website passed: every page carries its own Store entry resolved at the site root and navigates to /store/, a browser /store/ renders the store through the website transport, and #store-paid/#store-cancelled route to #orders/#catalogue without manufacturing an order",
+      "Store gated for the signed-out website passed: no page offers a Store link with or without scripting, and /store/ - by address, by bookmark or by Stripe's fragment - shows the sign-in gate and makes zero store API calls",
     );
   }
   // The launcher's nav entry is a link to the page, not a modal behind a button, and it must
@@ -1301,11 +1316,10 @@ try {
     assert.equal(lively.ring.duration, "0.9s");
     console.log("Reduced motion passed: the busy ring turns, and stops when the reader asks it to");
   }
-  // THE THREE STANDING RULES A DESIGN PASS HAS ALREADY DROPPED ONCE (commit 5e5a2fc), in the shape
-  // Owen's store decision of 2026-10-29 gives them: every page carries a Store entry of its own, the
-  // entry and the page paint in both modes, and the mount takes whichever account transport the
-  // page has. All three are asserted WHERE THEY LIVE, in the markup and the module source, so a
-  // later visual pass over a stale base fails here rather than shipping.
+  // THE STANDING RULES A DESIGN PASS HAS ALREADY DROPPED ONCE (commit 5e5a2fc), in the shape Owen's
+  // two store decisions of 2026-10-29 give them: the storefront is back on the site, and it is
+  // offered only to a player with a session. Asserted WHERE THEY LIVE - the markup, the sheets and
+  // the module sources - so a later visual pass over a stale base fails here rather than shipping.
   {
     for (const file of [
       "site/index.html",
@@ -1320,17 +1334,54 @@ try {
       const markup = await readFile(new URL("../" + file, import.meta.url), "utf8");
       assert.match(
         markup,
-        /<a class="store-entry" href="(?:\.\.\/)*\.?\/?store\/"/
-        ,
+        /<a class="store-entry" href="(?:\.\.\/)*\.?\/?store\/"/,
         `${file} carries its own Store entry`,
       );
       assert.doesNotMatch(markup, /http-equiv="refresh"/, `${file} refreshes nobody away from anywhere`);
     }
+    // HIDDEN BY DEFAULT, IN THE SHEET. The rule is a stylesheet default rather than a script that
+    // removes things, because the entry is static markup on every page and a visitor can arrive with
+    // no scripting: nothing on such a page could put it back, and that is the point.
+    const sheet = await readFile(new URL("../site/desktop.css", import.meta.url), "utf8");
+    assert.match(
+      sheet,
+      /\.site-header nav a\.store-entry,\n\.site-header nav a\.desktop-store-entry\{display:none\}/,
+      "site/desktop.css hides the Store entry unless something proves a session",
+    );
+    assert.match(
+      sheet,
+      /\.store-signed-in \.site-header nav a\.store-entry\{display:inline\}/,
+      "and reveals it only under the class site/store-access.mjs sets from the account seam",
+    );
+    assert.match(
+      sheet,
+      /\.desktop-mode \.site-header nav a\.store-entry,\n\.desktop-mode \.site-header nav a\.desktop-store-entry\{display:inline\}/,
+      "the launcher's own entry is out of that rule: desktop-mode shows it either way",
+    );
+    // ONE AUTHOR FOR THE CLASS. Two surfaces read it (the header's entry and this page's shop) and
+    // neither is allowed to decide it for itself.
+    const access = await readFile(new URL("../site/store-access.mjs", import.meta.url), "utf8");
+    assert.match(access, /export const STORE_ACCESS_CLASS = 'store-signed-in';/, "the class has one name and one owner");
+    assert.match(
+      access,
+      /const signedIn = Boolean\(state\?\.account\);/,
+      "and its verdict is the account seam's, never a page's guess",
+    );
     const storeMarkup = await readFile(new URL("../site/store/index.html", import.meta.url), "utf8");
     assert.match(
       storeMarkup,
       /<a class="store-entry" href="\.\.\/store\/" aria-current="page">Store<\/a>/,
       "the store page marks its own entry as the current page",
+    );
+    assert.match(
+      storeMarkup,
+      /<section class="store-gate" aria-labelledby="store-gate-heading">/,
+      "the shop URL ships with the sign-in gate in its markup, so a no-script visitor reads it",
+    );
+    assert.match(
+      storeMarkup,
+      /<a class="store-button store-gate-signin" href="\.\.\/account\/">Sign in to your Easter Company account<\/a>/,
+      "the gate offers the site's own sign-in surface rather than a second one",
     );
     assert.match(
       storeMarkup,
@@ -1340,8 +1391,18 @@ try {
     const source = await readFile(new URL("../site/store/store.mjs", import.meta.url), "utf8");
     assert.match(
       source,
-      /const bridge = globalThis\.easterDesktop \|\| webAccount;/,
-      "the mount takes the launcher's bridge or the website's own account transport",
+      /import \{ paintStoreAccess \} from "\.\.\/store-access\.mjs";/,
+      "the page takes the access verdict from the same module the header does",
+    );
+    assert.match(
+      source,
+      /const signedIn = paintStoreAccess\(state\);/,
+      "and opens the shop only when that verdict is a session",
+    );
+    assert.match(
+      source,
+      /mount\.replaceChildren\(\);\n  if \(gate\) mount\.append\(gate\);/,
+      "signing out puts the page's own gate back, in the same tab",
     );
     assert.doesNotMatch(
       source,
@@ -1372,11 +1433,16 @@ try {
     );
     assert.match(
       web,
+      /const paint = state => \{\n      if \(!paintStoreAccess\(state\)\) return;/,
+      "the header's entry is painted from the seam too, and a signed-out state returns before anything is added",
+    );
+    assert.match(
+      web,
       /new URL\('store\/', base\)/,
       "the Store entry it injects on a page that lacks one resolves against the site root",
     );
     console.log(
-      "Standing rules passed: every page carries its own Store entry and paints it in both modes, store.mjs mounts the shared store on either transport without sending anybody away, and site/web.js routes the Stripe fragment by hash alone",
+      "Standing rules passed: every page carries its own Store entry, the sheet hides it until store-access.mjs proves a session, the shop URL ships the gate, store.mjs opens the shop only for that session and puts the gate back on sign-out, and web.js routes the Stripe fragment by hash alone",
     );
   }
 } finally {
