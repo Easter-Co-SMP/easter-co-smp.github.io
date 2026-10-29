@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-10-26T21:04:04+00:00",
+  "captured_at": "2026-10-29T09:13:04+00:00",
   "center": [
     -625,
     -247
@@ -253,8 +253,8 @@
       "z": -145.18
     }
   ],
-  "missed_days": 6,
-  "position_source": "Last observed ships and NPCs, carried from the 2026-10-19T04:18:12.238111+00:00 snapshot because the capture of 2026-10-26T21:04:04Z carried no position store. Player records are excluded at export.",
+  "missed_days": 2,
+  "position_source": "Last observed ships and NPCs, carried from the 2026-10-26T21:36:31+00:00 snapshot because the capture of 2026-10-29T09:13:04Z carried no position store. Player records are excluded at export.",
   "region_blocks": 512,
   "regions": [
     {
@@ -1840,9 +1840,9 @@
       "short_name": "Eastern Territories"
     }
   ],
-  "saved_chunk_slots": 32487,
+  "saved_chunk_slots": 32746,
   "schema": 1,
-  "snapshot_day": "2026-10-26",
+  "snapshot_day": "2026-10-29",
   "tiles": [
     {
       "version": "3c6c50f94ab35e9f96c772731fe6b7950048179bc81b8ab0396cc1edbde89163",
@@ -1975,12 +1975,12 @@
       "z": 1
     },
     {
-      "version": "474179e2d2faa48e28a4bc91439dd25a1fdf7ec2c35cb6414286ee27fa22b232",
+      "version": "dfb57134834ea5dce2ef4ddba95259b12a6dd86aa28a756b015fc6e88e417579",
       "x": -1,
       "z": 2
     },
     {
-      "version": "64257df22bfbb520ac5fef52c7474acb2e636e84f0636219592b0ef6dfd13762",
+      "version": "71ad73d778a86edfa8d3ed9f8f88c979e6695b91249a25d635bb1583094ecec0",
       "x": -1,
       "z": 3
     },
