@@ -1,3 +1,23 @@
+# Easter Company launcher 1.0.52
+
+## Your settings live in one place now
+
+The menu behind your account button leads with the name you are called over the username you
+sign in with, then My Profile, Linked Accounts, Settings and Sign out.
+
+**Settings** opens the account-wide panel: your preferred language, your theme, what Enter,
+Shift+Enter and Ctrl+Enter each do in chat, and the VIM keys switch. It is the same panel the
+web app opens, so a preference set here is a preference set everywhere — and it is the same
+button and the same menu on the launcher's pages and on easter.company.
+
+## Smaller things
+
+- The panel will not close while you have unsaved changes: it nudges, keeps your draft, and
+  points at the two buttons that resolve it — Save Changes or Discard Changes. It never throws
+  your edits away on its own.
+- Nothing else in the launcher changed.
+
+
 # Easter Company launcher 1.0.51
 
 # Easter Company launcher 1.0.51
