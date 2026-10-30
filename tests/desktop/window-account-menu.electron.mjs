@@ -88,6 +88,11 @@ try{
  assert.equal(Math.round(pillFace.width),32,'the face slot is the control\'s 32px square');
  assert.equal(await pill.locator('.web-account-face').count(),1,'the pill carries the control\'s own face slot');
  assert.equal(await pill.evaluate(node=>node.closest('.web-mode')!==null),true,'and the site-side pill rules are the ones drawing it');
+ // What the pill says it opens, and what it is called. The control's own words for a signed-in
+ // account are "Account options" and `menu`; this window names the player in its accessible name
+ // and says `menu` here, `dialog` when signed out (where its click opens the sign-in chooser).
+ assert.equal(await pill.getAttribute('aria-haspopup'),'menu','a signed-in pill says it opens the menu');
+ assert.equal(await pill.getAttribute('aria-label'),'Account: Captain Testbeard','and names whose account it is, in the window\'s own words');
  await pill.click();
  const menu=page.locator('#web-account-menu');
  await menu.waitFor({state:'visible'});
@@ -135,6 +140,10 @@ try{
  await page.getByRole('button',{name:'Sign out',exact:true}).click();
  await page.locator('[data-desktop-play][data-action=signin]').waitFor();
  assert.equal((await pill.locator('.web-account-name').textContent()).trim(),'Sign in','a signed-out window offers sign-in instead of a menu');
+ // The site's own sentence for its pill is "Sign in or create an Easter Company account"; the
+ // window has its own, and the control's default must not overwrite it.
+ assert.equal(await pill.getAttribute('aria-label'),'Sign in','and its accessible name is the window\'s "Sign in"');
+ assert.equal(await pill.getAttribute('aria-haspopup'),'dialog','and a signed-out pill says it opens the sign-in chooser');
  assert.equal(calls.some(call=>call.path==='/v2/accounts/logout'&&call.authorization==='Bearer '+SESSION),true,'and the session was revoked');
  console.log('Window account menu PASS: the packaged window draws the shared control - name pair, My Profile / Linked Accounts / Settings / Sign out, no Logout anywhere - Settings opens the User Settings panel, one save round-trips through preload, main and the account service with no token in the renderer, and signing out returns the pill to Sign in.');
 }finally{await app.close();await new Promise(resolve=>stub.close(resolve));await fs.rm(home,{recursive:true,force:true});}
