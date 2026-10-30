@@ -21,6 +21,16 @@ import {webAccount} from './web-account.mjs';
 import {rememberReturnTarget} from './auth-return.mjs';
 import {mountAccountControl} from './account-control.mjs';
 import {paintStoreAccess} from './store-access.mjs';
+import {publishTheme} from './theme-publish.mjs';
+
+// THE PAGE'S THEME, BEFORE THE ACCOUNT IS ASKED ANYTHING. With no document read yet the only
+// answer is the OS's, and saying so here — synchronously, at the top of the one module every page
+// loads — is what keeps a signed-out visitor from wearing whatever the stylesheet defaulted to.
+// The control mounted below publishes the account's own choice as soon as it has read it, and
+// this statement never runs again; the two never disagree because both go through publishTheme.
+// (easter.company does the same thing in its <head>, because that page HAS a light palette to
+// flash and a module runs too late for it.)
+publishTheme('system');
 
 if (webAccount) {
   document.documentElement.classList.add('web-mode');

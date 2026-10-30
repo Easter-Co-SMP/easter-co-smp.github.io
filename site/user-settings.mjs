@@ -86,6 +86,8 @@ export const COPY = {
 };
 
 // Diana's numbers, named. A bare number in an animation is a bound nobody can find later.
+import {resolveTheme, publishTheme} from './theme-publish.mjs';
+
 const NUDGE_FIRST_MS = 360;
 const NUDGE_LATER_MS = 240;
 const NUDGE_FIRST_PX = 6;
@@ -315,22 +317,11 @@ function createPanel({seam, doc, win}) {
     try { return win.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true; }
     catch { return false; }
   };
-  const systemTheme = () => {
-    try { return win.matchMedia?.('(prefers-color-scheme: light)')?.matches ? 'light' : 'dark'; }
-    catch { return 'dark'; }
-  };
-  // THE THEME IS APPLIED WHERE THE SURFACE CAN USE IT. Both Easter Company surfaces are
-  // single-mode dark today, so what a stored preference can actually change here is the page's
-  // own colour scheme — form controls, scrollbars, and the panel inside it — plus the attribute a
-  // host that grows a light palette can key off. Nothing pretends to repaint a palette that does
-  // not exist, and the preference is stored either way.
-  const applyTheme = theme => {
-    const resolved = theme === 'light' || theme === 'dark' ? theme : systemTheme();
-    try {
-      doc.documentElement.dataset.easterTheme = resolved;
-      doc.documentElement.style.colorScheme = resolved;
-    } catch { /* a host that refuses the attribute keeps its own look; the preference is stored */ }
-  };
+  const systemTheme = () => resolveTheme('system', win);
+  // THE THEME IS APPLIED WHERE THE SURFACE CAN USE IT, through the one exported implementation
+  // below: the panel, and the control that publishes the account's theme on every page load,
+  // must resolve and publish identically or a page would wear two answers.
+  const applyTheme = theme => publishTheme(theme, doc, win);
   const dirty = () => !same(draft, stored);
   const setStatus = text => { statusText.textContent = text; };
   const announce = text => { announcer.textContent = ''; win.setTimeout(() => { announcer.textContent = text; }, 0); };

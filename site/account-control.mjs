@@ -18,6 +18,14 @@
 // the code rather than being summarised here.
 import {createCompanyAuth} from './company-auth.mjs';
 
+// THE THEME PUBLISHER, imported from the shared module so there is ONE implementation of
+// "resolve this preference and publish it" — the panel's applyTheme and this both go through it.
+// Loaded once, in parallel with the control's own wiring, and remembered; a host that mounts this
+// control gets the account's theme without importing anything itself.
+let publishTheme = null;
+const publishThemeReady = import('./theme-publish.mjs').then(module => { publishTheme = module.publishTheme; }, () => { /* theme-publish.mjs is unreachable: nothing publishes a theme */ });
+const publishThemeLater = theme => { if (publishTheme) publishTheme(theme); else void publishThemeReady.then(() => publishTheme?.(theme)); };
+
 export async function mountAccountControl({nav, seam, auth: providedAuth = null, document: doc = globalThis.document, window: win = globalThis.window} = {}){
  if(!nav||!seam)return null;
  const webAccount=seam;
@@ -286,5 +294,86 @@ export async function mountAccountControl({nav, seam, auth: providedAuth = null,
   menu.addEventListener('toggle',()=>account.setAttribute('aria-expanded',String(menu.matches(':popover-open'))));
   webAccount.subscribe(paint);
   await webAccount.ready;paint(webAccount.getState());
- return {account, menu, paint};
+  // THE PAGE'S THEME IS THE ACCOUNT'S, AND IT IS DECIDED HERE FOR EVERY HOST THAT MOUNTS THIS.
+  // Until now the only thing that ever published `data-easter-theme` was the settings panel's
+  // applyTheme(), which runs when the panel opens or a save lands — so a signed-in page whose
+  // preference was `light` on a light OS painted dark until the player opened the panel, which
+  // is exactly what Owen reported on easter.company (2026-10-30). The store is the account
+  // document; this publishes it once per account state, without a panel and without a click.
+  // Signing out puts the page back on `system`, because that is what a visitor without a
+  // document is: the OS's own answer.
+  const theme = publishAccountTheme({webAccount, doc, win});
+ return {account, menu, paint, theme};
+}
+
+// A HOST MOUNTS THIS AND GETS THE PAGE'S THEME WITH IT. The seam is the only source: a signed-in
+// page reads the account's saved Theme setting (`settingsRead()` — the same document the panel
+// shows) and publishes its resolution; a signed-out page publishes `system`. Nothing is cached,
+// written to storage or remembered between visits — the next load asks again, which is what makes
+// a preference saved on another surface apply here on the next visit.
+//
+// WHAT IT RETURNS IS THE SEAM OTHER HOSTS NEED: `choice()` is `light`, `dark` or `system` (the
+// PREFERENCE, which the published attribute cannot carry — `data-easter-theme` is resolved, so a
+// page cannot tell `system` from a `dark` chosen on a dark OS), and `subscribe(fn)` hears every
+// change. A host that needs the preference — the corporate page's hero, which must keep following
+// the OS under `system` — takes it from here instead of calling `settingsRead()` a second time.
+// That second read is not merely wasteful: the seam answers one account request at a time and
+// refuses a concurrent one with "Another account request is in progress." (measured 2026-10-30,
+// two readers on load), so two hosts asking is a refusal, not a duplicate answer.
+function publishAccountTheme({webAccount, doc, win}) {
+  const listeners = new Set();
+  let choice = 'system';
+  let seen;                              // the account id this state was decided for
+  let settled;                           // resolves with the first answer, for a host that waits
+  const mark = () => { for (const listener of listeners) { try { listener(choice); } catch { /* a host that throws is not this page's problem */ } } };
+  const repaint = () => { publishThemeLater(choice); };
+  const announce = next => {
+    if (next === choice) return;
+    choice = next;
+    repaint();
+    mark();
+  };
+  // `system` follows the OS for as long as it is the choice — including a change made while the
+  // page is open, which is the whole point of `system` rather than a one-time guess.
+  try {
+    win.matchMedia?.('(prefers-color-scheme: light)')?.addEventListener?.('change', () => {
+      if (choice !== 'system') return;      // an explicit choice is never overruled by the OS
+      repaint();
+      mark();
+    });
+  } catch { /* no media support: the resolved value stands */ }
+  const read = async (attempt = 0) => {
+    let theme = 'system';
+    let retry = false;
+    try {
+      const answer = await webAccount.settingsRead();
+      const stored = answer?.ok ? answer.value?.settings?.theme : null;
+      if (stored === 'light' || stored === 'dark' || stored === 'system') theme = stored;
+      // The seam serialises account requests; a read refused because the panel (or another host)
+      // holds it is worth one more ask, not a page left on the wrong palette.
+      else if (/in progress/i.test(String(answer?.error || ''))) retry = true;
+    } catch { /* signed out, or the account service cannot answer: system */ }
+    if (retry && attempt < 8) { setTimeout(() => { void read(attempt + 1); }, 150 * (attempt + 1)); return; }
+    announce(theme);
+    settled?.();
+  };
+  repaint();                              // no document yet, so `system`, before anything else
+  try {
+    webAccount.subscribe(state => {
+      // The seam's public account document names the account as it likes (`id`, or a username for
+      // an account that has not claimed one), so the key is "what identifies this session", not a
+      // field this module guessed: any truthy identity means read the document, none means system.
+      const key = state?.account ? (state.account.id ?? state.account.username ?? 'signed-in') : null;
+      if (key === seen) return;
+      seen = key;
+      if (key === null) { if (choice !== 'system') { announce('system'); settled?.(); } else settled?.(); }
+      else void read();
+    });
+  } catch { /* a seam without subscribe still gets the initial read below */ }
+  void read();
+  return {
+    choice: () => choice,
+    subscribe(listener) { listeners.add(listener); try { listener(choice); } catch { /* see mark() */ } return () => listeners.delete(listener); },
+    ready: new Promise(resolve => { settled = resolve; }),
+  };
 }
