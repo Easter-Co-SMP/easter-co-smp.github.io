@@ -3,6 +3,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+// The pill's face belongs to the shared account control now, which paints the picture - or the head
+// it crops from the skin, or the letter tile - into a 32px slot as an <img>. Reading a pixel off it
+// means drawing that image into an offscreen 32x32 canvas first; the crop behind it is the same
+// 8x8-at-8,8 plus hat-at-40,8 arithmetic the window's own canvas used.
+const FACE_PIXEL='(()=>{const slot=document.querySelector(".desktop-account-nav .web-account-face");if(!slot)return null;const image=slot.querySelector("img.web-account-picture");if(!image||image.hidden||!image.complete||!image.naturalWidth)return null;const canvas=document.createElement("canvas");canvas.width=32;canvas.height=32;const context=canvas.getContext("2d");context.imageSmoothingEnabled=false;context.drawImage(image,0,0,32,32);return [...context.getImageData(2,2,1,1).data];})()';
 // The copy rules that keep slop out of the launcher, on the one-account model.
 //
 // What this journey protected is unchanged: no screen offers the same action twice, the
@@ -21,7 +26,7 @@ const app=await electron.launch({executablePath:path.resolve('node_modules/elect
 try{
  const page=await app.firstWindow();await page.setViewportSize({width:1360,height:920});page.setDefaultTimeout(15000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.waitForFunction(()=>window.easterDesktop?.mode==='desktop');await page.keyboard.press('Escape');
- assert.equal(await page.locator('.desktop-account-nav:visible').textContent(),'Sign in');
+ assert.equal(await (await page.locator('.desktop-account-nav:visible .web-account-name').textContent()).trim(),'Sign in');
  // The header already carries Map, so the hero carries no second route to it, and no
  // screen offers the same action twice.
  assert.equal(await page.getByRole('link',{name:'View Map',exact:true}).count(),0);
@@ -62,7 +67,7 @@ try{
  // the centre of the 32px canvas is the head and not the letter tile. The full precedence -
  // picture, then head, then the initial as the last resort, and the tile only when there is
  // neither - is asserted pixel by pixel in tests/identity-browser.mjs.
- await page.waitForFunction(()=>{const canvas=document.querySelector('.desktop-account-nav canvas');if(!canvas)return false;const [r,g,b,a]=canvas.getContext('2d').getImageData(2,2,1,1).data;return a===255&&r===200&&g===130&&b===90;},null,{timeout:15000});
+ await page.waitForFunction(expression=>{const pixels=eval(expression);return Boolean(pixels)&&pixels[3]===255&&pixels[0]===200&&pixels[1]===130&&pixels[2]===90;},FACE_PIXEL,{timeout:15000});
  let state=await status();
  assert.equal(state.account.username,'captain1','the header names the account that is signed in');
  assert.equal(state.account.picture,null,'this account has no picture, so the header paints its initial');
@@ -77,7 +82,7 @@ try{
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).profile===null);
  state=await status();assert.equal(state.install.installed,true);assert.deepEqual(state.actions,['signin']);assert.equal(state.account,null);assert.equal('accounts' in state,false);
  await page.locator('[data-desktop-play][data-action=signin]').waitFor();
- assert.equal(await page.locator('.desktop-account-nav:visible').textContent(),'Sign in','signing out returns the header to its signed-out copy');
+ assert.equal(await (await page.locator('.desktop-account-nav:visible .web-account-name').textContent()).trim(),'Sign in','signing out returns the header to its signed-out copy');
  await page.screenshot({path:'/tmp/easter-deslop-home.png'});
  assert.deepEqual(errors,[]);console.log('PASS: install → sign in → Play Now; one-account header and menu; Settings; launcher-update gating; logout; no duplicate copy');
 }finally{await app.close();await fs.rm(temp,{recursive:true,force:true});}

@@ -26,6 +26,11 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+// The pill's face belongs to the shared account control now, which paints the picture - or the head
+// it crops from the skin, or the letter tile - into a 32px slot as an <img>. Reading a pixel off it
+// means drawing that image into an offscreen 32x32 canvas first; the crop behind it is the same
+// 8x8-at-8,8 plus hat-at-40,8 arithmetic the window's own canvas used.
+const FACE_PIXEL='(()=>{const slot=document.querySelector(".desktop-account-nav .web-account-face");if(!slot)return null;const image=slot.querySelector("img.web-account-picture");if(!image||image.hidden||!image.complete||!image.naturalWidth)return null;const canvas=document.createElement("canvas");canvas.width=32;canvas.height=32;const context=canvas.getContext("2d");context.imageSmoothingEnabled=false;context.drawImage(image,0,0,32,32);return [...context.getImageData(2,2,1,1).data];})()';
 
 const UUID='12345678-90ab-cdef-1234-567890abcdef',UNDASHED=UUID.replace(/-/g,'');
 // Mojang names the skin over http; the launcher must ask for it over https, so that is the
@@ -81,7 +86,7 @@ const launch=async(home,{mode,delay=0}={})=>{
 const reads=async log=>(await fs.readFile(log,'utf8')).split('\n').filter(Boolean);
 const status=page=>page.evaluate(()=>window.easterDesktop.status());
 const hero=page=>page.locator('[data-desktop-play]').evaluate(node=>({action:node.dataset.action,text:node.innerText.replace(/\s+/g,' ').trim()}));
-const facePixel=page=>page.evaluate(()=>{const canvas=document.querySelector('.desktop-account-nav canvas');if(!canvas)return null;return [...canvas.getContext('2d').getImageData(2,2,1,1).data];});
+const facePixel=page=>page.evaluate(FACE_PIXEL);
 // The sign-in the player actually performs: the header's own chooser, username and password.
 const signIn=async(page,identifier=USERNAME)=>{
  await page.locator('.desktop-account-nav').click();
@@ -121,7 +126,7 @@ try{
  assert.equal(state.minecraftHead.startsWith('data:image/png;base64,'),true,'the head is a data URL in state, as profile.skin is');
  assert.equal(state.profile,null,'and the session profile is still nothing: the head did not invent one');
  // The header paints the skin's own face, not the letter tile.
- await waiting(page,colour=>{const canvas=document.querySelector('.desktop-account-nav canvas');if(!canvas)return false;const [r,g,b,a]=canvas.getContext('2d').getImageData(2,2,1,1).data;return a===255&&r===colour[0]&&g===colour[1]&&b===colour[2];},FACE,'the header draws the Minecraft head, not the letter tile');
+ await waiting(page,({expression,colour})=>{const pixels=eval(expression);return Boolean(pixels)&&pixels[3]===255&&pixels[0]===colour[0]&&pixels[1]===colour[1]&&pixels[2]===colour[2];},{expression:FACE_PIXEL,colour:FACE},'the header draws the Minecraft head, not the letter tile');
  await page.waitForTimeout(200);
  await page.screenshot({path:'/tmp/minecraft-head-password-signin.png'});
  // --- 2. Once per account, not once per render --------------------------------
@@ -141,7 +146,7 @@ try{
  app=run.app;page=run.page;errors=run.errors;log=run.log;
  await page.waitForFunction(name=>window.easterDesktop.status().then(current=>current.account?.username===name),USERNAME,{timeout:20000});
  await page.waitForFunction(()=>window.easterDesktop.status().then(current=>typeof current.minecraftHead==='string'),null,{timeout:20000});
- await waiting(page,colour=>{const canvas=document.querySelector('.desktop-account-nav canvas');if(!canvas)return false;const [r,g,b,a]=canvas.getContext('2d').getImageData(2,2,1,1).data;return a===255&&r===colour[0]&&g===colour[1]&&b===colour[2];},FACE,'the restarted launcher paints the face from its cache');
+ await waiting(page,({expression,colour})=>{const pixels=eval(expression);return Boolean(pixels)&&pixels[3]===255&&pixels[0]===colour[0]&&pixels[1]===colour[1]&&pixels[2]===colour[2];},{expression:FACE_PIXEL,colour:FACE},'the restarted launcher paints the face from its cache');
  assert.deepEqual(await reads(log),[],'and asks Mojang nothing for it');
  assert.deepEqual(errors,[],'no page error was raised on the way');
  await app.close();
