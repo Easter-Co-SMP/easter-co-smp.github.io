@@ -1,0 +1,136 @@
+/* THE SHARED ACCOUNT CONTROL'S OWN STYLESHEET — the menu's identity lines and the
+   account-wide User Settings panel.
+ *
+ * WHY THIS FILE IS LOADED BY THE MODULE AND NOT BY A PAGE. The control is mounted by two
+ * surfaces: this site (launcher.easter.company) and the corporate site, which imports
+ * site/account-control.mjs over the network and therefore gets whatever this module brings
+ * with it. The corporate repository keeps its own copy of the pill's rules for the same
+ * reason — it cannot link a stylesheet it does not host — and a copy is exactly what would
+ * silently miss new rules added here. So site/account-control.mjs injects this file as a
+ * <link> resolved against its OWN url (one request to launcher.easter.company whichever page
+ * loaded it), and every surface that mounts the control paints the same menu and the same
+ * panel. Nothing in a page's markup has to change for a new surface to be added.
+ *
+ * FIVE TOKENS, FROM THE HOST. Diana's handoff (DESIGN-SPEC.md, "Tokens / theme contract")
+ * freezes exactly five inputs — --surface, --border, --text, --muted, --accent — and forbids
+ * the component from importing a product palette or inventing a sixth colour. Both hosts
+ * already publish them under their own names, so the panel's five are mapped once, below,
+ * from the host's own declarations: --app-panel, --app-border, --app-muted and --app-gold
+ * (the .web-mode block both surfaces carry) and --ink. Every colour the component paints is one
+ * of those five or a mix of two of them; the only literals in this file are the fallbacks inside
+ * that one mapping, for a host that publishes no tokens at all, and they are the same six values
+ * both hosts already use.
+ *
+ * Accent-filled controls use --es-surface as their foreground, which is why the host must keep
+ * accent/surface at 4.5:1 or better. Both hosts do, measured with the WCAG relative-luminance
+ * formula on 2026-10-30 against the shared panel colour #11252d: this site's gold #e4c486 is
+ * 9.45:1, the corporate site's lilac #c9b1ff is 8.46:1, text #edf1e9 is 13.84:1, and muted
+ * #a8b9b4 is 7.74:1.
+ */
+
+/* The account control's menu: the identity pair, the rule, then the actions.
+   Owen's pair, already on the launcher's pill and on e-server's menu: the display name over the
+   bare username, one line each. When the account document carries no username yet — a fresh
+   Microsoft signup that has not claimed one — the second line is absent rather than guessed
+   (site/account-control.mjs sets `hidden`), which is the rule the launcher's own menu follows. */
+.desktop-profile-menu .web-account-identity{display:flex;flex-direction:column;gap:1px;min-width:0;padding:8px 10px 6px}
+.desktop-profile-menu .web-account-identity-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:650;font-size:.9rem;line-height:1.25;color:var(--ink)}
+.desktop-profile-menu .web-account-identity-username{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem;line-height:1.25;color:var(--app-muted)}
+.desktop-profile-menu .web-account-identity[hidden]{display:none}
+.desktop-profile-menu .web-account-menu-rule{border:0;border-top:1px solid var(--app-border);margin:2px 0}
+.desktop-profile-menu .web-account-menu-rule[hidden]{display:none}
+
+/* ---- the panel -------------------------------------------------------------------------
+   Everything below is the frozen component: identical structure, labels, geometry and
+   interaction on every surface, differing only in the five tokens above. Measurements are
+   Diana's (DESIGN-SPEC.md, "Layout & type"), not this file's invention. */
+.web-user-settings{
+ --es-surface:var(--app-panel,#10232b);
+ --es-border:var(--app-border,#ffffff24);
+ --es-text:var(--ink,#edf1e9);
+ --es-muted:var(--app-muted,#a8b9b4);
+ --es-accent:var(--app-gold,#e4c486);
+ width:640px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 48px);padding:0;margin:auto;
+ border:1px solid var(--es-border);border-radius:20px;background:var(--es-surface);color:var(--es-text);
+ overflow:hidden;font:14px/1.5 system-ui,sans-serif;
+ box-shadow:0 28px 90px color-mix(in srgb,var(--es-text) 15%,transparent);
+}
+.web-user-settings::backdrop{background:color-mix(in srgb,var(--es-surface) 62%,transparent);backdrop-filter:blur(5px)}
+.web-user-settings [hidden]{display:none!important}
+.web-user-settings :is(button,input,select):focus-visible{outline:2px solid var(--es-accent);outline-offset:3px}
+.web-user-settings button{min-height:44px;padding:10px 16px;border:1px solid var(--es-border);border-radius:10px;background:var(--es-surface);color:var(--es-text);font:inherit;cursor:pointer}
+.web-user-settings button:hover:not(:disabled){background:color-mix(in srgb,var(--es-accent) 10%,var(--es-surface))}
+.web-user-settings button:disabled{cursor:wait;opacity:.6}
+.web-user-settings .es-shell{display:flex;flex-direction:column;max-height:calc(100dvh - 50px)}
+.web-user-settings .es-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:26px 28px 22px;border-bottom:1px solid var(--es-border)}
+.web-user-settings h2{margin:0 0 6px;font-size:24px;line-height:1.25;font-weight:650;letter-spacing:-.035em}
+.web-user-settings .es-sub{margin:0;font-size:13px;line-height:1.5;color:var(--es-muted)}
+.web-user-settings .es-close{width:44px;min-width:44px;padding:0;border-color:transparent;font-size:24px;line-height:1}
+.web-user-settings .es-body{overflow:auto;padding:4px 28px 0;overscroll-behavior:contain}
+.web-user-settings section{padding:20px 0;border-bottom:1px solid var(--es-border)}
+.web-user-settings section:last-of-type{border-bottom:0}
+.web-user-settings h3{margin:0 0 4px;font-size:14px;font-weight:650;line-height:1.5}
+.web-user-settings fieldset{margin:0;padding:0;border:0;min-width:0}
+.web-user-settings legend{padding:0;font-size:14px;font-weight:650;line-height:1.5}
+.web-user-settings .es-help{margin:0 0 12px;font-size:12px;line-height:1.5;color:var(--es-muted)}
+.web-user-settings .es-secondary{font-size:12px;line-height:1.5;color:var(--es-muted)}
+/* The language row: the current choice over its own descriptor, and the chevron that opens it. */
+.web-user-settings .es-wide{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;text-align:left}
+.web-user-settings .es-choice{display:flex;flex-direction:column;min-width:0;gap:1px}
+.web-user-settings .es-chevron{flex:none;font-size:16px;color:var(--es-muted)}
+.web-user-settings .es-picker{padding-top:14px}
+.web-user-settings .es-picker-label{margin-top:12px}
+.web-user-settings label{display:block;font-size:12px;line-height:1.5;color:var(--es-muted)}
+.web-user-settings input[type=search],.web-user-settings select{min-width:0;width:100%;min-height:44px;margin:4px 0 0;padding:9px 12px;border:1px solid var(--es-border);border-radius:9px;background:var(--es-surface);color:var(--es-text);font:inherit}
+.web-user-settings select option{padding:8px}
+/* Three radio chips. The input is visually removed but stays focusable, so arrow keys move the
+   choice and the group is one tab stop (DESIGN-SPEC.md, "Keyboard & accessibility acceptance"). */
+.web-user-settings .es-segments{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:4px;padding:4px;border:1px solid var(--es-border);border-radius:12px}
+.web-user-settings .es-segments label{position:relative;display:grid;place-items:center;min-height:42px;padding:9px;border-radius:8px;cursor:pointer;font-size:14px;color:var(--es-text);text-align:center}
+.web-user-settings .es-segments label:has(input:checked){background:var(--es-accent);color:var(--es-surface);font-weight:650}
+.web-user-settings .es-segments label:has(input:focus-visible){outline:2px solid var(--es-accent);outline-offset:3px}
+.web-user-settings .es-segments input{position:absolute;width:1px;height:1px;opacity:0}
+/* The three chat bindings: the key as a chip, the behaviour as a select. */
+.web-user-settings .es-chat-row{display:grid;grid-template-columns:140px 1fr;align-items:center;gap:12px;margin-top:8px}
+.web-user-settings kbd{justify-self:start;padding:4px 7px;border:1px solid var(--es-border);border-radius:5px;color:var(--es-muted);font:12px system-ui,sans-serif}
+/* The editor switch. Disabled by aria-disabled and inert by construction: there is no feature
+   behind it yet, so it is not a control the panel pretends works. */
+.web-user-settings .es-editor{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.web-user-settings .es-badge{margin-left:6px;font-size:11px;letter-spacing:.02em;color:var(--es-muted)}
+.web-user-settings .es-switch{flex:none;position:relative;display:block;width:44px;height:24px;border:1px solid var(--es-border);border-radius:999px}
+.web-user-settings .es-switch::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:var(--es-muted)}
+.web-user-settings .es-foot{padding:16px 28px 24px;border-top:1px solid var(--es-border)}
+.web-user-settings .es-status{display:flex;align-items:center;gap:8px;margin:0;font-size:12px;line-height:1.5;color:var(--es-muted)}
+.web-user-settings .es-mark{flex:none;display:grid;place-items:center;width:17px;height:17px;border:1px solid currentColor;border-radius:50%;font-size:11px;font-weight:700;line-height:1}
+.web-user-settings .es-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:12px}
+.web-user-settings .es-primary{border-color:var(--es-accent);background:var(--es-accent);color:var(--es-surface);font-weight:650}
+.web-user-settings .es-primary:hover:not(:disabled){background:color-mix(in srgb,var(--es-accent) 88%,var(--es-surface))}
+/* The attention outlines: the same geometry as focus, worn by BOTH resolution buttons while a
+   blocked close is being answered. Static — never a pulse, never a fill, never a colour change
+   (DESIGN-SPEC.md, "Attention behaviour"). */
+.web-user-settings.es-attend .es-actions button{outline:2px solid var(--es-accent);outline-offset:3px}
+.web-user-settings.es-attend .es-status{color:var(--es-text)}
+
+/* 390px and every narrow effective width, including 200% zoom (DESIGN-SPEC.md, "Layout & type"). */
+@media (max-width:520px){
+ .web-user-settings{max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);border-radius:16px}
+ .web-user-settings .es-shell{max-height:calc(100dvh - 18px)}
+ .web-user-settings .es-head{padding:20px}
+ .web-user-settings h2{font-size:22px}
+ .web-user-settings .es-body{padding:0 20px}
+ .web-user-settings .es-foot{padding:16px 20px 20px}
+ .web-user-settings .es-chat-row{grid-template-columns:104px 1fr;gap:8px}
+ .web-user-settings .es-actions{flex-direction:column}
+ .web-user-settings .es-actions button{width:100%}
+}
+
+/* Reduced motion changes what moves, never what is said: the nudge is not started here and the
+   outlines and the copy appear at once (site/user-settings.mjs checks the same query in script). */
+@media (prefers-reduced-motion:reduce){
+ .web-user-settings,.web-user-settings *{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+}
+
+/* The host's live region for the two announcements that must be heard after the dialog is gone
+   ("Settings saved.", "Changes discarded."). Off screen, never display:none — a hidden live
+   region is silent to a screen reader, which is the whole reason it exists. */
+.web-settings-announce{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}

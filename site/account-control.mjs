@@ -65,6 +65,34 @@ export async function mountAccountControl({nav, seam, document: doc = globalThis
   // be mirror [ DISPLAY_NAME PROFILE_PICTURE ]". The launcher's native window header already
   // appends name then face for the same reason (site/desktop.js:1139).
   const menu=doc.createElement('div');menu.id='web-account-menu';menu.className='desktop-profile-menu';menu.setAttribute('popover','auto');menu.setAttribute('aria-label','Account options');doc.body.append(menu);
+  // THE IDENTITY PAIR LEADS THE MENU. Owen asked for the launcher's own pair - "OCEaster" over
+  // "oceaster" - to reach "all other user drop downs across other platforms and interfaces"
+  // (2026-10-30), and this menu is the drop down on both of the browser surfaces: the launcher's
+  // site mounts this module, and easter.company imports it over the network. So the names are
+  // drawn here, from the account document the control already holds, and neither surface grows a
+  // copy of the rule that decides them.
+  //
+  // THE USERNAME IS NEVER GUESSED. It comes from the account document (`publicAccount` keeps it,
+  // site/account-client.mjs) and is absent until the player claims one, which happens with the
+  // first password; a fresh Microsoft signup therefore opens a one-line menu rather than a
+  // second line reading `undefined`, an address, or a Company ID. An account whose display name
+  // already IS its username does not print it twice - that is the launcher's own rule for its
+  // own menu (site/desktop.js), and one player should read one menu.
+  const identity=doc.createElement('div');identity.className='web-account-identity';identity.hidden=true;
+  const identityName=doc.createElement('span');identityName.className='web-account-identity-name';
+  const identityUser=doc.createElement('span');identityUser.className='web-account-identity-username';
+  identity.append(identityName,identityUser);
+  const identityRule=doc.createElement('hr');identityRule.className='web-account-menu-rule';identityRule.hidden=true;
+  menu.append(identity,identityRule);
+  // THE STYLESHEET COMES WITH THE MODULE, for the same reason: the corporate site cannot link a
+  // file it does not host, and a rule added to this origin would otherwise reach only this
+  // origin. The address is resolved against THIS module's own url, so it is one request to
+  // launcher.easter.company whichever page mounted the control - the same rule its relative
+  // imports already follow. One link per page, however many times a control is mounted.
+  if(!doc.head.querySelector('link[data-account-control]')){
+   const stylesheet=doc.createElement('link');stylesheet.rel='stylesheet';stylesheet.dataset.accountControl='';
+   stylesheet.href=new URL('./account-control.css',import.meta.url).href;doc.head.append(stylesheet);
+  }
   const notice=doc.createElement('p');notice.className='web-account-notice';notice.setAttribute('role','alert');notice.hidden=true;menu.append(notice);
   let current=webAccount.getState(),profile=null,linked=null;
   // Microsoft signs in on its own page. site/account/ is the address Microsoft sends the browser
@@ -88,10 +116,22 @@ export async function mountAccountControl({nav, seam, document: doc = globalThis
   // `startsOnPage` tells the dialog that pressing Microsoft begins the flow on the page the
   // player is on, so the dialog stays up and reports the start instead of closing first.
   const auth=createCompanyAuth({desktop:webAccount,signInMicrosoft,startsOnPage:true});
-  const action=(label,fn)=>{const button=doc.createElement('button');button.type='button';button.textContent=label;button.onclick=()=>{menu.hidePopover();void fn();};menu.append(button);};
+  const action=(label,fn)=>{const button=doc.createElement('button');button.type='button';button.textContent=label;button.onclick=()=>{menu.hidePopover();void fn();};menu.append(button);return button;};
   const options={desktop:webAccount,getState:()=>current,isAccountLocked:()=>current.accountWorking===true,cancelSignIn:()=>webAccount.cancelSignIn()};
   action('My Profile',async()=>{const {openMyProfile}=await import('./company-profile.mjs');profile=await openMyProfile({...options,openEmails:()=>auth.emails()});});
   action('Linked Accounts',async()=>{const {openLinkedAccounts}=await import('./company-profile.mjs');linked=await openLinkedAccounts({...options,signInMicrosoft});});
+  // SETTINGS OPENS THE ACCOUNT-WIDE PANEL, HERE - not a link to e-server, which is a different
+  // product on a different origin, and not a row that goes nowhere. The panel is
+  // site/user-settings.mjs, ported from Diana's prototype, and it is the same component on both
+  // surfaces: this import resolves against THIS module's url, so the corporate site loads it from
+  // launcher.easter.company exactly as it loads the control itself.
+  let settings=null;
+  action('Settings',async()=>{
+   const {openUserSettings}=await import('./user-settings.mjs');
+   // The control the player pressed is the panel's opener, so closing it returns focus to the
+   // pill rather than to the top of the document.
+   settings=(await openUserSettings({seam:webAccount,opener:account}))||settings;
+  });
   action('Sign out',async()=>{await webAccount.signOut();});
   account.onclick=()=>{
    if(!current.account){auth.open();return;}
@@ -206,12 +246,28 @@ export async function mountAccountControl({nav, seam, document: doc = globalThis
    // name, then the Minecraft name, then the username. Owen, 2026-10-26, on this site: the nav showed
    // `oceaster` where the launcher shows `OCEaster`.
    name.textContent=next.account?next.account.passwordRequired?'Finish setup':next.account.name||GENERIC_NAME:waiting?'':'Sign in';
+   // The menu's two lines follow the same authority as the pill: the display name the player is
+   // called, then the bare username they sign in with. A setup in progress is not an account yet,
+   // so it gets no identity block - the dialog that is up asks for the username instead.
+   const named=next.account&&!next.account.passwordRequired?next.account:null;
+   identity.hidden=!named;
+   identityRule.hidden=!named;
+   if(named){
+    identityName.textContent=named.name||GENERIC_NAME;
+    const username=typeof named.username==='string'?named.username.trim():'';
+    identityUser.textContent=username===identityName.textContent?'':username;
+    identityUser.hidden=!identityUser.textContent;
+   }
    paintFace(next);
    account.setAttribute('aria-label',waiting?'Account options':next.account?.passwordRequired?'Finish account setup':next.account?'Account options':'Sign in or create an Easter Company account');
    account.setAttribute('aria-busy',String(waiting));
    account.setAttribute('aria-expanded',String(menu.matches(':popover-open')));
    account.disabled=next.accountWorking===true||waiting;
-   if(!next.account&&!waiting){menu.hidePopover();doc.querySelector('#company-profile')?.close();doc.querySelector('#company-linked-accounts')?.close();}
+   if(!next.account&&!waiting){menu.hidePopover();doc.querySelector('#company-profile')?.close();doc.querySelector('#company-linked-accounts')?.close();
+    // A panel about an account that has just gone has nothing left to edit: a signed-out save
+    // could only be refused, and the honest thing is to close it rather than leave the player
+    // typing into a document the session behind it no longer reaches.
+    settings?.close();}
   };
   menu.addEventListener('toggle',()=>account.setAttribute('aria-expanded',String(menu.matches(':popover-open'))));
   webAccount.subscribe(paint);

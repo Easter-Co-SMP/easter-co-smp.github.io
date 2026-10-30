@@ -73,9 +73,16 @@ name from `/releases/latest/download/`. The launcher job is
 2. The full check suite passes on that exact tree: `python -m unittest discover -s tests
    -p 'test_*.py'` (use `/root/e-server/.venv/bin/python`), `python scripts/validate.py
    site`, `npm test`, `node tests/drawings.mjs`, and `npm run test:site` against a local
-   preview — which runs `tests/browser.mjs` and, since 2026-10-29, `tests/wiki-browser.mjs`
+   preview — which runs `tests/browser.mjs`, since 2026-10-29 `tests/wiki-browser.mjs`
    as well, because the field guide stopped being one hash-routed page (its gate had been
-   red on main since the SEO restructure and nobody was running it) — and every Electron
+   red on main since the SEO restructure and nobody was running it), and since 2026-10-30
+   `tests/user-settings-browser.mjs`, which is the only gate on the shared account menu's
+   identity lines and on the User Settings panel: it serves this tree's `site/` and the
+   corporate repository's `site/` from two loopback origins, answers the corporate page's
+   `launcher.easter.company` imports from this tree with GitHub Pages' own permissive
+   header, and drives the menu, the panel, the catalogue, a save round trip, a refused
+   stale revision and the blocked-close nudge on both surfaces, against a fixture cloud —
+   so it needs no preview and no credentials of its own — and every Electron
    journey in `tests/desktop`, which is **not** a list of commands to type by hand:
 
        node scripts/check-electron-journeys.mjs
