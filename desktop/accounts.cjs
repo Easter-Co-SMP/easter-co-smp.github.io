@@ -79,6 +79,18 @@ const OPERATIONS={
  '/v2/accounts/store/catalogue':{repeat:true,kind:'read',budgetMs:STORE_RETRY_BUDGET_MS,why:'a read: it changes nothing server side'},
  '/v2/accounts/store/orders':{repeat:true,kind:'read',budgetMs:STORE_RETRY_BUDGET_MS,why:'a read: it changes nothing server side'},
  '/v2/accounts/checkout':{repeat:false,wakeSafe:true,kind:'write',why:'it creates a Stripe Checkout Session, and the account service declares a database_unavailable before it creates anything'},
+ // The account's settings document (api/settings_routes.py in the cloud repository, ticket
+ // 07813ae4). ONE path carries both methods, so this one row has to describe the pair: the GET
+ // is a read, while the PUT is a compare-and-set against the revision the caller holds - and a
+ // repeat of that PUT could carry a revision one behind the write that has just committed, which
+ // the service would answer as a conflict and change nothing. An honest answer, but not the one
+ // somebody who pressed Save asked for. So the row takes the write's rule, and the GET beside it
+ // loses nothing that matters: a declared database_unavailable is still waited out, which is the
+ // only failure a cold account service produces here.
+ '/v2/accounts/settings':{repeat:false,wakeSafe:true,kind:'write',why:'the PUT is a compare-and-set on the revision the caller holds, so a repeat may be answered with a conflict against this very client\'s own write; the GET beside it changes nothing'},
+ // The picker's catalogue: a constant the service builds at import time, needing no session and
+ // touching no database or cache. A read on the ordinary ladder.
+ '/v2/accounts/settings/languages':{repeat:true,kind:'read',budgetMs:READ_RETRY_BUDGET_MS,why:'a read of a constant: it changes nothing server side, and it needs no session'},
  // the mint: safe in effect
  '/v2/game/session':{repeat:true,kind:'mint',budgetMs:MINT_RETRY_BUDGET_MS,why:'it refreshes, rotates and stores the Microsoft token in one transaction, so a repeat costs one of the 30 mints per 10 minutes and corrupts nothing'},
  // Writes. None of them is retried after a lost answer, a dropped connection, a gateway
@@ -160,6 +172,12 @@ const MESSAGES={
  // reported as an unavailable address, never as a failure to sign in.
  email_not_yours:'That address cannot be your login email. It is not verified for this account, or another Easter Company account already uses it to sign in.',
  rate_limited:'Too many account requests just now. Wait a moment and try again.',
+ // The settings document is edited from several surfaces, and the revision is what keeps a
+ // second window from overwriting the first quietly. A 409 is the service saying so, and this
+ // sentence is the reason a caller must re-read before it tries again - it is never a claim that
+ // anything was saved. The interactive copy a player reads beside the panel is the panel's own
+ // (site/user-settings.mjs, "Couldn't save your changes. Try again, or discard them.").
+ revision_conflict:'Your settings were changed somewhere else. Reload them and try again.',
  // Not a player-facing failure: the service has no session route (yet), which is the state
  // the live service is in until the cloud half ships. The launcher degrades to the
  // behaviour it had before that route existed, so this sentence reaches nobody.
@@ -626,11 +644,113 @@ class AccountClient{
  async storeOrders(token,signal){
   return this.attempt('/v2/accounts/store/orders',{token,signal});
  }
+ // ---- the account's settings document -----------------------------------------
+ // ONE DOCUMENT, EVERY SURFACE (api/settings_routes.py, ticket 07813ae4). The document is the
+ // account's own preference record - language, theme, the three chat bindings and the editor
+ // switch - and three front ends read it through this same client. It is read and written with
+ // the session the caller already holds: no second sign-in, no token in a URL, and no field of
+ // the answer reaches a view without passing the shape below.
+ //
+ // THE REVISION IS THE POINT. A read answers the document and the revision it was read at; a
+ // write names the revision it is replacing, and the service answers 409 `revision_conflict`
+ // instead of overwriting a document another surface has moved on. That is handled here rather
+ // than thrown: a conflict is an ANSWER, so `saveSettings` re-reads the stored document and hands
+ // both facts back, and the caller can show the player what is stored now. A save that loses the
+ // race is never reported as a save.
+ async settings(token,signal){
+  return settingsProjection(await this.attempt('/v2/accounts/settings',{token,signal,timeout:Math.min(this.timeout,15000)}));
+ }
+ async saveSettings(token,document,revision,signal,onWait){
+  const settings=sanitizeSettings(document);
+  // `null` and `0` both mean "only if this account has no document yet", which is what makes the
+  // very first save from a fresh account work without inventing a revision (this module never
+  // does: the number comes from the read it was given).
+  const held=Number.isSafeInteger(revision)&&revision>0?revision:null;
+  let found;
+  try{
+   found=await this.attempt('/v2/accounts/settings',{method:'PUT',token,body:{settings,revision:held},signal,timeout:Math.min(this.timeout,20000),onWait});
+  }catch(error){
+   if(error?.status!==409)throw error;
+   // The service's 409 carries the document that IS stored, but this client's shared error path
+   // keeps a code and a sentence and drops the body. Reading it back is one extra read of the
+   // same bounded route and it cannot disagree with the 409: a write that has just been refused
+   // is the only thing between the two.
+   const current=await this.settings(token,signal);
+   return {...current,conflict:true};
+  }
+  return {...settingsProjection(found),conflict:false};
+ }
+ // The picker's catalogue. It needs no session (the route answers before authorization, on
+ // purpose: it is a fact about the game, not about an account), so this call carries no token.
+ async settingsLanguages(signal){
+  return languageCatalogue(await this.attempt('/v2/accounts/settings/languages',{signal,timeout:Math.min(this.timeout,15000)}));
+ }
  async updateProfile(token,body,onWait){const found=await this.attempt('/v2/accounts/profile',{method:'POST',token,body,onWait});return sanitizeAccount(found?.account);} async logout(token,signal,onWait){
   // Revocation is best effort. A refusal or a dead network must still let the
   // launcher forget the session locally, so this resolves either way.
   try{await this.attempt('/v2/accounts/logout',{method:'POST',token,signal:signal??undefined,timeout:Math.min(this.timeout,8000),onWait});}catch{}
  }
+}
+// ---- the settings document's shape ---------------------------------------------
+// The frozen document (api/settings_document.py in the cloud repository): version 1, a language
+// code, one of three themes, the three chat bindings and the editor switch. This client rebuilds
+// it field by field in BOTH directions - what the service sent, and what a panel asked to save -
+// so an unknown key, a wrong type or a document from a version this client does not know can
+// never reach a view or a request. A version it does not know is refused rather than shown: a
+// document from a later contract has meanings this one cannot render.
+const SETTINGS_VERSION=1,LANGUAGE_AUTO='auto';
+const SETTINGS_THEMES=['system','light','dark'];
+// The four things a chat key may do, in the order the panel offers them, and the three bindings
+// with the defaults the service itself writes (interrupt for Ctrl+Enter: the service's table is
+// the authority, and a fragment that arrives without a binding is completed the way it would be).
+const SETTINGS_CHAT_ACTIONS=['submit','queue','newline','interrupt'];
+const SETTINGS_CHAT_DEFAULTS=[['enter','submit'],['shiftEnter','newline'],['ctrlEnter','interrupt']];
+// A locale code is Minecraft's own form (`en_us`, `tok`), never a BCP-47 rewrite and never a
+// free sentence: the catalogue validates the vocabulary, this only refuses something that could
+// not be one.
+const LANGUAGE_CODE=/^[a-z][a-z0-9_]{0,23}$/i;
+// THE SHAPE OF A LANGUAGE ROW, as `GET /v2/accounts/settings/languages` serves it: the code the
+// document stores, the name the language calls itself, and an English descriptor. There is no
+// flag field anywhere in it, and none is invented here: a flag is a geographic claim a language
+// is not, and the panel draws text for the same reason.
+const LANGUAGE_TEXT_MAX=80,LANGUAGES_MAX=1024;
+function sanitizeSettings(value){
+ if(!value||typeof value!=='object'||Array.isArray(value))throw new AccountError('invalid_response',FALLBACK);
+ if(value.version!==SETTINGS_VERSION)throw new AccountError('invalid_response',FALLBACK);
+ const language=typeof value.language==='string'&&value.language?value.language:LANGUAGE_AUTO;
+ const theme=SETTINGS_THEMES.includes(value.theme)?value.theme:'system';
+ const chat=value.chat&&typeof value.chat==='object'&&!Array.isArray(value.chat)?value.chat:{};
+ const editor=value.editor&&typeof value.editor==='object'&&!Array.isArray(value.editor)?value.editor:{};
+ const document={version:SETTINGS_VERSION,language,theme,chat:{},editor:{vim:editor.vim===true}};
+ for(const [key,fallback] of SETTINGS_CHAT_DEFAULTS)document.chat[key]=SETTINGS_CHAT_ACTIONS.includes(chat[key])?chat[key]:fallback;
+ return document;
+}
+// One read's answer: the document, the revision a write must replace, and when it was written.
+// `revision: 0` is the service's answer for an account that has never saved, and it is not an
+// error - it is the fact that makes the first save work.
+function settingsProjection(value){
+ if(!value||typeof value!=='object'||Array.isArray(value))throw new AccountError('invalid_response',FALLBACK);
+ const revision=Number(value.revision);
+ if(!Number.isSafeInteger(revision)||revision<0)throw new AccountError('invalid_response',FALLBACK);
+ return {settings:sanitizeSettings(value.settings),revision,updatedAt:typeof value.updatedAt==='string'?value.updatedAt:null};
+}
+function languageCatalogue(value){
+ if(!value||typeof value!=='object'||Array.isArray(value))throw new AccountError('invalid_response',FALLBACK);
+ const rows=Array.isArray(value.languages)?value.languages:[];
+ const languages=[],seen=new Set();
+ for(const row of rows.slice(0,LANGUAGES_MAX)){
+  if(!row||typeof row!=='object'||Array.isArray(row))continue;
+  const code=typeof row.code==='string'?row.code:'';
+  const native=typeof row.native==='string'?row.native.trim():'';
+  if(!LANGUAGE_CODE.test(code)||!native||native.length>LANGUAGE_TEXT_MAX||seen.has(code))continue;
+  seen.add(code);
+  const english=typeof row.english==='string'?row.english.trim().slice(0,LANGUAGE_TEXT_MAX):'';
+  languages.push({code,native,english});
+ }
+ // A catalogue that answers with no rows is not a picker: the panel can only offer what it was
+ // given, so this is refused rather than drawn as an empty list beside "Automatic".
+ if(!languages.length)throw new AccountError('invalid_response',FALLBACK);
+ return {automatic:typeof value.automatic==='string'&&value.automatic?value.automatic:LANGUAGE_AUTO,languages};
 }
 // Vault session shape and its acceptance check. These live here, next to the
 // contract they mirror, so a vault written by one build is read the same way by

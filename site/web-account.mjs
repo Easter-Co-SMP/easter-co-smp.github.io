@@ -233,7 +233,23 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
     // The return fragment is never accepted as proof of payment.
     navigate(answer.url);return {outcome:'cancelled'};
    }catch(error){throw error.code==='store_signed_out'?error:store.refusal(error);}
-  }
+  },
+  // ---- the account's settings document -----------------------------------------
+  // site/user-settings.mjs draws the panel; these three calls are what it draws it from, and they
+  // go through the session this tab already holds. The panel therefore never sees the token, and
+  // the token never reaches an address: no second sign-in, no credential in a URL.
+  //
+  // A save that loses the revision race is an ANSWER, not an exception: `saveSettings` in the
+  // shared client re-reads and hands back the document that is stored with `conflict:true`, so
+  // the panel can keep every draft, say the save did not happen, and let a second press replace
+  // the revision it was holding. Everything else arrives as the ordinary `{ok:false}` with the
+  // one sentence the account service is allowed to say.
+  settingsRead:()=>run(()=>read(()=>client.settings(token()))),
+  settingsSave:(document,revision)=>run(()=>read(()=>client.saveSettings(token(),document,revision))),
+  // The picker's catalogue needs no session (the route answers before authorization, on purpose),
+  // so this one carries no token and is not an account action: it neither paints nor locks the
+  // account control, and the panel treats a failure as "the picker cannot be offered".
+  settingsLanguages:()=>client.settingsLanguages()
  };
  return bridge;
 }
