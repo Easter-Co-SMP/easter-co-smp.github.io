@@ -112,6 +112,14 @@
    updateProfile:displayName=>desktop.updateProfile(displayName),
    setProfilePicture:remove=>desktop.setProfilePicture(remove),
    signInProvider:(provider,link)=>desktop.signInProvider(provider,link),
+   // The rest of what the shared dialogs ask a seam for. They are the same bridge commands the
+   // window's own sign-in and profile surfaces have always used - the chooser is this window's one
+   // instance - and every one of them is delegated rather than reimplemented, so a password change
+   // or a saved-session continuation behaves exactly as it does from the hero.
+   loginCompany:(identifier,password)=>desktop.loginCompany(identifier,password),
+   checkCompanyUsername:username=>desktop.checkCompanyUsername(username),
+   setCompanyPassword:(password,replace,username)=>desktop.setCompanyPassword(password,replace,username),
+   continueMicrosoft:()=>desktop.continueMicrosoft(),
    // The account's settings document, through this process and never through the renderer: three
    // commands added to desktop/main.cjs and desktop/preload.cjs beside the game's own settings,
    // which is a different document with a confusingly similar name.
