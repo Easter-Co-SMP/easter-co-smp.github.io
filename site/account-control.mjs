@@ -268,6 +268,13 @@ export async function mountAccountControl({nav, seam, auth: providedAuth = null,
    paintFace(next);
    account.setAttribute('aria-label',waiting?'Account options':next.account?.passwordRequired?'Finish account setup':next.account?'Account options':'Sign in or create an Easter Company account');
    account.setAttribute('aria-busy',String(waiting));
+   // WHAT THE BUTTON OPENS DEPENDS ON WHO IS SIGNED IN, so the attribute that promises it says
+   // which: an account menu when there is an account, the sign-in chooser dialog when there is
+   // not, and the same dialog for an account that still has to finish setup. Left implicit, a
+   // reader learns nothing about what pressing it does — and a launcher journey that had always
+   // asserted `dialog` here was right while the control was wrong (2026-10-30: 1.0.53's release
+   // sweep stopped on exactly that assertion).
+   account.setAttribute('aria-haspopup',next.account&&!next.account.passwordRequired?'menu':'dialog');
    account.setAttribute('aria-expanded',String(menu.matches(':popover-open')));
    account.disabled=next.accountWorking===true||waiting;
    if(!next.account&&!waiting){menu.hidePopover();doc.querySelector('#company-profile')?.close();doc.querySelector('#company-linked-accounts')?.close();
