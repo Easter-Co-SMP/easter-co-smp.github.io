@@ -1286,6 +1286,23 @@ signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close s
    // Owen's rule of 2026-10-19 is that the header shows the name the player is called.
    const shownName=held?(held.name||held.username||''): '';
    pill.querySelector('.web-account-name').textContent=shownName||(held?'Account':'Sign in');
+   // AND THE CLICK IS THE WINDOW'S, for the one state the control answers differently: an account
+   // that has not claimed a username yet. The control opens its setup dialog there, which is right
+   // for a website pill and wrong here - this window has always opened the MENU in that state, so
+   // a player who dismissed the setup step can still reach My Profile, Settings or Sign out
+   // (tests/desktop/wait-post-approval.electron.mjs holds that behaviour to the millisecond). The
+   // menu is the control's; only the five lines that place and open it are the window's, and they
+   // are the control's own arithmetic.
+   pill.onclick=()=>{
+    if(!held){accountAuth.open();return;}
+    const menu=accountControl?.menu;
+    if(!menu)return;
+    const box=pill.getBoundingClientRect();
+    menu.style.top=(box.bottom+8)+'px';
+    menu.style.right=Math.max(12,window.innerWidth-box.right)+'px';
+    menu.showPopover();
+    menu.querySelector('button')?.focus();
+   };
   }
  }
  barPrimary.onclick=()=>heroAction();
