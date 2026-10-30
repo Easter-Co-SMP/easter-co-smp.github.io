@@ -1,3 +1,36 @@
+# Easter Company launcher 1.0.53
+
+## One account menu, in the window you actually install
+
+The launcher window was still drawing its own account menu — three rows and its own word for
+leaving — while the website had already moved to the shared one. That is fixed properly rather
+than patched: the window now mounts the same control the site and easter.company use, so the
+menu reads
+
+    OCEaster
+    oceaster
+    ─────────
+    My Profile
+    Linked Accounts
+    Settings
+    Sign out
+
+and `Settings` opens the account-wide panel — your language, your theme, what Enter, Shift+Enter
+and Ctrl+Enter do in chat, and the VIM keys switch — with your account's saved preferences behind
+it. The word `Logout` no longer exists anywhere in the product.
+
+Nothing was rewritten to make this happen: the window's own second copy of the menu is deleted,
+not kept in step, and the preferences travel from the window to the account service without the
+window ever holding a token.
+
+## Smaller things
+
+- The panel refuses to close while you have unsaved changes, keeps your draft, and points at the
+  two buttons that resolve it.
+- Your face, your name and the setup state of a half-finished account are drawn exactly as they
+  were before; that part of the window is unchanged.
+
+
 # Easter Company launcher 1.0.52
 
 ## Your settings live in one place now
