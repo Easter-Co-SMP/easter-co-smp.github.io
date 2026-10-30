@@ -74,22 +74,24 @@ try{
 
  // Reading the face back off the header canvas, pixel by pixel.
  const facePixels=()=>page.evaluate(()=>{
-  const canvas=document.querySelector('.desktop-account-nav canvas');
+  const face=document.querySelector('.desktop-account-nav .web-account-face');
   const context=canvas.getContext('2d');
   const pixels=row=>[...context.getImageData(0,row,32,1).data];
   return {size:[canvas.width,canvas.height],row0:pixels(0),row16:pixels(16)};
  });
- const header=()=>page.locator('.desktop-account-nav').evaluate(button=>({text:button.innerText.trim(),label:button.getAttribute('aria-label'),canvasHidden:button.querySelector('canvas').hidden}));
+ // The pill's face is the shared control's now (a 32px slot holding the account's picture or the
+ // head cropped from its skin), so these read that slot rather than the window's old canvas.
+ const header=()=>page.locator('.desktop-account-nav').evaluate(button=>{const slot=button.querySelector('.web-account-face');return {text:(button.querySelector('.web-account-name')?.textContent||'').trim(),label:button.getAttribute('aria-label'),canvasHidden:slot?slot.hidden:true};});
  const menu=()=>page.evaluate(()=>{
-  const name=document.querySelector('.desktop-profile-heading.desktop-account .desktop-account-name');
-  const signIn=document.querySelector('.desktop-profile-heading.desktop-account .desktop-account-signin');
-  return {name:name&&!name.hidden?name.textContent:'',signIn:signIn&&!signIn.hidden?signIn.textContent:'',raw:document.querySelector('.desktop-account').textContent};
+   const name=document.querySelector('.web-account-identity .web-account-identity-name');
+  const signIn=document.querySelector('.web-account-identity .web-account-identity-username');
+  return {name:name&&!name.hidden?name.textContent:'',signIn:signIn&&!signIn.hidden?signIn.textContent:'',raw:document.querySelector('.web-account-identity').textContent};
  });
 
  // --- The name the player is called leads ------------------------------------
  // The account's own display name, with the username kept as the sign-in line.
  await page.evaluate(skin=>sendState({account:{id:'EC-9',username:'hannah_e',name:'Hannah Easter',roles:['crew'],passwordRequired:false,microsoftLinked:true,picture:null},profile:{id:'skin-owner',name:'HannahMC',skin},microsoftConnected:true}),SKIN);
- await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='Hannah Easter');
+ await page.waitForFunction(()=>(document.querySelector('.desktop-account-nav .web-account-name')?.textContent||'').trim()==='Hannah Easter');
  assert.deepEqual(await header(),{text:'Hannah Easter',label:'Account: Hannah Easter',canvasHidden:false},'the header shows the display name, not the username');
  await page.locator('.desktop-account-nav').click();
  assert.deepEqual(await menu(),{name:'Hannah Easter',signIn:'hannah_e',raw:'Hannah Easterhannah_e'},'the account view leads with the display name and prints the bare username under it, with no prefix (Owen, 2026-10-22)');
@@ -110,14 +112,14 @@ try{
  // and a fresh Microsoft signup that has not claimed a username yet. Neither prints an
  // empty line, a placeholder or "undefined".
  await page.evaluate(()=>sendState({account:{id:'EC-10',username:'owen_o',name:'owen_o',roles:[],passwordRequired:false,microsoftLinked:true,picture:null},profile:null}));
- await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='owen_o');
+ await page.waitForFunction(()=>(document.querySelector('.desktop-account-nav .web-account-name')?.textContent||'').trim()==='owen_o');
  await page.locator('.desktop-account-nav').click();
  assert.deepEqual(await menu(),{name:'owen_o',signIn:'',raw:'owen_o'},'an account whose name is its username does not repeat it as a sign-in line');
  await page.keyboard.press('Escape');
  // An account that has not claimed a username yet (a fresh Microsoft signup) is asked for
  // one by the existing setup dialog, so the header is asserted while that dialog is up.
  await page.evaluate(()=>sendState({account:{id:'EC-11',username:null,name:'Hannah Easter',roles:[],passwordRequired:true,microsoftLinked:true,picture:null},profile:null}));
- await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='Hannah Easter');
+ await page.waitForFunction(()=>(document.querySelector('.desktop-account-nav .web-account-name')?.textContent||'').trim()==='Hannah Easter');
  assert.equal((await header()).text,'Hannah Easter','a company account with no username yet still leads with the display name');
  await page.locator('#desktop-company-username').waitFor({state:'visible'});
  note('an account with no username yet shows its display name in the header (its setup dialog is the one on screen)');
@@ -127,7 +129,7 @@ try{
  await page.locator('#desktop-company-username').waitFor({state:'hidden'});
  // A main process that publishes no name at all (an older build) still gets the username.
  await page.evaluate(()=>sendState({account:{id:'EC-12',username:'legacy_user',roles:[],passwordRequired:false,microsoftLinked:false,picture:null},profile:null}));
- await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='legacy_user');
+ await page.waitForFunction(()=>(document.querySelector('.desktop-account-nav .web-account-name')?.textContent||'').trim()==='legacy_user');
  assert.equal((await menu()).signIn,'','and no invented sign-in line appears when there is nothing but a username');
  note('display name, name-is-username and no-name accounts all read truthfully');
 
@@ -193,7 +195,7 @@ try{
  // A skin is only the head of a *connected* Microsoft account: an account with no
  // Microsoft link has no Minecraft skin to draw, so it keeps the tile.
  await page.evaluate(skin=>sendState({account:{id:'EC-13',username:'google_user',name:'Google Player',roles:[],passwordRequired:false,microsoftLinked:false,picture:null},profile:{id:'skin-owner',name:'HannahMC',skin}}),SKIN);
- await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='Google Player');
+ await page.waitForFunction(()=>(document.querySelector('.desktop-account-nav .web-account-name')?.textContent||'').trim()==='Google Player');
  await page.waitForFunction(()=>{
   const pixel=[...document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(1,1,1,1).data];
   return pixel[0]===83&&pixel[1]===107&&pixel[2]===102;
@@ -232,10 +234,10 @@ try{
  await page.evaluate(account=>sendState({account,profile:null,minecraftHead:null}),PASSWORD_ACCOUNT);
  await awaitingFace([83,107,102],[1,1]);
  await page.evaluate(({account,head})=>sendState({account:{...account,microsoftLinked:false,minecraftName:null},profile:null,minecraftHead:head}),{account:PASSWORD_ACCOUNT,head:SKIN});
- await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='Owen Easter');
+ await page.waitForFunction(()=>(document.querySelector('.desktop-account-nav .web-account-name')?.textContent||'').trim()==='Owen Easter');
  await awaitingFace([83,107,102],[1,1]);
  await page.evaluate(({account})=>sendState({account,profile:null,minecraftHead:'https://textures.minecraft.net/texture/deadbeef'}),{account:PASSWORD_ACCOUNT});
- await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='Owen Easter');
+ await page.waitForFunction(()=>(document.querySelector('.desktop-account-nav .web-account-name')?.textContent||'').trim()==='Owen Easter');
  await awaitingFace([83,107,102],[1,1]);
  note('a failed read, an unlinked account and a value that is not a data URL all leave the letter tile');
 
@@ -384,7 +386,7 @@ try{
  for(const [width,height] of [[1440,900],[390,568]]){
   await page.setViewportSize({width,height});
   await page.evaluate(skin=>sendState({account:{id:'EC-9',username:'hannah_e',name:'Hannah Easter',roles:[],passwordRequired:false,microsoftLinked:true,picture:null},profile:{id:'skin-owner',name:'HannahMC',skin}}),SKIN);
-  await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='Hannah Easter');
+  await page.waitForFunction(()=>(document.querySelector('.desktop-account-nav .web-account-name')?.textContent||'').trim()==='Hannah Easter');
   await page.waitForTimeout(120);
   const headerBox=await page.locator('.site-header').boundingBox();
   await page.screenshot({path:`${images}/header-skin-${width}.png`,animations:'disabled',clip:headerBox});
@@ -406,7 +408,7 @@ try{
  await page.setViewportSize({width:390,height:568});
  const longName='Bartholomew Montgomery Featherstonehaugh Eastwood III';
  await page.evaluate(name=>sendState({account:{id:'EC-14',username:'bartholomew_mf',name,roles:[],passwordRequired:false,microsoftLinked:false,picture:null},profile:null}),longName);
- await page.waitForFunction(name=>document.querySelector('.desktop-account-nav').innerText.trim()===name,longName);
+ await page.waitForFunction(name=>(document.querySelector('.desktop-account-nav .web-account-name')?.textContent||'').trim()===name,longName);
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'a long display name adds no horizontal overflow at 390px');
  const longNav=await page.locator('.desktop-account-nav').boundingBox();
  assert(longNav.x>=0&&longNav.x+longNav.width<=391,'the header account control stays inside a 390px window with a long name');

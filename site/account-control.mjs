@@ -18,7 +18,7 @@
 // the code rather than being summarised here.
 import {createCompanyAuth} from './company-auth.mjs';
 
-export async function mountAccountControl({nav, seam, document: doc = globalThis.document, window: win = globalThis.window} = {}){
+export async function mountAccountControl({nav, seam, auth: providedAuth = null, document: doc = globalThis.document, window: win = globalThis.window} = {}){
  if(!nav||!seam)return null;
  const webAccount=seam;
   // ---- The account control's face ----------------------------------------------
@@ -115,7 +115,14 @@ export async function mountAccountControl({nav, seam, document: doc = globalThis
   };
   // `startsOnPage` tells the dialog that pressing Microsoft begins the flow on the page the
   // player is on, so the dialog stays up and reports the start instead of closing first.
-  const auth=createCompanyAuth({desktop:webAccount,signInMicrosoft,startsOnPage:true});
+  // `auth` may be an instance this control did not build. The launcher WINDOW has opened its
+  // sign-in chooser for years and everything that reaches it - the hero's sign-in action, the
+  // access panel's password step, the identity-conflict stop - is wired to that one instance;
+  // company-auth.mjs appends four dialogs with fixed ids when it is constructed, so a second
+  // instance on the same page is a second set of those ids. A host that already owns one passes
+  // it here and both the menu's sign-in and the window's keep talking to the same dialogs. This
+  // is the only seam the window needed, and it changes nothing for a caller that passes none.
+  const auth=providedAuth||createCompanyAuth({desktop:webAccount,signInMicrosoft,startsOnPage:true});
   const action=(label,fn)=>{const button=doc.createElement('button');button.type='button';button.textContent=label;button.onclick=()=>{menu.hidePopover();void fn();};menu.append(button);return button;};
   const options={desktop:webAccount,getState:()=>current,isAccountLocked:()=>current.accountWorking===true,cancelSignIn:()=>webAccount.cancelSignIn()};
   action('My Profile',async()=>{const {openMyProfile}=await import('./company-profile.mjs');profile=await openMyProfile({...options,openEmails:()=>auth.emails()});});

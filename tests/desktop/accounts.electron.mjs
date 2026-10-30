@@ -47,7 +47,7 @@ try{
  const vault=path.join(home,'company.enc');
  if(['basic_text','unavailable'].includes(backend)){await assert.rejects(fs.stat(vault));assert.equal(state.remembered,false);}
  else{const bytes=await fs.readFile(vault);assert(!bytes.toString().includes(SESSION));assert.equal((await fs.stat(vault)).mode&0o777,0o600);}
- await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Logout',exact:true}).click();await page.locator('[data-desktop-play][data-action=signin]').waitFor();
+ await page.locator('.desktop-account-nav').click();await page.getByRole('button',{name:'Sign out',exact:true}).click();await page.locator('[data-desktop-play][data-action=signin]').waitFor();
  const loggedOut=await page.evaluate(()=>window.easterDesktop.status());assert.equal(loggedOut.account,null);assert.equal(loggedOut.profile,null);assert(!loggedOut.canPlay);
  assert(calls.some(call=>call.path==='/v2/accounts/logout'&&call.authorization==='Bearer '+SESSION));
  console.log('Company account transport/vault PASS: verified proof path, Company primary state, no credentials in renderer, secure-storage behavior and primary logout/revocation.');

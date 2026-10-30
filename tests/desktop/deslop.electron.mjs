@@ -71,9 +71,9 @@ try{
  const menu=page.locator('.desktop-profile-menu');
  assert.equal(await menu.getByRole('button',{name:'Add account',exact:true}).count(),0,'nothing offers a second account');
  assert.equal(await menu.getByRole('button',{name:'Switch Account',exact:true}).count(),0,'switching accounts left with the account list');
- assert.equal(await menu.getByRole('button',{name:'Logout',exact:true}).count(),1,'the one account can be signed out');
+ assert.equal(await menu.getByRole('button',{name:'Sign out',exact:true}).count(),1,'the one account can be signed out');
  await page.waitForTimeout(250);await page.screenshot({path:'/tmp/easter-deslop-profile.png'});
- await menu.getByRole('button',{name:'Logout',exact:true}).click();
+ await menu.getByRole('button',{name:'Sign out',exact:true}).click();
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).profile===null);
  state=await status();assert.equal(state.install.installed,true);assert.deepEqual(state.actions,['signin']);assert.equal(state.account,null);assert.equal('accounts' in state,false);
  await page.locator('[data-desktop-play][data-action=signin]').waitFor();

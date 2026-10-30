@@ -44,8 +44,81 @@
  // name, and both strings live here so the hero and the sticky bar cannot disagree.
  const LOGIN_ACTION='Sign in';
  const LOGIN_NOTE='Easter Company account required';
- let companyAuth=null,myProfileView=null,linkedAccountsView=null;
- const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
+ let companyAuth=null;
+// ---- ONE ACCOUNT MENU, AND IT IS THE SHARED ONE --------------------------------
+// This window used to draw its own account menu: its own identity heading, its own loop of three
+// rows (`My Profile`, `Linked Accounts`, `Logout`), its own popover. site/account-control.mjs drew
+// a second one for the site pages in a browser, and on 2026-10-30 the two had drifted: the site's
+// menu carried the name pair, four rows and a Settings panel while the window a player actually
+// installs still said `Logout` (Owen, on 1.0.52: "doesn't have the new settings menu").
+//
+// So the window mounts that same control now, over a seam built on the desktop bridge below, and
+// the duplicate is gone rather than kept in step. The seam speaks the shape the control expects -
+// getState/subscribe/ready plus the account calls - and every call it makes is one the preload
+// already exposes; nothing here holds a token, and the control never sees one.
+//
+// TWO HONEST DIFFERENCES, both stated rather than hidden:
+//   * The sign-in chooser. company-auth.mjs appends four dialogs with fixed ids when it is
+//     constructed, and this window has opened them for years from the hero, the access panel and
+//     the identity-conflict stop. The control accepts an existing instance (`auth`), so both keep
+//     talking to those same dialogs instead of a second set.
+//   * The face. The control crops a Minecraft head out of the account document's skin for the
+//     web surfaces; this window is handed a locally minted head for a password-signed account
+//     (state.minecraftHead) that the document does not carry, so the seam puts that head in the
+//     `picture` slot the control already paints. Same 32px square, same precedence order.
+ const accountSeam=(()=>{
+  const listeners=new Set();
+  // What the control is shown. `accountWorking` carries the launcher's own account lock: it is
+  // what the control hands the profile and settings dialogs as their disabled state, and the lock
+  // here also covers installing and playing (site/desktop.js, *The account lock*), so a dialog is
+  // never opened over a running game. The pill's own enabled state is the window's, below.
+  let shown={account:null,accountWorking:false,startupReady:true,activity:null};
+  const png=value=>typeof value==='string'&&value.startsWith('data:image/png;base64,')?value:null;
+  const shownAccount=state=>{
+   const account=state?.account;
+   if(!account)return null;
+   // The skin the control crops from: the account document's own texture first, then the whole
+   // skin this launch already holds from the Microsoft session.
+   const skin=png(account.skin)||(account.microsoftLinked?png(state.profile?.skin):null);
+   return {...account,skin,picture:png(account.picture)||(!skin?png(state.minecraftHead):null)};
+  };
+  const publish=state=>{
+   shown={account:shownAccount(state),accountWorking:accountLocked(state),startupReady:true,activity:state?.activity||null};
+   for(const listener of listeners)listener(shown);
+  };
+  return {
+   publish,
+   getState:()=>shown,
+   subscribe(listener){listeners.add(listener);listener(shown);return()=>listeners.delete(listener);},
+   ready:Promise.resolve(),
+   // The control's own Microsoft wrapper is never used while it is handed this window's auth
+   // instance, but a host is not allowed to leave a method missing: this is the real flow.
+   startMicrosoftSignIn:()=>Promise.resolve(signInMicrosoft()).then(()=>{throw Error('Microsoft sign-in is running in the launcher window.');}),
+   cancelSignIn:()=>desktop.cancelSignIn(),
+   signOut:()=>desktop.signOut(),
+   accountProviders:()=>desktop.accountProviders(),
+   profileEmails:()=>desktop.profileEmails(),
+   selectLoginEmail:email=>desktop.selectLoginEmail(email),
+   updateProfile:displayName=>desktop.updateProfile(displayName),
+   setProfilePicture:remove=>desktop.setProfilePicture(remove),
+   signInProvider:(provider,link)=>desktop.signInProvider(provider,link),
+   // The account's settings document, through this process and never through the renderer: three
+   // commands added to desktop/main.cjs and desktop/preload.cjs beside the game's own settings,
+   // which is a different document with a confusingly similar name.
+   // `invokeResult` already answers with main's own `{ok,value}` envelope, which is the shape the
+   // panel reads (web-account.mjs returns the same one), so these are passed straight through
+   // rather than wrapped again - a second envelope is a document with no `settings` in it, and the
+   // panel would open on the defaults and save `revision: null` over whatever was stored.
+   settingsRead:()=>desktop.accountSettings().catch(error=>({ok:false,error:error?.message||String(error)})),
+   settingsSave:(document,revision)=>desktop.saveAccountSettings(document,revision).catch(error=>({ok:false,error:error?.message||String(error),code:error?.code})),
+   settingsLanguages:()=>desktop.accountSettingsLanguages()
+  };
+ })();
+  const companyUI=import('./company-auth.mjs').then(({createCompanyAuth})=>{companyAuth=createCompanyAuth({desktop,signInMicrosoft,onInlineError:()=>dismissFailure()});if(current)companyAuth.render(current);return companyAuth;});
+ // What the shared control is handed as its `auth`: one instance of the chooser, the one this
+ // window already opens from the hero and the access panel. `render` is fed the launcher state the
+ // window's own `render` feeds the same instance, so the two entry points cannot show two answers.
+ const accountAuth={open:options=>void companyUI.then(ui=>ui.open(options)),setup:()=>void companyUI.then(ui=>ui.setup()),emails:()=>companyUI.then(ui=>ui.emails()),render:()=>{if(current)void companyUI.then(ui=>ui.render(current));}};
  const GRAPHICS_LABEL='Enable Enhanced Graphics & Shaders';
  let heroWait=null,authWait=null,localActivity=null,serverWaitStartedAt=null;
  // Where a wait belongs. `hero` is the default and what every operation the player starts from
@@ -562,7 +635,7 @@ signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close s
  };
  auth('.dialog-close').onclick=cancelSignIn;auth('[data-cancel]').onclick=cancelSignIn;
  signin.addEventListener('cancel',event=>{event.preventDefault();cancelSignIn();});
- signin.addEventListener('close',()=>{releaseSignInNotice();settleFailureSurface();(current?.profile?profileButton:heroButton)?.focus();});
+ signin.addEventListener('close',()=>{releaseSignInNotice();settleFailureSurface();(current?.profile?accountControl?.account:heroButton)?.focus();});
  panel.addEventListener('close',()=>{settingsButton?.setAttribute('aria-expanded','false');});
  // Every modal dialog in the launcher, including the ones this file did not create, changes
  // where a held failure belongs. `open` is the attribute showModal()/close() write, so watching
@@ -1137,129 +1210,52 @@ signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close s
  }
  // The header is account-only: no client settings button is ever placed there.
  for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"]'))trigger.remove();
- const profileButton=document.createElement('button');profileButton.type='button';profileButton.className='desktop-account-nav';profileButton.hidden=true;profileButton.setAttribute('aria-haspopup','true');profileButton.setAttribute('aria-expanded','false');
- const profileName=document.createElement('span'),face=document.createElement('canvas');face.width=32;face.height=32;face.setAttribute('aria-hidden','true');profileButton.append(profileName,face);document.querySelector('.site-header nav').append(profileButton);
- const profileMenu=document.createElement('div');profileMenu.className='desktop-profile-menu';profileMenu.popover='auto';profileMenu.setAttribute('aria-label','Profile');
- // Owen's account view, 2026-10-22: the name the player is called, then the bare username on
- // its own line, then three entries. Nothing else is in this menu - not the Microsoft / Xbox
- // status line, whose state belongs to the provider rows on Linked Accounts, and not a line
- // about the login email, because no address is ever printed here at all (streamer
- // protection; the address lives only inside My Profile's verified-emails section).
- const accountHeading=document.createElement('p');accountHeading.className='desktop-profile-heading desktop-account';
- const accountNameNode=document.createElement('strong');accountNameNode.className='desktop-account-name';
- const accountSignInNode=document.createElement('span');accountSignInNode.className='desktop-account-signin';
- accountHeading.append(accountNameNode,accountSignInNode);profileMenu.append(accountHeading);
- // The menu carries no waiting line of any kind (Owen, 2026-10-23: "when we open the profile
- // dropdown there's a 'Contacting account service...' line which flashes up and disappears, i
- // think it's left over from something else, just remove that element"). The row was this
- // menu's own copy of a `scope: 'surface'` activity, drawn after a 500 ms delay; it is gone and
- // nothing takes its place - no line, no empty slot, nothing reserving space. A surface-scoped
- // activity now paints nothing here at all, because the reads it stood for report inside the
- // dialog that started them (site/company-profile.mjs openLinkedAccounts, site/company-auth.mjs
- // openEmails), and this menu reads nothing of its own. The hero's half of the split is
- // untouched: a `scope: 'hero'` activity still paints the hero and never this menu.
- // Both dialogs are account surfaces, so each is handed the account lock itself rather than a
- // copy of it (*The account lock* above, and site/company-profile.mjs). Each hands back a
- // syncLock, so a broadcast that changes the lock reaches controls that are already on screen.
+ // THE WINDOW'S ACCOUNT MENU IS THE SHARED CONTROL. Mounted here, into the same header nav the
+ // old button went into, and with the one chooser instance this window already owns.
  //
- // Logout is the third entry in every signed-in state and answers to the same lock as the other
- // two: it is never conditional, never re-gated, and never built from the account's own answer.
- for(const [label,action,key] of [
-  ['My Profile',()=>{profileMenu.hidePopover();void import('./company-profile.mjs').then(({openMyProfile})=>openMyProfile({desktop,getState:()=>current,isAccountLocked:()=>accountLocked(current),openEmails:()=>companyUI.then(ui=>ui.emails()),cancelSignIn:()=>desktop.cancelSignIn()})).then(view=>{if(view)myProfileView=view;}).catch(report);},'myProfile'],
-  ['Linked Accounts',()=>{profileMenu.hidePopover();void import('./company-profile.mjs').then(({openLinkedAccounts})=>openLinkedAccounts({desktop,getState:()=>current,signInMicrosoft,isAccountLocked:()=>accountLocked(current),cancelSignIn:()=>desktop.cancelSignIn()})).then(view=>{if(view)linkedAccountsView=view;}).catch(report);},'linkedAccounts'],
-  ['Logout',()=>{profileMenu.hidePopover();void desktop.signOut().catch(report);},'logout']]){
-  const button=document.createElement('button');button.type='button';button.textContent=label;button.dataset.profileAction=key;button.onclick=action;profileMenu.append(button);
- }
- document.body.append(profileMenu);
- const positionProfile=()=>{const rect=profileButton.getBoundingClientRect();profileMenu.style.top=rect.bottom+8+'px';profileMenu.style.right=Math.max(12,innerWidth-rect.right)+'px';};
- profileButton.onclick=()=>{
-  if(!current?.account){signIn();return;}
-  profileMenu.togglePopover();positionProfile();
- };
- profileMenu.addEventListener('toggle',event=>{profileButton.setAttribute('aria-expanded',String(event.newState==='open'));});
- window.addEventListener('resize',positionProfile);
- let faceId=null,facePicture=null,faceSkin=null;
- // The name the player is called, not the handle they type. state.account.name is the
- // account's own displayName, then its Minecraft name, then its username (accounts.cjs
- // publicAccount), so the username is reached only when an account carries no name at all.
- const accountName=account=>{
-  const name=account&&typeof account.name==='string'?account.name.trim():'';
-  const username=account&&typeof account.username==='string'?account.username.trim():'';
-  return name||username;
- };
-
+ // Its rows are `My Profile`, `Linked Accounts`, `Settings` and `Sign out` in the control's own
+ // order and words - the same four the website and easter.company show - and `Settings` opens
+ // site/user-settings.mjs, the panel Diana designed, whose document comes from the account
+ // service through this process. `Logout` is gone from the product: `site/web-account.mjs` and
+ // e-server both already said `Sign out`.
+ const PROFILE_ROWS=[['My Profile','myProfile'],['Linked Accounts','linkedAccounts'],['Settings','settings'],['Sign out','signOut']];
+ let accountControl=null;
+ void import('./account-control.mjs').then(({mountAccountControl})=>mountAccountControl({nav:document.querySelector('.site-header nav'),seam:accountSeam,auth:accountAuth}))
+  .then(control=>{
+   if(!control)return;
+   accountControl=control;
+   // The pill is the control's button, and its geometry is the site's: site/web.css draws
+   // `.web-mode .site-header nav .web-account-nav` and the face inside it, so the class that turns
+   // those rules on is put on the header rather than on <html> - the account dialogs live outside
+   // it, and this window styles those with its own rules.
+   document.querySelector('.site-header')?.classList.add('web-mode');
+   // The window keeps its own class on the pill too, so the launcher's header rules and every
+   // journey's selector still find the one account control there is.
+   control.account.classList.add('desktop-account-nav');
+   // `data-profile-action` is how the window's own lock and its journeys read a row, and it is
+   // the only vocabulary this file adds to the control's menu. The words stay the control's.
+   for(const [label,key] of PROFILE_ROWS){
+    const row=[...control.menu.querySelectorAll('button')].find(node=>node.textContent===label);
+    if(row)row.dataset.profileAction=key;
+   }
+   if(current)renderProfile(current);
+  })
+  .catch(report);
  function renderProfile(state){
-  const account=state.account,name=account?accountName(account):'';
-  // Owen's report of 2026-10-19: the header showed the username where it should show the
-  // name. The name leads and the username is only the fallback for an account with none.
-  profileButton.hidden=false;profileName.textContent=account?(name||'Account'):'Sign in';face.hidden=!account;
-  profileButton.setAttribute('aria-haspopup',account?'true':'dialog');
-  profileButton.setAttribute('aria-label',account?'Account: '+name:'Sign in');
-  // The account view names the player, then the handle they sign in with. The Company ID
-  // stays an internal handle for switching accounts and is never a label here.
-  const username=typeof account?.username==='string'?account.username.trim():'';
-  accountNameNode.textContent=name;
-  accountNameNode.hidden=!name;
-  // The second line is the bare username - the handle they sign in with, with no prefix
-  // (Owen, 2026-10-22). It is hidden when the account has no username to name, and when the
-  // account's name *is* its username, because then the line above already says it.
-  const signIn=Boolean(username)&&username!==name;
-  accountSignInNode.textContent=signIn?username:'';
-  accountSignInNode.hidden=!signIn;
-  // The three entries are the whole menu and none of them is conditional: Logout is the third
-  // in every signed-in state. What the lock decides is whether they can be pressed - the same
-  // answer for all three, from the one list in this file (*The account lock* above) - and the
-  // menu is not painted at all for an account that is not signed in.
+  // The menu, its identity pair and its rows belong to the shared control: it paints itself from
+  // this seam on every broadcast. What stays the window's is the LOCK - the control knows nothing
+  // about installing or playing, and the launcher gates every account row on both phases (*The
+  // account lock* above) - so the same answer is applied to the rows it drew.
+  accountSeam.publish(state);
   const locked=accountLocked(state);
-  for(const button of profileMenu.querySelectorAll('[data-profile-action]'))button.disabled=locked;
-  // My Profile and Linked Accounts are the two account surfaces, and the lock reaches both: their
-  // own controls are disabled by the same answer, not by a disabled opener and a modal dialog
-  // (site/company-profile.mjs holds no list of phases of its own). Only that answer is passed on,
-  // so a broadcast cannot rebuild a control the player is using.
-  myProfileView?.syncLock();
-  linkedAccountsView?.syncLock();
-
-  if(!account){if(profileMenu.matches(':popover-open'))profileMenu.hidePopover();return;}
-  // ---- The player's face -----------------------------------------------------
-  // Precedence, in Owen's order: the picture they uploaded, then the head of the Minecraft
-  // skin their linked Microsoft account owns, then the initial tile. state.profile.skin is
-  // already the whole skin PNG as a data URL - the main process loads it - so this is canvas
-  // work only and the renderer makes no request of its own. A password sign-in holds no
-  // Microsoft session and therefore no profile, so main publishes the same head from the
-  // account's own Minecraft uuid instead (doc/launcher-states.md, "A password sign-in still
-  // knows the account is linked"), and the canvas draws it exactly the same way.
-  const picture=typeof account.picture==='string'?account.picture:'';
-  const sessionSkin=account.microsoftLinked&&typeof state.profile?.skin==='string'&&state.profile.skin.startsWith('data:image/png;base64,')?state.profile.skin:'';
-  const accountHead=account.microsoftLinked&&typeof state.minecraftHead==='string'&&state.minecraftHead.startsWith('data:image/png;base64,')?state.minecraftHead:'';
-  const skin=sessionSkin||accountHead;
-  // The work is skipped when nothing that decides the face has changed. The skin string is
-  // the same instance across broadcasts, so this is a reference comparison in the common case.
-  if(account.id===faceId&&picture===facePicture&&skin===faceSkin)return;
-  faceId=account.id;facePicture=picture;faceSkin=skin;
-  const stillCurrent=()=>faceId===account.id&&facePicture===picture&&faceSkin===skin;
-  const ctx=face.getContext('2d');
-  ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;
-  if(!picture&&!skin){
-   // The last resort: the teal tile with the first letter of the name.
-   ctx.fillStyle='#536b66';ctx.fillRect(0,0,32,32);ctx.fillStyle='#eedbb2';ctx.font='bold 20px sans-serif';ctx.textAlign='center';
-   ctx.fillText((name||'?').slice(0,1).toUpperCase(),16,24);
-   return;
-  }
-  if(picture&&(picture.startsWith('data:image/png;base64,')||picture.startsWith('https://'))){
-   const image=new Image();
-   image.onload=()=>{if(!stillCurrent())return;ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;ctx.drawImage(image,0,0,32,32);};
-   image.src=picture;
-   return;
-  }
-  // The Minecraft head: the 8x8 face at 8,8 and the 8x8 hat overlay at 40,8, each drawn
-  // nearest-neighbour into the 32px canvas with the hat over the face, which is how the
-  // game itself renders a player's head.
-  const image=new Image();
-  image.onload=()=>{if(!stillCurrent())return;ctx.clearRect(0,0,32,32);ctx.imageSmoothingEnabled=false;
-   ctx.drawImage(image,8,8,8,8,0,0,32,32);ctx.drawImage(image,40,8,8,8,0,0,32,32);};
-  image.src=skin;
+  for(const button of accountControl?.menu?.querySelectorAll('button')||[])button.disabled=locked;
+  // The pill's own state is the window's, and it is what it always was: a click is always offered,
+  // and what the lock gates is the rows behind it (and, through the seam, the account dialogs).
+  // The control disables its button while the `accountWorking` field it is given is true, and that
+  // field carries this launcher's lock for the dialogs' sake - so it is put back after the control
+  // has painted, and the answered click is refused by the dialog's own lock instead.
+  if(accountControl)accountControl.account.disabled=false;
  }
-
  barPrimary.onclick=()=>heroAction();
  barToggle.onclick=()=>{minimised=!minimised;writeMinimised(minimised);renderBar(current||{});if(!minimised)barToggle.focus();};
  pauseButton.onclick=()=>{if(typeof pauseTransfer==='function')void Promise.resolve(pauseTransfer()).catch(report);};

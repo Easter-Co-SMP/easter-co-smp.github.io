@@ -296,7 +296,7 @@ try{
  await page.locator('.desktop-advanced summary').click();await shot('settings-advanced');
  await page.keyboard.press('Escape');
  await page.locator('.desktop-account-nav').click();await shot('profile');
- assert.deepEqual(await page.locator('.desktop-profile-menu [data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.textContent)),['My Profile','Linked Accounts','Logout'],'the menu is the three entries Owen named, in his order');
+ assert.deepEqual(await page.locator('.desktop-profile-menu [data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.textContent)),['My Profile','Linked Accounts','Settings','Sign out'],'the menu is the three entries Owen named, in his order');
  for(const action of await page.locator('[data-profile-action]:visible').all())assert(await action.isDisabled(),'account changes disabled while game runs');
  // The verified emails live inside My Profile now, and their section lists what the account
  // service reports. Both are refused while the game runs, like every other account change: the

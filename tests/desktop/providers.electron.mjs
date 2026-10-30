@@ -30,7 +30,7 @@ try{
  // for that flip, which is also the assertion that the header ever went back to signing in.
  const logout=async()=>{
   await page.locator('.desktop-account-nav').click();
-  await page.getByRole('button',{name:'Logout',exact:true}).click();
+  await page.getByRole('button',{name:'Sign out',exact:true}).click();
   const signIn=page.locator('.desktop-account-nav').filter({hasText:'Sign in'});
   await signIn.waitFor();
   await signIn.click();
@@ -98,7 +98,7 @@ try{
  // The account view keeps the username as the secondary sign-in line, so signing in with it
  // still shows which handle the player typed.
  await page.locator('.desktop-account-nav').click();
- assert.equal(await page.locator('.desktop-profile-heading.desktop-account .desktop-account-signin').innerText(),name,'the account view prints the bare username under the display name, with no prefix (Owen, 2026-10-22)');
+ assert.equal(await page.locator('.web-account-identity .web-account-identity-username').innerText(),name,'the account view prints the bare username under the display name, with no prefix (Owen, 2026-10-22)');
  await page.keyboard.press('Escape');
  // Signing up and signing in are one flow: the button that created this account has to put a
  // returning player back into it, with no second account and no setup step asked twice. The

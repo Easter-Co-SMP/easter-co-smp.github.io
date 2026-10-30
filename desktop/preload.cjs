@@ -30,7 +30,13 @@ contextBridge.exposeInMainWorld('easterDesktop',Object.freeze({
  // answers with the whole result because a refusal carries its own code and sentence.
  profileEmails:invoke('profile-emails'),selectLoginEmail:invokeResult('login-email'),
  accountProviders:invoke('account-providers'),signInProvider:invokeResult('provider-sign-in'),updateProfile:invokeResult('profile-update'),setProfilePicture:invokeResult('profile-picture'),
- signOut:invoke('sign-out'),play:invoke('play'),saveSettings:invoke('settings'),
+ signOut:invoke('sign-out'),play:invoke('play'),
+ // `saveSettings` is the GAME's own options - memory, java, launch behaviour - and stays that.
+ // The three below are the ACCOUNT's settings document (language, theme, chat keys, editor), which
+ // site/user-settings.mjs draws: same bridge shape, a different document, and a different word.
+ accountSettings:invokeResult('account-settings'),saveAccountSettings:invokeResult('account-settings-save'),
+ accountSettingsLanguages:invoke('account-settings-languages'),
+ saveSettings:invoke('settings'),
  // Owen's own control, in his own words: "Exit Game", the backup force-quit. It is local process
  // control and nothing else — the main process signals the client this launcher started, or the one
  // it adopted from its own marker — so it takes no argument, needs no account, and its answer says

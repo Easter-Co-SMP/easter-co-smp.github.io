@@ -196,43 +196,44 @@ test('the renderer only ever sees a name, a username and roles',async()=>{
  assert.equal(publicAccount(null),null);
 });
 
-test('the header account button reads name then face, because the launcher puts it on the right',()=>{
+test('the header account control reads name then face, because the launcher puts it on the right',()=>{
  // THE ORDER MIRRORS THE SIDE THE CONTROL SITS ON (Owen, 2026-10-27): "[IMG NAME] on
  // e-server (button on left hand side) and [NAME IMG] on the launcher (button on right
- // hand side)". The launcher's is the last child of the header's own nav, so it is the
- // right-hand control and keeps name-then-face; e-server's identical pill lives in
- // .topbar-left and reads face-then-name (api/page_utils.py profile_menu(), pinned in
- // that repository's tests/test_company_providers.py and measured in a browser by
- // tests/linked_accounts_browser.mjs). Neither half may drift while the other moves, and
- // this test is the launcher's half.
+ // hand side)". e-server's identical pill lives in .topbar-left and reads face-then-name
+ // (api/page_utils.py profile_menu(), pinned in that repository's tests and measured in a browser
+ // by tests/linked_accounts_browser.mjs). Every right-hand surface in this repository reads
+ // name-then-face, and since 2026-10-30 they all read it from ONE builder.
  //
- // Read as source, not driven in a DOM, on purpose: the button is built by the one
- // statement below inside site/desktop.js's launcher IIFE, whose DOM cannot exist until
- // an Electron renderer has booted with a full launcher state contract. A fake DOM
- // standing in for 1300 lines of that would be a stub that passes while the real builder
- // breaks, so the assertion pins the builder itself — and it fails loudly if the builder
- // is ever rewritten, which is exactly when someone must re-read this rule.
- const source=readRepo('site/desktop.js');
- // The two nodes: the name is a <span>, the face is a 32px <canvas>.
- assert.match(source,/const profileName=document\.createElement\('span'\),face=document\.createElement\('canvas'\);face\.width=32;face\.height=32/,
-              'the launcher header button is a name span and a 32px face canvas');
- assert.match(source,/profileButton\.className='desktop-account-nav'/,
-              'and that button is .desktop-account-nav, the launcher app\'s own header control');
- const built=source.match(/profileButton\.append\(([^)]*)\)/);
- assert.ok(built,'site/desktop.js builds the header button with profileButton.append(...)');
- // append() inserts child nodes in argument order, so the arguments ARE the order the
- // button draws: [NAME][FACE].
- const order=built[1].split(',').map(part=>part.trim());
- assert.deepEqual(order,['profileName','face'],
+ // WHAT CHANGED HERE AND WHY. This test used to pin site/desktop.js's own pill: a name span and a
+ // 32px canvas face, built beside a second account menu that had its own three rows. Launcher
+ // 1.0.52 shipped that menu while the site had already moved to the shared control's identity pair
+ // and Settings row, so the window now MOUNTS site/account-control.mjs, and the order this file
+ // asserts is the shared builder's. Read as source for the same reason as before: the DOM cannot
+ // exist until an Electron renderer has booted with a full launcher state contract.
+ const control=readRepo('site/account-control.mjs');
+ const built=control.match(/account\.append\(([^)]*)\)/);
+ assert.ok(built,'site/account-control.mjs builds the header control with account.append(...)');
+ // append() inserts child nodes in argument order, so the arguments ARE the order it draws:
+ // [NAME][FACE] on the right-hand surfaces, which are the launcher's window and the site.
+ assert.deepEqual(built[1].split(',').map(part=>part.trim()),['name','face'],
                   'the right-hand control reads name then face: [NAME][IMG]');
- // The name is what carries the text later, so the order cannot be cosmetic.
- assert.match(source,/profileName\.textContent=account\?\(name\|\|'Account'\):'Sign in'/,
-              'the span in that first position is the one the account name is written into');
- // site/web.js's .web-account-nav is the WEBSITE's control in a browser, not the
- // launcher's header, and is deliberately not asserted here: Owen's rule is about the two
- // app surfaces, and this file's rule stays inside this repository.
- assert.equal(readRepo('site/web.js').includes('desktop-account-nav'),false,
-              'the launcher header control is built in site/desktop.js alone');
+ assert.match(control,/const identity=doc\.createElement\('div'\);identity\.className='web-account-identity'/,
+              'and the menu leads with the identity pair the window shows too');
+ assert.match(control,/action\('Sign out'/,'signing out is the control\'s own row, and the word is Sign out');
+ assert.equal(/action\('Logout'/.test(control),false,'no surface of this product says Logout');
+ // The window mounts it, and draws no account pill or menu of its own any more.
+ const window=readRepo('site/desktop.js');
+ assert.match(window,/mountAccountControl\(\{nav:document\.querySelector\('\.site-header nav'\),seam:accountSeam,auth:accountAuth\}\)/,
+              'site/desktop.js mounts the shared control, with this window\'s chooser instance');
+ assert.equal(window.includes("desktop-profile-heading"),false,
+              'and the window no longer builds an identity heading of its own');
+ assert.equal(/\['Logout',/.test(window),false,'nor a Logout row');
+ // The class the window adds is the one its own header rules and every journey read, and the seam
+ // it hands over is the desktop bridge's - never a token.
+ assert.match(window,/control\.account\.classList\.add\('desktop-account-nav'\)/,
+              'the mounted control carries the launcher\'s own class');
+ assert.match(window,/settingsRead:\(\)=>desktop\.accountSettings\(\)/,
+              'the account settings document is read through the bridge, not by the renderer');
 });
 
 test('profile-less Company identity has a stable ID and keeps provider binding private',()=>{

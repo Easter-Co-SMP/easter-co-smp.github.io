@@ -2002,6 +2002,22 @@ function foldUsername(value){
   try{return await accounts.emails(company.token);}
   catch(error){await sessionLost(error);throw error;}
  }
+ // The account's settings document, read and written for the panel in the window. Both require a
+ // live Company session and neither accepts one from the renderer: `company` is this process's own,
+ // it is the only place a token lives, and a 401 ends the session through sessionLost() the same way
+ // every other account read does.
+ async function accountSettings(){
+  if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
+  try{return await accounts.settings(company.token);}
+  catch(error){await sessionLost(error);throw error;}
+ }
+ async function writeAccountSettings(document,revision,onWait){
+  if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
+  if(!document||typeof document!=='object')throw Error('The settings document was not readable.');
+  if(revision!==null&&revision!==undefined&&!Number.isSafeInteger(revision))throw Error('The settings revision was not readable.');
+  try{return await accounts.saveSettings(company.token,document,revision??null,undefined,onWait);}
+  catch(error){await sessionLost(error);throw error;}
+ }
  async function selectLoginEmail(email,onWait){
   if(!company)throw new AccountError('invalid_session',ACCOUNT_MESSAGES.invalid_session);
   if(email!==null&&typeof email!=='string')throw Error('Choose one of your verified emails.');
@@ -2027,6 +2043,18 @@ function foldUsername(value){
   catch(error){await sessionLost(error);throw error;}
  }
  handle('profile-emails',()=>withActivity('account-working',verifiedEmails,{replace:false,scope:'surface'}));
+ // ---- The account's settings document -----------------------------------------
+ // ONE DOCUMENT, EVERY SURFACE (site/user-settings.mjs draws it; the website and easter.company
+ // mount the same panel). Three commands and no fourth: the document, one compare-and-set write,
+ // and the picker's catalogue. The Company session never leaves this process - the renderer asks
+ // for a document, never for a token - and no field of either answer is invented here:
+ // desktop/accounts.cjs carries the routes and the shapes, and answers a lost revision race with
+ // the document that IS stored rather than an exception, so the panel can say the save did not
+ // happen and keep every draft. A read and a write are reported in the dialog that started them
+ // (`scope: 'surface'`), exactly as the verified-email reads beside them are.
+ handle('account-settings',()=>withActivity('account-working',accountSettings,{replace:false,scope:'surface'}));
+ handle('account-settings-save',(document,revision)=>withActivity('account-working',update=>writeAccountSettings(document,revision,update),{replace:false,scope:'surface'}));
+ handle('account-settings-languages',()=>withActivity('account-working',()=>accounts.settingsLanguages(),{replace:false,scope:'surface'}));
  handle('login-email',email=>withActivity('account-working',update=>selectLoginEmail(email,update),{replace:false,scope:'surface'}));
  handle('open-minecraft-store',()=>shell.openExternal('https://www.minecraft.net/en-us/store/minecraft-java-bedrock-edition-pc'));
  handle('open-minecraft-profile',()=>shell.openExternal('https://www.minecraft.net/en-us/msaprofile'));

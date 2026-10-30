@@ -932,8 +932,8 @@ try{
    // Owen's report of 2026-10-19: the header showed the username where the display name
    // belongs. The name he is called leads in both places, and the username is kept as the
    // sign-in identifier rather than as the label.
-   assert.equal((await launcherPage.locator('.desktop-account-nav').innerText()).trim(),'Captain Owen','the header shows the display name, not the username');
-   const headed=await profileMenu.locator('.desktop-account').textContent();
+   assert.equal((await launcherPage.locator('.desktop-account-nav .web-account-name').textContent()).trim(),'Captain Owen','the header shows the display name, not the username');
+   const headed=await profileMenu.locator('.web-account-identity').textContent();
    assert(headed.startsWith('Captain Owen'),'the display name leads the account menu: '+headed);
    assert.equal(headed.trim(),'Captain Owencaptain_owen','and the bare username follows it on its own line, with no prefix (Owen, 2026-10-22): '+headed);
    assert(!headed.includes('Signs in as'),'the "Signs in as " prefix is gone: '+headed);
@@ -943,11 +943,11 @@ try{
    // Xbox status line leaves it — that state belongs to the provider rows on Linked Accounts —
    // and so does the login-email line, because the menu prints no address and no sentence about
    // one. What is left is read by what the player presses.
-   assert.deepEqual(await profileMenu.locator('[data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.textContent)),['My Profile','Linked Accounts','Logout'],'the menu offers exactly My Profile, Linked Accounts and Logout, in that order');
-   assert.deepEqual(await profileMenu.locator('[data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.dataset.profileAction)),['myProfile','linkedAccounts','logout'],'on the keys the menu is read by');
+   assert.deepEqual(await profileMenu.locator('[data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.textContent)),['My Profile','Linked Accounts','Settings','Sign out'],'the menu offers exactly My Profile, Linked Accounts, Settings and Sign out, in that order');
+   assert.deepEqual(await profileMenu.locator('[data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.dataset.profileAction)),['myProfile','linkedAccounts','settings','signOut'],'on the keys the menu is read by');
    assert.equal(await profileMenu.locator('.desktop-company').count(),0,'the menu carries no Microsoft / Xbox status line');
    assert.equal(await profileMenu.locator('.desktop-profile-heading.desktop-email').count(),0,'and no login-email line');
-   assert.equal(await profileMenu.getByRole('button',{name:'Sign out of Easter Company',exact:true}).count(),0,'one primary Logout action');
+   assert.equal(await profileMenu.getByRole('button',{name:'Sign out of Easter Company',exact:true}).count(),0,'one primary sign-out action');
    // Owen, 2026-10-23, with the dropdown open: "when we open the profile dropdown there's a
    // 'Contacting account service...' line which flashes up and disappears, i think it's left over
    // from something else, just remove that element." That line was this menu's own copy of a
@@ -970,7 +970,7 @@ try{
    assert.equal(quietMenu.waitLines,0,'a surface-scoped account read paints no waiting line in the menu at all');
    assert(!/Contacting the account service/.test(quietMenu.text),'and no such sentence: '+quietMenu.text);
    assert.equal(quietMenu.liveRegions,0,'with no live region and no empty slot left behind for one');
-   assert.deepEqual(quietMenu.children,['desktop-profile-heading desktop-account','myProfile','linkedAccounts','logout'],'the menu is the two-line heading and the three entries and nothing else: '+JSON.stringify(quietMenu.children));
+   assert.deepEqual(quietMenu.children,['web-account-identity','web-account-menu-rule','web-account-notice','myProfile','linkedAccounts','settings','signOut'],'the menu is the two-line identity block, its rule and the four entries and nothing else: '+JSON.stringify(quietMenu.children));
    assert.equal(await launcherPage.locator('.desktop-activity').isVisible(),false,'and the hero says nothing about work it did not start');
    // The hero's half of the split, kept exactly as it was: a hero-scoped activity still paints the
    // hero, and the menu stays as quiet about it as it was about the surface-scoped one.

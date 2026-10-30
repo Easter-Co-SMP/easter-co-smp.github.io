@@ -47,8 +47,8 @@ try{
  assert.equal('accounts' in state,false,'the state carries no account list; the one signed-in account is state.account');
  await page.locator('.desktop-account-nav').click();const menu=await page.locator('.desktop-profile-menu').textContent();assert(menu.includes(username),'the account view names the username');assert(!menu.includes('EC-'),'and shows no Company ID');
  // Owen's menu of 2026-10-22: the name, the bare username, and My Profile / Linked Accounts /
- // Logout. Nothing else, and no address anywhere in it.
- assert.deepEqual(await page.locator('.desktop-profile-menu [data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.textContent)),['My Profile','Linked Accounts','Logout'],'the menu is the three entries Owen named, in his order');
+ // Settings and Sign out. Nothing else, and no address anywhere in it.
+ assert.deepEqual(await page.locator('.desktop-profile-menu [data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.textContent)),['My Profile','Linked Accounts','Settings','Sign out'],'the menu is the three entries Owen named, in his order');
  assert(!menu.includes('@example.com'),'and the menu prints no address: '+menu.replace(/\n/g,' | '));
  assert.equal(await page.locator('.desktop-profile-menu .desktop-profile-heading.desktop-company').count(),0,'the menu carries no Microsoft / Xbox status line any more');
  // The verified email the account service read from Microsoft, and the choice of which

@@ -224,7 +224,7 @@ try{
  // no address and no sentence about one: the account service still records which address signs
  // this account in, and My Profile's own section is where it is read, on purpose. The entries
  // are read by their own keys, in Owen's order.
- assert.deepEqual(await page.locator('.desktop-profile-menu [data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.dataset.profileAction)),['myProfile','linkedAccounts','logout'],'the menu is My Profile, Linked Accounts and Logout, in that order');
+ assert.deepEqual(await page.locator('.desktop-profile-menu [data-profile-action]').evaluateAll(buttons=>buttons.map(button=>button.dataset.profileAction)),['myProfile','linkedAccounts','settings','signOut'],'the menu is My Profile, Linked Accounts, Settings and Sign out, in that order');
  const noAddressLine=async()=>{
   assert.equal(await page.locator('.desktop-profile-menu .desktop-profile-heading.desktop-email').count(),0,'the profile menu has no login-email line to print an address in');
   assert(!(await page.locator('.desktop-profile-menu').innerText()).includes('@'),'and no address is anywhere in the menu');

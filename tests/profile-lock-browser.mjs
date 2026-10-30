@@ -15,9 +15,9 @@
 // made to deliver reaches `signOutMinecraft`. The lock itself is proved on the controls that
 // remain - Connect, and My Profile's own list - exactly as before.
 //
-// The menu is Owen's of 2026-10-22 - My Profile, Linked Accounts, Logout - and the three
+// The menu is the shared control's - My Profile, Linked Accounts, Settings, Sign out - and the four
 // surfaces behind it answer to the same lock: this journey reads the entries by
-// data-profile-action, and Logout is asserted present in every state because it is the one entry
+// data-profile-action, and Sign out is asserted present in every state because it is the one entry
 // a signed-in account must never lose.
 //
 // This drives the real site/desktop.js and site/company-profile.mjs through a stub of the
@@ -103,18 +103,18 @@ try{
  await menu.waitFor({state:'visible'});
  const menuEntries=()=>page.evaluate(()=>[...document.querySelectorAll('.desktop-profile-menu [data-profile-action]')].map(button=>({action:button.dataset.profileAction,disabled:button.disabled,hidden:button.hidden})));
  const idleMenu=await menuEntries();
- assert.deepEqual(idleMenu.map(entry=>entry.action),['myProfile','linkedAccounts','logout'],'the account menu is the three actions Owen named, in his order: My Profile, Linked Accounts, Logout');
- assert(idleMenu.every(entry=>!entry.hidden),'every account action is offered while the launcher is idle, Logout included');
+ assert.deepEqual(idleMenu.map(entry=>entry.action),['myProfile','linkedAccounts','settings','signOut'],'the account menu is the four actions the shared control draws, in its order: My Profile, Linked Accounts, Settings, Sign out');
+ assert(idleMenu.every(entry=>!entry.hidden),'every account action is offered while the launcher is idle, Sign out included');
  assert(idleMenu.every(entry=>entry.disabled===false),'an idle launcher leaves the account controls usable: '+JSON.stringify(idleMenu));
  for(const phase of LOCKED){
   await pushState({phase});
   await page.waitForFunction(()=>[...document.querySelectorAll('.desktop-profile-menu [data-profile-action]')].every(button=>button.disabled));
   const entries=await menuEntries();
   assert(entries.every(entry=>entry.disabled===true),'phase '+phase+' disables every account action: '+JSON.stringify(entries));
-  assert.deepEqual(entries.map(entry=>entry.action),['myProfile','linkedAccounts','logout'],'and the whole account menu is still the three actions at '+phase);
-  assert(entries.every(entry=>!entry.hidden),'and Logout is still offered - present, and only disabled - at '+phase);
+  assert.deepEqual(entries.map(entry=>entry.action),['myProfile','linkedAccounts','settings','signOut'],'and the whole account menu is still the three actions at '+phase);
+  assert(entries.every(entry=>!entry.hidden),'and Sign out is still offered - present, and only disabled - at '+phase);
  }
- note('signing-in, refreshing, launching, running and starting-game each disable the whole profile menu, with Logout present in every one of them; the server wake is locked like every other launch state');
+ note('signing-in, refreshing, launching, running and starting-game each disable the whole profile menu, with Sign out present in every one of them; the server wake is locked like every other launch state');
  for(const phase of UNLOCKED){
   await pushState({phase});
   await page.waitForFunction(()=>[...document.querySelectorAll('.desktop-profile-menu [data-profile-action]')].every(button=>button.disabled===false));
@@ -279,7 +279,7 @@ try{
  await linked.locator('.dialog-close').click();
  await linked.waitFor({state:'detached'});
  assert.deepEqual(errors,[],'the account lock raises no page error');
- console.log(`PROFILE LOCK PASS: ${notes.length} checks — the account lock is one named list in site/desktop.js that includes starting-game, the server wake, and both account dialogs ask the launcher for it instead of carrying a copy: the three menu entries (My Profile, Linked Accounts, Logout, with Logout present in every state) and the controls inside My Profile and Linked Accounts are disabled during signing-in, refreshing, launching, starting-game and running, a forced name save, password change, picture change, emails read or Connect is refused while locked, both surfaces come back when the launcher is idle, and Linked Accounts draws no Minecraft session section, no "Sign out of Minecraft everywhere" control and no control of any kind that would unlink, disconnect or remove a provider — in any of those states, even while the launcher reports a stored session — with the four provider rows offering Connect only where there is no link, and its settled text pinned character for character to today's copy. Screenshots: ${images}`);
+ console.log(`PROFILE LOCK PASS: ${notes.length} checks — the account lock is one named list in site/desktop.js that includes starting-game, the server wake, and both account dialogs ask the launcher for it instead of carrying a copy: the four menu entries (My Profile, Linked Accounts, Settings, Sign out, with Sign out present in every state) and the controls inside My Profile and Linked Accounts are disabled during signing-in, refreshing, launching, starting-game and running, a forced name save, password change, picture change, emails read or Connect is refused while locked, both surfaces come back when the launcher is idle, and Linked Accounts draws no Minecraft session section, no "Sign out of Minecraft everywhere" control and no control of any kind that would unlink, disconnect or remove a provider — in any of those states, even while the launcher reports a stored session — with the four provider rows offering Connect only where there is no link, and its settled text pinned character for character to today's copy. Screenshots: ${images}`);
 }finally{
  await browser.close();
 }

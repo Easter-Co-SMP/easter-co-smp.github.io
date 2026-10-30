@@ -262,7 +262,7 @@ try{
   }
   await page.screenshot({path:'/tmp/easter-desktop-launcher.png'});
   await page.locator('.desktop-account-nav').click();
-  await page.getByRole('button',{name:'Logout',exact:true}).click();
+  await page.getByRole('button',{name:'Sign out',exact:true}).click();
   await page.locator('[data-desktop-play][data-action=signin]').waitFor();
   assert.equal(await page.locator('.desktop-account-nav').textContent(),'Sign in');
  });

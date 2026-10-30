@@ -192,7 +192,7 @@ try{
  // click: account===null at 64 ms, header read "Sign in" at 676 ms, ~611 ms of the gone
  // account on offer). Held open, the window cannot be "unlikely": it would be six seconds wide.
  held.logout.holdMs=LOGOUT_HOLD_MS;
- await page.getByRole('button',{name:'Logout',exact:true}).click();
+ await page.getByRole('button',{name:'Sign out',exact:true}).click();
  await page.waitForFunction(async()=>(await window.easterDesktop.status()).account===null,null,{timeout:15000});
  const signedOut=await page.evaluate(async()=>{
   const nav=document.querySelector('.desktop-account-nav'),menu=document.querySelector('.desktop-profile-menu');
@@ -212,7 +212,7 @@ try{
  const clicked=await page.evaluate(()=>{
   const menu=document.querySelector('.desktop-profile-menu'),button=document.querySelector('#desktop-company-signin .company-microsoft');
   const box=button?.getBoundingClientRect();
-  return {menuOpen:Boolean(menu?.matches(':popover-open')),heading:(menu?.querySelector('.desktop-account-name')?.textContent||'').trim(),
+  return {menuOpen:Boolean(menu?.matches(':popover-open')),heading:(menu?.querySelector('.web-account-identity-name')?.textContent||'').trim(),
    chooserOpen:Boolean(document.querySelector('#desktop-company-signin')?.open),button:box?{w:Math.round(box.width),h:Math.round(box.height)}:null};
  });
  assert.equal(held.logout.released.length,0,'the click lands inside the held logout too, not after it');
