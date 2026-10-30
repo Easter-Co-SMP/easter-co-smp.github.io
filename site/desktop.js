@@ -79,8 +79,18 @@
    if(!account)return null;
    // The skin the control crops from: the account document's own texture first, then the whole
    // skin this launch already holds from the Microsoft session.
-   const skin=png(account.skin)||(account.microsoftLinked?png(state.profile?.skin):null);
-   return {...account,skin,picture:png(account.picture)||(!skin?png(state.minecraftHead):null)};
+   // The texture the control crops the head out of, in the precedence this window has always
+   // used: the account document's own skin, then the whole skin of this launch's Microsoft
+   // session, then the head main fetched for a password-signed account (which it publishes as a
+   // texture of its own). A picture the player uploaded wins over all three, which is the
+   // control's own order and unchanged.
+   const skin=png(account.skin)||(account.microsoftLinked?(png(state.profile?.skin)||png(state.minecraftHead)):null);
+   // The name the identity pair leads with: the account's own display name, then the handle it
+   // signs in with. An account that carries no name at all (an older main process) reads as its
+   // username - which also keeps the second line from repeating the first, the rule the window has
+   // followed since 2026-10-22.
+   const name=typeof account.name==='string'&&account.name.trim()?account.name:(account.username||'');
+   return {...account,name,skin,picture:png(account.picture)};
   };
   const publish=state=>{
    shown={account:shownAccount(state),accountWorking:accountLocked(state),startupReady:true,activity:state?.activity||null};
@@ -1254,7 +1264,21 @@ signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close s
   // The control disables its button while the `accountWorking` field it is given is true, and that
   // field carries this launcher's lock for the dialogs' sake - so it is put back after the control
   // has painted, and the answered click is refused by the dialog's own lock instead.
-  if(accountControl)accountControl.account.disabled=false;
+  const pill=accountControl?.account;
+  if(pill){
+   // The pill is always offered, and its accessible name is the window's own sentence, as it has
+   // been since 2026-10-19: the control's default ("Account options") names the control, while a
+   // screen-reader user of this app is told whose account is behind it.
+   pill.disabled=false;
+   const held=accountSeam.getState().account;
+   pill.setAttribute('aria-label',held?'Account: '+(held.name||held.username||'Account'):'Sign in');
+   // The pill names the player, including while their account still needs a username and password
+   // (the setup dialog is up in front of it). The control's own word for that state is "Finish
+   // setup", which is right for a website pill that is the only way in and wrong for this window:
+   // Owen's rule of 2026-10-19 is that the header shows the name the player is called.
+   const shownName=held?(held.name||held.username||''): '';
+   pill.querySelector('.web-account-name').textContent=shownName||(held?'Account':'Sign in');
+  }
  }
  barPrimary.onclick=()=>heroAction();
  barToggle.onclick=()=>{minimised=!minimised;writeMinimised(minimised);renderBar(current||{});if(!minimised)barToggle.focus();};

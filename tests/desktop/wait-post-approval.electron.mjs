@@ -170,7 +170,7 @@ try{
  assert.equal(signed.signInPage,null,'and nothing says a sign-in page is open once it is finished');
  assert.equal(signed.account.username,null,'the fixture account has no username yet, so it is asked for one');
  assert.equal(signed.account.name,'FixtureCaptain','the account the launcher signed in to is the fixture provider\'s');
- assert.equal(await page.locator('.desktop-account-nav').innerText(),'FixtureCaptain','the header shows the account name the launcher now holds');
+ assert.equal((await page.locator('.desktop-account-nav .web-account-name').textContent()).trim(),'FixtureCaptain','the header shows the account name the launcher now holds');
  assert.equal(await page.locator('.desktop-code').count()>0&&await page.locator('.desktop-code').isVisible(),false,'no code is left on screen after a completed sign-in');
  await page.screenshot({path:path.join(images,'4-signed-in.png')});
  note('the held answer completes the sign-in: dialog closed, no code, header names the account');

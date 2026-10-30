@@ -68,16 +68,34 @@ try{
    play:async()=>{record('play');}
   };
  },{skin:SKIN,picture:PICTURE});
+ await page.addInitScript(()=>{
+ // THE PILL'S FACE IS THE SHARED CONTROL'S, so these read it the way a player sees it: the
+ // control puts the account's picture - or the head it crops from the skin, or the letter tile -
+ // in a 32px slot as an <img>, and this paints whatever that slot currently holds into a 32x32
+ // canvas so the pixel assertions below stay exactly what they were. The crop behind the <img> is
+ // the same 8x8-at-8,8 plus hat-at-40,8 arithmetic this suite has always asserted.
+ window.__faceContext=()=>{
+  const slot=document.querySelector('.desktop-account-nav .web-account-face');
+  const canvas=document.createElement('canvas');canvas.width=32;canvas.height=32;
+  const context=canvas.getContext('2d');context.imageSmoothingEnabled=false;
+  const image=slot?slot.querySelector('img.web-account-picture'):null;
+  if(image&&!image.hidden&&image.complete&&image.naturalWidth){context.drawImage(image,0,0,32,32);return context;}
+  const style=getComputedStyle(slot);
+  context.fillStyle=style.backgroundColor;context.fillRect(0,0,32,32);
+  const letter=((slot&&slot.querySelector('.web-account-initial')||{}).textContent||'').trim();
+  if(letter){context.fillStyle=style.color;context.font='bold 20px sans-serif';context.textAlign='center';context.fillText(letter,16,24);}
+  return context;
+ };
+});
  await page.goto(origin);
  await page.keyboard.press('Escape');
  await page.waitForFunction(()=>window.__fixture);
 
  // Reading the face back off the header canvas, pixel by pixel.
  const facePixels=()=>page.evaluate(()=>{
-  const face=document.querySelector('.desktop-account-nav .web-account-face');
-  const context=canvas.getContext('2d');
+  const context=window.__faceContext();
   const pixels=row=>[...context.getImageData(0,row,32,1).data];
-  return {size:[canvas.width,canvas.height],row0:pixels(0),row16:pixels(16)};
+  return {size:[32,32],row0:pixels(0),row16:pixels(16)};
  });
  // The pill's face is the shared control's now (a 32px slot holding the account's picture or the
  // head cropped from its skin), so these read that slot rather than the window's old canvas.
@@ -137,7 +155,7 @@ try{
  await page.evaluate(skin=>sendState({account:{id:'EC-9',username:'hannah_e',name:'Hannah Easter',roles:[],passwordRequired:false,microsoftLinked:true,picture:null},profile:{id:'skin-owner',name:'HannahMC',skin}}),SKIN);
  // The head is drawn from state.profile.skin alone: no request leaves the renderer.
  await page.waitForFunction(color=>{
-  const context=document.querySelector('.desktop-account-nav canvas').getContext('2d');
+  const context=window.__faceContext();
   const pixel=[...context.getImageData(0,0,1,1).data];
   return pixel[0]===color[0]&&pixel[1]===color[1]&&pixel[2]===color[2];
  },faceColour(8,8));
@@ -168,7 +186,7 @@ try{
  // A picture the player uploaded wins over the skin.
  await page.evaluate(picture=>sendState({account:{id:'EC-9',username:'hannah_e',name:'Hannah Easter',roles:[],passwordRequired:false,microsoftLinked:true,picture},profile:{id:'skin-owner',name:'HannahMC',skin:window.__fixture.skin}}),PICTURE);
  await page.waitForFunction(()=>{
-  const pixel=[...document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(16,16,1,1).data];
+  const pixel=[...window.__faceContext().getImageData(16,16,1,1).data];
   return pixel[0]===180&&pixel[1]===60&&pixel[2]===120;
  });
  note('an uploaded picture still wins over the skin');
@@ -177,11 +195,11 @@ try{
  // Neither a picture nor a skin: the letter tile, and only then.
  await page.evaluate(()=>sendState({account:{id:'EC-9',username:'hannah_e',name:'Hannah Easter',roles:[],passwordRequired:false,microsoftLinked:true,picture:null},profile:null}));
  await page.waitForFunction(()=>{
-  const pixel=[...document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(1,1,1,1).data];
+  const pixel=[...window.__faceContext().getImageData(1,1,1,1).data];
   return pixel[0]===83&&pixel[1]===107&&pixel[2]===102;
  });
  const tile=await page.evaluate(()=>{
-  const context=document.querySelector('.desktop-account-nav canvas').getContext('2d');
+  const context=window.__faceContext();
   const data=[...context.getImageData(0,0,32,32).data];
   // The tile is #536b66; the letter is #eedbb2. Many pixels are antialiased between them,
   // so the letter is counted as pixels clearly brighter than the tile.
@@ -197,7 +215,7 @@ try{
  await page.evaluate(skin=>sendState({account:{id:'EC-13',username:'google_user',name:'Google Player',roles:[],passwordRequired:false,microsoftLinked:false,picture:null},profile:{id:'skin-owner',name:'HannahMC',skin}}),SKIN);
  await page.waitForFunction(()=>(document.querySelector('.desktop-account-nav .web-account-name')?.textContent||'').trim()==='Google Player');
  await page.waitForFunction(()=>{
-  const pixel=[...document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(1,1,1,1).data];
+  const pixel=[...window.__faceContext().getImageData(1,1,1,1).data];
   return pixel[0]===83&&pixel[1]===107&&pixel[2]===102;
  });
  note('an account with no Microsoft link keeps the letter tile rather than borrowing a skin');
@@ -210,7 +228,7 @@ try{
  // URL and asks nobody anything, exactly as it does for state.profile.skin.
  const PASSWORD_ACCOUNT={id:'EC-30',username:'owen_e',name:'Owen Easter',minecraftName:'OwenMC',roles:[],passwordRequired:false,microsoftLinked:true,picture:null};
  const awaitingFace=async(colour,point=[0,0])=>page.waitForFunction(({colour,point})=>{
-  const pixel=[...document.querySelector('.desktop-account-nav canvas').getContext('2d').getImageData(point[0],point[1],1,1).data];
+  const pixel=[...window.__faceContext().getImageData(point[0],point[1],1,1).data];
   return pixel[0]===colour[0]&&pixel[1]===colour[1]&&pixel[2]===colour[2];
  },{colour,point});
  await page.evaluate(({account,head})=>sendState({account,profile:null,minecraftHead:head}),{account:PASSWORD_ACCOUNT,head:SKIN});

@@ -97,7 +97,7 @@ try{
  // --- The profile menu, across the whole locked set --------------------------
  const ACCOUNT={id:'EC-31',username:'owen_captain',name:'Captain Owen',roles:['crew'],passwordRequired:false,microsoftLinked:true,providers:['microsoft'],picture:null};
  await pushState({account:ACCOUNT,profile:null,phase:'ready',canPlay:true,actions:['play']});
- await page.waitForFunction(()=>document.querySelector('.desktop-account-nav').innerText.trim()==='Captain Owen');
+ await page.waitForFunction(()=>(document.querySelector('.desktop-account-nav .web-account-name')?.textContent||'').trim()==='Captain Owen');
  await page.locator('.desktop-account-nav').click();
  const menu=page.locator('.desktop-profile-menu');
  await menu.waitFor({state:'visible'});
