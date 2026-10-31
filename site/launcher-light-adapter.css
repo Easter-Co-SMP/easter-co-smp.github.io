@@ -30,7 +30,7 @@ html[data-easter-theme="light"] #wiki-topics>a,
 html[data-easter-theme="light"] .wiki-topic-group>a{color:var(--muted)}
 html[data-easter-theme="light"] .wiki-topic-group>a>svg{color:var(--muted)}
 html[data-easter-theme="light"] .wiki-topic-group>p{color:var(--muted)}
-html[data-easter-theme="light"] #wiki-topics a:hover{color:var(--ink)}
+html[data-easter-theme="light"] #wiki-topics a:not([aria-current]):hover{color:var(--ink)}
 html[data-easter-theme="light"] .wiki-sidebar-note{color:var(--gold)}
 html[data-easter-theme="light"] .wiki-sidebar-note span{color:var(--muted)}
 html[data-easter-theme="light"] .wiki-page-header h1{color:var(--ink)}
@@ -115,3 +115,13 @@ html[data-easter-theme="light"] .account-error{background:var(--danger-bg);color
 html[data-easter-theme="light"] .splash-mark-dark{display:none}
 html[data-easter-theme="light"] .splash-mark-light{display:inline-block;filter:none}
 html[data-easter-theme="light"] .signed-in-splash-mark{filter:none}
+
+/* ── The rail's current page, light only ────────────────────────────────────────────────
+   Diana, 2026-10-31: a wash alone was too close to paper, so the current item takes the gold
+   wash, gold text and a 3px inset gold stroke as a persistent non-text shape cue. The stroke
+   is a box-shadow, so padding, radius, weight and dimensions stay exactly as shipped and the
+   label cannot shift. The hook is the rail's own aria-current, which wiki.js and article.js
+   already set, never a guess from colour; hover is scoped to :not([aria-current]) so it stays
+   distinct from this state, and the site's external :focus-visible outline is untouched. */
+html[data-easter-theme="light"] #wiki-topics a[aria-current]{
+ background:var(--gold-wash);color:var(--gold);box-shadow:inset 3px 0 0 var(--gold)}

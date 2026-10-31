@@ -119,3 +119,23 @@ def test_the_mark_is_an_asset_not_a_filter():
     assert 'src="assets/ec-logo-ink.svg"' in index and "splash-mark-dark" in index
     # The base layout owns the default: dark keeps the colour artwork, alone.
     assert ".splash-mark-light{display:none}" in (SITE / "styles.css").read_text()
+
+
+def test_the_wiki_rail_marks_the_current_page_like_a_shape_not_a_guess():
+    """Diana, 2026-10-31: wash alone is too close to paper, so the current item also carries a
+    3px inset gold stroke. It must hang off the rail's own aria-current (which wiki.js and
+    article.js set) rather than a colour comparison, must not move the label, and must not
+    swallow hover or the focus outline.
+    """
+    adapter = " ".join((SITE / "launcher-light-adapter.css").read_text().split())
+    rule = ('html[data-easter-theme="light"] #wiki-topics a[aria-current]{ '
+            'background:var(--gold-wash);color:var(--gold);box-shadow:inset 3px 0 0 var(--gold)}')
+    assert rule in adapter, "the current-page state is missing or has drifted from the reviewed values"
+    # A stroke drawn as a box-shadow cannot shift the label; a border would.
+    assert "a[aria-current]{border" not in adapter
+    # Hover stays distinct from the persistent state.
+    assert ("html[data-easter-theme=\"light\"] #wiki-topics a:not([aria-current]):hover{color:var(--ink)}"
+            in adapter), "hover must be scoped away from the current page"
+    # And the marker exists in the rail's own code, not inferred from colour.
+    wiki_js = (SITE / "minecraft" / "wiki" / "wiki.js").read_text()
+    assert "aria-current" in wiki_js, "the rail no longer sets the semantic attribute this state hangs off"
