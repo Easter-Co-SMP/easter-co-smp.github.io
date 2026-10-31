@@ -62,18 +62,26 @@ def test_the_vendored_palette_is_the_designers_own_file():
     assert vendored == STUDIO.read_bytes(), "site/launcher-light.css has drifted from Diana's studio copy"
 
 
-def test_every_wiki_page_loads_the_wiki_adapter_after_the_palette():
+#: Pages whose own stylesheet the palette was not drawn against, so they need the adapter.
+ADAPTED = ("minecraft/wiki/", "account/")
+
+
+def test_every_adapted_page_loads_the_adapter_after_the_palette():
+    seen = 0
     for page in _pages():
-        if "minecraft/wiki/" not in str(page.relative_to(SITE)):
+        relative = str(page.relative_to(SITE))
+        if not relative.startswith(ADAPTED) and not relative.startswith(tuple(p.rstrip("/") + "/" for p in ADAPTED)):
             continue
+        seen += 1
         head = page.read_text().split("</head>", 1)[0]
         prefix = "../" * (len(page.relative_to(SITE).parts) - 1)
-        assert f'href="{prefix}launcher-light-wiki.css"' in head, f"{page} does not load the wiki's light adapter"
-        assert head.rindex("launcher-light-wiki.css") > head.rindex("launcher-light.css"), page
+        assert f'href="{prefix}launcher-light-adapter.css"' in head, f"{relative} does not load the light adapter"
+        assert head.rindex("launcher-light-adapter.css") > head.rindex("launcher-light.css"), relative
+    assert seen >= 14, f"expected the wiki and the account page, found {seen}"
 
 
 def test_the_light_sheets_never_repaint_the_dark_theme():
-    for sheet in ("launcher-light.css", "launcher-light-wiki.css"):
+    for sheet in ("launcher-light.css", "launcher-light-adapter.css"):
         _assert_scoped(SITE / sheet)
 
 
