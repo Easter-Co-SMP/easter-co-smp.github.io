@@ -105,15 +105,20 @@ html[data-easter-theme="light"] .company-signin input:not([type=checkbox]){
  background:var(--surface);border-color:var(--control-line);color:var(--ink)}
 html[data-easter-theme="light"] .account-error{background:var(--danger-bg);color:var(--danger)}
 
-/* ── The mark, as an asset rather than a filter ──────────────────────────────────────────
-   Diana's sheet carries a provisional rule: .signed-in-splash-mark{filter:brightness(0)},
-   which she flagged as a stand-in for "the preferred geometry-matched ink asset" because the
-   SVGs were not in her source set. They exist and share one master, so the ink cut used by
-   the corporate page (same geometry, fill #2b2b36) is vendored as assets/ec-logo-ink.svg and
-   the mark is swapped rather than flattened: the full-colour phoenix keeps its artwork in
-   dark, the ink cut carries the identity in light, and no filter touches either. */
-html[data-easter-theme="light"] .splash-mark-dark{display:none}
-html[data-easter-theme="light"] .splash-mark-light{display:inline-block;filter:none}
+/* ── The mark is the artwork, in both themes, untouched ─────────────────────────────────
+   Diana's sheet carries a provisional rule from before the SVGs were in her source set:
+
+     html[data-easter-theme="light"] .site-wordmark .wordmark-mark,
+     html[data-easter-theme="light"] .signed-in-splash-mark{filter:brightness(0)}
+
+   (site/launcher-light.css:54-55). brightness(0) drives every pixel to black, so the header
+   mark and the signed-in splash turned a detailed fire phoenix into a themed glyph. Owen,
+   2026-10-31: "it's a complex detailed fire-y phoenix icon, should not be impacted by the
+   theme at all." Her file is vendored byte for byte, so the correction is here: both marks
+   are the one full-colour asset, assets/ec-logo.svg, in both themes, with no filter, no swap
+   to a flattened cut, and no colour of their own. tests/test_launcher_light.py fails if
+   either override goes missing, or if a second mark asset reappears anywhere in site/. */
+html[data-easter-theme="light"] .site-wordmark .wordmark-mark{filter:none}
 html[data-easter-theme="light"] .signed-in-splash-mark{filter:none}
 
 /* ── The rail's current page, light only ────────────────────────────────────────────────
