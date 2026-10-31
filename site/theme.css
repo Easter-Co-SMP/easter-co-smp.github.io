@@ -1,0 +1,94 @@
+/* THE HOUSEHOLD PALETTE — THE ONE FILE A PRODUCT VENDORS.
+ *
+ * Owen, 2026-10-31: "let's use the theme and design and color pallet of launcher.easter.company
+ * (easter-co-smp.github.io) on all products and make sure it's a DRY system. we want one theme,
+ * one css, imported and re-used on all projects."
+ *
+ * This file is that one css. It holds custom properties and nothing else: no layout, no
+ * component rule, no page-specific selector. A product vendors it byte for byte, links it
+ * before its own sheets, and then paints from the properties instead of from literals.
+ *
+ * TWO THEMES, ONE PALETTE.
+ *   :root                             the dark theme, the house default
+ *   html[data-easter-theme="light"]   the light theme, from Diana's launcher-light.css
+ *
+ * The light values are Diana's own, copied declaration for declaration out of
+ * site/launcher-light.css, which is her design artefact and is vendored byte for byte by
+ * tests/test_launcher_light.py. Her file therefore still restates them for this site, and
+ * tests/test_theme_single_source.py checks that her copy and this one agree token by token:
+ * the duplication is a checked mirror, never a second source of truth.
+ *
+ * WHY --app-* IS HERE TOO. The shared account control (site/account-control.mjs) reads four
+ * host tokens — --app-panel, --app-border, --app-muted, --app-gold — and builds its own
+ * --es-* set out of them. They are palette, not component styling, so they belong with the
+ * palette. They are declared on :root so that the fallbacks the control used to carry as raw
+ * hex ("if the host says nothing, paint #10232b") are no longer needed: a surface that
+ * vendors this file always has them. .desktop-mode and .web-mode still declare the same four
+ * values in desktop.css and web.css, so the launcher app and the website resolve exactly what
+ * they resolved before.
+ *
+ * THE MODAL SCRIM PAIR. One scrim colour and one blur for every modal on every surface; the
+ * ::backdrop rules that consume them stay in the sheets that own those dialogs.
+ */
+:root{
+ color-scheme:dark;
+ --ink:#edf1e9;
+ --muted:#abb8b8;
+ --gold:#dbba79;
+ --line:#ffffff24;
+ --surface:#10232bf2;
+ --scrollbar-track:#0a1c24;
+ --scrollbar-thumb:#899b93;
+ --scrollbar-hover:#b8a67d;
+ --scrollbar-active:#dfc18a;
+ --modal-scrim:#06131bc9;
+ --modal-blur:5px;
+ --app-panel:#11252d;
+ --app-border:#ffffff24;
+ --app-muted:#a8b9b4;
+ --app-gold:#e4c486;
+ font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+ color:var(--ink);
+ background:#0d2029;
+}
+/* Diana's light palette, declaration for declaration, out of site/launcher-light.css:4-33.
+   Change a value here and her file must change with it; the gate fails until both agree. */
+html[data-easter-theme="light"]{
+ color-scheme:light;
+ --bg:#eef2f9;
+ --surface:#f8faff;
+ --panel-soft:#e5eaf2;
+ --ink:#2b2b36;
+ --muted:#515b70;
+ --gold:#805b1c;
+ --gold-hover:#694713;
+ --on-gold:#ffffff;
+ --gold-wash:#f0e6d2;
+ --line:#c7d1e0;
+ --control-line:#758299;
+ --selection:#ead7ac;
+ --danger:#9d352d;
+ --danger-bg:#f9e8e3;
+ --success:#236437;
+ --success-bg:#e5f0e8;
+ --navy:#28618a;
+ --pirate:#963f31;
+ --hunter:#805b1c;
+ --disabled-bg:#e0e5ee;
+ --disabled-ink:#515b70;
+ --hero-veil:#eef2f9f0;
+ --scrim:#28345280;
+ --shadow:#28345229;
+ --scrollbar-track:#e5eaf2;
+ --scrollbar-thumb:#758299;
+ --scrollbar-hover:#805b1c;
+ --scrollbar-active:#694713;
+ --modal-scrim:#28345280;
+ --modal-blur:5px;
+ --app-panel:var(--surface);
+ --app-border:var(--control-line);
+ --app-muted:var(--muted);
+ --app-gold:var(--gold);
+ background:var(--bg);
+ color:var(--ink);
+}

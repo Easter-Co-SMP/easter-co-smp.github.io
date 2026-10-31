@@ -1,6 +1,7 @@
 /* Browser account surfaces reuse the launcher's existing dialogs and palette.
-   No desktop-mode class: the website hero remains the download-first hero. */
-.web-mode{--app-panel:#11252d;--app-border:#ffffff24;--app-muted:#a8b9b4;--app-gold:#e4c486}
+   No desktop-mode class: the website hero remains the download-first hero.
+   The four --app-* tokens the account control reads are declared in site/theme.css now; this
+   sheet used to restate their values, and a value written twice is a value that drifts. */
 .web-mode [hidden]{display:none!important}
 .web-mode :is(button,a,input,summary):focus-visible{outline:2px solid var(--app-gold);outline-offset:3px}
 /* The account control's face: one fixed slot holding the account's picture or the tile that
