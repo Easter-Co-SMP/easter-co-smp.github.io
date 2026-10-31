@@ -1,3 +1,37 @@
+# Easter Company launcher 1.0.56
+
+## The account dialog belongs to the account control
+
+The account control is one thing on every surface - the pill, the menu, My Profile, Linked
+Accounts, the settings panel. Its dialogs, though, were styled by whichever surface happened to
+open them, so the same dialog was drawn from two different stylesheets: one in the launcher
+window, one on the website.
+
+It is drawn once now. The stylesheet that travels with the account control carries the dialog's
+own rules, so the window, the website and the corporate site all paint the same dialog from the
+same file. Nothing about the dialog's look changed in this release - it moved - and the measured
+difference across six dialogs in both themes is four values, all of them one animation's name.
+
+## One dialog box, everywhere in the product
+
+The product's own dialogs - settings, My Profile, the plan dialog, the map editor's region
+dialog, the permissions editor - each used to state their own box: one 20px radius at 640px,
+another 12px at 440px, a third at 528px, and three different shadows. Opening two of them in a
+row showed two different objects.
+
+They are one box now: one radius, one gutter, one shadow, one width, in light and in dark. It is
+measured in a browser rather than asserted in the source, so a rule that stops applying fails the
+release instead of shipping.
+
+## Smaller things
+
+- A modal's scrim and blur are one value, in both themes, on every surface. They had drifted into
+  a dozen variants, including a page whose dialog had no scrim at all.
+- The download page's install dialog has its scrim back (it lost it for part of a day).
+- The account menu answers the keyboard the way it always described itself: its rows are menu
+  items, and the pill says whether the menu is open.
+
+
 # Easter Company launcher 1.0.55
 
 ## Light mode that actually looks light
