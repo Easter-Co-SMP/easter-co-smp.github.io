@@ -1,3 +1,17 @@
+# Easter Company launcher 1.0.58
+
+The tab icon is the corporate site's icon
+
+The launcher's pages linked a six-size `favicon.ico` first, and those frames were
+rasterised on the dark page ground — so in a light browser tab strip the launcher showed a
+near-black square where easter.company showed the phoenix on its own skin.
+
+Every page now carries exactly the two icon links easter.company carries: the 64×64
+transparent artwork and the home-screen icon, both byte-identical to the corporate files.
+The `.ico` is gone, so a bare `/favicon.ico` request 404s and the browser uses the PNG —
+the same answer the corporate site gives.
+
+
 # Easter Company launcher 1.0.57
 
 The household palette is one file, and this build carries it
