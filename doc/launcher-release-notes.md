@@ -1,3 +1,20 @@
+# Easter Company launcher 1.0.54
+
+## Your theme, from the first frame
+
+The launcher's pages picked their theme only when something asked them to — the settings
+panel opening, or a save landing. So a page could open in the dark palette and switch under
+you a moment later.
+
+Now the page knows before it paints: with no account it follows your computer's own setting
+(system), and with an account it takes your saved Theme — light, dark, or system — as soon as
+the account answers, without a reload and without opening anything.
+
+## Smaller things
+
+- Nothing about the account menu changed in this release; it is the shared one from 1.0.53.
+
+
 # Easter Company launcher 1.0.53
 
 ## One account menu, in the window you actually install
