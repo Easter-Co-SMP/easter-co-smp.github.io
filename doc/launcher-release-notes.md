@@ -1,3 +1,20 @@
+# Easter Company launcher 1.0.59
+
+One theme, two moods
+
+The household palette is now one rule with two moods, and this build carries it:
+
+- dark — the maritime teal ground with the gold accent, unchanged value for value;
+- light — paper with this site's own violet accent (#6d4fd8), the one Owen pointed at
+  when he said the light mode should be the corporate theme's.
+
+`site/theme.css` owns both, the accent family is named for its role (`--ec-accent`,
+`--ec-accent-action`, `--ec-accent-hover`, `--ec-on-accent`, `--ec-accent-wash`) rather than
+for its colour, and the launcher's own sheets bind their product names to it as before.
+Diana's frozen `launcher-light.css` is untouched; the bridge still neutralises its
+provisional mark filter.
+
+
 # Easter Company launcher 1.0.58
 
 The tab icon is the corporate site's icon
