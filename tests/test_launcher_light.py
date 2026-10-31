@@ -101,24 +101,84 @@ def test_the_pre_paint_script_publishes_only_a_resolved_theme():
         "the contract resolves system before publishing; a literal 'system' has no palette")
 
 
-def test_the_mark_is_an_asset_not_a_filter():
-    """Diana's printed mark rule was provisional: a black-ink filter, pending the real asset.
+#: Every class name that addresses a logo mark. A rule matching one of these may size the
+#: artwork; it may not recolour it.
+MARK_CLASSES = (".wordmark-mark", ".signed-in-splash-mark", ".mark-for-dark", ".mark-for-light")
 
-    The two sites share one master, so the corporate page's ink cut (fill #2b2b36) is vendored
-    byte for byte and the mark is swapped instead of flattened. A filter would throw away the
-    fire phoenix's own colour, which the household's identity rules do not allow.
+#: The one asset the mark is, in both themes, on both surfaces.
+MARK_ASSET = "assets/ec-logo.svg"
+
+
+def test_the_mark_is_an_asset_not_a_filter():
+    """The phoenix is a picture of a burning bird, not a themed glyph.
+
+    Owen, 2026-10-31: "the Easter Co. phoenix icon is black in light mode, but it should not
+    be, it's a complex detailed fire-y phoenix icon, should not be impacted by the theme at
+    all." Three things recoloured it and each is held out here by name: Diana's provisional
+    filter:brightness(0) on the header mark and on the splash (site/launcher-light.css:54-55),
+    which the adapter neutralises because her sheet is vendored byte for byte; and a swap to
+    the flattened ink cut assets/ec-logo-ink.svg, which is gone from the repository.
     """
-    ink = (SITE / "assets" / "ec-logo-ink.svg").read_bytes()
-    corporate = Path("/root/eastercompany.github.io/site/assets/ec-logo-outline-light.svg")
-    assert ink == corporate.read_bytes(), "the ink mark has drifted from the corporate family's cut"
-    assert b'fill="#2b2b36"' in ink
-    adapter = (SITE / "launcher-light-adapter.css").read_text()
-    assert 'html[data-easter-theme="light"] .splash-mark-light{display:inline-block;filter:none}' in adapter
-    assert 'html[data-easter-theme="light"] .signed-in-splash-mark{filter:none}' in adapter
+    marked = 0
+    for page in _pages():
+        markup = page.read_text()
+        assert "ec-logo-ink" not in markup and "splash-mark-light" not in markup, (
+            f"{page.relative_to(SITE)} still names a theme cut of the mark")
+        mark = re.search(r'<img class="wordmark-mark" src="([^"]+)"', markup)
+        if mark is None:
+            continue  # 404.html is a standalone page with no header of its own.
+        marked += 1
+        assert mark.group(1).endswith(MARK_ASSET), (
+            f"{page.relative_to(SITE)} header mark is {mark.group(1)!r}, expected {MARK_ASSET}")
+    assert marked >= 19, f"only {marked} pages carry the wordmark's mark; expected the whole site"
+    # The signed-in splash carries the same asset once: one mark, no theme cut beside it.
     index = (SITE / "index.html").read_text()
-    assert 'src="assets/ec-logo-ink.svg"' in index and "splash-mark-dark" in index
-    # The base layout owns the default: dark keeps the colour artwork, alone.
-    assert ".splash-mark-light{display:none}" in (SITE / "styles.css").read_text()
+    splash = re.findall(r'<img class="signed-in-splash-mark[^"]*" src="([^"]+)"', index)
+    assert splash == [MARK_ASSET], f"the splash carries {splash}, expected exactly {MARK_ASSET!r}"
+    # The adapter neutralises both of the rules Diana's sheet still carries.
+    adapter = (SITE / "launcher-light-adapter.css").read_text()
+    assert 'html[data-easter-theme="light"] .site-wordmark .wordmark-mark{filter:none}' in adapter, (
+        "the header mark is left under Diana's brightness(0) filter")
+    assert 'html[data-easter-theme="light"] .signed-in-splash-mark{filter:none}' in adapter, (
+        "the splash mark is left under Diana's brightness(0) filter")
+    # Diana's own file is untouched: it still carries the provisional rule, and it is still hers.
+    vendored = (SITE / "launcher-light.css").read_text()
+    assert re.search(r'html\[data-easter-theme="light"\] \.site-wordmark \.wordmark-mark,\s*'
+                     r'html\[data-easter-theme="light"\] \.signed-in-splash-mark\{filter:brightness\(0\)\}',
+                     vendored), "the provisional rule this adapter overrides has moved or changed shape"
+    assert (SITE / "launcher-light.css").read_bytes() == STUDIO.read_bytes(), (
+        "site/launcher-light.css has drifted from Diana's studio copy")
+    # No flattened cut is left behind for a theme to swap back to.
+    assert not (SITE / "assets" / "ec-logo-ink.svg").exists()
+
+
+def test_no_stylesheet_recolours_the_mark():
+    """No filter, opacity or colour of any kind lands on a logo mark.
+
+    Diana's vendored launcher-light.css is byte-pinned, so its provisional filter rule cannot
+    be edited in place; the adapter's filter:none overrides are the correction, and the test
+    above asserts both of them by name. Every other sheet in site/ is scanned outright: a rule
+    that addresses a mark may declare `filter:none` and nothing else that touches its colour.
+    """
+    sheets = sorted(SITE.glob("*.css"))
+    assert len(sheets) >= 5, f"expected the site's stylesheets, found {[s.name for s in sheets]}"
+    for sheet in sheets:
+        if sheet.name == "launcher-light.css":
+            continue
+        body = re.sub(r"/\*.*?\*/", "", sheet.read_text(), flags=re.S)
+        for selector_list, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", body):
+            for selector in selector_list.split(","):
+                if not any(mark_class in selector for mark_class in MARK_CLASSES):
+                    continue
+                for declaration in declarations.split(";"):
+                    name, _, value = declaration.partition(":")
+                    name, value = name.strip(), value.strip()
+                    if name == "filter":
+                        assert value == "none", (
+                            f"{sheet.name}: {selector.strip()!r} filters the mark: {value!r}")
+                    else:
+                        assert name not in {"opacity", "color", "fill", "background", "mix-blend-mode"}, (
+                            f"{sheet.name}: {selector.strip()!r} paints the mark: {declaration.strip()!r}")
 
 
 def test_the_wiki_rail_marks_the_current_page_like_a_shape_not_a_guess():
