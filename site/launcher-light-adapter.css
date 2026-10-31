@@ -104,3 +104,14 @@ html[data-easter-theme="light"] .account-provider:hover{border-color:var(--gold)
 html[data-easter-theme="light"] .company-signin input:not([type=checkbox]){
  background:var(--surface);border-color:var(--control-line);color:var(--ink)}
 html[data-easter-theme="light"] .account-error{background:var(--danger-bg);color:var(--danger)}
+
+/* ── The mark, as an asset rather than a filter ──────────────────────────────────────────
+   Diana's sheet carries a provisional rule: .signed-in-splash-mark{filter:brightness(0)},
+   which she flagged as a stand-in for "the preferred geometry-matched ink asset" because the
+   SVGs were not in her source set. They exist and share one master, so the ink cut used by
+   the corporate page (same geometry, fill #2b2b36) is vendored as assets/ec-logo-ink.svg and
+   the mark is swapped rather than flattened: the full-colour phoenix keeps its artwork in
+   dark, the ink cut carries the identity in light, and no filter touches either. */
+html[data-easter-theme="light"] .splash-mark-dark{display:none}
+html[data-easter-theme="light"] .splash-mark-light{display:inline-block;filter:none}
+html[data-easter-theme="light"] .signed-in-splash-mark{filter:none}

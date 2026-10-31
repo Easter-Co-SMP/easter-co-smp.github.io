@@ -82,7 +82,8 @@ so no module can lose that race. An ordinary visit returns on the second line. *
  const arm=()=>{if(armed)return;armed=true;setTimeout(settle,900);};
  requestAnimationFrame(()=>requestAnimationFrame(arm));
  setTimeout(arm,2000);
-})();</script><link rel="stylesheet" href="launcher-light.css"><script src="theme-early.js"></script><!-- SEO:START -->
+})();</script><link rel="stylesheet" href="launcher-light.css">
+<link rel="stylesheet" href="launcher-light-adapter.css"><script src="theme-early.js"></script><!-- SEO:START -->
 <title>Easter Co. SMP — The Ultimate Minecraft Experience</title>
 <meta name="description" content="A Minecraft survival server for beginners and veterans, with custom ships, Navy patrols, bounties, crafting and weekly raids. Download the Easter Company launcher.">
 <meta name="robots" content="index,follow,max-image-preview:large">
@@ -192,7 +193,7 @@ so no module can lose that race. An ordinary visit returns on the second line. *
   </main>
   <footer class="home-footer"><span>© <span id="copyright-year">2026</span> Easter LTD<br>hosted by <a href="https://easter.company">easter.company</a></span><span class="legal-links"><a href="legal/privacy/">Privacy</a><span aria-hidden="true">·</span><a href="legal/terms/">Terms</a></span><span><span lang="la">Numquam Succumbe</span><br>Never give up</span></footer>
   <div class="signed-in-splash" id="signed-in-splash">
-    <img class="signed-in-splash-mark" src="assets/ec-logo.svg" alt="" width="96" height="96" decoding="async">
+    <img class="signed-in-splash-mark splash-mark-dark" src="assets/ec-logo.svg" alt="" width="96" height="96" decoding="async"><img class="signed-in-splash-mark splash-mark-light" src="assets/ec-logo-ink.svg" alt="" width="96" height="96" decoding="async">
     <h2 class="signed-in-splash-title">Login Successful</h2>
     <p class="signed-in-splash-fallback" id="signed-in-splash-fallback" hidden></p>
   </div>

@@ -66,18 +66,13 @@ def test_the_vendored_palette_is_the_designers_own_file():
 ADAPTED = ("minecraft/wiki/", "account/")
 
 
-def test_every_adapted_page_loads_the_adapter_after_the_palette():
-    seen = 0
+def test_every_page_loads_the_adapter_after_the_palette():
     for page in _pages():
         relative = str(page.relative_to(SITE))
-        if not relative.startswith(ADAPTED) and not relative.startswith(tuple(p.rstrip("/") + "/" for p in ADAPTED)):
-            continue
-        seen += 1
         head = page.read_text().split("</head>", 1)[0]
         prefix = "../" * (len(page.relative_to(SITE).parts) - 1)
         assert f'href="{prefix}launcher-light-adapter.css"' in head, f"{relative} does not load the light adapter"
         assert head.rindex("launcher-light-adapter.css") > head.rindex("launcher-light.css"), relative
-    assert seen >= 14, f"expected the wiki and the account page, found {seen}"
 
 
 def test_the_light_sheets_never_repaint_the_dark_theme():
@@ -104,3 +99,23 @@ def test_the_pre_paint_script_publishes_only_a_resolved_theme():
         assert needle in script, f"theme-early.js lost {needle!r}"
     assert '"system"' not in script and "'system'" not in script, (
         "the contract resolves system before publishing; a literal 'system' has no palette")
+
+
+def test_the_mark_is_an_asset_not_a_filter():
+    """Diana's printed mark rule was provisional: a black-ink filter, pending the real asset.
+
+    The two sites share one master, so the corporate page's ink cut (fill #2b2b36) is vendored
+    byte for byte and the mark is swapped instead of flattened. A filter would throw away the
+    fire phoenix's own colour, which the household's identity rules do not allow.
+    """
+    ink = (SITE / "assets" / "ec-logo-ink.svg").read_bytes()
+    corporate = Path("/root/eastercompany.github.io/site/assets/ec-logo-outline-light.svg")
+    assert ink == corporate.read_bytes(), "the ink mark has drifted from the corporate family's cut"
+    assert b'fill="#2b2b36"' in ink
+    adapter = (SITE / "launcher-light-adapter.css").read_text()
+    assert 'html[data-easter-theme="light"] .splash-mark-light{display:inline-block;filter:none}' in adapter
+    assert 'html[data-easter-theme="light"] .signed-in-splash-mark{filter:none}' in adapter
+    index = (SITE / "index.html").read_text()
+    assert 'src="assets/ec-logo-ink.svg"' in index and "splash-mark-dark" in index
+    # The base layout owns the default: dark keeps the colour artwork, alone.
+    assert ".splash-mark-light{display:none}" in (SITE / "styles.css").read_text()
