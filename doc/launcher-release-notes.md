@@ -1,3 +1,22 @@
+# Easter Company launcher 1.0.55
+
+## Light mode that actually looks light
+
+The launcher's website could already switch its theme, and only half of it changed: the pages
+knew the answer and kept painting the dark palette. Every page now has a real light palette -
+cool paper, near-black ink, the same gold - and it arrives before the first frame rather than
+a moment after it.
+
+The wiki, which has a look of its own, was the worst of it: a cream heading on light paper,
+about one and a half to one. It is legible in light now, at the same contrast it has in dark.
+
+## Smaller things
+
+- The browser's own chrome follows the page: the address bar is paper on a light page and near
+  black on a dark one, instead of always near black.
+- Nothing about the account menu, the settings panel or the game row changed in this release.
+
+
 # Easter Company launcher 1.0.54
 
 ## Your theme, from the first frame
