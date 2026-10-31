@@ -1,3 +1,25 @@
+# Easter Company launcher 1.0.57
+
+The household palette is one file, and this build carries it
+
+Every colour the launcher paints now comes from `site/theme.css`: one stylesheet with
+the dark palette in `:root` and Diana's light palette in
+`html[data-easter-theme="light"]`, and nothing else in it — no layout, no component
+rule, no page-specific selector.
+
+- `styles.css` no longer declares the palette or the modal backdrop pair; it consumes
+  the properties. Its old `--app-*` block and `account-control.css`'s hex fallbacks
+  moved or went with it.
+- Diana's `launcher-light.css` is untouched and still byte-identical to her studio
+  copy. Its light block is now checked against `theme.css` token by token, so the one
+  permitted duplication cannot become a second source of truth.
+- Every page links `theme.css` first; the sidebar, map, store, account and wiki read
+  the same properties.
+
+Nothing looks different: the page was dumped element by element in both themes before
+and after, and the two dumps are byte-identical.
+
+
 # Easter Company launcher 1.0.56
 
 ## The account dialog belongs to the account control
