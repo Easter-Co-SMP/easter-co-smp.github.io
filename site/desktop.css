@@ -1,3 +1,6 @@
+/* ONE MODAL BACKDROP: colour and blur are declared here and nowhere else. */
+:root{--modal-scrim:#06131bc9;--modal-blur:5px}
+html[data-easter-theme="light"]{--modal-scrim:#28345280;--modal-blur:5px}
 /* Desktop-only application shell. The website keeps its own presentation. */
 .desktop-mode {--app-panel:#11252d;--app-border:#ffffff24;--app-muted:#a8b9b4;--app-gold:#e4c486}
 .desktop-mode [hidden]{display:none!important}
@@ -83,7 +86,7 @@
 .desktop-auth-notice{margin:16px 0 0;padding:12px 14px;border:1px solid #e4c4864d;border-left:3px solid var(--app-gold);border-radius:7px;background:#132a31;color:#eadfc6;font:12px/1.7 system-ui;text-align:left;overflow-wrap:anywhere}
 .desktop-page-notice button{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;padding:0;margin-left:16px;border-radius:4px;font-size:20px;line-height:1;color:inherit}.desktop-page-notice{display:flex;align-items:center;justify-content:space-between;position:fixed;z-index:80;top:80px;left:50%;transform:translateX(-50%);width:min(600px,calc(100% - 32px));box-shadow:0 8px 24px #0004}
 #desktop-launcher,#desktop-signin{width:min(500px,calc(100vw - 32px));max-height:calc(100dvh - 32px);padding:28px;border:1px solid #ffffff30;border-radius:12px;background:var(--app-panel);color:#e5e9df;box-shadow:0 18px 65px #0007}
-#desktop-launcher::backdrop,#desktop-signin::backdrop{background:#06131bc9;backdrop-filter:blur(5px)}
+#desktop-launcher::backdrop,#desktop-signin::backdrop{background:var(--modal-scrim);backdrop-filter:blur(var(--modal-blur))}
 #desktop-launcher h2,#desktop-signin h2{margin:0 40px 24px 0;font:600 22px/1.3 Inter,system-ui,sans-serif;letter-spacing:-.02em}
 .desktop-mode .dialog-close{display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1;right:14px;top:14px;border-radius:6px}
 .desktop-mode .dialog-close:hover{background:#ffffff0b}
@@ -188,7 +191,7 @@
 /* Required updates precede Home; this modal has no dismiss or skip action. */
 #desktop-update{outline:0;width:100vw;max-width:none;height:100dvh;max-height:none;margin:0;padding:32px;border:0;border-radius:0;background:#0e222b;color:#e5e9df;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:20px}
 #desktop-update:not([open]){display:none}
-#desktop-update::backdrop{background:#0e222b}
+#desktop-update::backdrop{background:var(--modal-scrim)}
 #desktop-update h2{font:600 22px/1.4 system-ui;margin:0}
 #desktop-update p{max-width:520px;margin:0;font-size:13px;color:#b8c8c1}
 .desktop-update-spinner{width:30px;height:30px;border:2px solid #ffffff20;border-top-color:#e4c486;border-radius:50%;animation:update-spin 1s linear infinite}
@@ -207,7 +210,7 @@
 .desktop-access button:hover{background:#ffffff09}
 
 .desktop-company-dialog{width:min(440px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;padding:28px;border:1px solid var(--app-border);border-radius:12px;background:var(--app-panel);color:#e5e9df;box-shadow:0 18px 65px #0007}
-.desktop-company-dialog::backdrop{background:#06131bc9;backdrop-filter:blur(5px)}
+.desktop-company-dialog::backdrop{background:var(--modal-scrim);backdrop-filter:blur(var(--modal-blur))}
 .desktop-company-dialog h2{margin:0 32px 12px 0;font:600 22px/1.3 Inter,system-ui,sans-serif}.desktop-company-dialog p{font-size:12px;line-height:1.6;color:var(--app-muted)}
 .desktop-company-dialog label{display:block;font-size:12px;margin:16px 0;color:#d1ded5}.desktop-company-dialog input:not([type=checkbox]):not([type=radio]){display:block;width:100%;padding:10px 12px;margin-top:7px;border:1px solid #ffffff28;border-radius:6px;background:#0b1d25;color:#e5e9df;font:13px/1.5 system-ui}
 .desktop-company-dialog .company-microsoft,.desktop-company-dialog .company-submit{width:100%;padding:12px;border:1px solid var(--app-gold);border-radius:6px;background:var(--app-gold);color:#11252d;font:600 13px/1.4 system-ui;cursor:pointer}.desktop-company-dialog .company-microsoft{margin-top:10px}
@@ -352,7 +355,7 @@
 .discovery-action{display:inline-flex;align-items:center;align-self:flex-start;min-height:40px;padding:12px 0 0;margin-top:auto;color:var(--app-gold);font:600 12px/1.4 system-ui;text-decoration:none;border-top:1px solid var(--app-border);width:100%;text-align:left;cursor:pointer}
 .discovery-action:hover{color:#fff0c6}
 .discovery-dialog{width:min(480px,calc(100vw - 32px));max-height:calc(100dvh - 48px);overflow:auto;padding:32px;background:var(--app-panel);color:var(--ink);border:1px solid var(--app-border);border-radius:14px}
-.discovery-dialog::backdrop{background:#06141dcc;backdrop-filter:blur(5px)}
+.discovery-dialog::backdrop{background:var(--modal-scrim);backdrop-filter:blur(var(--modal-blur))}
 @media(max-width:1000px){
  .desktop-mode .home .home-hero{grid-template-columns:minmax(0,1fr);max-width:680px}
  .desktop-mode .home-hero>.hero-copy{min-height:0}

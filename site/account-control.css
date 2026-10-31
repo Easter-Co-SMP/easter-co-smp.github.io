@@ -1,3 +1,6 @@
+/* ONE MODAL BACKDROP: colour and blur are declared here and nowhere else. */
+:root{--modal-scrim:#06131bc9;--modal-blur:5px}
+html[data-easter-theme="light"]{--modal-scrim:#28345280;--modal-blur:5px}
 /* THE SHARED ACCOUNT CONTROL'S OWN STYLESHEET — the menu's identity lines and the
    account-wide User Settings panel.
  *
@@ -55,7 +58,7 @@
  overflow:hidden;font:14px/1.5 system-ui,sans-serif;
  box-shadow:0 28px 90px color-mix(in srgb,var(--es-text) 15%,transparent);
 }
-.web-user-settings::backdrop{background:color-mix(in srgb,var(--es-surface) 62%,transparent);backdrop-filter:blur(5px)}
+.web-user-settings::backdrop{background:var(--modal-scrim);backdrop-filter:blur(var(--modal-blur))}
 .web-user-settings [hidden]{display:none!important}
 .web-user-settings :is(button,input,select):focus-visible{outline:2px solid var(--es-accent);outline-offset:3px}
 .web-user-settings button{min-height:44px;padding:10px 16px;border:1px solid var(--es-border);border-radius:10px;background:var(--es-surface);color:var(--es-text);font:inherit;cursor:pointer}
