@@ -1,0 +1,67 @@
+/* The wiki's own stylesheet, made to work in light.
+ *
+ * site/minecraft/wiki/wiki.css is not one of the six stylesheets Diana's palette was drawn
+ * against, so its hardcoded colours were left unpainted and the light wiki measured a cream
+ * heading (#ede7d9) on the #eef2f9 ground: about 1.15:1, invisible.
+ *
+ * This is the adapter Delta owns, built the way her PALETTE.md asks: families, not forty
+ * individually chosen literals. Cream headings and card titles become --ink; body copy and the
+ * dim labels become --muted; every gold accent becomes --gold; the header's dark island and the
+ * search field's dark tint become --surface; the skip link's ink becomes --on-gold, because
+ * gold itself turns dark in light. Alpha washes that are pure decoration are left alone, since
+ * a translucent white on a light ground is still nothing and a separator need not meet 3:1.
+ *
+ * Dark is untouched: every rule is scoped to the light attribute, and
+ * tests/test_launcher_light.py fails if any selector here loses that scope.
+ */
+html[data-easter-theme="light"] .wiki .site-header{background:var(--surface)}
+html[data-easter-theme="light"] .wiki-skip{color:var(--on-gold)}
+html[data-easter-theme="light"] .wiki-brand{color:var(--ink)}
+html[data-easter-theme="light"] .wiki-search label{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-search input{background:var(--surface)}
+html[data-easter-theme="light"] .wiki-search input::placeholder{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-search kbd{color:var(--muted)}
+html[data-easter-theme="light"] #wiki-topics>a,
+html[data-easter-theme="light"] .wiki-topic-group>a{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-topic-group>a>svg{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-topic-group>p{color:var(--muted)}
+html[data-easter-theme="light"] #wiki-topics a:hover{color:var(--ink)}
+html[data-easter-theme="light"] .wiki-sidebar-note{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-sidebar-note span{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-page-header h1{color:var(--ink)}
+html[data-easter-theme="light"] .wiki-intro{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-section-heading>span{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-card>svg{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-card-group{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-card h2,
+html[data-easter-theme="light"] .wiki-result h2{color:var(--ink)}
+html[data-easter-theme="light"] .wiki-card p,
+html[data-easter-theme="light"] .wiki-result p{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-card-arrow{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-breadcrumb{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-breadcrumb a{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-article-section h2{color:var(--ink)}
+html[data-easter-theme="light"] .wiki-article-section h2 a:hover::after{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-article-section p,
+html[data-easter-theme="light"] .wiki-article-section li{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-inline-link{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-outline>p{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-outline a{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-related a{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-result-count{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-result>svg{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-empty>svg{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-empty p{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-empty>a{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-footer{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-mobile-toc{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-mobile-toc a{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-topics-toggle{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-section-links a{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-steps li::marker{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-note strong{color:var(--gold)}
+html[data-easter-theme="light"] .wiki-table caption{color:var(--ink)}
+html[data-easter-theme="light"] .wiki-table th{color:var(--ink)}
+html[data-easter-theme="light"] .wiki-table td{color:var(--muted)}
+html[data-easter-theme="light"] .wiki-table th:first-child,
+html[data-easter-theme="light"] .wiki-table td:first-child{color:var(--ink)}
