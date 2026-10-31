@@ -1,6 +1,4 @@
 /* ONE MODAL BACKDROP: colour and blur are declared here and nowhere else. */
-:root{--modal-scrim:#06131bc9;--modal-blur:5px}
-html[data-easter-theme="light"]{--modal-scrim:#28345280;--modal-blur:5px}
 /* Desktop-only application shell. The website keeps its own presentation. */
 .desktop-mode {--app-panel:#11252d;--app-border:#ffffff24;--app-muted:#a8b9b4;--app-gold:#e4c486}
 .desktop-mode [hidden]{display:none!important}
@@ -191,7 +189,7 @@ html[data-easter-theme="light"]{--modal-scrim:#28345280;--modal-blur:5px}
 /* Required updates precede Home; this modal has no dismiss or skip action. */
 #desktop-update{outline:0;width:100vw;max-width:none;height:100dvh;max-height:none;margin:0;padding:32px;border:0;border-radius:0;background:#0e222b;color:#e5e9df;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:20px}
 #desktop-update:not([open]){display:none}
-#desktop-update::backdrop{background:var(--modal-scrim)}
+#desktop-update::backdrop{background:var(--modal-scrim);backdrop-filter:blur(var(--modal-blur))}
 #desktop-update h2{font:600 22px/1.4 system-ui;margin:0}
 #desktop-update p{max-width:520px;margin:0;font-size:13px;color:#b8c8c1}
 .desktop-update-spinner{width:30px;height:30px;border:2px solid #ffffff20;border-top-color:#e4c486;border-radius:50%;animation:update-spin 1s linear infinite}

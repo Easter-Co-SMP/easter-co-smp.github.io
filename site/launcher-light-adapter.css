@@ -125,3 +125,12 @@ html[data-easter-theme="light"] .signed-in-splash-mark{filter:none}
    distinct from this state, and the site's external :focus-visible outline is untouched. */
 html[data-easter-theme="light"] #wiki-topics a[aria-current]{
  background:var(--gold-wash);color:var(--gold);box-shadow:inset 3px 0 0 var(--gold)}
+
+/* THE UPDATE DIALOG'S BACKDROP, ONCE. Diana's palette paints
+   `html[data-easter-theme="light"] #desktop-update::backdrop` with var(--bg), which is the page
+   surface at full opacity: in light mode the modal's backdrop stopped being a scrim and became a
+   white sheet, while every other dialog on the site darkened and blurred. Her file is vendored
+   byte for byte (tests/test_launcher_light.py), so the correction belongs here, in the adapter
+   that exists for exactly this. Measured 2026-10-31 with scripts/check_modal_backdrop.py in
+   e-server, which now fails any ::backdrop that does not read --modal-scrim and --modal-blur. */
+html[data-easter-theme="light"] #desktop-update::backdrop{background:var(--modal-scrim);backdrop-filter:blur(var(--modal-blur))}

@@ -1,6 +1,4 @@
 /* ONE MODAL BACKDROP: colour and blur are declared here and nowhere else. */
-:root{--modal-scrim:#06131bc9;--modal-blur:5px}
-html[data-easter-theme="light"]{--modal-scrim:#28345280;--modal-blur:5px}
 /* THE SHARED ACCOUNT CONTROL'S OWN STYLESHEET — the menu's identity lines and the
    account-wide User Settings panel.
  *
