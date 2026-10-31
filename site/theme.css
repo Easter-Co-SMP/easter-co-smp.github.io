@@ -1,9 +1,18 @@
 @charset "UTF-8";
-/* EASTER HOUSEHOLD THEME v1.0
-   Canonical launcher colour language. Tokens ONLY. No paint/layout selectors.
+/* EASTER HOUSEHOLD THEME v1.1
+   Canonical household colour language. Tokens ONLY. No paint/layout selectors.
    Import the identical bytes in each product. Product adapters bind component APIs.
    Dark is the default. The host resolves system before publishing light or dark.
    ec-* names are canonical; legacy product names are adapters, not new palettes.
+
+   ONE RULE, TWO MOODS (Owen, 2026-10-31: "Light mode: Light + Blue Accent (light the
+   corporate theme). Dark mode: Dark + Gold Accents beautiful style (exactly the same as the
+   current launcher dark mode theme)"):
+     dark   the launcher's maritime teal ground with a GOLD accent, unchanged value for value;
+     light  paper with the corporate page's LIGHT accent (#6d4fd8, its violet-indigo), on the
+            household's own ground, ink and border so there is one light theme and not two.
+   So the accent family is named for its ROLE (`--ec-accent*`), never for its colour: a
+   token called `gold` holding #0b5fb4 in light would be a lie the next reader has to learn.
 */
 :root{
  /* Body and display stacks. Product owns size, weight, spacing and placement. */
@@ -20,12 +29,12 @@
  --ec-ink:#edf1e9;
  --ec-muted:#abb8b8;
  --ec-muted-panel:#a8b9b4;
- /* Gold is brand. Text gold is distinct from dark filled-action gold. Never put dark labels on the light action. */
- --ec-gold:#dbba79;
- --ec-gold-action:#e4c486;
- --ec-gold-hover:#f0d69f;
- --ec-on-gold:#14262e;
- --ec-gold-wash:#d6bc8512;
+ /* THE ACCENT IS GOLD IN DARK AND THE CORPORATE LIGHT VIOLET IN LIGHT. Text accent is distinct from the filled-action accent; the label colour is --ec-on-accent, never assumed. */
+ --ec-accent:#dbba79;
+ --ec-accent-action:#e4c486;
+ --ec-accent-hover:#f0d69f;
+ --ec-on-accent:#14262e;
+ --ec-accent-wash:#d6bc8512;
  /* --line is decorative. Required controls use --control-line; focus uses gold. */
  --ec-line:#ffffff24;
  --ec-line-strong:#ffffff40;
@@ -66,15 +75,15 @@ html[data-easter-theme="light"]{
  --ec-ink:#2b2b36;
  --ec-muted:#515b70;
  --ec-muted-panel:#515b70;
- --ec-gold:#805b1c;
- --ec-gold-action:#805b1c;
- --ec-gold-hover:#694713;
- --ec-on-gold:#ffffff;
- --ec-gold-wash:#f0e6d2;
+ --ec-accent:#6d4fd8;
+ --ec-accent-action:#6d4fd8;
+ --ec-accent-hover:#5d40c4;
+ --ec-on-accent:#ffffff;
+ --ec-accent-wash:#ece7fb;
  --ec-line:#c7d1e0;
  --ec-line-strong:#b5c1d4;
  --ec-control-line:#758299;
- --ec-selection:#ead7ac;
+ --ec-selection:#9466df33;
  --ec-selection-ink:#2b2b36;
  --ec-danger:#9d352d;
  --ec-danger-bg:#f9e8e3;
@@ -90,8 +99,8 @@ html[data-easter-theme="light"]{
  --ec-shadow-color:#28345229;
  --ec-scrollbar-track:#e5eaf2;
  --ec-scrollbar-thumb:#758299;
- --ec-scrollbar-hover:#805b1c;
- --ec-scrollbar-active:#694713;
+ --ec-scrollbar-hover:#6d4fd8;
+ --ec-scrollbar-active:#5d40c4;
  --ec-hero-veil-start:#eef2f9;
  --ec-hero-veil-middle:#eef2f9f5;
  --ec-hero-veil-lower:#eef2f9f7;

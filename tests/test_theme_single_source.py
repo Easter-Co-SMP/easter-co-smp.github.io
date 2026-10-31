@@ -40,6 +40,17 @@ BRIDGE = SITE / "launcher-bindings.css"
 FROZEN = SITE / "launcher-light.css"
 STUDIO = Path("/home/diana/Desktop/household-theme")
 
+#: THE THEME IS THE HOUSEHOLD'S FILE NOW, NOT DIANA'S. Owen, 2026-10-31, changed the palette
+#: himself: "Light mode: Light + Blue Accent (light the corporate theme). Dark mode: Dark + Gold
+#: Accents beautiful style (exactly the same as the current launcher dark mode theme)". Her
+#: v1.0 package is the provenance of everything else in this file - and her FROZEN
+#: launcher-light.css is still byte-pinned to her studio copy - but theme.css and the bridge are
+#: edited here, and these two hashes record what shipped so an unrecorded edit still fails.
+HOUSEHOLD_SHA256 = {
+    "theme.css": "84a0a5d67f41034e03c6445ec8927f3f54503ee040667bbf466633eb25167f79",
+    "launcher-bindings.css": "4ad9d0939faf0645e3053b18da9127895b067c346b4d245a065e090c747bda03",
+}
+
 #: Her published hash of the frozen launcher sheet, from household-theme/README.md.
 FROZEN_SHA256 = "0ca5dd952798600419db9d0bc6d1e9cb92becf75a1ec0e0c3c78340984cb9533"
 
@@ -72,9 +83,9 @@ CONTRAST_PAIRS = {
     "dark": [
         ("--ec-ink", "--ec-bg", 14.62), ("--ec-ink", "--ec-panel", 13.84),
         ("--ec-ink", "--ec-panel-soft", 15.09), ("--ec-muted", "--ec-bg", 8.19),
-        ("--ec-muted", "--ec-panel", 7.75), ("--ec-gold", "--ec-bg", 9.01),
-        ("--ec-gold", "--ec-panel", 8.53), ("--ec-on-gold", "--ec-gold-action", 9.31),
-        ("--ec-on-gold", "--ec-gold-hover", 11.01), ("--ec-panel", "--ec-gold-action", 9.45),
+        ("--ec-muted", "--ec-panel", 7.75), ("--ec-accent", "--ec-bg", 9.01),
+        ("--ec-accent", "--ec-panel", 8.53), ("--ec-on-accent", "--ec-accent-action", 9.31),
+        ("--ec-on-accent", "--ec-accent-hover", 11.01), ("--ec-panel", "--ec-accent-action", 9.45),
         ("--ec-danger", "--ec-danger-bg", 9.04), ("--ec-success", "--ec-success-bg", 9.21),
         ("--ec-disabled-ink", "--ec-disabled-bg", 7.36),
         ("--ec-control-line", "--ec-panel", 4.04),
@@ -83,9 +94,9 @@ CONTRAST_PAIRS = {
     "light": [
         ("--ec-ink", "--ec-bg", 12.46), ("--ec-ink", "--ec-panel", 13.39),
         ("--ec-ink", "--ec-panel-soft", 11.58), ("--ec-muted", "--ec-bg", 6.07),
-        ("--ec-muted", "--ec-panel", 6.53), ("--ec-gold", "--ec-bg", 5.45),
-        ("--ec-gold", "--ec-panel", 5.86), ("--ec-on-gold", "--ec-gold-action", 6.12),
-        ("--ec-on-gold", "--ec-gold-hover", 8.36), ("--ec-surface", "--ec-gold-action", 5.86),
+        ("--ec-muted", "--ec-panel", 6.53), ("--ec-accent", "--ec-bg", 4.97),
+        ("--ec-accent", "--ec-panel", 5.35), ("--ec-on-accent", "--ec-accent-action", 5.58),
+        ("--ec-on-accent", "--ec-accent-hover", 7.01), ("--ec-surface", "--ec-accent-action", 5.35),
         ("--ec-danger", "--ec-danger-bg", 5.93), ("--ec-success", "--ec-success-bg", 6.09),
         ("--ec-disabled-ink", "--ec-disabled-bg", 5.39),
         ("--ec-control-line", "--ec-panel", 3.72),
@@ -111,6 +122,12 @@ def _tokens(declarations):
             re.findall(r"(--[a-z-]+)\s*:\s*([^;]+)", declarations)}
 
 
+def _bridge_names():
+    """Every colour token the bridge declares, i.e. every name a product reads from it."""
+    return set(_tokens(_blocks(BRIDGE.read_text())[
+        ':root,html[data-easter-theme="light"],html[data-easter-theme="dark"]']))
+
+
 def _theme_tokens(scheme):
     blocks = _blocks(THEME.read_text())
     selector = ":root" if scheme == "dark" else 'html[data-easter-theme="light"]'
@@ -130,12 +147,24 @@ def _pages():
 
 # -- her files, byte for byte ---------------------------------------------------------------
 
-def test_the_theme_and_its_bridge_are_dianas_files_byte_for_byte():
+def test_the_theme_and_its_bridge_are_the_recorded_household_files():
+    """Edited here on the owner's instruction, and pinned by hash so the edit is deliberate.
+
+    Her studio package is still the provenance: it must exist, and her frozen launcher sheet is
+    still byte-identical to it (the test below). What changed on 2026-10-31 is whose palette this
+    is - Owen's rule is light-with-the-corporate-accent and dark-launcher-gold - so theme.css and
+    the bridge are household files, and a change to either has to update these two hashes in the
+    same commit rather than happen invisibly.
+    """
     for name in ("theme.css", "launcher-bindings.css"):
-        source = STUDIO / name
-        assert source.exists(), f"the studio copy is gone: {source}"
-        assert (SITE / name).read_bytes() == source.read_bytes(), (
-            f"site/{name} has drifted from Diana's package; re-copy her bytes, never edit them")
+        assert (STUDIO / name).exists(), f"the studio package is the provenance; {name} is gone"
+        digest = hashlib.sha256((SITE / name).read_bytes()).hexdigest()
+        expected = HOUSEHOLD_SHA256[name]
+        if expected == "PENDING":  # first run after the palette change records it
+            continue
+        assert digest == expected, (
+            f"site/{name} is {digest}, not the recorded {expected}. If the palette changed on "
+            "purpose, update HOUSEHOLD_SHA256 in this file in the same commit")
 
 
 def test_theme_css_carries_tokens_and_nothing_else():
@@ -215,7 +244,15 @@ def test_the_frozen_sheet_declares_no_colour_the_theme_lacks():
     frozen = _tokens(_blocks(FROZEN.read_text())['html[data-easter-theme="light"]'])
     theme_values = {value.lower() for value in _theme_tokens("light").values()}
     for name, value in frozen.items():
+        # The frozen sheet declares PRODUCT names (--gold: #805b1c) for the light theme she
+        # painted. The bridge re-declares those names as aliases of the household accent, and
+        # since 2026-10-31 the light accent is the corporate violet rather than her gold - so a
+        # frozen literal may name a colour the theme does not hold, as long as the bridge
+        # aliases that name. What is forbidden is a literal the household ground still owns
+        # silently disagreeing with the theme.
         if not value.startswith("#"):
+            continue
+        if name in _bridge_names():
             continue
         assert value.lower() in theme_values, (
             f"launcher-light.css declares {name}:{value}, a value the household theme does not")
