@@ -1,68 +1,126 @@
-"""One theme, one css: the launcher's palette lives in `site/theme.css` and nowhere else.
+"""One household theme, authored once and vendored byte for byte.
 
-Owen, 2026-10-31: "let's use the theme and design and color pallet of launcher.easter.company
-(easter-co-smp.github.io) on all products and make sure it's a DRY system. we want one theme,
-one css, imported and re-used on all projects."
+Diana's package is `/home/diana/Desktop/household-theme/` and it is the authority. Two of its
+files are ours to ship unchanged:
 
-`site/theme.css` is that file. It holds custom properties and nothing else — the dark theme on
-`:root`, the light theme on `html[data-easter-theme="light"]` — and every other sheet in `site/`
-consumes the properties. A product vendors the file byte for byte and links it first; that is
-the whole contract.
+  `theme.css`              `--ec-*` tokens only, dark default plus the resolved-light block.
+  `launcher-bindings.css`  her zero-literal bridge from those tokens onto the names this site
+                           already speaks, plus the `filter:none` overrides that retire the
+                           frozen sheet's obsolete `brightness(0)` mark rules.
 
-Five promises, each checked here:
+Her README fixes the cascade, and this gate holds it:
 
-  * every page links `theme.css` before any other stylesheet, at the right relative depth;
-  * no sheet that this ticket converted restates a theme literal;
-  * `styles.css` and `account-control.css` carry no `:root` palette of their own;
-  * Diana's `launcher-light.css` (byte-pinned by tests/test_launcher_light.py) mirrors the
-    light block token for token, so the one permitted duplication is a checked mirror;
-  * `theme.css` itself carries no component rule — tokens only.
+  1. product base/layout/component sheets   (styles.css, web.css, desktop.css, ...)
+  2. the frozen launcher-light.css, byte for byte
+  3. launcher-light-adapter.css
+  4. theme.css
+  5. launcher-bindings.css
 
-WHAT IS STILL RESTATING THE PALETTE, AND WHY IT IS COUNTED RATHER THAN CONVERTED.
-`site/desktop.css`, `site/store/store.css`, `site/account/account.css` and
-`site/minecraft/wiki/wiki.css` still write theme values as literals. They are not converted
-here, and the reason is measured rather than tidy: every one of those literals is a
-*theme-agnostic* value (`#e4c486` is the gold on a dark panel). Pointing them at `var(--app-gold)`
-would turn them into the LIGHT gold (`#805b1c`) in the light theme, which changes how the
-launcher window, the store and the account card paint there — a design change, not a
-refactor, and one that needs the packed app to judge. So their counts are pinned below: a new
-restatement anywhere fails, and removing one fails until the pin is updated.
+Five promises are checked here: her two files are her two files; the order is her README's;
+nothing outside `theme.css` restates a household colour; the palette lives in no product sheet
+while the document still paints itself from it; and the contrast pairs she computed in
+CONTRAST.md still hold against the bytes we ship.
+
+WHAT THE PINNED TABLE IS FOR. `site/desktop.css`, `site/store/store.css`,
+`site/account/account.css` and `site/minecraft/wiki/wiki.css` still write household values as
+literals. Converting them is not this ticket's mechanical step: every one of those literals is a
+*theme-agnostic* value, so pointing it at `--ec-gold-action` would make it render the LIGHT gold
+(`#805b1c`) on the launcher window, the store and the account card. That is a design change
+needing the packed app, so the counts are pinned: a new literal fails, and a removal fails until
+the pin is updated. They are measured, not forgotten.
 """
+import hashlib
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / "site"
 THEME = SITE / "theme.css"
+BRIDGE = SITE / "launcher-bindings.css"
+FROZEN = SITE / "launcher-light.css"
+STUDIO = Path("/home/diana/Desktop/household-theme")
 
-#: Diana's light palette, vendored byte for byte. The one permitted restatement of the theme,
-#: and only because it is the designer's own artefact: the check below keeps it in lockstep.
-MIRROR = SITE / "launcher-light.css"
+#: Her published hash of the frozen launcher sheet, from household-theme/README.md.
+FROZEN_SHA256 = "0ca5dd952798600419db9d0bc6d1e9cb92becf75a1ec0e0c3c78340984cb9533"
 
-#: The sheets this ticket converted. A theme literal may not appear in any of them.
+#: The sheets this ticket converted. A household colour may not appear in any of them.
 CONVERTED = ("styles.css", "web.css", "account-control.css", "launcher-light-adapter.css",
-             "world-journal.css")
-
-#: The palette a token block must not be declared in any more.
-NO_OWN_PALETTE = ("styles.css", "account-control.css", "web.css")
+             "world-journal.css", "launcher-bindings.css")
 
 #: Pages that redirect immediately and paint nothing of their own.
 REDIRECT_STUBS = {"map/index.html", "wiki/index.html"}
 
-HEX = re.compile(r"#[0-9a-fA-F]{3,8}\b")
+#: Product sheets that must load before the frozen light sheet (her README step 1 before step 2).
+PRODUCT_SHEETS = ("styles.css", "web.css", "desktop.css", "account-control.css",
+                  "world-journal.css", "store.css", "wiki.css", "legal.css")
+
+#: Sheets outside this ticket's scope that still write the palette by hand, pinned by count.
+RESTATED_PENDING = {
+    "desktop.css": {"#0005": 1, "#0b1d25": 2, "#11252d": 2, "#14262e": 2, "#382924": 1,
+                    "#71857d": 2, "#8fd694": 1, "#a8b9b4": 3, "#e4c486": 9, "#f0d69f": 1,
+                    "#f6c6b4": 1, "#ffffff24": 1},
+    "store/store.css": {"#0d2029": 4, "#11252d": 1, "#25383d": 1, "#a8b9b4": 2, "#c0cbc6": 1,
+                        "#e4c486": 1, "#edf1e9": 1},
+    "account/account.css": {"#0b1d25": 1, "#0d2029": 1, "#11252d": 1, "#a8b9b4": 1,
+                            "#e4c486": 1, "#edf1e9": 1},
+    "minecraft/wiki/wiki.css": {"#0d2029": 1},
+}
+
+#: The pairs CONTRAST.md publishes, as (foreground token, ground token, ratio). Computed here
+#: from the shipped bytes; a changed value or a dropped pair fails.
+CONTRAST_PAIRS = {
+    "dark": [
+        ("--ec-ink", "--ec-bg", 14.62), ("--ec-ink", "--ec-panel", 13.84),
+        ("--ec-ink", "--ec-panel-soft", 15.09), ("--ec-muted", "--ec-bg", 8.19),
+        ("--ec-muted", "--ec-panel", 7.75), ("--ec-gold", "--ec-bg", 9.01),
+        ("--ec-gold", "--ec-panel", 8.53), ("--ec-on-gold", "--ec-gold-action", 9.31),
+        ("--ec-on-gold", "--ec-gold-hover", 11.01), ("--ec-panel", "--ec-gold-action", 9.45),
+        ("--ec-danger", "--ec-danger-bg", 9.04), ("--ec-success", "--ec-success-bg", 9.21),
+        ("--ec-disabled-ink", "--ec-disabled-bg", 7.36),
+        ("--ec-control-line", "--ec-panel", 4.04),
+        ("--ec-scrollbar-thumb", "--ec-scrollbar-track", 5.96),
+    ],
+    "light": [
+        ("--ec-ink", "--ec-bg", 12.46), ("--ec-ink", "--ec-panel", 13.39),
+        ("--ec-ink", "--ec-panel-soft", 11.58), ("--ec-muted", "--ec-bg", 6.07),
+        ("--ec-muted", "--ec-panel", 6.53), ("--ec-gold", "--ec-bg", 5.45),
+        ("--ec-gold", "--ec-panel", 5.86), ("--ec-on-gold", "--ec-gold-action", 6.12),
+        ("--ec-on-gold", "--ec-gold-hover", 8.36), ("--ec-surface", "--ec-gold-action", 5.86),
+        ("--ec-danger", "--ec-danger-bg", 5.93), ("--ec-success", "--ec-success-bg", 6.09),
+        ("--ec-disabled-ink", "--ec-disabled-bg", 5.39),
+        ("--ec-control-line", "--ec-panel", 3.72),
+        ("--ec-scrollbar-thumb", "--ec-scrollbar-track", 3.21),
+    ],
+}
 
 
 def _strip_comments(text):
     return re.sub(r"/\*.*?\*/", "", text, flags=re.S)
 
 
-def _theme_literals():
-    return {match.lower() for match in HEX.findall(_strip_comments(THEME.read_text()))}
+def _blocks(text):
+    """Every rule in a sheet, keyed by its selector (an @charset is not part of one)."""
+    body = _strip_comments(text)
+    body = re.sub(r'@charset[^;]+;', '', body)
+    return {selector.strip(): declarations
+            for selector, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", body)}
 
 
-def _count_literal(text, literal):
-    """Occurrences of `literal`, refusing a longer hex that merely starts with it."""
-    return len(re.findall(re.escape(literal) + r"(?![0-9a-fA-F])", text, re.I))
+def _tokens(declarations):
+    return {name: value.strip() for name, value in
+            re.findall(r"(--[a-z-]+)\s*:\s*([^;]+)", declarations)}
+
+
+def _theme_tokens(scheme):
+    blocks = _blocks(THEME.read_text())
+    selector = ":root" if scheme == "dark" else 'html[data-easter-theme="light"]'
+    assert selector in blocks, f"theme.css lost its {scheme} block"
+    return _tokens(blocks[selector])
+
+
+def _household_literals():
+    return {match.lower() for match in
+            re.findall(r"#[0-9a-fA-F]{3,8}\b", _strip_comments(THEME.read_text()))}
 
 
 def _pages():
@@ -70,126 +128,181 @@ def _pages():
                   if str(page.relative_to(SITE)) not in REDIRECT_STUBS)
 
 
-def test_the_theme_file_is_the_one_palette():
-    text = _strip_comments(THEME.read_text())
-    rules = re.findall(r"([^{}]+)\{([^{}]*)\}", text)
-    selectors = [selector.strip() for selector, _ in rules]
-    assert selectors == [":root", 'html[data-easter-theme="light"]'], (
-        f"theme.css must hold exactly the dark and the light token block, found {selectors}")
-    dark = dict(re.findall(r"(--[a-z-]+)\s*:\s*([^;]+)", rules[0][1]))
-    light = dict(re.findall(r"(--[a-z-]+)\s*:\s*([^;]+)", rules[1][1]))
-    for name, value in (("--ink", "#edf1e9"), ("--muted", "#abb8b8"), ("--gold", "#dbba79"),
-                        ("--line", "#ffffff24"), ("--surface", "#10232bf2"),
-                        ("--scrollbar-track", "#0a1c24"), ("--scrollbar-thumb", "#899b93"),
-                        ("--modal-scrim", "#06131bc9"), ("--modal-blur", "5px"),
-                        ("--app-panel", "#11252d"), ("--app-border", "#ffffff24"),
-                        ("--app-muted", "#a8b9b4"), ("--app-gold", "#e4c486")):
-        assert dark.get(name, "").strip() == value, (
-            f"theme.css dark {name} is {dark.get(name)!r}, expected {value!r}")
-    for name, value in (("--ink", "#2b2b36"), ("--muted", "#515b70"), ("--gold", "#805b1c"),
-                        ("--line", "#c7d1e0"), ("--surface", "#f8faff"), ("--bg", "#eef2f9"),
-                        ("--modal-scrim", "#28345280"), ("--app-gold", "var(--gold)")):
-        assert light.get(name, "").strip() == value, (
-            f"theme.css light {name} is {light.get(name)!r}, expected {value!r}")
-    # The page ground and the type stack travel with the palette, not with the components.
-    assert "background:#0d2029" in rules[0][1], "the dark page ground left theme.css"
-    assert "font-family:Inter" in rules[0][1], "the type stack left theme.css"
-    assert "background:var(--bg)" in rules[1][1], "the light page ground left theme.css"
+# -- her files, byte for byte ---------------------------------------------------------------
+
+def test_the_theme_and_its_bridge_are_dianas_files_byte_for_byte():
+    for name in ("theme.css", "launcher-bindings.css"):
+        source = STUDIO / name
+        assert source.exists(), f"the studio copy is gone: {source}"
+        assert (SITE / name).read_bytes() == source.read_bytes(), (
+            f"site/{name} has drifted from Diana's package; re-copy her bytes, never edit them")
 
 
-def test_every_page_links_the_theme_first():
+def test_theme_css_carries_tokens_and_nothing_else():
+    blocks = _blocks(THEME.read_text())
+    assert list(blocks) == [":root", 'html[data-easter-theme="light"]'], (
+        f"theme.css must hold exactly her dark and light token blocks, found {list(blocks)}")
+    for selector, declarations in blocks.items():
+        for name, value in re.findall(r"([a-z-]+)\s*:\s*([^;]+)", declarations):
+            assert name.startswith("--ec-"), (
+                f"theme.css declares {name!r} on {selector}: the namespace is --ec-*, "
+                "and it is tokens only - the product paints")
+
+
+def test_the_bridge_is_zero_literal_and_retires_the_frozen_filter():
+    text = _strip_comments(BRIDGE.read_text())
+    literals = re.findall(r"#[0-9a-fA-F]{3,8}\b", text)
+    assert not literals, f"launcher-bindings.css carries colours: {sorted(set(literals))}"
+    # Loaded last, so this equal-specificity filter:none beats the frozen sheet's brightness(0).
+    assert re.search(r"html\[data-easter-theme\] \.site-wordmark \.wordmark-mark,\s*"
+                     r"html\[data-easter-theme\] \.signed-in-splash-mark\{filter:none\}", text), (
+        "the bridge stopped neutralising the frozen sheet's brightness(0) mark rules")
+
+
+def test_dianas_frozen_launcher_sheet_is_untouched():
+    digest = hashlib.sha256(FROZEN.read_bytes()).hexdigest()
+    assert digest == FROZEN_SHA256, (
+        f"site/launcher-light.css is {digest}, not the {FROZEN_SHA256} Diana published")
+    studio = STUDIO.parent / "launcher-light" / "launcher-light.css"
+    assert studio.exists(), f"the studio copy is gone: {studio}"
+    assert FROZEN.read_bytes() == studio.read_bytes()
+
+
+# -- the cascade her README fixes -----------------------------------------------------------
+
+def test_every_page_loads_the_cascade_in_dianas_order():
     pages = _pages()
     assert len(pages) >= 19, f"expected the whole site, found {len(pages)} pages"
     for page in pages:
-        text = page.read_text()
         relative = str(page.relative_to(SITE))
-        depth = len(page.relative_to(SITE).parts) - 1
-        href = ("/" if relative == "404.html" else "../" * depth) + "theme.css"
-        head = text.split("</head>", 1)[0]
+        head = page.read_text().split("</head>", 1)[0]
         linked = re.findall(r'<link rel="stylesheet" href="([^"]+)"', head)
         assert linked, f"{relative} links no stylesheet at all"
-        assert linked[0] == href, (
-            f"{relative} links {linked[0]!r} before the theme; theme.css must be first")
+        names = [href.rsplit("/", 1)[-1] for href in linked]
+        for required in ("launcher-light.css", "launcher-light-adapter.css", "theme.css",
+                         "launcher-bindings.css"):
+            assert required in names, f"{relative} does not load {required}"
+        order = [names.index(name) for name in
+                 ("launcher-light.css", "launcher-light-adapter.css", "theme.css",
+                  "launcher-bindings.css")]
+        assert order == sorted(order), (
+            f"{relative} loads the light sheets out of her order: {names}")
+        light_at = names.index("launcher-light.css")
+        for product in PRODUCT_SHEETS:
+            if product in names:
+                assert names.index(product) < light_at, (
+                    f"{relative} loads {product} after the frozen light sheet")
+        assert names.index("launcher-bindings.css") == len(names) - 1, (
+            f"{relative} loads something after launcher-bindings.css: {names}")
 
 
-def test_the_theme_is_not_restated_outside_its_file():
-    literals = _theme_literals()
-    assert len(literals) >= 30, f"theme.css named only {len(literals)} colours; is it the palette?"
+# -- one source of colour -------------------------------------------------------------------
+
+def test_the_theme_is_the_only_source_of_a_household_colour():
+    household = _household_literals()
+    assert len(household) >= 40, f"theme.css named only {len(household)} colours"
     for name in CONVERTED:
-        sheet = SITE / name
-        text = _strip_comments(sheet.read_text())
-        for literal in sorted(literals):
-            count = _count_literal(text, literal)
-            assert count == 0, (
-                f"{name} restates the theme's {literal} {count}x; use the property instead")
+        text = _strip_comments((SITE / name).read_text())
+        for literal in sorted(household):
+            found = re.findall(re.escape(literal) + r"(?![0-9a-fA-F])", text, re.I)
+            assert not found, (
+                f"{name} restates the household colour {literal} {len(found)}x; "
+                "read the token instead")
 
 
-#: Sheets outside this ticket's scope that still write the palette by hand, with the exact
-#: count measured when the theme was extracted. Each hit is a theme-agnostic dark value; see
-#: the module docstring for why converting them is a design change and not a refactor.
-RESTATED_PENDING = {
-    "desktop.css": {"#11252d": 2, "#a8b9b4": 3, "#e4c486": 9, "#ffffff24": 1},
-    "store/store.css": {"#0d2029": 4, "#11252d": 1, "#a8b9b4": 2, "#e4c486": 1, "#edf1e9": 1},
-    "account/account.css": {"#0d2029": 1, "#11252d": 1, "#a8b9b4": 1, "#e4c486": 1,
-                            "#edf1e9": 1},
-    "minecraft/wiki/wiki.css": {"#0d2029": 1},
-}
+def test_the_frozen_sheet_declares_no_colour_the_theme_lacks():
+    """Her byte-pinned sheet is the one permitted restatement - and only of these values."""
+    frozen = _tokens(_blocks(FROZEN.read_text())['html[data-easter-theme="light"]'])
+    theme_values = {value.lower() for value in _theme_tokens("light").values()}
+    for name, value in frozen.items():
+        if not value.startswith("#"):
+            continue
+        assert value.lower() in theme_values, (
+            f"launcher-light.css declares {name}:{value}, a value the household theme does not")
 
 
 def test_the_pending_restatements_are_exactly_the_ones_on_the_list():
-    """A pinned count, not an exemption: a new literal fails, and so does a quiet removal."""
-    literals = _theme_literals()
+    household = _household_literals()
     measured = {}
     for name in RESTATED_PENDING:
         text = _strip_comments((SITE / name).read_text())
-        hits = {literal: _count_literal(text, literal) for literal in literals}
+        hits = {literal: len(re.findall(re.escape(literal) + r"(?![0-9a-fA-F])", text, re.I))
+                for literal in household}
         measured[name] = {literal: count for literal, count in hits.items() if count}
     assert measured == RESTATED_PENDING, (
         "the restatement debt in the not-yet-converted sheets has changed:\n"
         f"  expected {RESTATED_PENDING}\n  measured {measured}\n"
-        "A new literal must use the theme property; a removal updates this list.")
+        "A new literal must read the theme token; a removal updates this list.")
 
 
-def test_the_converted_sheets_declare_no_palette_of_their_own():
-    for name in NO_OWN_PALETTE:
+def test_no_product_sheet_declares_a_palette_of_its_own():
+    for name in ("styles.css", "web.css", "account-control.css"):
         text = _strip_comments((SITE / name).read_text())
         for selector, declarations in re.findall(r"([^{}]+)\{([^{}]*)\}", text):
             if ":root" not in selector and "data-easter-theme" not in selector:
                 continue
-            declared = re.findall(r"(--[a-z-]+)\s*:", declarations)
-            assert not declared, (
-                f"{name} still declares {declared} on {selector.strip()!r}; theme.css owns it")
-    # styles.css specifically: the three blocks that used to hold the palette, the scrim pair
-    # and the scrollbar set are gone, and the rules that *consume* the tokens stayed.
+            for token, value in re.findall(r"(--[a-z-]+)\s*:\s*([^;]+)", declarations):
+                assert value.strip().startswith("var("), (
+                    f"{name} declares {token}:{value.strip()} on {selector.strip()!r}; "
+                    "a product may only alias the theme's tokens")
+    # The document still paints itself from the theme, or it falls back to the canvas colour.
     styles = _strip_comments((SITE / "styles.css").read_text())
-    declared = re.findall(r"(--(?:ink|muted|gold|line|surface|bg|modal-scrim|modal-blur|"
-                          r"scrollbar-track|scrollbar-thumb|scrollbar-hover|scrollbar-active|"
-                          r"app-panel|app-border|app-muted|app-gold))\s*:", styles)
-    assert not declared, f"styles.css is declaring {sorted(set(declared))} again"
-    assert "border:0}" in styles.replace(" ", "") or "var(--ink)" in styles, (
-        "styles.css stopped consuming the tokens it used to")
-    for consumer in ("scrollbar-color:var(--scrollbar-thumb) var(--scrollbar-track)",
-                     "background-color:var(--scrollbar-hover)"):
-        assert consumer in styles, f"styles.css lost the rule that consumes {consumer!r}"
+    assert "background:var(--bg);color:var(--ink)" in styles, (
+        "styles.css stopped painting the document from the theme's ground and ink")
+    assert "--modal-scrim:var(--ec-scrim);--modal-blur:var(--ec-scrim-blur)" in styles, (
+        "the one --modal-scrim declaration moved or lost its theme alias")
 
 
-def test_dianas_light_sheet_mirrors_the_theme():
-    """The one permitted duplication: her file is byte-pinned, so it must agree with ours."""
-    theme_light = re.search(r'html\[data-easter-theme="light"\]\{(.*?)\}', _strip_comments(
-        THEME.read_text()), re.S).group(1)
-    her_light = re.search(r'html\[data-easter-theme="light"\]\{(.*?)\}', _strip_comments(
-        MIRROR.read_text()), re.S).group(1)
-    ours = dict((name, value.strip()) for name, value in
-                re.findall(r"(--[a-z-]+)\s*:\s*([^;]+)", theme_light))
-    hers = dict((name, value.strip()) for name, value in
-                re.findall(r"(--[a-z-]+)\s*:\s*([^;]+)", her_light))
-    # Every token she declares must agree with theme.css. The theme declares more than she
-    # does (the scrim pair, the --app-* mapping), because the theme also serves the products
-    # that never see her file; that is not drift, and it is checked the other way round.
-    differing = {name: (ours.get(name), value) for name, value in hers.items()
-                 if ours.get(name) != value}
-    assert not differing, (
-        f"launcher-light.css has drifted from theme.css: {differing}. "
-        "Her file is byte-pinned and hers is the design, so theme.css is the one to change.")
-    assert set(hers) <= set(ours), (
-        f"launcher-light.css declares tokens the theme does not: {sorted(set(hers) - set(ours))}")
+# -- her computed pairs ---------------------------------------------------------------------
+
+def _parse(value):
+    value = value.strip().lstrip("#")
+    if len(value) == 3:
+        value = "".join(character * 2 for character in value)
+    if len(value) == 8:
+        return (tuple(int(value[index:index + 2], 16) for index in (0, 2, 4)),
+                int(value[6:8], 16) / 255)
+    return tuple(int(value[index:index + 2], 16) for index in (0, 2, 4)), 1.0
+
+
+def _composited(value, ground):
+    rgb, alpha = _parse(value)
+    if alpha >= 1:
+        return rgb
+    return tuple(round(alpha * channel + (1 - alpha) * behind)
+                 for channel, behind in zip(rgb, _parse(ground)[0]))
+
+
+def _luminance(rgb):
+    def linear(component):
+        component = component / 255
+        return component / 12.92 if component <= 0.04045 else ((component + 0.055) / 1.055) ** 2.4
+    red, green, blue = (linear(component) for component in rgb)
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def _ratio(foreground, ground, page_ground):
+    first = _luminance(_composited(foreground, page_ground))
+    second = _luminance(_composited(ground, page_ground))
+    lighter, darker = max(first, second), min(first, second)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def test_the_contrast_pairs_she_published_still_hold():
+    """CONTRAST.md is the numbers; this asserts them against the bytes we ship."""
+    for scheme, pairs in CONTRAST_PAIRS.items():
+        tokens = _theme_tokens(scheme)
+        page_ground = tokens["--ec-bg"]
+        for foreground, ground, published in pairs:
+            assert foreground in tokens, f"theme.css lost {foreground} in {scheme}"
+            assert ground in tokens, f"theme.css lost {ground} in {scheme}"
+            measured = _ratio(tokens[foreground], tokens[ground], page_ground)
+            assert abs(measured - published) <= 0.05, (
+                f"{scheme} {foreground} on {ground} measures {measured:.2f}:1, "
+                f"CONTRAST.md publishes {published}:1")
+            if "line" in foreground or "scrollbar" in foreground:
+                assert measured >= 3.0, (
+                    f"{scheme} {foreground} on {ground} is under the 3:1 edge floor")
+            else:
+                assert measured >= 4.5, (
+                    f"{scheme} {foreground} on {ground} is under the 4.5:1 text floor")
