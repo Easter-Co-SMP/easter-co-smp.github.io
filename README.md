@@ -24,7 +24,7 @@ published artifact. Preview with `python -m http.server --directory site 18100`.
 
 ## The public chart
 
-The map uses the same saved Overworld renderer and region definitions as the household
+The map uses the same saved Overworld renderer and region definitions as the private
 map. It supports pan, zoom, touch, fullscreen, and remembered layer toggles. IndexedDB
 restores the previous chart and marker snapshot immediately, then refreshes changed tiles
 individually. A failed replacement keeps the old bitmap. SHA-256 verifies each downloaded

@@ -35,7 +35,7 @@ map half as two independent commits, client first; a bundle whose `snapshot_day`
 than the published one commits nothing and says so in one line, leaving `site/data/world.json`
 byte for byte unchanged; and `site/data/` is not edited by hand while the scheduled run owns it.
 
-Never restart e-server, DSH, or Minecraft for a public-site update. The public-site timer
+Never restart e-server, the Agent Harness, or Minecraft for a public-site update. The public-site timer
 has its own service. No console mutations, world generation, or changes to game rules.
 
 Keep the mist arrival exclusive to the homepage. Map and future Wiki use regular utility
