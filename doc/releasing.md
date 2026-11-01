@@ -96,14 +96,13 @@ name from `/releases/latest/download/`. The launcher job is
    `handover.electron.mjs`, 18797 with `EASTER_PROVIDER_FIXTURE=1` for
    `providers.electron.mjs`, 18798 for `wait-post-approval.electron.mjs`), stops each of those
    fixtures with SIGTERM first and a bounded wait before any SIGKILL and says in the journey's
-   row which of the two it took, drops the `company_launcher_<pid>` database a stopped fixture
-   leaves behind (see "The fixture `company.electron.mjs` needs" — a signalled fixture cannot
-   run its own drop), leaves no fixture running, no port listening, no Xvfb behind and the
-   disposable PostgreSQL container as it found it, prints one `databases - reclaimed N … left M
-   …` line naming what it reclaimed and what it deliberately left alone, and exits non-zero on
-   its own count of failures — a journey that runs away past its bound, or that produces no
-   verdict at all, is one of those failures. A missing prerequisite (the cloud repository, its
-   venv, the `identity-fixture-pg` container) is one sentence naming it and a non-zero exit,
+   row which of the two it took, leaves no fixture running, no port listening and no Xvfb
+   behind, and exits non-zero on its own count of failures — a journey that runs away past its
+   bound, or that produces no verdict at all, is one of those failures. Since 2026-11-01 there
+   is no disposable PostgreSQL to reclaim: the accounts fixture serves its API from the
+   service's in-memory DynamoDB backend, so a fixture that is signalled leaves nothing behind
+   for a sweep to collect. A missing prerequisite (the cloud repository and its venv) is one
+   sentence naming it and a non-zero exit,
    never a skip, and so is a container that is running but whose `psql` refuses; so is a sweep
    asked to start while one of those fixture ports is already held by another suite or by a
    hand-started fixture, because a red journey under that contention is not a product fault.
@@ -475,10 +474,11 @@ adopted, and are recorded here so a later reader is not surprised:
 ## The fixture `company.electron.mjs` needs
 
 That journey signs a synthetic player up end to end, so it drives the **real** account
-handler and real SQL rather than a stub: `tests/launcher_api_fixture.py` in
-`/root/easter-co-cloud`, on loopback 18796, with the disposable PostgreSQL behind it. None
-of it touches AWS, and none of it is optional — without the fixture the journey fails
-early on an unreachable account service, and the failure reads like a launcher bug.
+handler and the real store rather than a stub: `tests/launcher_api_fixture.py` in
+`/root/easter-co-cloud`, on loopback 18796, over the service's in-memory DynamoDB backend (no
+database and no server since 2026-11-01). None of it touches AWS or the network, and none of
+it is optional — without the fixture the journey fails early on an unreachable account
+service, and the failure reads like a launcher bug.
 
 Start it, from the cloud repository, before running the journey:
 

@@ -118,11 +118,13 @@ verify OS-keyring persistence on an installed build.
 
 ## Verification
 
-- Full Python suite includes disposable PostgreSQL tests for migration/links,
-  verifier binding, replay, concurrency, conflicts, proof freshness and revocation.
+- Full Python suite runs with no database at all (the accounts store is DynamoDB and the suite
+  drives it over an in-memory backend): link repair, verifier binding, replay, concurrency,
+  conflicts, proof freshness and revocation are all still covered, and the second halves of
+  those rules are now proven against the same conditional writes the service runs.
 - Node tests cover browser URL restrictions, verifier handling, cancellation,
   account response sanitization, encrypted-vault refusal and picture fetch restrictions.
-- providers.electron.mjs uses the real API/SQL through launcher_api_fixture.py with
+- providers.electron.mjs uses the real API through launcher_api_fixture.py with
   EASTER_PROVIDER_FIXTURE=1 and EASTER_API_FIXTURE_PORT=18797. It covers Discord signup,
   required setup, Google linking, display name/picture changes, logout, password login,
   process restart and provider-based password reset. Provider responses are synthetic.
