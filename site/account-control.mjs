@@ -72,7 +72,15 @@ export async function mountAccountControl({nav, seam, auth: providedAuth = null,
   // e-server because the button is on the left hand side ... on the right hand side ... should
   // be mirror [ DISPLAY_NAME PROFILE_PICTURE ]". The launcher's native window header already
   // appends name then face for the same reason (site/desktop.js:1139).
-  const menu=doc.createElement('div');menu.id='web-account-menu';menu.className='desktop-profile-menu';menu.setAttribute('popover','auto');menu.setAttribute('aria-label','Account options');doc.body.append(menu);
+  // MANUAL, NOT AUTO. Owen, 2026-11-01: "clicking away or on other things doesn't close it,
+  // and neither does clicking the user button again". An `auto` popover is light-dismissed by
+  // the UA on the very press meant to toggle it, so the pill's own click handler saw a closed
+  // menu and re-opened it: the menu could only be put away by an action that called
+  // hidePopover() itself. A manual popover has no light dismiss to race, so this module owns
+  // the three ways a person puts a menu away — the pill toggles, a press outside closes,
+  // Escape closes — and it closes any other open popover when it opens, which is the one
+  // behaviour auto was giving for free (Owen: "or open the menu drop down" closed it).
+  const menu=doc.createElement('div');menu.id='web-account-menu';menu.className='desktop-profile-menu';menu.setAttribute('popover','manual');menu.setAttribute('aria-label','Account options');doc.body.append(menu);
   // THE IDENTITY PAIR LEADS THE MENU. Owen asked for the launcher's own pair - "OCEaster" over
   // "oceaster" - to reach "all other user drop downs across other platforms and interfaces"
   // (2026-10-30), and this menu is the drop down on both of the browser surfaces: the launcher's
@@ -148,12 +156,51 @@ export async function mountAccountControl({nav, seam, auth: providedAuth = null,
    settings=(await openUserSettings({seam:webAccount,opener:account}))||settings;
   });
   action('Sign out',async()=>{await webAccount.signOut();});
-  account.onclick=()=>{
+  // OPENING, CLOSING AND THE THREE WAYS A PERSON EXPECTS TO PUT IT AWAY.
+  //
+  // Owen, 2026-11-01: "opening the user drop down inside e-app, clicking away or on other
+  // things doesn't close it, and neither does clicking the user button again - only way to
+  // get rid of it is to select an option". Measured against this handler: the popover is
+  // `auto`, so the browser light-dismisses it on the press that lands outside — and then
+  // this very click handler called showPopover() again in the same gesture, so pressing the
+  // pill re-opened what the browser had just closed. A press outside the popover on a page
+  // that also re-opens on other events looked the same: shut one frame, open the next.
+  //
+  // So the control now owns the decision instead of racing the platform: the pill toggles,
+  // a press anywhere outside the menu closes it, and Escape closes it and returns focus to
+  // the pill. The native light-dismiss still runs underneath; these handlers agree with it
+  // rather than fighting it, because every one of them only ever closes an open menu.
+  const isOpen=()=>menu.matches(':popover-open');
+  const closeMenu=(restoreFocus=false)=>{
+   if(!isOpen())return;
+   menu.hidePopover();
+   if(restoreFocus)account.focus();
+  };
+  account.onclick=event=>{
    if(!current.account){auth.open();return;}
    if(current.account.passwordRequired){auth.setup();return;}
+   // THE PILL TOGGLES. Without this the press that light-dismisses the popover also
+   // re-opens it, which is the bug Owen reported.
+   if(isOpen()){event.preventDefault();closeMenu();return;}
+   // ONE MENU AT A TIME. With no UA light dismiss nothing closes a second popover for us, so
+   // opening this one puts every other open popover away first.
+   doc.querySelectorAll(':popover-open').forEach(other=>{if(other!==menu)other.hidePopover();});
    menu.style.top=(account.getBoundingClientRect().bottom+8)+'px';menu.style.right=Math.max(12,win.innerWidth-account.getBoundingClientRect().right)+'px';
    menu.showPopover();menu.querySelector('button')?.focus();
   };
+  // A press outside the menu closes it. `pointerdown` rather than `click`, so the menu is
+  // already gone by the time the press lands on whatever is underneath - the same order a
+  // native menu has, and the reason a click on another control cannot leave it hanging.
+  doc.addEventListener('pointerdown',event=>{
+   if(!isOpen())return;
+   const target=event.target;
+   if(menu.contains(target)||account.contains(target))return;
+   closeMenu();
+  },true);
+  doc.addEventListener('keydown',event=>{
+   if(event.key!=='Escape'||!isOpen())return;
+   closeMenu(true);
+  },true);
   // The face follows the account and only the account: while a sign-in is in flight there is no
   // account to show, so the slot is hidden and the control is exactly the text it always was.
   // The one other state is a boot that cannot paint yet (site/web-account.mjs: a saved session with
