@@ -162,7 +162,8 @@ node tests/discovery-browser.mjs
 `EASTER_REVIEW_OUTPUT` optionally saves layout screenshots to an existing folder.
 The browser check uses Chromium at `/usr/bin/chromium`, fixture-only preload
 bindings, and validates website separation/centring, three launcher sizes, loaded,
-empty and failed feed states, item dialog Escape handling, and external link targets.
+empty and failed feed states, the signed-out card's missing store door, the signed-in
+five-second rotation (and its reduced-motion stop), and external link targets.
 This does not validate Electron IPC or a live backend.
 
 ## Home layout refinement
@@ -183,11 +184,22 @@ and failed states at 1440, 1100, 900, 600 and 390 px, plus 1100 × 600.
 ## Mock store page
 
 The store is a page of its own at `site/store/index.html`, served at `/store/`, and the
-home card's store action links to it — `site/launcher-discovery.mjs` renders that action
-as `<a href="./store/">Browse the store</a>`, so it navigates rather than opening a
-surface over the home screen. The shared site header nav carries the same destination,
-and `site/desktop.js` adds its plain `<a href="./store/">` nav entry only when the page
-does not already carry one. See [launcher-store.md](launcher-store.md) for the page's
+home card is a shop window for it. Owen, 2026-11-01: the tile "should not link to the
+store until the user is signed in, but otherwise should still be visible", and it should
+"just cycle through the store items advertising them one by one, stopping to show each
+one for about 5 seconds each." So `site/launcher-discovery.mjs` keeps the card on the
+home screen for every launcher state, but only a signed-in player is given
+`<a href="./store/">Browse the store</a>`; signed out the card names the shop and offers
+no door to it. Signed in, the card reads the launcher's pre-fetched catalogue
+(`storeSnapshot`, with `storeCatalogue` as the fallback) and rotates one product every
+five seconds, showing the server's name, price and the same worth line the store prints.
+The rotation stops for `prefers-reduced-motion: reduce`, which keeps the first product
+rather than animating under the reader. The item-preview dialog is gone: the card
+advertises, and the store page is where a player reads and buys.
+
+The shared site header nav carries the same destination, and `site/desktop.js` adds its
+plain `<a href="./store/">` nav entry only when the page does not already carry one; like
+the website's entry it is hidden until the account seam reports an account. See [launcher-store.md](launcher-store.md) for the page's
 hash routes, fixture catalogue, quote/order adapter and real-currency integration
 contract. `home.json` remains a public editorial document and is not a commerce
 authority.

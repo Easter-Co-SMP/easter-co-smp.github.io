@@ -473,6 +473,15 @@ Superseding the earlier worth-line wording above, every currency pack now reads:
 
 Currency artwork scales with the server-provided creditPence: a few coins below 100 Sterling, a filled pouch from 100 Sterling, and an overflowing chest from 1,000 Sterling. Catalogue and item views share the selection.
 
+## Copy placement in a product row (2026-11-01)
+
+The worth line and the currency description share one container in the row
+(`.store-product-copy`, the grid's `worth` area) and one container in the item view
+(`.store-detail-copy`). They used to be separate children of the row grid, and the
+description carried no `grid-area`, so the grid auto-placed it into an implicit row under
+the medallion - the sentence outside the column it belongs to. `tests/store-browser.mjs`
+asserts the description is inside `.store-product-copy` inside the row.
+
 ## Currency item descriptions — correction
 
 Each currency item must show this exact description in catalogue and detail views: "All in-game currency is deposited into your in-game bank account upon purchase, and can only be withdrawn in-game." There is no bank explanation above the catalogue. Keep the amount in the product title. This supersedes the earlier instruction to put the bank explanation once above the cards.

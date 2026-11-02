@@ -296,9 +296,16 @@ export function mountStore(root, { bridge = globalThis.easterDesktop } = {}) {
       el("strong", "store-price", money(p.amountMinor, p.currency)),
       buyControl(p),
     );
-    article.append(artwork(p), open, el("p", "store-worth", worth(p)));
+    // The row's middle column is ONE container: the worth line and, for a currency pack, Owen's
+    // deposit sentence. Left as direct grid children the deposit paragraph had no `grid-area` and
+    // auto-placed itself into an implicit row under the medallion - the description outside the
+    // column it belongs to (Owen, 2026-11-01: "the item descriptions are currently inside the
+    // wrong container").
+    const copy = el("div", "store-product-copy");
+    copy.append(el("p", "store-worth", worth(p)));
     // A donation credits nothing, so it carries neither an amount nor the deposit rule.
-    if (p.creditPence > 0) article.append(el("p", "store-deposit", DEPOSIT_RULE));
+    if (p.creditPence > 0) copy.append(el("p", "store-deposit", DEPOSIT_RULE));
+    article.append(artwork(p), open, copy);
     article.append(footer);
     const note = openedNote(p);
     if (note) article.append(note);

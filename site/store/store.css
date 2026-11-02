@@ -388,8 +388,14 @@
   font-size: 12px;
   line-height: 1.5;
 }
-.store-worth {
+.store-product-copy {
   grid-area: worth;
+  align-self: start;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.store-worth {
   align-self: start;
   color: var(--store-muted);
   font-size: 14px;

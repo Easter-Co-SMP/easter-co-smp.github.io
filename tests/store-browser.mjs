@@ -104,6 +104,9 @@ function installBridge(cfg) {
       profile: null,
       actions: [],
       startupReady: true,
+      // A launcher test asks for a session only when the scenario is about one: the Store entry
+      // is hidden until the account seam reports an account (Owen, 2026-11-01).
+      ...(cfg.account ? { account: cfg.account } : {}),
     }),
     onState: () => () => {},
     homeContent: async () => home,
@@ -175,6 +178,11 @@ async function openPage({ width = 1440, height = 1000, init, arg, url } = {}) {
   const page = await browser.newPage({
     viewport: { width, height },
     reducedMotion: "reduce",
+    // Sol's store palette is the dark one. In the light theme the canonical token layer
+    // (site/launcher-bindings.css) rebinds --gold to the site's accent, which is the violet
+    // #6d4fd8 by design (site/theme.css), so a fixed "Sol's gold" assertion only means the
+    // dark scheme; tests/page-theme-browser.mjs owns the cross-theme comparison.
+    colorScheme: "dark",
   });
   const errors = [],
     external = [];
@@ -267,6 +275,13 @@ try {
       await store.locator(".store-deposit").allInnerTexts(),
       [COPY.deposit, COPY.deposit, COPY.deposit],
       "every currency card also carries where the money goes and whether it can be spent",
+    );
+    assert.equal(
+      await store.locator(".store-product .store-deposit").evaluateAll((nodes) =>
+        nodes.every((node) => node.closest(".store-product-copy") && node.closest(".store-product")),
+      ),
+      true,
+      "the description sits in the product row's own copy column, not beside the row",
     );
     assert.deepEqual(
       await store.locator(".store-product > .store-art").evaluateAll((nodes) => nodes.map((n) => n.dataset.emblem)),
@@ -911,11 +926,12 @@ try {
   {
     const { page, errors } = await openPage({
       init: installBridge,
-      arg: { products: PRODUCTS, orders: [] },
+      arg: { products: PRODUCTS, orders: [], account: { id: "owner", name: "Owen", username: "owen" } },
       url: origin,
     });
     const entries = page.locator('.site-header nav a[href$="store/"]');
     await entries.first().waitFor();
+    assert.equal(await entries.first().isVisible(), true, "a signed-in launcher shows its Store entry");
     assert.equal(await entries.count(), 1, "the home page's header carries exactly one Store entry");
     assert.equal(
       await entries.evaluate((a) => a.href),
@@ -1350,13 +1366,17 @@ try {
     );
     assert.match(
       sheet,
-      /\.store-signed-in \.site-header nav a\.store-entry\{display:inline\}/,
+      /\.store-signed-in \.site-header nav a\.store-entry,\n\.store-signed-in \.site-header nav a\.desktop-store-entry\{display:inline\}/,
       "and reveals it only under the class site/store-access.mjs sets from the account seam",
     );
-    assert.match(
+    // THE LAUNCHER FOLLOWS THE SAME RULE SINCE 2026-11-01 (Owen: the store must not be visible
+    // inside the launcher until the player is signed in). There is no desktop-mode override left:
+    // site/desktop.js authors the same class from its account seam, and this sheet's default is the
+    // one that hides it.
+    assert.doesNotMatch(
       sheet,
-      /\.desktop-mode \.site-header nav a\.store-entry,\n\.desktop-mode \.site-header nav a\.desktop-store-entry\{display:inline\}/,
-      "the launcher's own entry is out of that rule: desktop-mode shows it either way",
+      /\.desktop-mode \.site-header nav a\.(store-entry|desktop-store-entry)/,
+      "no desktop-mode rule shows the Store entry without a session",
     );
     // ONE AUTHOR FOR THE CLASS. Two surfaces read it (the header's entry and this page's shop) and
     // neither is allowed to decide it for itself.

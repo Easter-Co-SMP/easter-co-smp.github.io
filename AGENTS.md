@@ -67,8 +67,10 @@ session. The same verdict decides the page: /store/ ships a sign-in gate in its 
 site/store/store.mjs replaces it with the shop only when there is an account, so a signed-out
 visitor — by address, bookmark or Stripe fragment — reads the gate and makes no store API call
 at all. Signing out puts the gate back and drops the shop in the same tab, with no reload. The
-launcher is out of this rule: `desktop-mode` shows the launcher's own entry and the app mounts
-the store with its own transport. site/web.js forwards Stripe's return fragment
+launcher follows the rule for its entry since 2026-11-01: site/desktop.js hides `Store` until the
+account seam reports an account, using the same `store-signed-in` class the website uses
+(site/web.js's seam is null in that window). The store page itself still mounts with the
+launcher's own transport, signed in or not. site/web.js forwards Stripe's return fragment
 (#store-paid/... to /store/#orders, #store-cancelled to /store/#catalogue) as a routing
 signal only: orders are re-read from the service, so a forged fragment manufactures no
 payment. site/store/store.mjs mounts on `window.easterDesktop || webAccount`, so the same

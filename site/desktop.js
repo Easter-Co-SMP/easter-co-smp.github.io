@@ -1209,7 +1209,7 @@ signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close s
   const edition=document.createElement('p');edition.className='desktop-edition';edition.textContent='Custom Minecraft Client & Server';title.append(edition);
   heading.append(title);homeCopy.prepend(heading);
  }
- if(homeCopy)void import('./launcher-discovery.mjs').then(({mountDiscovery})=>mountDiscovery(homeCopy.parentElement,desktop));
+ if(homeCopy)void import('./launcher-discovery.mjs').then(({mountDiscovery})=>mountDiscovery(homeCopy.parentElement,desktop,{account:accountSeam}));
  // The store is a page of its own at ./store/, reached by navigation exactly as Map and Wiki
  // are, and it is shared with the public website again (Owen, 2026-10-29: *"yes, return the store
  // to the website"*; it was launcher-only between 2026-10-27 and 2026-10-29 while the app
@@ -1237,6 +1237,12 @@ signin.innerHTML=`<button class="dialog-close" type="button" aria-label="Close s
  // service through this process. `Logout` is gone from the product: `site/web-account.mjs` and
  // e-server both already said `Sign out`.
  const PROFILE_ROWS=[['My Profile','myProfile'],['Linked Accounts','linkedAccounts'],['Settings','settings'],['Sign out','signOut']];
+ // THE STORE ENTRY FOLLOWS THE SESSION IN THE LAUNCHER TOO. Owen, 2026-11-01: the store must not
+ // be visible inside the launcher until the player is signed in. site/desktop.css hides both
+ // entries until `store-signed-in` is on <html>, and site/store-access.mjs owns that class. The
+ // website's author is site/web.js, whose seam is null in this window (web-account.mjs refuses to
+ // exist when window.easterDesktop is present), so this seam is its author here.
+ void import('./store-access.mjs').then(({paintStoreAccess})=>accountSeam.subscribe(state=>paintStoreAccess(state))).catch(()=>{});
  let accountControl=null;
  void import('./account-control.mjs').then(({mountAccountControl})=>mountAccountControl({nav:document.querySelector('.site-header nav'),seam:accountSeam,auth:accountAuth}))
   .then(control=>{

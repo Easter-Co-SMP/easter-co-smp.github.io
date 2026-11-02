@@ -320,16 +320,17 @@
    hidden unless something has PROVEN a session. Only site/store-access.mjs may put
    `store-signed-in` on <html>, and it does so from the account seam's state, never from anything a
    page guesses. A document that cannot check a session therefore cannot claim one.
-   `desktop-mode` is the launcher, which is out of this rule's scope: the app mounts the store with
-   its own transport and offers its own entry, so it shows one either way. The launcher's entry is
-   `a.desktop-store-entry` (appended by site/desktop.js on a page that lacks one) or, since the
-   pages carry their own, the static `a.store-entry` - both are listed here so neither can be the
-   one a later edit forgets. */
+   `desktop-mode` is the launcher, and since 2026-11-01 it follows the same rule: Owen asked that
+   the store not be visible inside the launcher until the player is signed in, so the launcher's
+   entry is hidden by this same default and revealed by the same class. In that window
+   site/desktop.js is the class's author, because site/web.js's seam is null when
+   `window.easterDesktop` exists. The launcher's entry is `a.desktop-store-entry` (appended by
+   site/desktop.js on a page that lacks one) or, since the pages carry their own, the static
+   `a.store-entry` - both are listed here so neither can be the one a later edit forgets. */
 .site-header nav a.store-entry,
 .site-header nav a.desktop-store-entry{display:none}
-.store-signed-in .site-header nav a.store-entry{display:inline}
-.desktop-mode .site-header nav a.store-entry,
-.desktop-mode .site-header nav a.desktop-store-entry{display:inline}
+.store-signed-in .site-header nav a.store-entry,
+.store-signed-in .site-header nav a.desktop-store-entry{display:inline}
 .store-main{display:block}
 .desktop-mode .store-main{display:block}
 .desktop-mode .store-footer>span:last-child{display:inline}
