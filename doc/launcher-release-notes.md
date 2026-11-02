@@ -1,3 +1,17 @@
+# Easter Company launcher 1.0.60
+
+- The Store entry inside the launcher now follows your account. It is hidden until you sign
+  in, the same way it works on the website, and it comes back when you do.
+- The Community store card on the home screen stays where it was. It now shows one real
+  product at a time, changing every five seconds, with the name, the price and what the
+  purchase is worth. It links to the store only when you are signed in; signed out it still
+  tells you the store exists.
+- If your system asks applications to reduce motion, the card keeps the first product
+  rather than cycling.
+- Inside the store, the description under each product now sits in the product's own
+  column instead of being pushed out beside the row.
+
+
 # Easter Company launcher 1.0.59
 
 One theme, two moods
