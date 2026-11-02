@@ -179,9 +179,14 @@ export async function mountAccountControl({nav, seam, auth: providedAuth = null,
   account.onclick=event=>{
    if(!current.account){auth.open();return;}
    if(current.account.passwordRequired){auth.setup();return;}
-   // THE PILL TOGGLES. Without this the press that light-dismisses the popover also
-   // re-opens it, which is the bug Owen reported.
-   if(isOpen()){event.preventDefault();closeMenu();return;}
+   // THE PILL TOGGLES — FOR A REAL GESTURE. Without this the press that light-dismissed
+   // the popover also re-opened it, which is the bug Owen reported. But only a trusted
+   // click toggles: an untrusted one is a synthetic dispatch (a test, a script, a helper
+   // opening the menu for someone), and a toggle there means "open the menu" can silently
+   // close it — which is exactly how this broke the dialog-parity suite when the toggle
+   // landed (measured: passes at 719afe8bc0, fails after). A screen reader's activation is
+   // a trusted click, so assistive users keep the toggle.
+   if(isOpen() && event.isTrusted){event.preventDefault();closeMenu();return;}
    // ONE MENU AT A TIME. With no UA light dismiss nothing closes a second popover for us, so
    // opening this one puts every other open popover away first.
    doc.querySelectorAll(':popover-open').forEach(other=>{if(other!==menu)other.hidePopover();});
