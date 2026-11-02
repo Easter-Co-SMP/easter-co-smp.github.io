@@ -18,7 +18,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import {createRequire} from 'node:module';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const root=process.cwd();
 // The rule and the constants the launcher itself matches the published payload with, so
 // this journey compares the manifest with the code instead of with a copy of it: the

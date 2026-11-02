@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 // PAYING INSIDE THE LAUNCHER.
 //
 // Owen, 2026-10-23, all three of his sentences: "It opened stripe in my web browser, but it should

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const ACCOUNT={id:7,username:'captaintestbeard',minecraftUuid:'12345678-90ab-cdef-1234-567890abcdef',minecraftName:'TestCaptain',displayName:'Captain Testbeard',roles:['crew'],createdAt:'2026-01-01T00:00:00Z',passwordRequired:false,microsoftLinked:true,microsoftSubject:'cc75443d8979fe5cdbdf2de55b822ec8b63bc55348c2e451b46b19f4746885ca'};
 const SESSION='fixture-company-private-session',calls=[];
 const stub=http.createServer((request,response)=>{

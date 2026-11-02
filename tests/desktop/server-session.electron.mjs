@@ -21,7 +21,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import {createCipheriv,createDecipheriv,createHash,randomBytes} from 'node:crypto';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const UHS='fixture-uhs-0123456789abcdef0123456789abcdef';
 const ACCOUNT={id:7,username:'captainfixture',minecraftUuid:'12345678-90ab-cdef-1234-567890abcdef',minecraftName:'FixtureCaptain',displayName:'Captain Fixture',roles:['crew'],createdAt:'2026-01-01T00:00:00Z',passwordRequired:false,microsoftLinked:true,microsoftSubject:createHash('sha256').update('xbox-uhs:'+UHS).digest('hex')};
 const REAUTH_SENTENCE='Microsoft needs you to sign in again before Minecraft starts.';

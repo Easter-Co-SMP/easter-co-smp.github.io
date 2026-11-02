@@ -10,7 +10,7 @@ import {spawn} from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const root=process.cwd();
 // The worktree's node_modules is a symlink into the main checkout, and the launcher
 // reports the binary it is actually running from, so the expected target is resolved the

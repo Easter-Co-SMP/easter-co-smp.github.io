@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 
 // The account the window signs in as. Two different names on purpose: a fixture whose display name
 // and username read the same would prove nothing about which line is which.

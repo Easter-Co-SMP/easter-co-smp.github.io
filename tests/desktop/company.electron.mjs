@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const fixtureOrigin=process.env.EASTER_FIXTURE_ORIGIN||'http://127.0.0.1:18796';
 const home=await fs.mkdtemp('/tmp/company-identity-electron-');
 await fs.writeFile(path.join(home,'settings.json'),JSON.stringify({memoryMB:4096,server:'127.0.0.1:25565',exitOnLaunch:false}));

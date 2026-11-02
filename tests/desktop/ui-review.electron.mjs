@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const home=await fs.mkdtemp(path.join(os.tmpdir(),'launcher-ui-'));
 const images=process.env.EASTER_REVIEW_IMAGES||'/tmp/launcher-ui-after';
 await fs.mkdir(images,{recursive:true});

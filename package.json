@@ -36,7 +36,8 @@
   },
   "devDependencies": {
     "electron": "44.7.2",
-    "electron-builder": "26.15.3"
+    "electron-builder": "26.15.3",
+    "playwright": "^1.61.1"
   },
   "author": {
     "name": "Easter LTD"

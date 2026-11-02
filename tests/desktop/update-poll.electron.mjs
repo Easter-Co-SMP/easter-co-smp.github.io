@@ -11,7 +11,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {createRequire} from 'node:module';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const require=createRequire(import.meta.url),{createPackage}=require('@electron/asar'),crypto=require('node:crypto');
 const home=await fs.mkdtemp(path.join(os.tmpdir(),'update-poll-'));
 const stash=path.join(home,'Easter Company','launcher-updates');

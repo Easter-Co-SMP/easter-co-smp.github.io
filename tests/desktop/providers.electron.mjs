@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const home=await fs.mkdtemp('/tmp/provider-account-electron-');
 const env={...process.env,EASTER_VAULT_FIXTURE_KEY:randomBytes(32).toString('hex'),EASTER_TEST_HOME:home,EASTER_API_BASE_URL:'http://127.0.0.1:18797',EASTER_IDENTITY_FIXTURE_SEED:String(Date.now())};
 const launch=()=>electron.launch({executablePath:path.resolve('node_modules/electron/dist/electron'),args:['--no-sandbox',path.resolve('tests/desktop/provider-harness.cjs')],env});

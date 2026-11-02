@@ -12,7 +12,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const MICROSOFT_ID='1234567890abcdef1234567890abcdef';
 const SUBJECT=createHash('sha256').update(MICROSOFT_ID).digest('hex');
 // The Microsoft account's email exists on the server side and must never reach the client

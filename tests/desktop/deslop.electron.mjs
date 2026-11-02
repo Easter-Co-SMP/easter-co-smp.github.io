@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 // The pill's face belongs to the shared account control now, which paints the picture - or the head
 // it crops from the skin, or the letter tile - into a 32px slot as an <img>. Reading a pixel off it
 // means drawing that image into an offscreen 32x32 canvas first; the crop behind it is the same

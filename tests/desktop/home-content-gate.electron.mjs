@@ -18,7 +18,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const root=process.cwd();
 const home=await fs.mkdtemp(path.join(os.tmpdir(),'home-content-gate-'));
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));

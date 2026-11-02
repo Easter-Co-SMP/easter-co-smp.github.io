@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const root=await fs.mkdtemp(path.join(os.tmpdir(),'mandatory-gate-'));
 await fs.mkdir(path.join(root,'Easter Company'));
 await fs.writeFile(path.join(root,'Easter Company/settings.json'),JSON.stringify({memoryMB:4096,server:'100.100.1.0:25565',autoUpdateLauncher:false,autoUpdateGame:false,exitOnLaunch:false}));

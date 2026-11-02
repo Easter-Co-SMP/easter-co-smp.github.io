@@ -25,7 +25,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import {createCipheriv,createDecipheriv,randomBytes} from 'node:crypto';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 
 const fixtureOrigin=process.env.EASTER_FIXTURE_ORIGIN||'http://127.0.0.1:18796';
 const vaultKey=randomBytes(32).toString('hex');

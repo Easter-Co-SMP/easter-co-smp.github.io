@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 // The journey Owen asked for: the legal documents are reachable from inside the launcher without
 // anyone being handed a URL. desktop/main.cjs only lets easter://easter/ through its will-navigate
 // guard, so a footer link that resolves anywhere else is opened in the desktop browser instead of

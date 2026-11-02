@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {createRequire} from 'node:module';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const require=createRequire(import.meta.url),{createPackage}=require('@electron/asar'),updater=require('../../desktop/updater.cjs');
 const home=await fs.mkdtemp(path.join(os.tmpdir(),'bootstrap-test-')),source=path.join(home,'payload');
 await fs.mkdir(path.join(source,'desktop'),{recursive:true});

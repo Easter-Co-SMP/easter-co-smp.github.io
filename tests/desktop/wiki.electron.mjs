@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {_electron as electron} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {_electron as electron} from 'playwright';
 const root=process.cwd(),home=await fs.mkdtemp(path.join(os.tmpdir(),'easter-wiki-'));
 const packaged=process.env.EASTER_PACKAGED_LAUNCHER;
 const app=await electron.launch({executablePath:packaged||path.join(root,'node_modules/electron/dist/electron'),args:['--no-sandbox',...(packaged?[]:[path.join(root,'desktop/main.cjs')])],env:{...process.env,EASTER_TEST_HOME:home}});
