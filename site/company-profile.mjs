@@ -221,7 +221,18 @@ export async function openLinkedAccounts({desktop,getState,signInMicrosoft,isAcc
    // account" every time. Only an unlinked provider carries Connect, the action that can work.
    if(!linked){
     const button=document.createElement('button');button.type='button';button.textContent='Connect';button.dataset.accountChange='';button.dataset.unavailable=String(Boolean(available&&!available.includes(provider)));button.setAttribute('aria-label','Connect '+name);
-    button.onclick=()=>void surface.run(()=>provider==='microsoft'?signInMicrosoft({link:true}):desktop.signInProvider(provider,true),{external:provider!=='microsoft'});
+    // MICROSOFT'S ROW HAS NO STATUS LINE, AND THAT IS ITS HONEST SHAPE. On a web surface the
+    // press sends the browser to Microsoft and the answer arrives on /account/ - there is no
+    // outcome left on this dialog to print, and "Saved." would be a claim about a save that has
+    // not happened. In the launcher window the sign-in finishes in its own dialog and this row
+    // is repainted as "linked" from the account document the sign-in produced. Both are the row
+    // answering, so the surface prints nothing; a refusal the seam DID see (no session to link
+    // with, a service answer) is still drawn, because `surface.run` prints every `ok:false`.
+    button.onclick=()=>void surface.run(async()=>{
+     if(provider!=='microsoft')return desktop.signInProvider(provider,true);
+     const answer=await signInMicrosoft({link:true});
+     return answer?.ok===false?answer:{ok:true,cancelled:true};
+    },{external:provider!=='microsoft'});
     head.append(button);
    }
    row.append(head);

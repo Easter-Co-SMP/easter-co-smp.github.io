@@ -102,8 +102,14 @@
    subscribe(listener){listeners.add(listener);listener(shown);return()=>listeners.delete(listener);},
    ready:Promise.resolve(),
    // The control's own Microsoft wrapper is never used while it is handed this window's auth
-   // instance, but a host is not allowed to leave a method missing: this is the real flow.
-   startMicrosoftSignIn:()=>Promise.resolve(signInMicrosoft()).then(()=>{throw Error('Microsoft sign-in is running in the launcher window.');}),
+   // instance - EXCEPT by the Linked Accounts row's Connect, which is a control of the same
+   // dialog and asks this seam directly. So this runs the real interactive sign-in, with the
+   // caller's options (`link:true` is what makes it a link rather than a sign-in: main.cjs
+   // `interactiveMicrosoft({link:true})` locks the Company account exactly as Play's reconnect
+   // does), and answers AFTER it has finished. A refusal is not repeated here: the launcher's
+   // own sign-in dialog has already said it (company-auth's conflict copy, or the page notice),
+   // and the row's answer is the account document the sign-in produced.
+   startMicrosoftSignIn:(options={})=>Promise.resolve(signInMicrosoft(options)).then(()=>({ok:true})),
    cancelSignIn:()=>desktop.cancelSignIn(),
    signOut:()=>desktop.signOut(),
    accountProviders:()=>desktop.accountProviders(),

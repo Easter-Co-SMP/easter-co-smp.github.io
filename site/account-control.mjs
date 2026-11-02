@@ -120,14 +120,23 @@ export async function mountAccountControl({nav, seam, auth: providedAuth = null,
   // full page loads"). The address Microsoft is handed is the registered redirect either way, and
   // the answer is exchanged on /account/ whether the flow started there or here.
   //
-  // Linking stays a launcher action: the exchange is a sign-in, and it has no link mode for an
-  // account that is already signed in.
+  // LINKING IS THE SAME FLOW, NOT A LAUNCHER-ONLY ONE. Owen, 2026-11-01, pasting this dialog:
+  // "we need to re-enable microsoft account linking across all surfaces." This wrapper used to
+  // answer every `link` press here with "Connect Microsoft in the launcher.", so the Microsoft row
+  // was a dead end on every web surface. It is not a second mechanism: the flow is the same one,
+  // and what makes it a link is the session the seam carries to the exchange. The account service
+  // applies a Microsoft proof to an account only when the proof OWNS it - a live session for that
+  // same account is exactly that case (api/identity_store.login_microsoft, "what decides between
+  // refusing a proof and repairing a link") - and a proof that resolves to a DIFFERENT Company
+  // account is still refused with the conflict answer the launcher shows. So `link` is passed
+  // down, never re-decided here.
+  //
+  // `started` is reported rather than assumed: a web surface sends the browser to Microsoft before
+  // this answers, so the row that pressed Connect has no outcome to print and must not claim one.
   const signInMicrosoft=async options=>{
-   if(options?.link)return {ok:false,error:'Connect Microsoft in the launcher.'};
-   // The seam refuses a second flow while one is in flight, and on success the browser has
-   // already been sent to Microsoft by the time this answers.
-   const result=await webAccount.startMicrosoftSignIn();
-   return result&&result.ok===false?{ok:false,error:result.error}:{ok:true};
+   const result=await webAccount.startMicrosoftSignIn({link:options?.link===true});
+   if(result&&result.ok===false)return {ok:false,error:result.error};
+   return result?.value?.started===true?{ok:true,started:true}:{ok:true};
   };
   // `startsOnPage` tells the dialog that pressing Microsoft begins the flow on the page the
   // player is on, so the dialog stays up and reports the start instead of closing first.

@@ -275,7 +275,10 @@ test('the website no longer says Microsoft sign-in is launcher-only, or hides it
  assert(!web.includes('.company-microsoft'),'the hidden-button hack is gone');
  // And it opens the flow on the page the player is already on, rather than sending the browser
  // through a second address first: one click, one navigation, and that navigation is Microsoft.
- assert(web.includes('webAccount.startMicrosoftSignIn()'),'the chooser starts the flow here');
+ // The call takes the caller's options since 2026-11-01 (`{link}` is what makes the Linked
+ // Accounts row a link rather than a sign-in), so this reads the call rather than one argument
+ // list: the rule is that the chooser starts the flow HERE, not how the argument is spelled.
+ assert(web.includes('webAccount.startMicrosoftSignIn('),'the chooser starts the flow here');
  assert(!web.includes("destination.search='provider=microsoft'"),'and no longer sends the browser through /account/?provider=microsoft');
  assert(!web.includes('location.assign(destination.href)'),'there is no other navigation left in the chooser');
  assert(web.includes('startsOnPage:true'),'and the dialog reports the start while it is in flight');
