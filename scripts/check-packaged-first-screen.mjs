@@ -34,8 +34,29 @@ import path from 'node:path';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const repo=path.resolve(path.dirname(new URL(import.meta.url).pathname),'..');
-const playwright=process.env.PLAYWRIGHT_MODULE||'/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
-const {_electron:electron}=await import(playwright);
+// PLAYWRIGHT IS RESOLVED, NOT HARDCODED TO ONE CHECKOUT. This used to name
+// /root/deepseek-harness, which the 2026-11-01 cleanup removed, so the packaged first
+// screen could not be checked at all and the cut refused (measured: ERR_MODULE_NOT_FOUND
+// on that path). It now prefers this repository's own dependency, then the harness
+// checkout's, and PLAYWRIGHT_MODULE still overrides both.
+function resolvePlaywright(){
+  // `require` is this file's own createRequire (line 35), which resolves against this
+  // repository's node_modules, so no second resolver is needed.
+  const candidates=[process.env.PLAYWRIGHT_MODULE,'playwright',
+    '/root/e-server/harness/node_modules/playwright/index.mjs'];
+  for(const candidate of candidates){
+    if(!candidate)continue;
+    try{return candidate.startsWith('/')?candidate:require.resolve(candidate);}catch{/* next */}
+  }
+  throw new Error('playwright is not installed: this check needs it to drive the packaged app. '
+    +'Set PLAYWRIGHT_MODULE to its index.mjs.');
+}
+const playwright=resolvePlaywright();
+// An absolute .mjs path is ESM and exposes _electron directly; require.resolve() can hand
+// back a CommonJS entry, whose exports arrive under `default`. Take whichever has it rather
+// than assuming the module system, which is what made this fail the first time.
+const playwrightModule=await import(playwright);
+const {_electron:electron}=playwrightModule._electron?playwrightModule:(playwrightModule.default||playwrightModule);
 
 const args=process.argv.slice(2);
 const appIndex=args.indexOf('--app');
