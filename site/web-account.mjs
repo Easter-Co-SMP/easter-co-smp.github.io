@@ -16,6 +16,11 @@ const SESSION_KEY='easter-company-web-session-v1';
 // copy cannot import anything), so the pair is one literal in two files rather than one constant:
 // tests/account-browser.mjs drives the whole flow, which is what keeps them from drifting.
 export const SIGN_IN_WINDOW='easter-company-signin';
+// How long a callback waits for the request in front of it before taking the seam's own refusal
+// (completeMicrosoftSignIn). Two numbers, named rather than bare: ten seconds is longer than any
+// account read this page makes is allowed to take, and fifty milliseconds is short enough that a
+// read which settles at once costs the player nothing.
+const CALLBACK_SLOT_WAIT_MS=10000,CALLBACK_SLOT_STEP_MS=50;
 const PROVIDERS={google:['https://accounts.google.com','/o/oauth2/v2/auth'],discord:['https://discord.com','/oauth2/authorize'],steam:['https://steamcommunity.com','/openid/login']};
 // Where a browser may sign in with Microsoft, and what a callback must look like, are one
 // contract: site/account/microsoft-signin.mjs holds both, because the registered redirect
@@ -117,7 +122,20 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
   loginCompany:(identifier,password)=>run(async()=>{await ready;if(session)throw Error('Sign out before using another account.');save(await client.loginPassword(identifier,password));}),
   checkCompanyUsername:username=>run(async()=>client.usernameAvailable(username)),
   setCompanyPassword:(password,replace=false,username)=>run(async()=>save(await read(()=>client.setPassword(token(),password,replace,username)))),
-  accountProviders:async()=>{const found=await client.providers();return {providers:Array.isArray(found.providers)?found.providers.filter(p=>Object.hasOwn(PROVIDERS,p)):[]};},
+  // WHICH PROVIDERS THIS SURFACE CAN OFFER A CONNECT FOR, and that is a wider list than the
+  // popup broker's. `PROVIDERS` above is the broker table - Google, Discord and Steam, the three
+  // that run in a window this page opens - and Microsoft is deliberately not in it because it
+  // signs in on its own page (see startMicrosoftSignIn). Filtering the service's answer through
+  // that table therefore deleted Microsoft from the availability answer, and the Linked Accounts
+  // dialog draws an unavailable provider's Connect disabled (site/company-profile.mjs,
+  // `data-unavailable`): Owen's "does nothing useful" was a disabled button as well as a refusal.
+  // The service answers "microsoft" unconditionally (api/provider_routes.py prepends it), so the
+  // honest filter is "what this surface can offer", which includes the one sign-in that leaves
+  // the page. The launcher answers the same list to the same dialog.
+  accountProviders:async()=>{
+   const found=await client.providers();
+   return {providers:Array.isArray(found.providers)?found.providers.filter(p=>p==='microsoft'||Object.hasOwn(PROVIDERS,p)):[]};
+  },
   profileEmails:()=>read(()=>client.emails(token())),
   selectLoginEmail:email=>run(()=>read(()=>client.selectLoginEmail(token(),email))),
   updateProfile:displayName=>run(async()=>{const account=await read(()=>client.updateProfile(token(),{displayName}));session={...session,account};remember();emit();}),
@@ -198,28 +216,67 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
   // but that path. A mirror of site/ still signs nobody in - site/account/account.mjs offers no
   // sign-in at all off the registered path - and nothing here may navigate anywhere but the
   // Microsoft authority.
-  startMicrosoftSignIn:()=>run(async()=>{
+  // LINKING AND SIGNING IN ARE THE SAME FLOW, AND THE DIFFERENCE IS THE SESSION.
+  //
+  // `options.link` is the Linked Accounts row's Connect: the player is already signed in and is
+  // proving Microsoft for the account they hold. That is the case the account service applies a
+  // proof to (api/identity_store.login_microsoft: an account is repaired only by a proof that
+  // OWNS it, and a live session for that same account is ownership), so this refuses only when
+  // there is no session to prove it for. A plain sign-in still refuses while a session exists,
+  // exactly as it always has: signing in on top of an account is how an account gets switched
+  // under somebody.
+  //
+  // NOTHING IS STARTED TWICE. `run` refuses a second account request while one is in flight, and
+  // on success the browser has already been sent to Microsoft by the time this answers - which
+  // is why the answer carries `started`: the surface that pressed the control is about to be
+  // replaced by Microsoft's page and must not pretend it saved anything.
+  startMicrosoftSignIn:(options={})=>run(async()=>{
    await ready;
-   if(session)throw new AccountError('invalid_request','Sign out before using another account.');
+   if(options?.link===true&&!session)throw new AccountError('invalid_session','Sign in before connecting Microsoft.');
+   if(options?.link!==true&&session)throw new AccountError('invalid_request','Sign out before using another account.');
    const flow=await microsoftBrowser.start();
    // A full-page navigation, not a popup: Microsoft's sign-in page refuses to be framed, and
    // the answer comes back to this page rather than to a window we would have to poll.
    navigate(flow.authorizeUrl);
-   return flow;
+   return {...flow,started:true};
   }),
   // Finish a callback this page received, from the query string it actually arrived with. The
   // state posted is the state received, and a callback that carried none is refused here
   // instead of being sent to a service that could only refuse it too.
-  completeMicrosoftSignIn:search=>run(async()=>{
-   await ready;
-   if(!atRedirect(where))throw new AccountError('not_configured',NOT_CONFIGURED);
-   const callback=readCallback(search);
-   // The authority's own refusal - the player cancelled, consent was withheld, the tenant said
-   // no - is not an exchange and never becomes one: there is no code to redeem.
-   if(callback.kind==='refused')throw new AccountError(callback.error||'invalid_request','Sign-in cancelled.');
-   if(callback.kind!=='code')throw new AccountError('oauth_state_invalid',START_AGAIN);
-   save(client.signed(await microsoftBrowser.exchange(callback.code,callback.state)));
-  }),
+  //
+  // THE SESSION THIS TAB HOLDS TRAVELS WITH THE EXCHANGE. It is the same tab that started the
+  // flow (sessionStorage, and the round trip through Microsoft is the same tab's), so a player
+  // who pressed Connect is still the account that asked: the service applies the proof to that
+  // account when the proof owns it and refuses it with the existing conflict answer when the
+  // proof belongs to somebody else. A tab with no session sends nothing and is an ordinary
+  // sign-in, which is the answer this has always given.
+  // THE CALLBACK TAKES ITS TURN RATHER THAN BEING REFUSED ITS TURN. This seam answers one account
+  // request at a time and refuses a concurrent one ("Another account request is in progress."),
+  // which is right for every action a person can press twice. The callback is not one of those:
+  // the page it arrives on mounts the shared account control, whose theme read is itself an
+  // account request, so on a signed-in tab - which is every linking tab - the exchange could
+  // arrive while that read was in flight and be refused with a sentence about a request the
+  // player never made (measured 2026-11-01, the link flow in a browser). So it waits, for one
+  // named and bounded moment, for the request in front of it, and then runs exactly as it always
+  // did; a read that never settles still ends in the seam's own refusal.
+  completeMicrosoftSignIn:search=>(async()=>{
+   // THE WAIT AND THE REQUEST ARE ONE JOB, with no microtask between them: a gap there is enough
+   // for another account request to take the seam first, which is exactly the collision this wait
+   // exists to avoid (measured 2026-11-01, "Another account request is in progress." on the
+   // callback). A seam still held past the wait ends in the seam's own refusal, unchanged.
+   const deadline=Date.now()+CALLBACK_SLOT_WAIT_MS;
+   while(working&&Date.now()<deadline)await new Promise(done=>setTimeout(done,CALLBACK_SLOT_STEP_MS));
+   return run(async()=>{
+    await ready;
+    if(!atRedirect(where))throw new AccountError('not_configured',NOT_CONFIGURED);
+    const callback=readCallback(search);
+    // The authority's own refusal - the player cancelled, consent was withheld, the tenant said
+    // no - is not an exchange and never becomes one: there is no code to redeem.
+    if(callback.kind==='refused')throw new AccountError(callback.error||'invalid_request','Sign-in cancelled.');
+    if(callback.kind!=='code')throw new AccountError('oauth_state_invalid',START_AGAIN);
+    save(client.signed(await microsoftBrowser.exchange(callback.code,callback.state,session?.token)));
+   });
+  })(),
   cancelSignIn:async()=>providerAbort?.abort(),
   signOut:async()=>{providerAbort?.abort();const previous=session?.token;forget();if(previous)await client.logout(previous);},
   storeCatalogue:async()=>{await ready;try{return store.catalogue(await read(()=>client.storeCatalogue(token())));}catch(error){throw error.code==='store_signed_out'?error:store.refusal(error);}},

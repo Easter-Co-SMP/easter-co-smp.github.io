@@ -85,3 +85,79 @@ test('an expired token is dropped with its document, and nothing is painted from
  await bridge.ready;
  assert.equal(asked,0,'an expired session is not asked about');
 });
+
+// ---- LINKING MICROSOFT, FROM A TAB THAT IS ALREADY SIGNED IN --------------------
+// Owen, 2026-11-01: "we need to re-enable microsoft account linking across all surfaces." The
+// row starts the same flow a sign-in does; what makes it a LINK is the session carried to the
+// exchange, which is the one thing the account service lets a proof repair
+// (api/identity_store.login_microsoft, "what decides between refusing a proof and repairing a
+// link"). These four cases are that seam's own rules, with the Microsoft half stubbed.
+const microsoft=(overrides={})=>{
+ const calls={start:0,exchange:[],navigated:[]};
+ const browser={
+  start:async()=>{calls.start++;return {state:'s'.repeat(43),authorizeUrl:'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_id=fixture'};},
+  // A linked account is `microsoftLinked` AND a 64-hex `microsoftSubject`: the contract in
+  // site/account-client.mjs refuses the flag without the subject, so the fixture carries both.
+  exchange:async(...args)=>{calls.exchange.push(args);return overrides.answer||{account:{...account,microsoftLinked:true,microsoftSubject:'a'.repeat(64)},session:{token:'fixture-new',expiresAt:Date.now()+60000}};}
+ };
+ // The registered redirect is where a callback may be finished: the seam checks the page's own
+ // path against the literal Microsoft is registered to return to, so the stub says where it is.
+ const bridge=createWebAccount({storage:memory(),client:{me:async()=>account,loginPassword:async()=>signed,logout:async()=>{},signed:answer=>answer},microsoftBrowser:browser,navigate:url=>calls.navigated.push(url),where:{pathname:'/account/'}});
+ return {bridge,calls};
+};
+test('a signed-in tab starts a Microsoft link, and the row is told it only started',async()=>{
+ const {bridge,calls}=microsoft();
+ await bridge.loginCompany('fixture_player','fixture');
+ const answer=await bridge.startMicrosoftSignIn({link:true});
+ assert.equal(answer.ok,true);
+ assert.equal(answer.value.started,true,'a web surface sends the browser away: the row must not report a save');
+ assert.equal(calls.start,1);
+ assert.match(calls.navigated[0],/^https:\/\/login\.microsoftonline\.com\//);
+ await bridge.signOut();
+});
+test('linking without a session is refused before any flow starts',async()=>{
+ const {bridge,calls}=microsoft();
+ const answer=await bridge.startMicrosoftSignIn({link:true});
+ assert.deepEqual({ok:answer.ok,error:answer.error},{ok:false,error:'Sign in before connecting Microsoft.'});
+ assert.equal(calls.start,0,'nothing was asked of the account service');
+ assert.equal(calls.navigated.length,0,'and the browser stayed where it was');
+ await bridge.signOut();
+});
+test('a plain sign-in is still refused while a session is live',async()=>{
+ const {bridge,calls}=microsoft();
+ await bridge.loginCompany('fixture_player','fixture');
+ const answer=await bridge.startMicrosoftSignIn();
+ assert.deepEqual({ok:answer.ok,error:answer.error},{ok:false,error:'Sign out before using another account.'});
+ assert.equal(calls.start,0);
+ await bridge.signOut();
+});
+test('the callback carries the tab\'s own session to the exchange',async()=>{
+ const {bridge,calls}=microsoft();
+ await bridge.loginCompany('fixture_player','fixture');
+ const code='M.C523_BAY.2.U.fixture-code';
+ await bridge.completeMicrosoftSignIn('?code='+encodeURIComponent(code)+'&state='+'s'.repeat(43));
+ assert.equal(calls.exchange.length,1);
+ assert.deepEqual(calls.exchange[0],[code,'s'.repeat(43),'fixture-only'],
+  'the code, the state, and the session this tab holds - the account the proof is being applied to');
+ assert.equal(bridge.getState().account.microsoftLinked,true,'the answer is saved as the tab\'s session, as it always was');
+ await bridge.signOut();
+});
+test('a signed-out tab exchanges with no session at all, which is an ordinary sign-in',async()=>{
+ const {bridge,calls}=microsoft();
+ await bridge.completeMicrosoftSignIn('?code='+encodeURIComponent('M.C523_BAY.2.U.fixture-code')+'&state='+'s'.repeat(43));
+ assert.equal(calls.exchange[0][2],undefined,'nothing is claimed about an account this tab does not hold');
+ await bridge.signOut();
+});
+test('the service\'s refusal reaches the caller unchanged, and nothing is saved',async()=>{
+ const conflict=Object.assign(Error('This Microsoft account is already linked to a different Company account, or this Company account already has a Microsoft link.'),{code:'identity_conflict'});
+ const browser=createWebAccount({storage:memory(),client:{me:async()=>account,loginPassword:async()=>signed,logout:async()=>{},signed:answer=>answer},
+  microsoftBrowser:{start:async()=>({state:'s'.repeat(43),authorizeUrl:'https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize'}),exchange:async()=>{throw conflict;}},
+  navigate:()=>{},where:{pathname:'/account/'}});
+ await browser.loginCompany('fixture_player','fixture');
+ const before=browser.getState().account;
+ const answer=await browser.completeMicrosoftSignIn('?code=x&state='+'s'.repeat(43));
+ assert.equal(answer.ok,false);
+ assert.equal(answer.error,conflict.message,'the service\'s own sentence, in the row');
+ assert.equal(browser.getState().account.id,before.id,'a refused link leaves the signed-in account exactly as it was');
+ await browser.signOut();
+});

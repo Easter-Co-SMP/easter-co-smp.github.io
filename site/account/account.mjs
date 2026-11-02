@@ -310,8 +310,15 @@ async function boot(){
   // and it is useless without the verifier, but nothing here needs to keep it, and a refreshed
   // page must not post it a second time.
   stripAddress();
-  if(!result.ok)refused(result.error);
-  paint();
+  // A SUCCESS LEAVES THIS PAGE; A REFUSAL IS READ HERE AND THE PAGE STAYS. This used to call
+  // paint() for both, and paint() answers a seam that holds an account by leaving for the site
+  // root - so on a LINKING tab, which is signed in by definition, the refusal sentence was drawn
+  // and then wiped by a navigation in the same breath (measured 2026-11-01). A refused link has
+  // to be readable: the row it came from is one dialog away and nothing has changed. A sign-in
+  // tab is signed out, so its panel is already drawn and `end()` brings it back; nothing here
+  // needs to repaint it.
+  if(result.ok)paint();
+  else refused(result.error);
   return;
  }
  if(handed){
@@ -329,7 +336,18 @@ function stripAddress(){
 
 // The account seam's own state decides which whole answer is on screen. A flow in flight is the
 // exception: while one runs none of these answers is on screen at all - the busy state is.
+//
+// THAT EXCEPTION IS A GUARD HERE, NOT ONLY A COMMENT. The seam publishes the account a tab
+// already holds on its first frame (site/web-account.mjs paints the stored session before its
+// first await), and this function answers a published account by leaving for the site root. On an
+// ordinary sign-in that costs nothing - a tab coming here to sign in holds no session - but the
+// LINKING case is a tab that is already signed in and is on this page only to finish attaching a
+// provider. Without this guard the seam's own broadcast navigated away mid-flow, so the exchange
+// was never posted and a Microsoft link could not complete on any web surface (measured
+// 2026-11-01 in tests/account-linking-browser.mjs). A flow now owns the page until every entry
+// point below ends it and then paints the answer.
 function paint(next=bridge.getState()){
+ if(flow)return;
  const key=next.account?'in':'out';
  if(key!==shown){
   if(key==='in')signedIn();
@@ -353,6 +371,15 @@ if(!root||!alertBox){
 }else{
  // A sign-out finished elsewhere in the page (the account menu), a session expired, or a provider
  // sign-in completed: the account view follows the seam rather than guessing.
- bridge.subscribe(paint);
+ //
+ // BOOT FIRST, SUBSCRIBE SECOND. `subscribe` answers with the state the seam already holds,
+ // synchronously, and on a LINKING tab that state is the account the tab is signed in to - which
+ // paint() answers by leaving for the site root. Subscribing first therefore navigated away
+ // before boot() had opened the flow that owns the page, so the callback's exchange was never
+ // sent and no Microsoft link could finish on a web surface (measured 2026-11-01, and the reason
+ // paint() carries a flow guard at all). boot() runs to its first await before it returns to
+ // here, so its begin() has already claimed the page by the time the subscription's first answer
+ // arrives; an ordinary page, and an ordinary sign-in callback, still paint exactly as before.
  void boot();
+ bridge.subscribe(paint);
 }
