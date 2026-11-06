@@ -65,3 +65,15 @@
 @media(max-width:360px){
  .web-mode .site-header nav .web-account-nav.web-account-with-face .web-account-name{display:none}
 }
+
+/* Keep the navigation comfortable in split-screen windows. At tablet widths the
+   navigation uses the whole row, as it already does on phones. */
+@media(min-width:801px) and (max-width:1100px){
+ .web-mode .site-header nav{gap:clamp(8px,1vw,12px)}
+ .web-mode .site-header nav>a,.web-mode .site-header nav>button{padding-inline:14px}
+}
+@media(min-width:601px) and (max-width:800px){
+ .web-mode .site-header .site-wordmark{display:none}
+ .web-mode .site-header nav{width:100%;justify-content:space-between;gap:8px}
+ .web-mode .site-header nav>a,.web-mode .site-header nav>button{padding-inline:12px}
+}
