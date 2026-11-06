@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {chromium} from 'playwright';
 // The account control's face has its own journey below; the fixture skin module already owns the
 // only image this suite needs to be exact about.
 import {pictureDataURL,skinDataURL,FACE_A,FACE_B,hatted} from './skin-fixture.mjs';
@@ -37,6 +37,8 @@ try{
    else if(path.endsWith('/username/available'))value={available:body.username!=='taken',reason:'taken'};
    else if(path.endsWith('/password')){account={...account,username:body.username||account.username,passwordRequired:false};value=signed(account);}
    else if(path.endsWith('/me')){if(meHold)await meHold;if(meStatus!==200){status=meStatus;value={error:'invalid_session'};}else value={account};}
+   else if(path.endsWith('/settings/languages'))value={automatic:'auto',languages:[]};
+   else if(path.endsWith('/settings'))value={settings:{version:1,language:'auto',theme:'system',chat:{enter:'submit',shiftEnter:'newline',ctrlEnter:'interrupt'},editor:{vim:false}},revision:0,updatedAt:null};
    else if(path.endsWith('/emails'))value={emails:[],loginEmail:null};
    else if(path.endsWith('/profile')){account={...account,displayName:body.displayName};value={account};}
    // THE STORE IS SHARED WITH THE WEBSITE AGAIN (Owen, 2026-10-29: "yes, return the store to the
@@ -97,7 +99,7 @@ try{
   assert.equal(await page.locator('[data-download-primary]').count(),1);
   assert.equal(await page.evaluate(()=>Boolean(window.easterDesktop)),false);
   assert.equal(await page.evaluate(()=>document.documentElement.classList.contains('desktop-mode')),false);
-  assert.equal(await page.evaluate(()=>JSON.stringify(localStorage).includes('fixture-session')),false);
+  assert.equal(await page.evaluate(()=>Boolean(localStorage.getItem('easter-company-web-session-v1'))),true);
   await page.getByRole('button',{name:'Account options'}).click();
   await page.getByRole('button',{name:'My Profile',exact:true}).click();
   await page.locator('#company-profile [data-name-form] input').fill('Updated fixture');
@@ -165,7 +167,7 @@ try{
     requests.slice(beforeSignOut).map(r=>r.path).filter(path=>/\/store\/(catalogue|orders|checkout)$/.test(path)),
     [],
     'and signing out asks the store service nothing');
-  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null);
+  assert.equal(await page.evaluate(()=>localStorage.getItem('easter-company-web-session-v1')),null);
   await page.getByRole('button',{name:'Sign in or create an Easter Company account'}).click();
   await page.getByRole('button',{name:'Sign in with Steam',exact:true}).click();
   await page.locator('#desktop-company-username[open]').waitFor();
@@ -186,6 +188,10 @@ try{
   assert(requests.every(r=>!new URL(api+r.path).search));
   console.log('PASS web login, profile, the store gated while signed out then the full shop once signed in (catalogue, orders, one Buy), a forged #store-paid fragment creating no order, #store-cancelled, sign-out re-gating the shop in the same tab with no store request, provider signup, no overflow at '+width);
   checks++;
+  // A new tab now shares this browser's session; start the signed-out face cases signed out.
+  await page.getByRole('button',{name:'Account options'}).click();
+  await page.locator('#web-account-menu button').filter({hasText:'Sign out'}).click();
+  await page.getByRole('button',{name:'Sign in or create an Easter Company account'}).waitFor();
 
   // ---- The account control's face, in the states that matter -------------------------------
   // Owen, 2026-10-26, signed in on the live site: "there's no user image in the `oceaster` user
@@ -571,7 +577,7 @@ try{
    // 2026-10-29 as a flake present on main before the store's return (1 failing run in 4, always
    // this assertion: "the first frame invents no name"); the wait is what makes it deterministic.
    await bootPage.waitForLoadState('networkidle');
-   await bootPage.evaluate(([key,stored])=>sessionStorage.setItem(key,JSON.stringify(stored)),[SESSION_KEY,value]);
+   await bootPage.evaluate(([key,stored])=>localStorage.setItem(key,JSON.stringify(stored)),[SESSION_KEY,value]);
   };
   const coldLoad=async()=>{
    await bootPage.reload({waitUntil:'commit'});
@@ -608,7 +614,7 @@ try{
   const afterRead=await control();
   assert.equal(afterRead.text,reconciledAccount.displayName,'and /me reconciles the name when it answers');
   assert.equal(afterRead.disabled,false);
-  const kept=await bootPage.evaluate(key=>JSON.parse(sessionStorage.getItem(key)),SESSION_KEY);
+  const kept=await bootPage.evaluate(key=>JSON.parse(localStorage.getItem(key)),SESSION_KEY);
   assert.deepEqual(Object.keys(kept).sort(),['account','expiresAt','token'],'the tab keeps the whole companySession document, as the launcher vault does');
   assert.equal(kept.account.displayName,reconciledAccount.displayName,'and what the read reconciled is what is kept');
   assert(!JSON.stringify(kept).includes('MicrosoftAccessToken'),'still no Microsoft token of any kind');
@@ -653,7 +659,7 @@ try{
   assert.equal(signedOutAgain.text,'Sign in');
   assert.equal(signedOutAgain.faceHidden,true,'the face goes with the session');
   assert.equal(signedOutAgain.disabled,false);
-  assert.equal(await bootPage.evaluate(key=>sessionStorage.getItem(key),SESSION_KEY),null,'a 401 drops the cached document with the token');
+  assert.equal(await bootPage.evaluate(key=>localStorage.getItem(key),SESSION_KEY),null,'a 401 drops the cached document with the token');
   meStatus=200;
   await bootPage.screenshot({path:'/tmp/web-account-boot-'+width+'.png'});
   assert.deepEqual(errors,[]);

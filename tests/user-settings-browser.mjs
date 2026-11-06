@@ -29,7 +29,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {chromium} from 'playwright';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const siteDir = path.resolve(here, '../site');

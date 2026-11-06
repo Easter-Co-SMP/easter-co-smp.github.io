@@ -53,15 +53,16 @@ The account work below is unchanged and the store returns to the website afterwa
   the new window has no opener. The random verifier stays in memory. Cancellation
   and a ten-minute timeout bound polling. COOP severing a WindowProxy is not proof
   that sign-in ended; only the broker answer, cancellation or timeout ends it.
-- Browser sessions live in tab sessionStorage and hold the whole `companySession`
+- Browser sessions live in localStorage and hold the whole `companySession`
   document — `{token,expiresAt,account}` — the shape the launcher's encrypted vault
-  keeps, not the token alone. Not localStorage, cookies, URLs or logs. The account in
+  keeps, not the token alone. Not cookies, URLs or logs. The account in
   it is the projection `sanitizeAccount` produced and is re-validated through
   `companySession` on the way back in, so a hand-edited or stale document is no cache
   at all; a document never outlives its token's expiry, and sign-out, expiry and a 401
   from `/me` clear it with the token. The token stays the only secret in that storage.
   Restoration still reads `/me` and reconciles the name, the face and the expiry. No
-  profile/order cache is written. Storage denial falls back to memory. Account changes
+  order cache is written. Existing tab sessions migrate on the first visit. Storage denial
+  falls back to tab storage or memory. Account changes
   invalidate in-flight reads and clear store rows. The launcher continues to use its
   encrypted native vault independently.
 - export_browser_contracts.py exports the launcher's pure validation/retry contracts

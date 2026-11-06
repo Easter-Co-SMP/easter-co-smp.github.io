@@ -7,12 +7,14 @@ const signed={account,session:{token:'fixture-only',expiresAt:Date.now()+60000}}
 const memory=()=>{const values=new Map();return {getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k),values};};
 test('storage denied at property access still allows an in-memory sign-in and sign-out',async()=>{
  const previous=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
+ const previousLocal=Object.getOwnPropertyDescriptor(globalThis,'localStorage');
  Object.defineProperty(globalThis,'sessionStorage',{configurable:true,get(){throw new Error('Storage denied');}});
+ Object.defineProperty(globalThis,'localStorage',{configurable:true,get(){throw new Error('Storage denied');}});
  try{
   const bridge=createWebAccount({client:{loginPassword:async()=>signed,logout:async()=>{}}});
   await bridge.ready;assert.equal((await bridge.loginCompany('fixture_player','fixture')).ok,true);
   assert.equal(bridge.getState().account.username,'fixture_player');await bridge.signOut();
- }finally{if(previous)Object.defineProperty(globalThis,'sessionStorage',previous);else delete globalThis.sessionStorage;}
+ }finally{if(previous)Object.defineProperty(globalThis,'sessionStorage',previous);else delete globalThis.sessionStorage;if(previousLocal)Object.defineProperty(globalThis,'localStorage',previousLocal);else delete globalThis.localStorage;}
 });
 test('sign-out invalidates an in-flight private orders read and removes persisted session',async()=>{
  let resolve;const storage=memory();
@@ -46,6 +48,39 @@ test('browser transport refuses redirects and uses no ambient cookies or referre
 // the shape the launcher's vault holds - so the account is painted from storage before the service
 // answers, and /me only reconciles it. These three cases are the seam's own, without a browser.
 const KEY='easter-company-web-session-v1';
+test('an existing tab session migrates into persistent browser storage',async()=>{
+ const previousLocal=Object.getOwnPropertyDescriptor(globalThis,'localStorage');
+ const previousTab=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
+ const local=memory(),tab=memory();
+ tab.setItem(KEY,JSON.stringify({token:'fixture-only',expiresAt:Date.now()+60000,account}));
+ Object.defineProperty(globalThis,'localStorage',{configurable:true,value:local});
+ Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:tab});
+ try{
+  const bridge=createWebAccount({client:{me:async()=>account,logout:async()=>{}}});
+  await bridge.ready;assert.equal(bridge.getState().account.username,'fixture_player');
+  assert.ok(local.getItem(KEY));assert.equal(tab.getItem(KEY),null);await bridge.signOut();
+ }finally{
+  if(previousLocal)Object.defineProperty(globalThis,'localStorage',previousLocal);else delete globalThis.localStorage;
+  if(previousTab)Object.defineProperty(globalThis,'sessionStorage',previousTab);else delete globalThis.sessionStorage;
+ }
+});
+test('a failed migration keeps the current tab session usable',async()=>{
+ const previousLocal=Object.getOwnPropertyDescriptor(globalThis,'localStorage');
+ const previousTab=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage');
+ const local=memory(),tab=memory(),set=local.setItem;
+ tab.setItem(KEY,JSON.stringify({token:'fixture-only',expiresAt:Date.now()+60000,account}));
+ local.setItem=(key,value)=>{if(key===KEY)throw Error('quota');set(key,value);};
+ Object.defineProperty(globalThis,'localStorage',{configurable:true,value:local});
+ Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:tab});
+ try{
+  const bridge=createWebAccount({client:{me:async()=>account,logout:async()=>{}}});
+  await bridge.ready;assert.equal(bridge.getState().account.username,'fixture_player');
+  assert.ok(tab.getItem(KEY));assert.equal(local.getItem(KEY),null);await bridge.signOut();
+ }finally{
+  if(previousLocal)Object.defineProperty(globalThis,'localStorage',previousLocal);else delete globalThis.localStorage;
+  if(previousTab)Object.defineProperty(globalThis,'sessionStorage',previousTab);else delete globalThis.sessionStorage;
+ }
+});
 test('session restoration and account actions do not call the retired database wake',async()=>{
  const storage=memory();let wakes=0,reads=0,logins=0;
  const client={wake:()=>{wakes++;},me:async()=>{reads++;return account;},loginPassword:async()=>{logins++;return signed;},logout:async()=>{}};

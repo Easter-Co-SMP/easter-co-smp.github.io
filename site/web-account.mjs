@@ -1,7 +1,7 @@
 import {AccountClient,AccountError,publicAccount,companySession} from './account-client.mjs';
 import * as store from './store-contract.mjs';
 import {createMicrosoftSignIn,readCallback,ACCOUNT_PATH,NOT_CONFIGURED,START_AGAIN} from './account/microsoft-signin.mjs';
-// What this tab keeps: the WHOLE companySession document - {token,expiresAt,account} - not just the
+// What this browser keeps: the WHOLE companySession document - {token,expiresAt,account} - not just the
 // token. That is the launcher's own shape (company.enc holds the account document too), and it is
 // why the launcher never flashes a signed-out control on a cold start: it can paint the account
 // before anything is asked of the service. A page that kept only the token had to say `Sign in`
@@ -33,7 +33,22 @@ const atRedirect=where=>{
 // Browser-only account capability. Never assigned to window.easterDesktop. No native,
 // game, filesystem, updater or shell operation is available to the website.
 export function createWebAccount({storage,client=new AccountClient({client:'website/1'}),openWindow=(...args)=>window.open(...args),navigate=url=>location.assign(url),changed=()=>{},microsoftBrowser=createMicrosoftSignIn(),where=globalThis.location}={}){
- if(storage===undefined){try{storage=globalThis.sessionStorage;}catch{storage=null;}}
+ let persistent=false;
+ if(storage===undefined){
+  try{
+   storage=globalThis.localStorage;
+   if(storage){
+    const probe=SESSION_KEY+'-storage-probe';
+    storage.setItem(probe,'1');storage.removeItem(probe);
+    // Preserve an existing tab session when upgrading to persistent storage.
+    let legacy;try{legacy=globalThis.sessionStorage;}catch{/* The tab store may be denied. */}
+    let old;try{old=legacy?.getItem(SESSION_KEY);}catch{/* Continue with persistent storage. */}
+    if(old&&!storage.getItem(SESSION_KEY))storage.setItem(SESSION_KEY,old);
+    if(old)try{legacy.removeItem(SESSION_KEY);}catch{/* The new copy is already safe. */}
+    persistent=true;
+   }
+  }catch{try{storage=globalThis.sessionStorage;}catch{storage=null;}}
+ }
  let session=null,working=false,providerAbort=null,generation=0,expiryTimer=null,booting=false;
  const listeners=new Set();
  // `startupReady` is what a view asks before it treats this seam as answered. It is true unless a
@@ -62,6 +77,16 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
  // a usable answer; this never throws into the boot.
  function storedSession(saved){
   try{return companySession({session:{token:saved.token,expiresAt:saved.expiresAt},account:saved.account});}catch{return null;}
+ }
+ if(persistent&&typeof globalThis.addEventListener==='function'){
+  globalThis.addEventListener('storage',event=>{
+   if(event.storageArea!==storage||(event.key!==SESSION_KEY&&event.key!==null))return;
+   generation++;clearTimeout(expiryTimer);
+   let saved;try{saved=event.newValue&&JSON.parse(event.newValue);}catch{}
+   session=storedSession(saved);
+   if(session&&session.expiresAt<=Date.now())session=null;
+   arm();emit();
+  });
  }
  function token(){
   if(!session||session.expiresAt<=Date.now()){if(session)forget();throw new AccountError('store_signed_out','Sign in to buy.');}
@@ -92,10 +117,11 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
   // With no document to paint there is nothing to show and nothing a click could honour: the boot is
   // not ready until the read settles. That is the one load after this change ships.
   else booting=true;
+  const mark=generation;
   emit();
   try{
    const account=await client.me(saved.token);
-   save({session:{token:saved.token,expiresAt:saved.expiresAt},account});
+   if(mark===generation)save({session:{token:saved.token,expiresAt:saved.expiresAt},account});
   }catch(error){
    // ONLY THE SERVICE MAY END A SESSION. A boot read that was ABORTED because this document is
    // being navigated away from is not a refusal of the credential - and this page now does exactly
@@ -105,7 +131,7 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
    // (measured 2026-10-29 against site/ on 127.0.0.1:18104: the tab's stored session gone, the
    // orders view reading "Sign in to buy." one load after a checkout). It is also the rule `read()`
    // above already applies: 401 and `invalid_session` end a session, nothing else does.
-   if(error?.status===401||error?.code==='invalid_session')forget();
+   if(mark===generation&&(error?.status===401||error?.code==='invalid_session'))forget();
   }
   finally{booting=false;emit();}
  })();
@@ -236,8 +262,8 @@ export function createWebAccount({storage,client=new AccountClient({client:'webs
   // state posted is the state received, and a callback that carried none is refused here
   // instead of being sent to a service that could only refuse it too.
   //
-  // THE SESSION THIS TAB HOLDS TRAVELS WITH THE EXCHANGE. It is the same tab that started the
-  // flow (sessionStorage, and the round trip through Microsoft is the same tab's), so a player
+  // THE SESSION THIS TAB HOLDS TRAVELS WITH THE EXCHANGE. The browser restores the stored
+  // account after the round trip through Microsoft, so a player
   // who pressed Connect is still the account that asked: the service applies the proof to that
   // account when the proof owns it and refuses it with the existing conflict answer when the
   // proof belongs to somebody else. A tab with no session sends nothing and is an ordinary

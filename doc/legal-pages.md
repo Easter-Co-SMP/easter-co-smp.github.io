@@ -135,8 +135,8 @@ consider ICO registration and a data processing record.
 
 ## Website account and store surfaces (2026-10-26)
 
-The website frontend now uses tab sessionStorage for its account token and expiry;
-profile/order data is read from the service and not persisted. Privacy section 4
+The website frontend uses localStorage for its account token, expiry and account projection;
+orders are read from the service and not persisted. Privacy section 4
 distinguishes this from the launcher's OS-encrypted vault, section 5 explains the
 authenticated requests, and section 6 distinguishes browser navigation to Stripe
 from the launcher's payment window. The public game-server address was removed

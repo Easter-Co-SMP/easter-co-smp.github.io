@@ -130,7 +130,7 @@
       <p>The website and launcher keep the following data on your device:</p>
       <ul>
         <li><strong>Launcher settings</strong> — install location, memory, launch behaviour, graphics choices, and your saved account sessions. Account sessions are stored only in your operating system's encrypted store (Electron <code>safeStorage</code>); if the operating system cannot encrypt them, the launcher refuses to save them rather than writing them in plain text.</li>
-        <li><strong>Website account session</strong> — your session token and expiry are kept in this tab's session storage so sign-in survives navigation and reloads. This is browser storage, not the launcher's operating-system encryption. Signing out removes the stored session. Account profiles and orders are read from the account service and are not saved in browser storage. If session storage is unavailable, navigation may require signing in again.</li>
+        <li><strong>Website account session</strong> — your session token, expiry and a limited account profile are kept in your browser's local storage so you stay signed in when you return. This is browser storage, not the launcher's operating-system encryption. Signing out removes the stored session. Orders are read from the account service and are not saved in browser storage. If persistent storage is unavailable, you may need to sign in again.</li>
         <li><strong>Website preferences</strong> — the map's layer switches and the launcher progress bar's minimised state, kept in your browser's local storage.</li>
         <li><strong>Your map drawings</strong> — anything you draw on the map is stored in your browser's IndexedDB on your own device. It is never uploaded, never exported and never published.</li>
       </ul>
