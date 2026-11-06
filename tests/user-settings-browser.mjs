@@ -211,7 +211,6 @@ try {
       const url = new URL(request.url());
       const method = request.method();
       const body = method === 'PUT' || method === 'POST' ? request.postDataJSON() : null;
-      if (url.pathname === '/v2/accounts/wake') return route.fulfill(json({}));
       if (url.pathname === '/v2/accounts/me') return route.fulfill(json({account}));
       if (url.pathname === '/v2/accounts/settings/languages') return route.fulfill(json(CATALOGUE));
       if (url.pathname === '/v2/accounts/settings') {
@@ -427,7 +426,6 @@ try {
     await context.addInitScript(NUDGE_HOOK);
     await context.route(api + '/**', route => {
       const url = new URL(route.request().url());
-      if (url.pathname === '/v2/accounts/wake') return route.fulfill(json({}));
       if (url.pathname === '/v2/accounts/me') return route.fulfill(json({account}));
       if (url.pathname === '/v2/accounts/settings/languages') return route.fulfill(json(CATALOGUE));
       if (url.pathname === '/v2/accounts/settings') return route.fulfill(json(cloud.answer()));
@@ -456,7 +454,6 @@ try {
     await context.addInitScript(NUDGE_HOOK);
     await context.route(api + '/**', route => {
       const url = new URL(route.request().url());
-      if (url.pathname === '/v2/accounts/wake') return route.fulfill(json({}));
       if (url.pathname === '/v2/accounts/me') return route.fulfill(json({account}));
       if (url.pathname === '/v2/accounts/settings/languages') return route.fulfill(json(CATALOGUE));
       if (url.pathname === '/v2/accounts/settings') return route.fulfill(json(cloud.answer()));
@@ -488,7 +485,6 @@ try {
     await context.route(api + '/**', route => {
       const request = route.request();
       const url = new URL(request.url());
-      if (url.pathname === '/v2/accounts/wake') return route.fulfill(json({}));
       if (url.pathname === '/v2/accounts/me') return route.fulfill(json({account}));
       if (url.pathname === '/v2/accounts/settings/languages') return route.fulfill(json(CATALOGUE));
       if (url.pathname === '/v2/accounts/settings' && request.method() === 'GET') return route.fulfill(json(cloud.answer()));
@@ -529,7 +525,6 @@ try {
     await context.addInitScript(SEED_SESSION, [SESSION_KEY, JSON.stringify({token: 'fixture-session-not-a-real-credential', expiresAt: Date.now() + 3600000, account: sameName})]);
     await context.route(api + '/**', route => {
       const url = new URL(route.request().url());
-      if (url.pathname === '/v2/accounts/wake') return route.fulfill(json({}));
       if (url.pathname === '/v2/accounts/me') return route.fulfill(json({account: sameName}));
       throw new Error('unexpected API request ' + url.pathname);
     });

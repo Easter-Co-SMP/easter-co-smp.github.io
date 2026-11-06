@@ -42,7 +42,6 @@ const stub=http.createServer((request,response)=>{
   const json=(payload,status=200)=>{response.writeHead(status,{'Content-Type':'application/json'});response.end(JSON.stringify(payload));};
   if(url.pathname==='/v2/accounts/microsoft')return json({created:false,account:ACCOUNT,session:{token:SESSION,expiresAt:new Date(Date.now()+86400000).toISOString()}});
   if(url.pathname==='/v2/accounts/me')return json({account:ACCOUNT});
-  if(url.pathname==='/v2/accounts/wake')return json({});
   if(url.pathname==='/v2/accounts/logout'){response.writeHead(204);response.end();return;}
   if(url.pathname==='/v2/accounts/settings/languages')return json(LANGUAGES);
   if(url.pathname==='/v2/accounts/settings'&&request.method==='GET')return json({settings:{...settings,chat:{...settings.chat}},revision,updatedAt:'2026-10-30T12:00:00Z'});
