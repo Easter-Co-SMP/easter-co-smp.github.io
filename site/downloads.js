@@ -10,7 +10,7 @@ const launcherBuilds=[
 const clientPlatform=navigator.userAgentData?.platform||navigator.platform||navigator.userAgent;
 const automaticBuild=launcherBuilds.find(build=>build.id===(/win/i.test(clientPlatform)?'windows':/linux/i.test(clientPlatform)?'appimage':null));
 const platformLabel=document.getElementById('launcher-platform');
-if(platformLabel)platformLabel.textContent=automaticBuild?.detail||'Choose your platform';
+if(platformLabel)platformLabel.textContent='Choose your platform';
 const downloadMenu=document.createElement('div');
 downloadMenu.id='launcher-downloads';downloadMenu.popover='auto';downloadMenu.className='launcher-downloads';downloadMenu.setAttribute('aria-label','Download Easter Company launcher');downloadMenu.tabIndex=-1;
 const menuTitle=document.createElement('p');menuTitle.className='download-menu-title';menuTitle.textContent='Easter Company';
@@ -52,25 +52,20 @@ function startLauncherDownload(build){
 let downloadTrigger;
 const positionDownloads=()=>{
  if(!downloadTrigger||!downloadMenu.matches(':popover-open'))return;
- const rect=downloadTrigger.getBoundingClientRect(),width=downloadMenu.offsetWidth,height=downloadMenu.offsetHeight;
+ const rect=(downloadTrigger.closest('.launcher-control')||downloadTrigger).getBoundingClientRect(),width=downloadMenu.offsetWidth,height=downloadMenu.offsetHeight;
  const left=Math.max(12,Math.min(rect.left,innerWidth-width-12));
  const top=rect.bottom+10+height<=innerHeight-12?rect.bottom+10:Math.max(12,rect.top-height-10);
  downloadMenu.style.left=left+'px';downloadMenu.style.top=top+'px';
 };
-for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"]')){
+for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"], [data-download-primary]')){
  trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-expanded','false');
  trigger.addEventListener('click',event=>{event.preventDefault();downloadTrigger=trigger;downloadMenu.togglePopover({source:trigger});positionDownloads();});
 }
 downloadMenu.setAttribute('role','dialog');
 downloadMenu.addEventListener('toggle',event=>{
  const open=event.newState==='open';
- for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"]'))trigger.setAttribute('aria-expanded',String(open&&trigger===downloadTrigger));
+ for(const trigger of document.querySelectorAll('[popovertarget="launcher-downloads"], [data-download-primary]'))trigger.setAttribute('aria-expanded',String(open&&trigger===downloadTrigger));
  if(open){positionDownloads();downloadMenu.focus({preventScroll:true});}
-});
-document.querySelector('[data-download-primary]')?.addEventListener('click',event=>{
- if(automaticBuild?.url){startLauncherDownload(automaticBuild);return;}
- // Without a published build URL, show the platform selector rather than a broken download.
- downloadTrigger=event.currentTarget;downloadMenu.showPopover({source:downloadTrigger});positionDownloads();
 });
 window.addEventListener('resize',positionDownloads,{passive:true});
 window.addEventListener('scroll',positionDownloads,{passive:true});

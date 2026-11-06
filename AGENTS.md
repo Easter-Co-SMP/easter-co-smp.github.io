@@ -44,10 +44,9 @@ The desktop launcher omits the website's skip control and relies on Escape plus 
 
 Hero copy is "Easter Co. SMP" and "The Ultimate Minecraft Experience".
 Download Launcher is the primary gold CTA, left of the secondary View Map action. The
-custom launcher is built separately. The nav always opens the shared dropdown. The hero is a split control: main button
-auto-selects Windows x64 or Linux AppImage; attached arrow opens that shared platform
-dropdown (Windows 10+, Ubuntu, Arch, AppImage), not a download page. Use the real installer URLs in site/downloads.js. Both automatic and manual selections open the Setup & Install modal
-after starting the download. Instruction copy must describe the actual downloaded package, including platform dependencies and commands.
+custom launcher is built separately. The nav and both parts of the hero control open the shared
+platform dropdown (Windows 10+, Ubuntu, Arch, AppImage). A platform selection starts its
+download and opens the Setup & Install modal. Use the real installer URLs in site/downloads.js. Instruction copy must describe the actual downloaded package, including platform dependencies and commands.
 Wire real release URLs in site/downloads.js; do not mislabel the server mod as a launcher. Write release copy with no Coming soon badges or availability placeholders.
 The download will include the custom Easter Company launcher and Minecraft client.
 

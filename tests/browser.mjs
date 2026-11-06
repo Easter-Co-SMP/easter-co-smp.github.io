@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import fs from 'node:fs/promises';
-import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {chromium} from 'playwright';
 const origin=process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18100';
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
 const deferred=()=>{let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
@@ -143,7 +143,7 @@ try{
  }
  await page.locator('.hero-copy').evaluate(async el=>{await Promise.all(el.getAnimations().map(animation=>animation.finished));});
  await page.screenshot({path:'/tmp/easter-public-home-desktop.png',fullPage:true});
- for(const trigger of [page.getByRole('button',{name:'Choose launcher platform',exact:true}),page.getByRole('navigation').getByRole('button',{name:'Download',exact:true})]){
+ for(const trigger of [page.locator('[data-download-primary]'),page.getByRole('button',{name:'Choose launcher platform',exact:true}),page.getByRole('navigation').getByRole('button',{name:'Download',exact:true})]){
   await trigger.click();await page.locator('#launcher-downloads').waitFor({state:'visible'});
   assert.equal(await page.locator('#launcher-downloads .platform-download').count(),4);
   assert.equal(await page.locator('[data-platform=source]').count(),0);
@@ -155,11 +155,6 @@ try{
   for(const platform of ['windows','ubuntu','arch','appimage'])assert(await page.locator(`#launcher-downloads [data-platform=${platform}]`).isVisible());
   await page.keyboard.press('Escape');assert.equal(await page.locator('#launcher-downloads').isVisible(),false);
  }
- const launcherDownloadPromise=page.waitForEvent('download');
- await page.locator('[data-download-primary]').click();
- const launcherDownload=await launcherDownloadPromise;assert.equal(await launcherDownload.failure(),null);assert(Object.values(files).includes(launcherDownload.suggestedFilename()));
- assert(await page.getByRole('dialog',{name:'Setup & Install',exact:true}).isVisible());
- await page.getByRole('button',{name:'Close setup instructions'}).click();
  for(const platform of ['windows','ubuntu','arch','appimage']){
   await page.getByRole('navigation').getByRole('button',{name:'Download',exact:true}).click();
   const manualDownloadPromise=page.waitForEvent('download');await page.locator('[data-platform="'+platform+'"]').click();
@@ -172,8 +167,8 @@ try{
   const detected=await browser.newContext({acceptDownloads:true});await detected.addInitScript(platform=>Object.defineProperty(navigator,'userAgentData',{value:{platform}}),platform);
   await detected.route('**/releases/latest/download/*',route=>route.fulfill({body:'download flow fixture',headers:{'content-type':'application/octet-stream','content-disposition':'attachment; filename="'+new URL(route.request().url()).pathname.split('/').at(-1)+'"'}}));
   const detectedPage=await detected.newPage();await detectedPage.goto(origin);await detectedPage.waitForFunction(()=>!document.body.classList.contains('is-arriving'));
-  if(expected){const pending=detectedPage.waitForEvent('download');await detectedPage.locator('[data-download-primary]').click();assert.equal((await pending).suggestedFilename(),files[expected]);}
-  else{await detectedPage.locator('[data-download-primary]').click();assert(await detectedPage.locator('#launcher-downloads').isVisible());}
+  await detectedPage.locator('[data-download-primary]').click();assert(await detectedPage.locator('#launcher-downloads').isVisible());
+  if(expected)assert(await detectedPage.locator(`#launcher-downloads [data-platform=${expected}]`).evaluate(el=>el.classList.contains('recommended-platform')));
   await detected.close();
  }
  for(const size of [{width:390,height:844},{width:320,height:568},{width:844,height:390}]){
@@ -182,7 +177,8 @@ try{
   const menu=await page.locator('#launcher-downloads').boundingBox();assert(menu.x>=0&&menu.x+menu.width<=size.width+1&&menu.y>=0&&menu.y+menu.height<=size.height+1);
   if(size.width===390)await page.screenshot({path:'/tmp/easter-launcher-menu-mobile.png'});
   await page.keyboard.press('Escape');
-  const mobileDownloadPromise=page.waitForEvent('download');await page.locator('[data-download-primary]').click();await mobileDownloadPromise;
+  await page.locator('[data-download-primary]').click();assert(await page.locator('#launcher-downloads').isVisible());
+  const mobileDownloadPromise=page.waitForEvent('download');await page.locator('#launcher-downloads [data-platform=windows]').click();await mobileDownloadPromise;
   const setup=await page.locator('#launcher-setup').boundingBox();assert(setup.x>=0&&setup.x+setup.width<=size.width+1&&setup.y>=0&&setup.y+setup.height<=size.height+1);
   if(size.width===390)await page.screenshot({path:'/tmp/easter-launcher-setup-mobile.png'});
   await page.keyboard.press('Escape');
