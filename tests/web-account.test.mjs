@@ -46,6 +46,14 @@ test('browser transport refuses redirects and uses no ambient cookies or referre
 // the shape the launcher's vault holds - so the account is painted from storage before the service
 // answers, and /me only reconciles it. These three cases are the seam's own, without a browser.
 const KEY='easter-company-web-session-v1';
+test('session restoration and account actions do not call the retired database wake',async()=>{
+ const storage=memory();let wakes=0,reads=0,logins=0;
+ const client={wake:()=>{wakes++;},me:async()=>{reads++;return account;},loginPassword:async()=>{logins++;return signed;},logout:async()=>{}};
+ storage.setItem(KEY,JSON.stringify({token:'fixture-only',expiresAt:Date.now()+60000,account}));
+ const bridge=createWebAccount({storage,client});await bridge.ready;
+ assert.equal(reads,1);await bridge.signOut();assert.equal((await bridge.loginCompany('fixture_player','fixture')).ok,true);
+ assert.equal(logins,1);assert.equal(wakes,0);await bridge.signOut();
+});
 test('a stored account document is painted synchronously, before the read answers',async()=>{
  const storage=memory();
  const kept={token:'fixture-only',expiresAt:Date.now()+60000,account:{...account,displayName:'Captain Fixture'}};
