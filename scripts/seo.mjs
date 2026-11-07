@@ -11,7 +11,13 @@ const origin='https://launcher.easter.company';
 const check=process.argv.includes('--check');
 const esc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const json=value=>JSON.stringify(value).replace(/</g,'\\u003c');
-const image=origin+'/assets/crest.jpg';
+const crest=origin+'/assets/crest.jpg';
+const crestAlt='Easter Co. SMP phoenix and sailing ship crest';
+// The home page's share card is Diana's Minecraft banner (1200x630): a link preview is the
+// first thing a player sees of this server, and the crest is a small mark that reads as
+// nothing in a feed. Every other page keeps the crest, which suits a wiki article.
+const home=origin+'/assets/social-launcher-1200x630.jpg';
+const homeAlt='The Ultimate Minecraft Experience — a sunlit voxel castle and riverside village, under Easter Co. Launcher';
 const publisher={'@type':'Organization',name:'Easter LTD',url:'https://easter.company/'};
 const publicPages=[
   ['','Easter Co. SMP — The Ultimate Minecraft Experience','A Minecraft survival server for beginners and veterans, with custom ships, Navy patrols, bounties, crafting and weekly raids. Download the Easter Company launcher.'],
@@ -27,7 +33,9 @@ function output(relative,content){
   if(check){console.error('Stale SEO output: site/'+relative);failures++;return;}
   mkdirSync(path.dirname(target),{recursive:true});writeFileSync(target,content);
 }
-function metadata(html,route,title,description,article=false){
+function metadata(html,route,title,description,article=false,share=null){
+  const image=share?share[0]:crest;
+  const imageAlt=share?share[1]:crestAlt;
   html=html.replace(/<!-- SEO:START -->[\s\S]*?<!-- SEO:END -->\n?/g,'')
     .replace(/<title>[\s\S]*?<\/title>/g,'')
     .replace(/<meta\s+(?:name="(?:description|robots|twitter:[^"]+)"|property="og:[^"]+")[^>]*>/g,'')
@@ -54,12 +62,15 @@ function metadata(html,route,title,description,article=false){
 <meta property="og:description" content="${esc(description)}">
 <meta property="og:url" content="${url}">
 <meta property="og:image" content="${image}">
-<meta property="og:image:alt" content="Easter Co. SMP phoenix and sailing ship crest">
+<meta property="og:image:alt" content="${esc(imageAlt)}">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${esc(title)}">
 <meta name="twitter:description" content="${esc(description)}">
 <meta name="twitter:image" content="${image}">
-<meta name="twitter:image:alt" content="Easter Co. SMP phoenix and sailing ship crest">
+<meta name="twitter:image:alt" content="${esc(imageAlt)}">
 <script type="application/ld+json">${json(schema)}</script>
 <!-- SEO:END -->`;
   return html.replace('</head>',block+'\n</head>').replace(/^[ \t]+$/gm,'');
@@ -90,7 +101,11 @@ for(const page of pages){
   output(route+'index.html',metadata(html,route,page.title+' — Easter Co. SMP',page.summary,true));
 }
 for(const [route,title,description] of publicPages.filter(([route])=>route!=='minecraft/wiki/')){
-  const file=route+'index.html';output(file,metadata(readFileSync(path.join(root,file),'utf8'),route,title,description));
+  const file=route+'index.html';
+  // Only the front door gets the banner: a legal page showing an adventure advert would be
+  // the wrong promise on the wrong page.
+  const share=route===''?[home,homeAlt]:null;
+  output(file,metadata(readFileSync(path.join(root,file),'utf8'),route,title,description,false,share));
 }
 const urls=[...publicPages.map(([route])=>route),...pages.map(p=>'minecraft/wiki/'+p.id+'/')];
 output('robots.txt',`User-agent: *\nAllow: /\n\n# Account, store, error and moved pages carry HTML noindex directives.\n# Keep them crawlable so search engines can read those directives.\nSitemap: ${origin}/sitemap.xml\n`);
