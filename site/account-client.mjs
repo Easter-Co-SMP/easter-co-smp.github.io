@@ -262,7 +262,7 @@ function sanitizeAccount(account){
  if(!passwordRequired&&!username)throw new AccountError('invalid_response',FALLBACK);
  const providers=Array.isArray(account.providers)?account.providers.filter(p=>['microsoft','google','steam','discord'].includes(p)):account.microsoftLinked?['microsoft']:[];
  const primaryProvider=providers.includes(account.primaryProvider)?account.primaryProvider:providers[0]||null;
- const picture=typeof account.picture==='string'&&account.picture.length<=360000&&(account.picture.startsWith('data:image/png;base64,')||/^https:\/\//.test(account.picture))?account.picture:null;
+ const picture=pictureForm(account.picture);
  // The player's whole Minecraft skin texture, in the one form both surfaces can draw from: the
  // account service publishes it as a data: URI (never a pre-cropped head - cropping is the
  // renderer's job, and site/desktop.js and site/web.js each do it), and a browser page cannot
@@ -278,18 +278,49 @@ function sanitizeAccount(account){
  const providerDetails=sanitizeProviderDetails(account.providerDetails,providers);
  return {providers,primaryProvider,providerDetails,picture,skin,id,companyId:'EC-'+id,username,passwordRequired,minecraftUuid:uuid?uuid.toLowerCase():null,minecraftName:minecraftName||null,displayName,roles,createdAt,microsoftLinked:account.microsoftLinked===true,microsoftSubject};
 }
+// ---- ONE RULE FOR WHAT AN ACCOUNT PICTURE IS, AND EVERY SURFACE READS IT ----------------------
+// `account.picture` has TWO forms and both are the account service's own contract. A
+// `data:image/png;base64,` URI is what an upload THROUGH the service produces; an absolute
+// `https:` URL is what a picture that came from a LINKED PROVIDER is kept as. That is measured,
+// not assumed: `GET /v2/accounts/me` answered account 3's picture on 2026-11-08 as a 98-character
+// `https://lh3.googleusercontent.com/a/ACg8oc...=s96-c`.
+//
+// Reading only the first form is what split one field into two faces. `sanitizeAccount` kept both,
+// `publicAccount` below kept only the data URI, and site/desktop.js filtered the picture again on
+// its own terms - so the packaged launcher (where main mints a data: URL, desktop/profile.cjs)
+// drew the player's upload while the site's account control and the launcher's own windows dropped
+// the URL and cropped the Minecraft skin instead. Owen, 2026-11-08: "every single one should
+// obviously be the same source ... used across all surfaces, not platform specific."
+//
+// So the form is decided HERE, and nothing else in this repository decides it again:
+// `sanitizeAccount`, `publicAccount`, and - because it is a classic script with no imports, so it
+// repeats this one line rather than sharing it - site/desktop.js. tests/desktop/picture-form.test.cjs
+// asserts those three agree on both accepted forms and on every refused one, and reads the
+// site/desktop.js line out of the shipped source so the copy cannot drift.
+// A third scheme is never kept: a `javascript:`, `http:` or `file:` value is null, which falls
+// through to the skin head and then the letter tile. The length cap is the service's own ceiling
+// for an inline texture; the bound that applies to the URL form is desktop/profile.cjs's, and it is
+// the same one e-server's core/minecraft_face.py uses.
+const PICTURE_MAX=360000;
+function pictureForm(value){
+ if(typeof value!=='string'||value.length>PICTURE_MAX)return null;
+ if(value.startsWith('data:image/png;base64,')||/^https:\/\//.test(value))return value;
+ return null;
+}
 // The renderer needs a name to show, nothing more. No UUID, no token, and the Company
 // ID travels only as the opaque account handle the account menu switches on: it is
 // never a label the player reads. The Minecraft name and the linked providers' own details
 // are here because the profile dialog draws them, and both are already the sanitized ones.
-// `skin` joins `picture` on the same terms - a data:image/png;base64 URI or nothing - and is
-// the only image either surface paints besides the picture: the face is cropped from it in the
-// browser (site/web.js) or the launcher's own canvas (site/desktop.js), so showing a player's
-// head costs the page no request to any host.
+// `picture` is the account's own picture in either of the two forms `pictureForm` above accepts -
+// a data: URI or an https URL - and this used to keep only the first, which is the whole defect:
+// the one field that decides the face was read one way here and another way in `sanitizeAccount`.
+// `skin` is a data:image/png;base64 URI or nothing, and is the only image either surface paints
+// besides the picture: the face is cropped from it in the browser (site/web.js) or the launcher's
+// own canvas (site/desktop.js), so showing a player's head costs the page no request to any host.
 function publicAccount(session){
  if(!session?.account)return null;
  const account=session.account,details=account.providerDetails;
- return {id:account.companyId,username:account.username,name:account.displayName||account.minecraftName||account.username||'Company member',minecraftName:account.minecraftName||null,roles:account.roles||[],passwordRequired:account.passwordRequired,microsoftLinked:account.microsoftLinked,providers:account.providers||[],primaryProvider:account.primaryProvider||null,providerDetails:details&&Object.keys(details).length?details:null,picture:account.picture?.startsWith('data:image/png;base64,')?account.picture:null,skin:account.skin?.startsWith('data:image/png;base64,')?account.skin:null};
+ return {id:account.companyId,username:account.username,name:account.displayName||account.minecraftName||account.username||'Company member',minecraftName:account.minecraftName||null,roles:account.roles||[],passwordRequired:account.passwordRequired,microsoftLinked:account.microsoftLinked,providers:account.providers||[],primaryProvider:account.primaryProvider||null,providerDetails:details&&Object.keys(details).length?details:null,picture:pictureForm(account.picture),skin:account.skin?.startsWith('data:image/png;base64,')?account.skin:null};
 }
 
 // The verified-address list is the only payload the launcher asks for because of an email, and
@@ -676,4 +707,4 @@ function storedSession(value){
 // process builds a launch out of it and tests/desktop/server-session.test.cjs proves it
 // refuses every shape it should.
 
-export {AccountClient,AccountError,publicAccount,companySession,sanitizeAccount};
+export {AccountClient,AccountError,publicAccount,companySession,sanitizeAccount,pictureForm,PICTURE_MAX};

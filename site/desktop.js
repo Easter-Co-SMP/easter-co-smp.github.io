@@ -74,6 +74,21 @@
   // never opened over a running game. The pill's own enabled state is the window's, below.
   let shown={account:null,accountWorking:false,startupReady:true,activity:null};
   const png=value=>typeof value==='string'&&value.startsWith('data:image/png;base64,')?value:null;
+  // THE ACCOUNT PICTURE'S OWN FORM RULE, and it is `pictureForm` from desktop/accounts.cjs - the
+  // one function that decides what an account picture is, shared by sanitizeAccount and
+  // publicAccount and therefore by every surface in this repository. It is repeated here because
+  // this file is a classic script with no imports (site/index.html loads it with `defer`), so it
+  // cannot reach the module's export; tests/desktop/picture-form.test.cjs reads this very line out
+  // of the shipped source and asserts it answers exactly as that resolver does, so the copy cannot
+  // drift. A data:image/png;base64 URI or an https URL of at most 360000 characters is kept,
+  // anything else - javascript:, http:, file:, an oversize value - is null, which falls through to
+  // the skin head and then the tile.
+  //
+  // This is NOT what makes the packaged launcher's face safe: desktop/main.cjs mints a data: URL in
+  // the MAIN process (desktop/profile.cjs, `hydratePicture`) and its CSP keeps `img-src 'self'
+  // data: blob:` with no remote host, so nothing remote is ever an <img> source there. main
+  // publishes null when that mint fails, which is exactly the fall-through above.
+  const pictureForm=value=>typeof value==='string'&&value.length<=360000&&(value.startsWith('data:image/png;base64,')||value.startsWith('https://'))?value:null;
   const shownAccount=state=>{
    const account=state?.account;
    if(!account)return null;
@@ -90,7 +105,7 @@
    // username - which also keeps the second line from repeating the first, the rule the window has
    // followed since 2026-10-22.
    const name=typeof account.name==='string'&&account.name.trim()?account.name:(account.username||'');
-   return {...account,name,skin,picture:png(account.picture)};
+   return {...account,name,skin,picture:pictureForm(account.picture)};
   };
   const publish=state=>{
    shown={account:shownAccount(state),accountWorking:accountLocked(state),startupReady:true,activity:state?.activity||null};
