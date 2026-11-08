@@ -169,7 +169,17 @@ async function assertBusy(page,{width,label,sentence}){
  // long as the seam says a request is in progress.
  assert.equal(await page.locator('.web-account-nav').isDisabled(),true,'the nav cannot start a second flow ('+label+')');
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'the busy state does not overflow at '+width+' ('+label+')');
- const mark=await spinner.evaluate(node=>{const style=getComputedStyle(node);return {animation:style.animationName,border:style.borderTopColor,width:node.getBoundingClientRect().width};});
+ // THE RING'S MOTION IS THE FACT, NOT THE KEYFRAMES' NAME. `site/account-control.css` gives the
+ // control its own `account-wait-spin` keyframes "rather than borrowing the window's `update-spin`"
+ // (its own comment says so, so the corporate page - which never loads site/desktop.css - still
+ // gets a turning ring), and this gate kept pinning `update-spin`: measured 2026-11-08, the ring
+ // turned correctly and the assertion read the old name. What must be true under no motion
+ // preference is that it turns ONCE PER TURN, forever, linearly - read from the computed style,
+ // so a rename is a pass and a still ring is a failure.
+ const mark=await spinner.evaluate(node=>{const style=getComputedStyle(node);return {
+   animation:style.animationName,border:style.borderTopColor,width:node.getBoundingClientRect().width,
+   animationDuration:style.animationDuration,animationTiming:style.animationTimingFunction,
+   animationIteration:style.animationIterationCount};});
  assert(mark.width>0,'the spinner is laid out, never nothing ('+label+')');
  return mark;
 }
@@ -213,13 +223,29 @@ function framesSampler(){
 // Sign out is the nav's account menu, on every page of the site (site/web.js:81, `action('Sign out')`):
 // the page-level button went with the panel, so this is the surface a signed-in visitor has, and it
 // is exercised from the root rather than from /account/.
+// THE STORE THE SEAM CHOOSES, read from the seam's own documented rule rather than pinned here.
+// `doc/web-accounts-store.md` (changed deliberately on 2026-11-06, "Keep website account sessions
+// across visits"): browser sessions live in localStorage and hold the whole `companySession`
+// document — `{token,expiresAt,account}` — with an existing tab session migrating on the first
+// visit, and a browser that denies storage falling back to tab storage or memory. This suite kept
+// asserting tab storage only, which is why it has been red since then: measured 2026-11-08, the
+// Microsoft callback's session was in localStorage and `sessionStorage` was empty. So the suite
+// asks the seam's own answer — whichever store carries it — and every assertion below is about
+// whether a session is held and what is inside it, never about which object happens to hold it.
+const SESSION_KEY='easter-company-web-session-v1';
+const heldSession=page=>page.evaluate(key=>{
+ for(const [where,store] of [['local',globalThis.localStorage],['tab',globalThis.sessionStorage]]){
+  try{const value=store.getItem(key);if(value)return {where,value};}catch{/* a denied store holds nothing */}
+ }
+ return null;
+},SESSION_KEY);
 async function signOutFromNav(page,label){
  await page.locator('.web-account-nav').click();
  const out=page.locator('#web-account-menu button').filter({hasText:'Sign out'});
  await out.waitFor();
  await out.click();
  await page.waitForFunction(()=>document.querySelector('.web-account-name')?.textContent.trim()==='Sign in');
- assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null,label+': the nav\'s sign-out clears the session this tab holds');
+ assert.equal(await heldSession(page),null,label+': the nav\'s sign-out clears the session the seam holds');
  assert.equal(await page.locator('.web-account-nav').getAttribute('aria-label'),'Sign in or create an Easter Company account',label+': and the control is the signed-out one again');
 }
 try{
@@ -270,6 +296,7 @@ try{
    // The boot read answers with the account this flow produced: the name `meName` asks for, the
    // account with no username yet while that is the exchange's shape, and ACCOUNT otherwise.
    else if(path==='/v2/accounts/me')value={account:meName?{...ACCOUNT,displayName:meName}:exchange==='new-account'?NEW_ACCOUNT:ACCOUNT};
+   else if(path==='/v2/accounts/settings')value={settings:{},revision:0,updatedAt:null};
    else if(path==='/v2/accounts/logout')value={};
    else throw Error('Unexpected API request '+path);
    await route.fulfill({status,contentType:'application/json',body:JSON.stringify(value)});
@@ -400,9 +427,26 @@ try{
    await page.goto(CALLBACK_URL);
    const mark=await assertBusy(page,{width,label:'the exchange',sentence:BUSY_SIGN_IN});
    // Reduced motion is the context this suite runs in: the spinner must still be something - a
-   // still gold ring rather than an invisible or empty element.
+   // still accent ring rather than an invisible or empty element.
    assert.equal(mark.animation,'none','reduced motion stops the rotation');
-   assert.equal(mark.border,'rgb(228, 196, 134)','and paints the ring solid gold instead: '+JSON.stringify(mark));
+   // THE COLOUR IS THE PRODUCT'S, NOT A LITERAL IN THIS GATE. `site/account-control.css` paints
+   // the ring `border-top-color: var(--app-gold)` and `site/launcher-light.css` restates that pair
+   // for the light palette, so the answer is "whatever this palette calls gold" - gold in the dark
+   // one, the violet accent in the light one. A pinned rgb() here was a second author of that
+   // rule: this suite sets no `colorScheme`, so it followed the machine's default, and it went red
+   // the day the light palette's accent moved (measured 2026-11-08: expected rgb(228, 196, 134),
+   // saw rgb(109, 79, 216), with the page painting correctly). The token is resolved through the
+   // real cascade below, so a palette change is a pass and a ring that stops using the token fails.
+   const gold=await page.evaluate(()=>{
+     const probe=document.createElement('span');
+     probe.style.color='var(--app-gold)';
+     document.body.append(probe);
+     const value=getComputedStyle(probe).color;
+     probe.remove();
+     return value;
+   });
+   assert.equal(mark.border,gold,'and paints the ring in this palette\'s accent, not something else: '
+     +JSON.stringify(mark)+' vs '+gold);
    // A success is a navigation now, so this is what the end of the flow looks like.
    await page.waitForURL(SITE_ROOT);
   });
@@ -413,9 +457,8 @@ try{
   assert.equal(exchangeCalls().length,1);
   assert.deepEqual(exchangeCalls()[0].body,{code:CALLBACK_CODE,state:STATE,client:'website/1'});
   assert.equal(new URL(page.url()).search,'','the code is not left in the address bar');
-  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')!==null),true);
-  assert.equal(await page.evaluate(()=>JSON.stringify(localStorage).includes('fixture-company-session')),false);
-  assert.equal(await page.getByRole('button',{name:'Play',exact:true}).count(),0);
+  assert(await heldSession(page),'the seam holds the session the callback created');
+   assert.equal(await page.getByRole('button',{name:'Play',exact:true}).count(),0);
   await noOverflow('the site root after a sign-in');
   // The entry the callback arrived on was REPLACED, not added to - which is why the page uses
   // location.replace: Back from the root must not re-enter /account/ carrying a spent code.
@@ -439,7 +482,7 @@ try{
   assert.equal(revisit.count,2,'the account page and the root it sends the browser to: '+JSON.stringify(revisit.urls));
   assert.deepEqual(revisit.urls.map(url=>url.replace(origin,'')),['/account/','/'],'the account page is loaded once and replaced by the root: '+JSON.stringify(revisit.urls));
   assert(calls.filter(call=>call.path==='/v2/accounts/me').length>meBefore,'the session is read from the service, not trusted: '+JSON.stringify(calls.filter(call=>call.path==='/v2/accounts/me').length));
-  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')!==null),true,'and the session survives the visit');
+  assert(await heldSession(page),'and the session survives the visit');
   await noOverflow('the site root after a signed-in visit to the account page');
 
   // 6. SIGN OUT IS THE NAV'S, ON EVERY PAGE. The panel's own button went with the panel; the menu
@@ -482,7 +525,7 @@ try{
   assert.equal(new URL(page.url()).pathname,ACCOUNT_PATH,'and it ends on the account page: '+page.url());
   assert.equal(await page.locator('#account-panel').getAttribute('data-busy'),'false','the busy state ended with the flow');
   assert.equal(await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).isVisible(),true,'and the options are drawn beside the refusal');
-  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null,'and nobody was signed in');
+  assert.equal(await heldSession(page),null,'and nobody was signed in');
   const providerRefusalText=(await page.locator('.account-error').innerText()).trim();
   assert(providerRefusalText.length>0,'the refusal is drawn as a sentence, not left blank: '+JSON.stringify(providerRefusalText));
   assert.equal(await page.locator('.account-identity').count(),0,'and no account is painted for it');
@@ -520,7 +563,7 @@ try{
   assert.equal(await page.locator('#account-root input[name=identifier]').inputValue(),'fixture_player','and what was typed as the identifier is kept');
   assert.equal(await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).isVisible(),true,'the options are drawn beside the refusal');
   assert.equal(await page.locator('.account-identity').count(),0,'and a refusal paints no account');
-  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null,'and it signs nobody in');
+  assert.equal(await heldSession(page),null,'and it signs nobody in');
   password='ok';
 
   // 9. A cancelled sign-in is the authority's own shape: error plus description, no code, and no
@@ -532,7 +575,7 @@ try{
   assert.equal(await page.locator('#account-panel').getAttribute('data-busy'),'false','a refusal is not a busy state');
   assert.equal(await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).isVisible(),true,'and the options are drawn beside it');
   assert.equal(exchangeCalls().length,before,'a refusal has no code to exchange');
-  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null);
+  assert.equal(await heldSession(page),null,'a cancelled sign-in holds no session');
   await noOverflow('a cancelled sign-in');
 
   // 9. A refusal the service made is drawn in the service's own words, in place: the page loads
@@ -552,7 +595,7 @@ try{
   assert(refusal.includes('does not accept this sign-in yet'));
   assert.equal(await page.locator('#account-panel').getAttribute('data-busy'),'false','the refusal is read on the ordinary page, not on a spinner');
   await page.getByRole('button',{name:SIGN_IN.microsoft,exact:true}).waitFor();
-  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null);
+  assert.equal(await heldSession(page),null,'a refused sign-in holds no session');
   await noOverflow('a refusal');
 
   // 10. A replayed state is refused by the service and reads as start again.
@@ -562,7 +605,7 @@ try{
   await page.getByText('This sign-in has expired or was already used. Start again.',{exact:true}).waitFor();
   assert.equal(new URL(page.url()).pathname,ACCOUNT_PATH,'a replayed state stays on the account page: '+page.url());
   assert.equal(exchangeCalls().length,beforeReplay+1);
-  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')),null);
+  assert.equal(await heldSession(page),null,'a replayed state holds no session');
 
   // 11. A callback with no state is refused before anything is sent, and the page says so in place
   //     rather than bouncing anywhere.
@@ -595,27 +638,34 @@ try{
   await page.waitForURL(SITE_ROOT);
   assert.equal(page.url(),SITE_ROOT,'an account with no name yet leaves for the site root too: '+page.url());
   await page.waitForFunction(()=>document.querySelector('.web-account-name')?.textContent.trim()==='Finish setup');
-  assert.equal(await page.evaluate(()=>sessionStorage.getItem('easter-company-web-session-v1')!==null),true,'and the session it created is still the tab\'s');
+  assert.equal((await heldSession(page))!==null,true,'and the session it created is still held');
   exchange='ok';
 
   // 14. Nothing on this path may ask for a Minecraft session, and no Microsoft token is stored.
   const routes=new Set(calls.map(call=>call.path));
-  for(const path of routes)assert(['/v2/oauth/microsoft/start','/v2/oauth/microsoft/exchange','/v2/accounts/providers','/v2/accounts/providers/start','/v2/accounts/providers/finish','/v2/accounts/password/login','/v2/accounts/me','/v2/accounts/logout'].includes(path),'unexpected API route '+path);
+  // `/v2/accounts/settings` is the account document's own read: the settings panel is one of the
+  // rows the shared account control offers, and a signed-in page may ask for the document behind it
+  // (site/user-settings.mjs:readSettings). It is a read, it carries no Microsoft material, and it is
+  // answered by the fixture above.
+  for(const path of routes)assert(['/v2/oauth/microsoft/start','/v2/oauth/microsoft/exchange','/v2/accounts/providers','/v2/accounts/providers/start','/v2/accounts/providers/finish','/v2/accounts/password/login','/v2/accounts/me','/v2/accounts/settings','/v2/accounts/logout'].includes(path),'unexpected API route '+path);
   // What the tab keeps is one Company session, in the launcher's own shape: the token, the expiry and
   // the account document the service returned, so the next cold load paints the account on its first
   // frame instead of saying `Sign in` until /me answers (Owen, 2026-10-26, signed in: "I hit
   // ctrl+shift+r and now it says 'sign in'"). The account is the projection sanitizeAccount already
   // produced - a projection, not a credential - and the token is still the only secret here. What is
   // never kept is asserted next: no Microsoft token, and neither the callback's code nor its state.
-  const stored=await page.evaluate(()=>Object.entries({...sessionStorage}));
-  assert.equal(stored.length,1);
-  assert.equal(stored[0][0],'easter-company-web-session-v1');
-  const kept=JSON.parse(stored[0][1]);
+  // ONE session, in the store the seam documents, holding the launcher's own shape and nothing of
+  // Microsoft's. The store is asked rather than pinned: `doc/web-accounts-store.md` moved it to
+  // localStorage on 2026-11-06, and this suite kept measuring `sessionStorage`, which is why it has
+  // been red since (measured 2026-11-08: the session was in localStorage, `sessionStorage` empty).
+  const held=await heldSession(page);
+  assert(held,'one session is held after the callback');
+  assert.equal(held.where,'local','this browser allows localStorage, so that is the documented store');
+  const kept=JSON.parse(held.value);
   assert.deepEqual(Object.keys(kept).sort(),['account','expiresAt','token']);
   assert.equal(kept.token,SESSION_TOKEN);
   assert.equal(kept.account.displayName,ACCOUNT.displayName,'and it is the account the session belongs to');
-  for(const secret of [CALLBACK_CODE,STATE,'access_token','refresh_token','id_token'])assert(!JSON.stringify(stored).includes(secret),'nothing of Microsoft\'s is kept: '+secret);
-  assert.equal(await page.evaluate(()=>JSON.stringify(localStorage).includes('fixture-company-session')),false);
+  for(const secret of [CALLBACK_CODE,STATE,'access_token','refresh_token','id_token'])assert(!held.value.includes(secret),'nothing of Microsoft\'s is kept: '+secret);
 
   // 15. The three widths keep their layout: nothing overflows, and every option keeps a
   //     thumb-sized target. Measured rather than looked at, because these are numbers a reviewer
@@ -623,7 +673,7 @@ try{
   // The signed-out page is what these three widths are about, and it is asked for explicitly: this
   // tab is signed in, so it is cleared rather than raced (site/web-account.mjs paints a saved session
   // on the first frame now, so a check that did not clear would simply measure the account).
-  await page.evaluate(()=>sessionStorage.clear());
+  await page.evaluate(key=>{localStorage.removeItem(key);sessionStorage.removeItem(key);},SESSION_KEY);
   await page.goto(origin+'/account/');
   await page.locator('#account-root .company-signin').waitFor();
   await page.waitForFunction(()=>document.getElementById('account-panel')?.dataset.busy==='false');
@@ -869,6 +919,7 @@ try{
     else value=signed(ACCOUNT);
    }
    else if(path==='/v2/accounts/me')value={account:ACCOUNT};
+   else if(path==='/v2/accounts/settings')value={settings:{},revision:0,updatedAt:null};
    else if(path==='/v2/accounts/logout')value={};
    else throw Error('Unexpected API request '+path);
    await route.fulfill({status,contentType:'application/json',body:JSON.stringify(value)});
@@ -883,9 +934,15 @@ try{
   // tab is sitting on one of the returned apps' own origins would leave this tab's real session in
   // place and /account/ would boot signed in - which is exactly the bug this helper exists to keep
   // out of the journeys below.
+  // SIGNING THE TAB OUT MEANS CLEARING THE STORE THE SEAM USES. `doc/web-accounts-store.md` moved
+  // browser sessions to localStorage on 2026-11-06 (with an existing tab session migrating on the
+  // first visit), so clearing `sessionStorage` alone left a persisted session behind and the page
+  // booted signed in - measured 2026-11-08: this helper's own journey then waited 30 s for a
+  // "Sign in with Microsoft" that the account row had replaced. Both stores are cleared because a
+  // browser that denied localStorage keeps its session in the tab's store.
   const clearTab=async()=>{
    await page.goto(origin+'/');
-   await page.evaluate(()=>sessionStorage.clear());
+   await page.evaluate(key=>{localStorage.removeItem(key);sessionStorage.removeItem(key);},SESSION_KEY);
   };
   const signedOutPage=async()=>{
    await clearTab();
@@ -1058,7 +1115,12 @@ try{
  });
  await page.goto(origin+'/account/?code='+encodeURIComponent(CALLBACK_CODE)+'&state='+STATE);
  const mark=await assertBusy(page,{width:1440,label:'the exchange, no motion preference',sentence:BUSY_SIGN_IN});
- assert.equal(mark.animation,'update-spin','without a motion preference the spinner rotates: '+JSON.stringify(mark));
+ assert.notEqual(mark.animation,'none','without a motion preference the spinner animates: '+JSON.stringify(mark));
+ // A turning ring, at the pace the control promises: one linear second-plus per revolution, forever.
+ assert.equal(mark.animationIteration,'infinite','and it keeps turning: '+JSON.stringify(mark));
+ assert.equal(mark.animationTiming,'linear','and it turns evenly rather than easing: '+JSON.stringify(mark));
+ assert(/^[0-9.]+s$/.test(mark.animationDuration)&&parseFloat(mark.animationDuration)>=0.5,
+   'and a revolution takes at least half a second: '+JSON.stringify(mark));
  await page.waitForURL(SITE_ROOT);
  console.log('PASS the spinner rotates with no motion preference and is a still gold ring under reduced motion, and the success leaves for the site root');
  checks++;await moving.close();
