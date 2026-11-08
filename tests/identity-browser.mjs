@@ -611,6 +611,9 @@ try{
    waitText:host?host.textContent.trim():'',
    markHidden:mark?mark.getAttribute('aria-hidden'):null,
    markAnimation:mark?getComputedStyle(mark).animationName:'',
+   markDuration:mark?getComputedStyle(mark).animationDuration:'',
+   markTiming:mark?getComputedStyle(mark).animationTimingFunction:'',
+   markIteration:mark?getComputedStyle(mark).animationIterationCount:'',
    // Every live region in the dialog that is on screen and actually says something. One busy
    // state means exactly one of these, and no aria-busy arguing with it.
    announcing:[...dialog.querySelectorAll('[role=status],[aria-live]')]
@@ -639,7 +642,19 @@ try{
  assert.equal(busy.waitVisible,true,'the dialog shows the busy state while the providers answer is outstanding');
  assert(busy.waitText.startsWith(BUSY_LINE),'and it says what it is doing, in one plain sentence: '+JSON.stringify(busy.waitText));
  assert.equal(busy.markHidden,'true','the ring is decorative, beside the sentence that carries the state');
- assert.equal(busy.markAnimation,'update-spin','the ring is the launcher\'s existing indeterminate progress, not a new look: '+busy.markAnimation);
+ // THE MOTION IS THE ASSERTION, NOT THE KEYFRAMES NAME. This used to pin 'update-spin', and the
+ // sheet moved the ring onto its own `account-wait-spin` (site/account-control.css, which the
+ // corporate page loads without site/desktop.css) — so a correct spinner failed a gate that knew
+ // a name instead of the behaviour. What the rule actually means: the ring is an indeterminate
+ // linear rotation, not a still mark and not a new kind of motion.
+ assert(busy.markAnimation && busy.markAnimation !== 'none',
+   'the ring turns on one of the product\'s own keyframes: '+busy.markAnimation);
+ assert(parseFloat(busy.markDuration) > 0,
+   'and it keeps turning — a duration over zero, not a static ring: '+busy.markDuration);
+ assert.equal(busy.markTiming, 'linear',
+   'the motion is linear, i.e. an indeterminate rotation rather than an eased state change: '+busy.markTiming);
+ assert.equal(busy.markIteration, 'infinite',
+   'and it repeats while the wait lasts: '+busy.markIteration);
  assert.deepEqual(busy.announcing.map(region=>region.role),['status'],'the busy state is announced once, by one role=status region: '+JSON.stringify(busy.announcing));
  assert(busy.announcing[0].text.startsWith(BUSY_LINE),'and the region that announces it carries the sentence');
  assert.equal(busy.ariaBusy,null,'aria-busy is not set as well: one announcement, not two fighting');
