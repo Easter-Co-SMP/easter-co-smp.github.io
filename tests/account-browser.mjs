@@ -38,7 +38,7 @@
 // keep it from creeping back. The only unavoidable ones are the authorize redirect to Microsoft
 // and Microsoft's return to /account/, which are one contract with the Azure registration.
 import assert from 'node:assert/strict';
-import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {chromium} from 'playwright';
 import {API_ORIGIN} from '../site/account-client.mjs';
 import {REDIRECT_URI,ACCOUNT_PATH} from '../site/account/microsoft-signin.mjs';
 import {SIGN_IN,SIGN_IN_WAIT,PROVIDER_WAIT,PROVIDER_ORDER,providerLabel} from '../site/signin-options.mjs';

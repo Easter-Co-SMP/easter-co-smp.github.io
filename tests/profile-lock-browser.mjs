@@ -27,7 +27,7 @@
 //   EASTER_PUBLIC_ORIGIN=http://127.0.0.1:18133 node tests/profile-lock-browser.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {chromium} from 'playwright';
 
 const origin=process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18133';
 const images=process.env.EASTER_PROFILE_LOCK_IMAGES||'/tmp/easter-profile-lock';

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {chromium} from 'playwright';
 // The shared static preview of site/ (README: `python -m http.server --directory site 18100`).
 // It serves whichever tree that listener was started from, so it must be started in this
 // worktree, not in the integration checkout.

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {chromium} from 'playwright';
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox']});
 try{
  const page=await browser.newPage({viewport:{width:1360,height:920}});const errors=[];page.on('pageerror',e=>errors.push(e.message));

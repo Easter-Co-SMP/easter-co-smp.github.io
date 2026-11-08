@@ -6,7 +6,7 @@
 // launcher. The fix marks the arrival for the window session, so this harness pins both
 // halves of it: the launcher shows it once, and the website keeps showing it per visit.
 import assert from 'node:assert/strict';
-import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {chromium} from 'playwright';
 
 const base=(process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18100').replace(/\/$/,'')+'/';
 const browser=await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});

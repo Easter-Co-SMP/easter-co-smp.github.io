@@ -43,7 +43,7 @@
  * tests/wiki-browser.mjs` (or `npm run test:site`, which runs this one with tests/browser.mjs).
  */
 import assert from 'node:assert/strict';
-import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {chromium} from 'playwright';
 const origin = process.env.EASTER_PUBLIC_ORIGIN || 'http://127.0.0.1:18100';
 const browser = await chromium.launch({executablePath:'/usr/bin/chromium',args:['--no-sandbox','--disable-dev-shm-usage']});
 // What a guide document is, in one place: the twelve the overview publishes, and the one this gate

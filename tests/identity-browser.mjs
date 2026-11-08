@@ -11,7 +11,7 @@
 //   EASTER_PUBLIC_ORIGIN=http://127.0.0.1:18107 node tests/identity-browser.mjs
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import {chromium} from '/root/deepseek-harness/node_modules/.pnpm/playwright@1.61.1/node_modules/playwright/index.mjs';
+import {chromium} from 'playwright';
 import {skinDataURL,pictureDataURL,faceColour,hatted,hatCovers,FACE_A,FACE_B} from './skin-fixture.mjs';
 
 const origin=process.env.EASTER_PUBLIC_ORIGIN||'http://127.0.0.1:18107';
