@@ -265,9 +265,33 @@ try {
     assert.equal(await dialog.getByRole('button', {name: C.buttons.save}).count(), 0, `${mount}: a clean panel offers no Save button in its tab sequence or its accessibility tree`);
     assert.equal(await dialog.getByRole('button', {name: C.buttons.discard}).count(), 0, `${mount}: and no Discard either`);
     assert.equal(await dialog.locator('.es-actions').evaluate(node => getComputedStyle(node).display), 'none', `${mount}: the action row is not painted while clean`);
-    assert.equal(await dialog.locator('.es-vim').count(), 0);
-    assert.equal(await dialog.locator('[role=switch]').getAttribute('aria-checked'), 'false', `${mount}: the VIM switch is off and inert`);
-    assert.equal(await dialog.locator('[role=switch]').getAttribute('aria-disabled'), 'true');
+    // THE VIM SWITCH IS A REAL CONTROL EVERYWHERE (Owen, 2026-11-08: "vim keys are disabled on the
+    // site, need to be enabled globally"). It was an inert <span aria-disabled=true> until the
+    // preference existed behind it; what this suite asserts now is that it is operable, that it
+    // follows the document, and that the sentence under it says where the preference applies
+    // rather than why it does nothing.
+    const vim = dialog.locator('[role=switch]');
+    assert.equal(await vim.evaluate(node => node.tagName), 'BUTTON', `${mount}: a real control, not an inert span`);
+    assert.equal(await vim.getAttribute('aria-disabled'), null, `${mount}: not disabled`);
+    assert.equal(await vim.getAttribute('aria-checked'), 'false', `${mount}: off, as the document says`);
+    assert.equal(await vim.evaluate(node => node.tabIndex >= 0), true, `${mount}: in the tab order`);
+    assert.equal(await dialog.locator('.es-badge').count(), 0, `${mount}: no 'Coming soon' on a row that works`);
+    const vimHelp = (await dialog.locator('#es-vim-help').textContent()).trim();
+    assert.equal(vimHelp, 'Use Vim keys in the prompt editor. Applies in the e-App and e-server.',
+      `${mount}: the help line says what it does, and where the preference applies`);
+    // SPACE OPERATES IT, and it marks the sheet dirty like every other control here.
+    await vim.focus();
+    await page.keyboard.press(' ');
+    assert.equal(await vim.getAttribute('aria-checked'), 'true', `${mount}: space turns it on`);
+    assert.equal(await dialog.locator('.es-actions').evaluate(node => getComputedStyle(node).display), 'flex',
+      `${mount}: and a changed preference is an unsaved change`);
+    await page.keyboard.press(' ');
+    assert.equal(await vim.getAttribute('aria-checked'), 'false', `${mount}: and again turns it off`);
+    assert.equal(await dialog.locator('.es-actions').evaluate(node => getComputedStyle(node).display), 'none',
+      `${mount}: back to clean, because the draft matches the document again`);
+    // The keyboard journey below starts from the panel's own first focus, so put it back: this
+    // block moved it to the switch on purpose.
+    await dialog.locator('#es-settings-title').evaluate(node => node.focus());
     assert.equal((await statusText(page)).trim(), C.status.clean, `${mount}: and it says all changes are saved`);
     // The panel is painted from the host's five tokens, so the two surfaces differ only in palette.
     const tokens = await paintedTokens(page);
