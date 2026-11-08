@@ -61,11 +61,18 @@ try{
   });
   await context.route('https://steamcommunity.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture provider</title><p>Fixture provider complete</p>'}));
   await context.route('https://checkout.stripe.com/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><title>Fixture checkout</title><p>Fixture only</p>'}));
-  // A picture reaches the control only as the data: URI the account document already carries:
-  // publicAccount in site/account-client.mjs keeps a data:image/png;base64 picture and drops every
-  // other form, so showing a face costs the page no request to any host. A picture that fails is
-  // still reachable - it is a data URI this browser cannot decode - and that is state 6 below.
+  // The account service keeps a picture in TWO forms, and both are the document's own contract
+  // (desktop/accounts.cjs, `pictureForm`): a data:image/png;base64 URI, which is what an upload
+  // THROUGH the service produces, and an absolute https URL, which is what a picture inherited from
+  // a linked provider is kept as. `providerPicture` is that second form, measured on account 3's
+  // own document on 2026-11-08 (a 98-character googleusercontent URL), and the host answering it is
+  // routed to the same 64px fixture image so the journey can prove the picture DECODED rather than
+  // merely that an attribute was set. A picture that fails is still reachable - it is a data URI
+  // this browser cannot decode - and that is state 6 below.
   const pictureURL=pictureDataURL(),damagedPictureURL='data:image/png;base64,AAAA';
+  const providerPicture='https://lh3.googleusercontent.com/a/ACg8ocFixtureAccount3=s96-c';
+  const providerPictureBytes=Buffer.from(pictureURL.split(',')[1],'base64');
+  await context.route('https://lh3.googleusercontent.com/**',route=>route.fulfill({status:200,contentType:'image/png',body:providerPictureBytes}));
   // THE STORE IS OFFERED ONLY TO A PLAYER WITH AN EASTER COMPANY SESSION (Owen, 2026-10-29:
   // "hide the store from non-signed-in users"), so this journey opens on the signed-out half of it
   // before signing in: no Store link anywhere, and the shop URL is the gate with not one store
@@ -311,6 +318,28 @@ try{
   });
   assert.equal(filled.overflow,'hidden','the rounded square crops the image');
   assert.deepEqual({width:filled.width,height:filled.height},filled.slot,'the face fills the slot edge to edge');
+  // 4c. THE PICTURE THE ACCOUNT SERVICE ACTUALLY KEEPS. A picture inherited from a linked provider
+  // is an https URL, not an inline texture, and this page has no CSP - so the web surface uses that
+  // URL as the image's own src. Until this journey existed, publicAccount in
+  // site/account-client.mjs kept only the data URI, so an account whose picture was a provider URL
+  // fell through to the Minecraft skin: the same field drawn two ways, which is the symptom Owen
+  // reported from the other side ("every single one should obviously be the same source"). The src
+  // is asserted to BE the URL, and the image is made to decode, so "the picture was drawn" is a
+  // measurement rather than a missing attribute.
+  await signOut();
+  account={...baseAccount,username:'oceaster',displayName:'OCEaster',picture:providerPicture,skin:skinDataURL()};
+  await signIn();
+  await facePage.locator('.web-account-face.has-picture').waitFor();
+  const remote=await snapshot();
+  assert.equal(remote.picture.src,providerPicture,'the drawn face\'s src IS the account\'s https picture, not a cropped skin head and not the tile: the control drew '+JSON.stringify(remote.picture.src));
+  assert.equal(remote.painted,true,'an https picture claims the slot exactly as a data: URI does');
+  assert.equal(remote.picture.hidden,false,'and the image is shown rather than left hidden');
+  assert.equal(remote.picture.natural,64,'it is the picture itself, decoded from the provider host');
+  assert.equal(remote.picture.rendering,'auto','an uploaded picture keeps the ordinary smoothing, inline or by URL');
+  assert.equal(await facePage.locator('.web-account-picture.web-account-head').count(),0,'and it never claims to be a cropped head');
+  assert.equal(remote.letter,'O','the letter under the face is unchanged');
+  assert.equal(remote.text,'OCEaster','the label is still the display name');
+  assert.deepEqual(box(remote),box(painted),'an https picture leaves the same box a data: URI does');
   // 5. Signed in with no picture at all: the tile is the avatar. This is the state the wipe leaves.
   await signOut();
   account={...baseAccount,username:'oceaster',displayName:'OCEaster',picture:null};
@@ -504,15 +533,20 @@ try{
    assert.equal(state.faceRadius,'4px','the slot is the launcher\'s rounded square, not a disc, at '+width);
    assert.equal(state.button.height,pillHeight,'the control is still '+pillHeight+'px tall with a '+faceSize+'px face at '+width);
   }
-  // No third-party host is asked for a face, in any of the states above: the picture and the whole
-  // skin are data: URIs inside the account document, and the crop is local canvas work.
-  assert.deepEqual(faceRequests.filter(url=>!url.startsWith(origin)&&!url.startsWith(api)),[],'the avatar costs no request to a third party');
+  // No third-party host is asked for a face, with ONE named exception: an inline picture and the
+  // whole skin cost no request, the crop is local canvas work, and a picture kept as a provider URL
+  // is fetched from that one provider host - which is the point of state 4c, and the only remote
+  // host any of these states may reach.
+  const faceRemoteRequests=faceRequests.filter(url=>!url.startsWith(origin)&&!url.startsWith(api));
+  assert.deepEqual(faceRemoteRequests.filter(url=>!url.startsWith('https://lh3.googleusercontent.com/')),[],'the avatar costs no request to any host but a provider the account document named');
+  assert.ok(faceRemoteRequests.length<=1,'and at most the one https picture the account document named: '+JSON.stringify(faceRemoteRequests));
   await facePage.screenshot({path:'/tmp/web-account-avatar-'+width+'.png'});
   assert.deepEqual(errors,[]);
   const size=state=>state.button.width+'x'+state.button.height;
   console.log('PASS account avatar at '+width+': signed out (no face, '+size(signedOut)+'), '
    +'signing in ('+size(signingIn)+', disabled, no face), '
    +'picture (as the image arrived '+beforePaint.width+'x'+beforePaint.height+', once painted '+size(painted)+'), '
+   +'https picture ('+size(remote)+', src is the provider URL, decoded '+remote.picture.natural+'px), '
    +'no picture ('+size(noPicture)+'), failed load ('+size(failed)+'), '
    +'skin crop (32px head, '+size(skinOnly)+'), picture over skin ('+size(bothFaces)+'), '
    +'null skin ('+size(noSkin)+'), undecodable skin ('+size(badSkin)+'), no name ('+size(nameless)+', the mark); '
@@ -642,6 +676,12 @@ try{
   assert.deepEqual(await openOnClick(),{menu:false,dialog:false},'so a click there opens nothing at all');
   releaseWaiting();meHold=null;
   await bootPage.waitForFunction(name=>document.querySelector('.web-account-name').textContent===name,cachedAccount.displayName);
+  // THE NAME AND THE ENABLED STATE ARRIVE IN THAT ORDER, so this waits for the second rather than
+  // sampling it: the control paints the account it just read and clears its own read lock on the
+  // same answer, and a single evaluate between the two ticks reads a name that is settled next to a
+  // button that is not yet. The assertion below is unchanged and still fails if the control never
+  // comes back - this only stops the read racing the paint.
+  await bootPage.waitForFunction(()=>{const button=document.querySelector('.web-account-nav');return Boolean(button)&&!button.disabled;});
   const settledBoot=await control();
   assert.equal(settledBoot.text,cachedAccount.displayName,'and the account appears when the read answers');
   assert.equal(settledBoot.disabled,false);
