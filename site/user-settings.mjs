@@ -26,15 +26,15 @@
 //
 // WHAT A HOST MAY ADD, AND WHAT IT COSTS WHEN IT ADDS NOTHING. e-server mounts this same file
 // (vendored byte for byte as api/profile_assets/user-settings.mjs) and it is a different product
-// with three capabilities this panel does not assume: an editor preference it can actually write,
-// a theme that belongs to the INSTANCE rather than to the person, and the sentences its own proxy
-// can say. All of it arrives through the seam the caller already hands in, all of it is optional,
-// and with no seam beyond `settingsRead`/`settingsSave`/`settingsLanguages` the rendered panel is
-// exactly what the launcher and the corporate page ship today:
+// with two things this panel does not assume: a theme that belongs to the INSTANCE rather than to
+// the person, and the sentences its own proxy can say. Both arrive through the seam the caller
+// already hands in, both are optional, and with no seam beyond
+// `settingsRead`/`settingsSave`/`settingsLanguages` the rendered panel is exactly what the
+// launcher and the corporate page ship today:
 //
-//   seam.capabilities.editorVim === true   the editor row becomes a real switch (draft.editor.vim,
-//                                          saved with the document); otherwise it stays the
-//                                          disabled "Coming soon" row it has always been.
+//   (the editor row is NOT one of them: since 2026-11-08 it is a real switch on every surface -
+//   Owen, "vim keys are disabled on the site, need to be enabled globally" - and the preference
+//   round-trips through the account document the cloud already carries.)
 //   seam.instanceTheme = {heading, helper, values, current, onPick}
 //                                          an extra group in this sheet's own markup, first in the
 //                                          body, for a preference that is the INSTANCE's. It is
@@ -92,7 +92,12 @@ export const COPY = {
     rows: [['enter', 'Enter'], ['shiftEnter', 'Shift+Enter'], ['ctrlEnter', 'Ctrl+Enter']],
     actions: [['submit', 'Submit'], ['queue', 'Submit & Queue'], ['newline', 'New Line'], ['interrupt', 'Interrupt & Submit']]
   },
-  editor: { heading: 'Preferred Text Editing Behaviour', label: 'VIM keys', badge: 'Coming soon', help: 'Off. Not available yet.' },
+  // ADDED (2026-11-08, Owen): "vim keys are disabled on the site, need to be enabled globally".
+  // The row is a real preference now, on every surface, and it is stored in the account document
+  // the cloud already carries (`editor.vim`). This website has no editor, so the sentence says
+  // where the preference takes effect instead of promising something this page cannot do.
+  editor: { heading: 'Preferred Text Editing Behaviour', label: 'VIM keys',
+    help: 'Use Vim keys in the prompt editor. Applies in the e-App and e-server.' },
   status: {
     clean: 'All changes saved.',
     dirty: 'You have unsaved changes.',
@@ -151,21 +156,19 @@ const fold = text => String(text || '').normalize('NFD').replace(/[\u0300-\u036f
  * panel exactly as the launcher and the corporate page ship it.
  */
 function hostOf(seam) {
-  const capabilities = seam && isObject(seam.capabilities) ? seam.capabilities : {};
   const copy = seam && isObject(seam.copy) ? seam.copy : {};
   const instance = seam && isObject(seam.instanceTheme) ? seam.instanceTheme : null;
   const text = value => typeof value === 'string' && value ? value : null;
   return {
-    editorVim: capabilities.editorVim === true,
     // Read through this object each time, so a host can supply a sentence that becomes true
     // part-way through a session (a catalogue route that answers "not published yet" today and a
     // plain failure tomorrow are two different facts).
     copy,
     said: name => text(copy[name]),
-    vimHelp: isObject(copy.vimHelp) ? {off: text(copy.vimHelp.off), on: text(copy.vimHelp.on)} : null,
     instance: instance && Array.isArray(instance.values) && instance.values.length
       ? {heading: text(instance.heading), helper: text(instance.helper),
-         values: instance.values, current: instance.current, onPick: instance.onPick}
+         values: instance.values, current: instance.current, onPick: instance.onPick,
+         draft: instance.draft === true}
       : null
   };
 }
@@ -324,26 +327,19 @@ function createPanel({seam, doc, win, host}) {
   const editorRow = el('div', 'es-editor');
   const editorText = el('div');
   const editorHeading = el('h3', null, COPY.editor.heading);
-  const editorHelpLine = el('p', 'es-help');
-  editorHelpLine.append(COPY.editor.label);
-  if (!host.editorVim) editorHelpLine.append(el('span', 'es-badge', COPY.editor.badge));
-  // The disabled row says why it is disabled. An enabled one reports the state, in the host's own
-  // words when it has them (`seam.copy.vimHelp`), because "Not available yet" would be a lie here.
-  const editorState = el('p', 'es-help', host.editorVim ? '' : COPY.editor.help);
+  const editorHelpLine = el('p', 'es-help', COPY.editor.label);
+  const editorState = el('p', 'es-help', COPY.editor.help);
   editorState.id = 'es-vim-help';
   editorText.append(editorHeading, editorHelpLine, editorState);
-  // Disabled by construction: a <span role=switch> with no tab stop, aria-checked=false and
-  // aria-disabled=true, describing why. There is no feature behind it, so nothing here pretends
-  // there is one and nothing ever serializes a pretend "on".
-  // Enabled only when the seam says this host can WRITE the preference
-  // (`seam.capabilities.editorVim === true`): then it is a real button in the tab order, its
-  // checked state is the draft's, and Save writes `editor.vim` with everything else. With no such
-  // capability it is the disabled span the launcher has always shipped, and the "Coming soon"
-  // badge stays true.
-  const editorSwitch = host.editorVim ? button('es-switch') : el('span', 'es-switch');
+  // A REAL SWITCH, ON EVERY SURFACE. It used to be a `<span role=switch aria-disabled=true>` with
+  // the note "There is no feature behind it, so nothing here pretends there is one" - true until
+  // the e-App and e-server grew the preference and the cloud document grew `editor.vim`
+  // (easter-co-cloud api/settings_document.py: DOCUMENT_KEYS carry `editor`, EDITOR_KEYS = vim,
+  // default false). So the row is a button in the tab order now, space/enter operable, its
+  // aria-checked follows the draft, and Save writes it with everything else.
+  const editorSwitch = button('es-switch');
   editorSwitch.setAttribute('role', 'switch');
-  editorSwitch.setAttribute('aria-checked', host.editorVim ? 'false' : 'false');
-  if (!host.editorVim) editorSwitch.setAttribute('aria-disabled', 'true');
+  editorSwitch.setAttribute('aria-checked', 'false');
   editorSwitch.setAttribute('aria-label', COPY.editor.label);
   editorSwitch.setAttribute('aria-describedby', editorState.id);
   editorRow.append(editorText, editorSwitch);
@@ -435,11 +431,7 @@ function createPanel({seam, doc, win, host}) {
     languageDetail.textContent = entry.english && entry.english !== entry.code ? `${entry.english} · ${entry.code}` : entry.code;
   };
   const paintEditor = () => {
-    if (!host.editorVim) return;
-    const on = draft.editor.vim === true;
-    editorSwitch.setAttribute('aria-checked', on ? 'true' : 'false');
-    const help = host.vimHelp && (on ? host.vimHelp.on : host.vimHelp.off);
-    editorState.textContent = help || (on ? 'On.' : 'Off.');
+    editorSwitch.setAttribute('aria-checked', draft.editor.vim === true ? 'true' : 'false');
   };
   const paintChat = () => {
     for (const [key, select] of chatSelects) select.value = draft.chat[key];
@@ -571,7 +563,7 @@ function createPanel({seam, doc, win, host}) {
     if (answer && answer.draft === true) { instanceDraft = true; draft.theme = value; edited(); }
     else paintInstance();
   };
-  if (host.editorVim) editorSwitch.onclick = () => {
+  editorSwitch.onclick = () => {
     draft.editor.vim = draft.editor.vim !== true;
     edited();
   };
