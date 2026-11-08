@@ -526,6 +526,16 @@ try {
     await context.route(api + '/**', route => {
       const url = new URL(route.request().url());
       if (url.pathname === '/v2/accounts/me') return route.fulfill(json({account: sameName}));
+      // THE PANEL IS NOT OPENED IN THIS BLOCK, BUT THE CONTROL READS THE ACCOUNT DOCUMENT TO
+      // PUBLISH THE PERSON'S THEME, and a fixture that answers only /v2/accounts/me makes that
+      // read an error. It went unnoticed because the suite died earlier (on the third-Escape
+      // bug the panel's own guard now fixes), so this block had never actually run.
+      if (url.pathname === '/v2/accounts/settings') {
+        return route.fulfill(json({revision: 1, updatedAt: '2026-10-30T12:00:00Z', settings: {
+          version: 1, language: 'auto', theme: 'system',
+          chat: {enter: 'submit', shiftEnter: 'newline', ctrlEnter: 'queue'},
+          editor: {vim: false}}}));
+      }
       throw new Error('unexpected API request ' + url.pathname);
     });
     await page.goto(LAUNCHER_ORIGIN + '/');

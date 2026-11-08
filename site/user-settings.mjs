@@ -24,6 +24,29 @@
 // adding a line to its markup. That is also why nothing in this file is scoped to a class a page
 // has to remember to set.
 //
+// WHAT A HOST MAY ADD, AND WHAT IT COSTS WHEN IT ADDS NOTHING. e-server mounts this same file
+// (vendored byte for byte as api/profile_assets/user-settings.mjs) and it is a different product
+// with three capabilities this panel does not assume: an editor preference it can actually write,
+// a theme that belongs to the INSTANCE rather than to the person, and the sentences its own proxy
+// can say. All of it arrives through the seam the caller already hands in, all of it is optional,
+// and with no seam beyond `settingsRead`/`settingsSave`/`settingsLanguages` the rendered panel is
+// exactly what the launcher and the corporate page ship today:
+//
+//   seam.capabilities.editorVim === true   the editor row becomes a real switch (draft.editor.vim,
+//                                          saved with the document); otherwise it stays the
+//                                          disabled "Coming soon" row it has always been.
+//   seam.instanceTheme = {heading, helper, values, current, onPick}
+//                                          an extra group in this sheet's own markup, first in the
+//                                          body, for a preference that is the INSTANCE's. It is
+//                                          the theme row when a host's theme is shared, so the
+//                                          personal "Preferred Theme" section is not drawn beside
+//                                          it - two controls writing one preference is a defect,
+//                                          not a feature.
+//   seam.copy.conflict / .readFailed / .catalogueUnavailable
+//                                          this panel's own words, or the host's when it has a
+//                                          truer one: a stale revision must say the settings
+//                                          changed somewhere else, and a failed read must say so.
+//
 // THE THREE STATES DIANA SPECIFIES ARE IMPLEMENTED, NOT APPROXIMATED:
 //   * Clean: no action buttons at all — not in the DOM's tab order, because they are not in the
 //     DOM. Dirty is a semantic comparison of the canonical document against the stored one, so
@@ -122,17 +145,42 @@ const freshDocument = () => ({version: 1, language: 'auto', theme: 'system', cha
 // spelling of a code accepted as an alias for Minecraft's underscore form (`en-US` finds `en_us`).
 const fold = text => String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
+/** What this host can do beyond the account document, and what it would rather say.
+ *
+ * Every field is optional and read once, at mount: a host that supplies none of them gets this
+ * panel exactly as the launcher and the corporate page ship it.
+ */
+function hostOf(seam) {
+  const capabilities = seam && isObject(seam.capabilities) ? seam.capabilities : {};
+  const copy = seam && isObject(seam.copy) ? seam.copy : {};
+  const instance = seam && isObject(seam.instanceTheme) ? seam.instanceTheme : null;
+  const text = value => typeof value === 'string' && value ? value : null;
+  return {
+    editorVim: capabilities.editorVim === true,
+    // Read through this object each time, so a host can supply a sentence that becomes true
+    // part-way through a session (a catalogue route that answers "not published yet" today and a
+    // plain failure tomorrow are two different facts).
+    copy,
+    said: name => text(copy[name]),
+    vimHelp: isObject(copy.vimHelp) ? {off: text(copy.vimHelp.off), on: text(copy.vimHelp.on)} : null,
+    instance: instance && Array.isArray(instance.values) && instance.values.length
+      ? {heading: text(instance.heading), helper: text(instance.helper),
+         values: instance.values, current: instance.current, onPick: instance.onPick}
+      : null
+  };
+}
+
 export function openUserSettings({seam, opener = null, document: doc = globalThis.document, window: win = globalThis.window} = {}) {
   if (!seam || !doc) return null;
   // One dialog per page: the corporate site and this site both mount the control once, and a
   // second Settings row opening a second dialog is not a state anyone asked to see.
-  panel ??= createPanel({seam, doc, win});
+  panel ??= createPanel({seam, doc, win, host: hostOf(seam)});
   return panel.open(opener);
 }
 
 let panel = null;
 
-function createPanel({seam, doc, win}) {
+function createPanel({seam, doc, win, host}) {
   const el = (tag, className, text) => {
     const node = doc.createElement(tag);
     if (className) node.className = className;
@@ -162,6 +210,32 @@ function createPanel({seam, doc, win}) {
   head.append(heading, closeButton);
 
   const body = el('div', 'es-body');
+
+  // The instance's own look (optional) -------------------------------------------------------
+  // A host whose theme belongs to the whole deployment supplies this group, and it is drawn with
+  // THIS sheet's markup — a section, a fieldset, a legend, `.es-help`, `.es-segments` — so it is
+  // the same object as the rest of the panel rather than a row bolted on. It takes the place of
+  // the personal theme section: one preference, one control.
+  const instanceSection = host.instance ? el('section') : null;
+  const instanceInputs = new Map();
+  if (host.instance) {
+    const fieldset = el('fieldset');
+    const legend = el('legend', null, host.instance.heading || COPY.theme.heading);
+    const help = el('p', 'es-help', host.instance.helper || COPY.theme.help);
+    const segments = el('div', 'es-segments');
+    for (const [value, label] of host.instance.values) {
+      const wrapper = el('label');
+      const input = el('input');
+      input.type = 'radio';
+      input.name = 'es-instance-theme';
+      input.value = value;
+      wrapper.append(input, el('span', null, label));
+      segments.append(wrapper);
+      instanceInputs.set(value, input);
+    }
+    fieldset.append(legend, help, segments);
+    instanceSection.append(fieldset);
+  }
 
   // Preferred Language -----------------------------------------------------------------------
   const languageSection = el('section');
@@ -251,23 +325,36 @@ function createPanel({seam, doc, win}) {
   const editorText = el('div');
   const editorHeading = el('h3', null, COPY.editor.heading);
   const editorHelpLine = el('p', 'es-help');
-  editorHelpLine.append(COPY.editor.label, el('span', 'es-badge', COPY.editor.badge));
-  const editorState = el('p', 'es-help', COPY.editor.help);
+  editorHelpLine.append(COPY.editor.label);
+  if (!host.editorVim) editorHelpLine.append(el('span', 'es-badge', COPY.editor.badge));
+  // The disabled row says why it is disabled. An enabled one reports the state, in the host's own
+  // words when it has them (`seam.copy.vimHelp`), because "Not available yet" would be a lie here.
+  const editorState = el('p', 'es-help', host.editorVim ? '' : COPY.editor.help);
   editorState.id = 'es-vim-help';
   editorText.append(editorHeading, editorHelpLine, editorState);
   // Disabled by construction: a <span role=switch> with no tab stop, aria-checked=false and
   // aria-disabled=true, describing why. There is no feature behind it, so nothing here pretends
   // there is one and nothing ever serializes a pretend "on".
-  const editorSwitch = el('span', 'es-switch');
+  // Enabled only when the seam says this host can WRITE the preference
+  // (`seam.capabilities.editorVim === true`): then it is a real button in the tab order, its
+  // checked state is the draft's, and Save writes `editor.vim` with everything else. With no such
+  // capability it is the disabled span the launcher has always shipped, and the "Coming soon"
+  // badge stays true.
+  const editorSwitch = host.editorVim ? button('es-switch') : el('span', 'es-switch');
   editorSwitch.setAttribute('role', 'switch');
-  editorSwitch.setAttribute('aria-checked', 'false');
-  editorSwitch.setAttribute('aria-disabled', 'true');
+  editorSwitch.setAttribute('aria-checked', host.editorVim ? 'false' : 'false');
+  if (!host.editorVim) editorSwitch.setAttribute('aria-disabled', 'true');
   editorSwitch.setAttribute('aria-label', COPY.editor.label);
   editorSwitch.setAttribute('aria-describedby', editorState.id);
   editorRow.append(editorText, editorSwitch);
   editorSection.append(editorRow);
 
-  body.append(languageSection, themeSection, chatSection, editorSection);
+  // THE INSTANCE ROW TAKES THE THEME ROW'S PLACE, and nothing else moves: with no instance group
+  // this is Diana's order exactly (Language, Theme, Chat, Editor), which the launcher's own suite
+  // asserts word for word.
+  body.append(...(instanceSection
+    ? [instanceSection, languageSection, chatSection, editorSection]
+    : [languageSection, themeSection, chatSection, editorSection]));
 
   // The footer: status and the two conditional actions, pinned outside the scrolling body. -----
   const foot = el('footer', 'es-foot');
@@ -347,15 +434,33 @@ function createPanel({seam, doc, win}) {
     // de_de" is true; printing an invented English name would not be, so the code stands in.
     languageDetail.textContent = entry.english && entry.english !== entry.code ? `${entry.english} · ${entry.code}` : entry.code;
   };
+  const paintEditor = () => {
+    if (!host.editorVim) return;
+    const on = draft.editor.vim === true;
+    editorSwitch.setAttribute('aria-checked', on ? 'true' : 'false');
+    const help = host.vimHelp && (on ? host.vimHelp.on : host.vimHelp.off);
+    editorState.textContent = help || (on ? 'On.' : 'Off.');
+  };
   const paintChat = () => {
     for (const [key, select] of chatSelects) select.value = draft.chat[key];
   };
   const paintTheme = () => {
     for (const [value, input] of themeInputs) input.checked = draft.theme === value;
   };
+  // An instance row is his deployment's look, not this person's document, unless the host says
+  // otherwise (`draft: true` in `seam.instanceTheme`, or an `onPick` that answers `{draft: true}`):
+  // then it is the same value as the personal theme section and it follows the draft exactly.
+  let instanceDraft = Boolean(host.instance && host.instance.draft === true);
+  const instanceValue = () => (instanceDraft ? draft.theme : host.instance.current);
+  const paintInstance = () => {
+    const current = instanceValue();
+    for (const [value, input] of instanceInputs) input.checked = current === value;
+  };
   const render = () => {
     paintLanguage();
     paintTheme();
+    if (instanceSection) paintInstance();
+    paintEditor();
     paintChat();
     paintActions();
     // The status line follows the draft, except while an attempt is being answered or a save is in
@@ -399,7 +504,10 @@ function createPanel({seam, doc, win}) {
     // counting Automatic.
     clearTimeout(searchTimer);
     searchTimer = win.setTimeout(() => {
-      if (catalogueState === 'failed') { count.textContent = COPY.language.unavailable; return; }
+      if (catalogueState === 'failed') {
+        count.textContent = host.said('catalogueUnavailable') || COPY.language.unavailable;
+        return;
+      }
       if (catalogueState === 'loading') { count.textContent = ''; return; }
       const matches = rows.length - 1;
       count.textContent = matches > 0 ? COPY.language.matching(matches) + COPY.language.always : COPY.language.empty;
@@ -452,6 +560,21 @@ function createPanel({seam, doc, win}) {
     }
   };
   for (const [value, input] of themeInputs) input.onchange = () => { if (input.checked) { draft.theme = value; edited(); } };
+  for (const [value, input] of instanceInputs) input.onchange = () => {
+    if (!input.checked) return;
+    let answer = null;
+    try { answer = host.instance.onPick ? host.instance.onPick(value) : null; }
+    catch { answer = null; }
+    // A host that answers `{draft: true}` is telling this panel the instance row IS a document
+    // preference (e-server's theme is stored in the account document), so it edits the draft and
+    // flows through the same preview, dirty state and Save as everything else.
+    if (answer && answer.draft === true) { instanceDraft = true; draft.theme = value; edited(); }
+    else paintInstance();
+  };
+  if (host.editorVim) editorSwitch.onclick = () => {
+    draft.editor.vim = draft.editor.vim !== true;
+    edited();
+  };
   for (const [key, select] of chatSelects) select.onchange = () => { draft.chat[key] = select.value; edited(); };
   try {
     win.matchMedia?.('(prefers-color-scheme: light)')?.addEventListener('change', () => { if (open && draft.theme === 'system') applyTheme('system'); });
@@ -499,6 +622,25 @@ function createPanel({seam, doc, win}) {
     announce(attempts === 1 ? COPY.status.first : COPY.status.again);
   };
   closeButton.onclick = () => requestClose();
+  /* ESCAPE IS HANDLED HERE, BEFORE THE DIALOG IS OFFERED A CANCEL IT WOULD HONOUR.
+   * Measured in Chromium (2026-11-08): a modal <dialog> stops honouring `preventDefault()` on
+   * `cancel` after a couple of requests, so the THIRD Escape closed the panel with every unsaved
+   * change still in it - this file's own suite caught exactly that, and so did e-server.
+   * The key is taken in the capture phase and answered by the same two decisions the `cancel`
+   * listener below makes, so the guard holds for as many attempts as the person makes.
+   * The `cancel` listener stays for the closes that do not come from a key we can see. */
+  doc.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !dialog.open) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!picker.hidden) {
+      picker.hidden = true;
+      languageToggle.setAttribute('aria-expanded', 'false');
+      languageToggle.focus();
+      return;
+    }
+    requestClose();
+  }, true);
   dialog.addEventListener('cancel', event => {
     // Escape never closes this dialog on its own: the guard decides, and an open picker answers
     // the first Escape itself (its own focus goes back to the trigger).
@@ -583,31 +725,50 @@ function createPanel({seam, doc, win}) {
       revision = answer.value.revision;
     }
     paintActions();
-    setStatus(COPY.status.failed);
-    announce(COPY.status.failed);
+    // A stale snapshot is a different fact from a failed save - another surface moved the document
+    // on and nothing was written - so a host that can tell them apart supplies the sentence for it
+    // (`seam.copy.conflict`) and the panel says that; with no such copy the two read the same, which
+    // is what this site ships.
+    const stale = Boolean(answer?.ok && isObject(answer.value) && answer.value.conflict);
+    const hostConflict = stale ? host.said('conflict') : null;
+    const sentence = hostConflict || COPY.status.failed;
+    setStatus(sentence);
+    announce(sentence);
     try { saveButton.focus(); } catch { /* focus is a courtesy; the sentence is the message */ }
   };
 
   // ---- open ---------------------------------------------------------------------------------
   const readSettings = async () => {
     const sequence = ++readSequence;
+    let answered = false;
     try {
       const answer = await seam.settingsRead();
       if (sequence !== readSequence) return;
-      if (!answer?.ok || !isObject(answer.value)) return;
-      stored = clone(answer.value.settings);
-      revision = answer.value.revision;
-      // A draft the player has already edited is never overwritten by the answer that arrives
-      // behind it: what the read does in that case is make the snapshot honest.
-      if (!touched) {
-        draft = clone(stored);
-        applyTheme(draft.theme);
-        render();
-      } else {
-        paintActions();
-        setStatus(dirty() ? COPY.status.dirty : COPY.status.clean);
+      if (answer?.ok && isObject(answer.value)) {
+        answered = true;
+        stored = clone(answer.value.settings);
+        revision = answer.value.revision;
+        // A draft the player has already edited is never overwritten by the answer that arrives
+        // behind it: what the read does in that case is make the snapshot honest.
+        if (!touched) {
+          draft = clone(stored);
+          applyTheme(draft.theme);
+          render();
+        } else {
+          paintActions();
+          setStatus(dirty() ? COPY.status.dirty : COPY.status.clean);
+        }
       }
     } catch { /* an unreadable read leaves the panel on the defaults it opened with */ }
+    // A host whose read can fail behind a signed-in page supplies the sentence for it: a panel of
+    // defaults with nothing said is the failure this hook exists for, and it says nothing at all
+    // here otherwise because this site's read cannot fail that way. Nothing else changes: the
+    // stored language is kept, the draft is untouched, and Save stays available.
+    const readFailed = host.said('readFailed');
+    if (!answered && sequence === readSequence && readFailed) {
+      setStatus(readFailed);
+      announce(readFailed);
+    }
   };
   const show = invoker => {
     if (invoker) opener = invoker;
